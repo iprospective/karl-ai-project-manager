@@ -9,10 +9,10 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {} }, extra2 || {})); },
   async click(action) { const n = { dataset: { action }, closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {} }); } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/launcher/launcher.js"));
-  const { LauncherService } = await import(path.join(DIR, "src/services/launcher.service.js"));
-  const V = await import(path.join(DIR, "src/views/launcher/Launcher.view.js"));
-  const { mountLauncher } = await import(path.join(DIR, "src/controllers/launcher.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/launcher/launcher.js"));
+  const { LauncherService } = await import(path.join(DIR, "src/modules/launcher/launcher.service.js"));
+  const V = await import(path.join(DIR, "src/modules/launcher/Launcher.view.js"));
+  const { mountLauncher } = await import(path.join(DIR, "src/modules/launcher/launcher.controller.js"));
   const PJ = [{ client: "iprospective", project: "pm-ai-agents", value: "iprospective/pm-ai-agents" }, { client: "acme", project: "site", value: "acme/site" }, { client: "iprospective", project: "infra", value: "iprospective/infra" }];
   assert.deepStrictEqual(M.clientCtxList(PJ), ["acme", "iprospective"]); assert.deepStrictEqual(M.clientCtxList([]), []); assert.strictEqual(M.clientCtxProject(PJ, "iprospective"), "iprospective/pm-ai-agents"); assert.strictEqual(M.clientCtxProject(PJ, "inconnu"), ""); assert.strictEqual(M.clientCtxProject(PJ, ""), "");
   const mo = M.modelOptions({ claude: ["opus", "sonnet"] }, "claude", { found: true, ai_model: "opus" }, "sonnet"); assert.deepStrictEqual(mo.options.map(o => o.value), ["ticket", "", "opus", "sonnet"]); assert.strictEqual(mo.options[0].label, "défini dans le ticket (opus)"); assert.strictEqual(mo.value, "sonnet", "le choix précédent survit s'il est encore valide");

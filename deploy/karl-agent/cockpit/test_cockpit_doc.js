@@ -11,11 +11,11 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); } }; }
 (async () => {
   const { mdToHtml } = await import(path.join(DIR, "src/core/markdown.js"));
-  const G = await import(path.join(DIR, "src/models/glossary/glossary.js"));
-  const { HelpService } = await import(path.join(DIR, "src/services/help.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/glossary/GlossaryViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/glossary/Doc.view.js"));
-  const { mountDocModal } = await import(path.join(DIR, "src/controllers/doc.controller.js"));
+  const G = await import(path.join(DIR, "src/modules/doc/glossary.js"));
+  const { HelpService } = await import(path.join(DIR, "src/modules/doc/help.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/doc/GlossaryViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/doc/Doc.view.js"));
+  const { mountDocModal } = await import(path.join(DIR, "src/modules/doc/doc.controller.js"));
   // — RM2309 : markdown sûr —
   let h = mdToHtml('<script>alert(1)</script> et <img src=x onerror=y>'); assert(!/<script|<img/.test(h) && h.includes("&lt;script&gt;"));
   h = mdToHtml("[clic](javascript:alert(1)) et [ok](https://ex.te/p)"); assert(!h.includes('href="javascript:') && h.includes('href="https://ex.te/p"') && h.includes('rel="noopener"'));
@@ -67,4 +67,4 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   ctr.unmount(); assert.strictEqual(el.listenerCount + root.listenerCount, 0);
   console.log("✓ modale doc : document → markdown → centre, aide naviguée (sommaire, liens internes), glossaire cherchable et ouvert sur un terme, voile");
   console.log("\nTous les tests markdown / glossaire / aide / modale passent.");
-})().catch(e => { console.error("✗", e.message); process.exit(1); });
+})().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

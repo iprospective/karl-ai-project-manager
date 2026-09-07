@@ -8,11 +8,12 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {}, stopPropagation() {} }, extra2 || {})); },
   async click(action, extra2) { const n = { dataset: { action }, closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f(Object.assign({ target: n, preventDefault() {} }, extra2 || {})); } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/terminal/terminal.js"));
-  const { TerminalService } = await import(path.join(DIR, "src/services/terminal.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/terminal/ComposerViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/terminal/Composer.view.js"));
-  const { mountTerminal } = await import(path.join(DIR, "src/controllers/terminal.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/terminal/terminal.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
+  const { TerminalService } = await import(path.join(DIR, "src/modules/terminal/terminal.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/terminal/ComposerViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/terminal/Composer.view.js"));
+  const { mountTerminal } = await import(path.join(DIR, "src/modules/terminal/terminal.controller.js"));
   const https443 = { port: "", protocol: "https:", hostname: "karl.lxc", origin: "https://karl.lxc" };
   assert.strictEqual(M.termBase({ ttyd_base: "" }, https443), "https://karl.lxc/ttyd", "RM2561 : derrière le vhost, même origine"); assert.strictEqual(M.termBase({}, Object.assign({}, https443, { port: "443" })), "https://karl.lxc/ttyd"); assert.strictEqual(M.termBase({}, { port: "9876", protocol: "http:", hostname: "dev.local", origin: "http://dev.local:9876" }), "http://dev.local:7681", "accès direct : repli :7681"); assert.strictEqual(M.termBase({ ttyd_base: "https://ailleurs:1234" }, https443), "https://ailleurs:1234");
   assert.strictEqual(M.ttydUrl({}, { protocol: "http:", hostname: "h" }, "42"), "http://h:7681/?arg=42"); assert.strictEqual(M.ttydUrl({ ttyd_base: "https://t//" }, {}, "a b"), "https://t/?arg=a%20b");
@@ -32,7 +33,7 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   const ev = []; let att = "42"; let sstate = "idle"; let cookie = ""; const fakeTerm = { fits: 0, disposed: 0, sent: [], fit() { this.fits++; }, dispose() { this.disposed++; }, send(t) { this.sent.push(t); return true; }, term: { focus() { ev.push("term-focus"); } } };
   const win = { KarlTerm: { attach: (h, sid, o) => { ev.push(["attach", sid, o.base]); return fakeTerm; } }, Terminal: {}, location: { port: "", protocol: "https:", hostname: "karl.lxc", origin: "https://karl.lxc" } };
   const store2 = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); } };
-  const ctr = mountTerminal({ host, frame, composer }, { service: new TerminalService({ repo, storage: store2 }), storage: store2, win, cfg: () => ({ auth_required: true }), notify: (m, e) => ev.push(["toast", m, !!e]), attached: () => att, sess: () => ({ "42": { state: sstate } }), token: () => "tok", setCookie: (c) => { cookie = c; }, clipboard: { writeText: async (t) => { if (t === "lignes…") ev.push(["clip", t]); else throw new Error("refus"); } }, copyFallback: (t) => { ev.push(["fallback", t]); return true; }, capture: (t, txt) => ev.push(["capture", t, txt]) });
+  const ctr = mountTerminal({ host, frame, composer }, { service: new TerminalService({ repo, storage: store2 }), storage: store2, win, cfg: () => ({ auth_required: true }), notify: (m, e) => ev.push(["toast", m, !!e]), attached: () => att, sess: () => mkStore("sess", { "42": { state: sstate } }), token: () => "tok", setCookie: (c) => { cookie = c; }, clipboard: { writeText: async (t) => { if (t === "lignes…") ev.push(["clip", t]); else throw new Error("refus"); } }, copyFallback: (t) => { ev.push(["fallback", t]); return true; }, capture: (t, txt) => ev.push(["capture", t, txt]) });
   assert.strictEqual(ctr.mountTerm("42"), "iframe", "RM2807 : sans opt-in, l'iframe ttyd"); assert(frame.style.display === "block" && frame.src === "https://karl.lxc:7681/?arg=42" && host.style.display === "none" && composer.style.display === "flex", "iframe posée, composer affiché"); assert(/karl_session=tok; Path=\/; SameSite=Strict; Secure/.test(cookie), "RM2700 : cookie de gate posé depuis le token");
   assert(send.textContent === "Envoyer ⏎" && warn.style.display === "none" && /Entrée envoie/.test(hint.textContent));
   ta.value = "bonjour"; calls.length = 0; ev.length = 0; await composer.fire("keydown", ta, { key: "Enter" }); assert.deepStrictEqual(calls[0], ["send", "42", "bonjour"], "Entrée envoie ; sans client maison : /send"); assert(ta.value === "" && ev.some(x => x[0] === "toast" && /Envoyé : bonjour/.test(x[1])) && JSON.parse(store2.d["karlComposerHist:42"])[0] === "bonjour");

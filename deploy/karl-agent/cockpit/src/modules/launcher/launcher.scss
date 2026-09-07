@@ -1,0 +1,7 @@
+// modules/launcher/launcher.scss — style du module « launcher » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+.resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
+.resolved.nf { color: var(--warn); }
+
+/* RM2639 : contexte client (en-tête + bandeau de la liste sessions) */
+#clientctx { max-width: 190px; }

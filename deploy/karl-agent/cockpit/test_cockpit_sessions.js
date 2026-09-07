@@ -12,12 +12,13 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: (sel) => (sel === "[data-action]" || sel === '[data-action="' + action + '"]') ? n : null, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, currentTarget: self, preventDefault() {}, stopPropagation() {} }); return n; } }, extra || {}); return self; }
 const settle = () => new Promise(r => setTimeout(r, 0));
 (async () => {
-  const M = await import(path.join(DIR, "src/models/sessions/sessions.js"));
-  const { SessionsService } = await import(path.join(DIR, "src/services/sessions.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/sessions/SessionsViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/sessions/Sessions.view.js"));
+  const M = await import(path.join(DIR, "src/modules/sessions/sessions.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
+  const { SessionsService } = await import(path.join(DIR, "src/modules/sessions/sessions.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/sessions/SessionsViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/sessions/Sessions.view.js"));
   const { esc } = await import(path.join(DIR, "src/core/html.js"));
-  const { mountSessions } = await import(path.join(DIR, "src/controllers/sessions.controller.js"));
+  const { mountSessions } = await import(path.join(DIR, "src/modules/sessions/sessions.controller.js"));
   const otherGrp = M.OTHER_SETS_GROUP;
 
   // — computeGroups : groupement (jonction directe, repli /resolve, divers), compteurs, tri —
@@ -81,8 +82,8 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   h2894 = V.rTitleHtml("2894", {}, { found: false }, esc); assert(/sans libellé/.test(h2894) && !/karl-/.test(h2894), "absence dite, jamais le nom tmux");
   h2894 = V.rTitleHtml("2894", { title: '<img src=x onerror="alert(1)">' }, null, esc); assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé");
   assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'), "l'en-tête doit précéder la barre d'onglets .rnav");
-  assert(/function afterTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/controllers/sessions.controller.js"), "utf8")), "renderRTitle doit être rejoué à tout changement de vue (afterTitle)");
-  assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/controllers/center.controller.js"), "utf8")), "…et le routeur du centre les rejoue après chaque titre");
+  assert(/function afterTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/modules/sessions/sessions.controller.js"), "utf8")), "renderRTitle doit être rejoué à tout changement de vue (afterTitle)");
+  assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8")), "…et le routeur du centre les rejoue après chaque titre");
   console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement, rejoué à chaque vue");
 
   // — ViewModels et vues —
@@ -138,12 +139,12 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — contrôleur —
   const list = fakeEl("runlist"), counters = fakeEl("hcnt"), navCount = fakeEl("ln-count"), navAtt = fakeEl("ln-att"), yesAll = fakeEl("yesall"), yesAtt = fakeEl("yesatt"), yesBtn = fakeEl("yesbtn"), autoYes = fakeEl("autoyes"), title = fakeEl("curtitle"), rtitle = fakeEl("rtitle"), dynsort = fakeEl("dynsort");
   list.innerHTML = '<div class="empty">chargement…</div>';
-  const ev = []; const sess = {}; let att = "42"; let selOn = false; const selected = new Set(); let cc = ""; let reviews = []; let docTitle = "";
+  const ev = []; const sess = mkStore("sess"); let att = "42"; let selOn = false; const selected = new Set(); let cc = ""; let reviews = []; let docTitle = "";
   const RC = { "42": { found: true, title: "Sujet 42" }, "12": { found: true, title: "R12" } };
   const svc3 = new SessionsService({ repo, storage: { getItem: () => null, setItem: () => {} }, now: () => clock });
   const ctr = mountSessions({ list, counters, navCount, navAtt, yesAll, yesAtt, yesBtn, autoYes, title, rtitle, dynsort }, {
     service: svc3, notify: (m, e) => ev.push(["toast", m, !!e]), later: (fn) => fn(), ticket: { ensureResolved: (rm) => ev.push(["resolve", rm]) },
-    caches: { sess }, resolve: () => RC, attached: () => att, stale: () => new Set(["7"]), selection: () => ({ on: selOn, set: selected }),
+    sess: () => sess, resolve: () => mkStore("r", RC), attached: () => att, stale: () => new Set(["7"]), selection: () => ({ on: selOn, set: selected }),
     sets: () => ({ sets: SETS, current: "default", view: "set" }), writable, setLabel: (n) => n, clientContext: () => cc, setClientContext: (c) => { cc = c; ev.push(["ctx", c]); },
     pin: (k, key) => "<i>" + k + key + "</i>", titleLink: (rm, tt) => esc(tt), composerRefresh: () => ev.push("composer"), attach: (rm) => ev.push(["attach", rm]), detach: () => { ev.push("detach"); att = null; }, refresh: () => ev.push("refresh"),
     kill: (rm) => ev.push(["kill", rm]), openDispositionMenu: (s, a) => ev.push(["disp", s.rm_id, a.dataset.action]), drop: (s) => ev.push(["drop", s.rm_id]), relaunch: (s) => ev.push(["relaunch", s.rm_id]), forget: (s) => ev.push(["forget", s.rm_id]), toggleRestart: (s) => ev.push(["restart", s.rm_id]),
@@ -155,7 +156,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   reviews = ["12"];
   let c = ctr.render(S);
   assert.deepStrictEqual({ ...c }, { total: 4, attention: 1, choice: 1, idle: 1, working: 1, ghost: 1 }, "rend les compteurs (la pile /refresh y lit sa cadence, RM2613)");
-  assert(sess["42"] && sess["77"] && sess["9"], "RM2166 : le registre partagé est rempli"); assert(ev.includes("composer") && ev.includes("projects") && ev.includes("title") && ev.some(x => x[0] === "voice" && x[1] === 5), "composer, panneau projets, titre et voix prévenus");
+  assert(sess.get("42") && sess.get("77") && sess.get("9"), "RM2166 : le registre partagé est rempli (store session.registry, RM3005)"); assert(ev.includes("composer") && ev.includes("projects") && ev.includes("title") && ev.some(x => x[0] === "voice" && x[1] === 5), "composer, panneau projets, titre et voix prévenus");
   assert(ev.some(x => x[0] === "resolve" && x[1] === "7") && ev.some(x => x[0] === "resolve" && x[1] === "3") && !ev.some(x => x[0] === "resolve" && x[1] === "42") && !ev.some(x => x[0] === "resolve" && x[1] === "9"), "RM2144 : /resolve pour les tickets non encore résolus, pas les slugs");
   let L = list.innerHTML;
   assert(/attnband/.test(L) && /à traiter \(2\)/.test(L) && /class="rghead" data-action="group" data-key="acme\/shop"/.test(L) && /class="runitem active" data-action="attach" data-k="s:42"/.test(L) && /data-k="g:77"/.test(L) && /🕓/.test(L) && /<i>session42<\/i>/.test(L) && /Sujet 42/.test(L) && /data-action="review" data-rm="12"/.test(L) && !/ctxbanner/.test(L), "liste : bandeau, groupes, tuiles, fantôme, question sans réponse (7), marque, revues");
@@ -179,9 +180,9 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   ev.length = 0; calls.length = 0; autoYes.value = "30"; await autoYes.fire("change", autoYes); assert.deepStrictEqual(calls[0], ["auto", "42", "30"]); assert(ev.some(x => x[0] === "toast" && /armé pour 30 min/.test(x[1])) && ev.includes("refresh")); calls.length = 0; autoYes.value = ""; await autoYes.fire("change", autoYes); assert.strictEqual(calls.length, 0, "« ⏱ auto-oui… » : rien");
   ev.length = 0; calls.length = 0; await yesBtn.fire("click", yesBtn); await yesAtt.fire("click", yesAtt); assert.deepStrictEqual(calls, [["approve", "42"], ["approve", "42"]], "✔ Oui (barre + header) → la session attachée"); await title.click("approve"); assert.strictEqual(calls.length, 3, "…et le bouton du titre aussi");
   ev.length = 0; calls.length = 0; await ctr.approve("ko"); assert(ev.some(x => x[0] === "toast" && x[1] === "plus de question" && x[2]) && !ev.includes("refresh"), "refus serveur : dit, pas re-peint"); await ctr.approve(null); assert.strictEqual(calls.length, 1);
-  sess["42"] = { rm_id: "42", state: "attention", auto_yes_until: now + 600 }; assert(/class="tid">RM42</.test(ctr.titleHtml()) && /Sujet 42/.test(ctr.titleHtml()) && /data-action="approve"/.test(ctr.titleHtml()), "titre prêté au routeur");
+  sess.set("42", { rm_id: "42", state: "attention", auto_yes_until: now + 600 }); assert(/class="tid">RM42</.test(ctr.titleHtml()) && /Sujet 42/.test(ctr.titleHtml()) && /data-action="approve"/.test(ctr.titleHtml()), "titre prêté au routeur");
   ctr.afterTitle(); assert(rtitle.style.display === "" && /rt-id">RM42/.test(rtitle.innerHTML) && /Sujet 42/.test(rtitle.innerHTML) && rtitle.title === "Session attachée — karl-RM42" && yesBtn.style.display === "" && yesAtt.style.display === "" && /⏱✔ 10 min/.test(autoYes.options[0].textContent) && autoYes.style.color === "var(--ok)" && autoYes.value === "", "RM2894/2302/2327 : en-tête droit, ✔ Oui visibles, auto-oui armé");
-  sess["42"] = { rm_id: "42", state: "working" }; ctr.afterTitle(); assert(yesBtn.style.display === "none" && yesAtt.style.display === "none" && autoYes.options[0].textContent === "⏱ auto-oui…" && autoYes.style.color === "", "au travail : raccourcis masqués, auto-oui au repos");
+  sess.set("42", { rm_id: "42", state: "working" }); ctr.afterTitle(); assert(yesBtn.style.display === "none" && yesAtt.style.display === "none" && autoYes.options[0].textContent === "⏱ auto-oui…" && autoYes.style.color === "", "au travail : raccourcis masqués, auto-oui au repos");
   att = null; ctr.afterTitle(); assert(rtitle.style.display === "none" && rtitle.innerHTML === "" && ctr.titleHtml() === "", "rien d'attaché : en-tête vide");
   ev.length = 0; dynsort.checked = true; await dynsort.fire("change", dynsort); assert(svc3.dynSort && ev.some(x => x[0] === "toast" && /Tri dynamique activé/.test(x[1])) && ev.includes("refresh"), "RM2344 : la case règle le tri");
   assert.strictEqual(ctr.restartTip("auto"), M.restartTip("auto")); assert.strictEqual(ctr.effDisposition("idle", null), "a_traiter");
@@ -191,9 +192,9 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — hôtes et ponts dans index.html —
   ["runlist", "hcnt", "ln-count", "ln-att", "yesall", "yesatt", "yesbtn", "autoyes", "curtitle", "rtitle", "dynsort"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   for (const id of ["yesall", "yesatt", "yesbtn", "autoyes", "dynsort"]) { const m = new RegExp('<(?:button|select|input)[^>]*id="' + id + '"[^>]*>').exec(html); assert(m && !/\son\w+=/.test(m[0]), "l'hôte #" + id + " ne porte plus de on*"); }
-  assert(/onSessions: \(list\) => sessionsCtl\.render\(list\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && /this\.hot = \(c\.attention \|\| 0\) \+ \(c\.choice \|\| 0\)/.test(fs.readFileSync(path.join(DIR, "src/services/refresh.service.js"), "utf8")), "la pile /refresh (migrée) livre le bloc sessions au contrôleur et lit les compteurs rendus pour sa cadence (RM2613)");
+  assert(/onSessions: \(list\) => sessionsCtl\.render\(list\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && /this\.hot = \(c\.attention \|\| 0\) \+ \(c\.choice \|\| 0\)/.test(fs.readFileSync(path.join(DIR, "src/modules/refresh/refresh.service.js"), "utf8")), "la pile /refresh (migrée) livre le bloc sessions au contrôleur et lit les compteurs rendus pour sa cadence (RM2613)");
   assert(/ordered: \(\) => sessionsCtl\.ordered\(\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && !/orderedCache/.test(html.replace(/\/\/[^\n]*/g, "")), "RM2439 : les jeux (migrés) lisent les sessions AFFICHÉES sur le contrôleur");
-  for (const src of [fs.readFileSync(path.join(DIR, "src/views/sessions/Sessions.view.js"), "utf8"), fs.readFileSync(path.join(DIR, "src/controllers/sessions.controller.js"), "utf8")]) assert(!/\son(click|change|input)=/.test(src), "aucun handler inline dans le code migré");
+  for (const src of [fs.readFileSync(path.join(DIR, "src/modules/sessions/Sessions.view.js"), "utf8"), fs.readFileSync(path.join(DIR, "src/modules/sessions/sessions.controller.js"), "utf8")]) assert(!/\son(click|change|input)=/.test(src), "aucun handler inline dans le code migré");
   console.log("✓ hôtes sans on*, ponts renderSessions / orderedSessions / restartTip en place");
   console.log("\nTous les tests de la liste des sessions passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

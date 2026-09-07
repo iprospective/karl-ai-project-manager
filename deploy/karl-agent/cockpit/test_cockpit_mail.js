@@ -51,11 +51,11 @@ function fakeElement() {
 }
 
 (async () => {
-  const { EmailFactory, routingTarget } = await import(path.join(DIR, "src/models/mail/Email.js"));
-  const { EmailViewModel } = await import(path.join(DIR, "src/viewmodels/mail/EmailViewModel.js"));
-  const { MailList, MailPanel } = await import(path.join(DIR, "src/views/mail/MailPanel.view.js"));
-  const { MailService } = await import(path.join(DIR, "src/services/mail.service.js"));
-  const { mountMailPanel } = await import(path.join(DIR, "src/controllers/mail.controller.js"));
+  const { EmailFactory, routingTarget } = await import(path.join(DIR, "src/modules/mail/Email.js"));
+  const { EmailViewModel } = await import(path.join(DIR, "src/modules/mail/EmailViewModel.js"));
+  const { MailList, MailPanel } = await import(path.join(DIR, "src/modules/mail/MailPanel.view.js"));
+  const { MailService } = await import(path.join(DIR, "src/modules/mail/mail.service.js"));
+  const { mountMailPanel } = await import(path.join(DIR, "src/modules/mail/mail.controller.js"));
 
   // — modèle : invariants et dérivations, sans HTML —
   assert.throws(() => EmailFactory.one({ subject: "sans clé" }), /champs manquants key/);

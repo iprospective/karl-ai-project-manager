@@ -10,11 +10,12 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data, extra) { const n = Object.assign({ dataset: Object.assign({ action }, data || {}), closest: () => n }, extra || {}); for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/worklog/worklog.js"));
-  const { WorklogService } = await import(path.join(DIR, "src/services/worklog.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/worklog/WorklogViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/worklog/Worklog.view.js"));
-  const { mountWorklog } = await import(path.join(DIR, "src/controllers/worklog.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/worklog/worklog.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
+  const { WorklogService } = await import(path.join(DIR, "src/modules/worklog/worklog.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/worklog/WorklogViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/worklog/Worklog.view.js"));
+  const { mountWorklog } = await import(path.join(DIR, "src/modules/worklog/worklog.controller.js"));
   // — RM2466 : décors —
   const dLive = M.pendingDecor({ kind: "live", state: "attention" }), dChoice = M.pendingDecor({ kind: "live", state: "choice" }), dStale = M.pendingDecor({ kind: "stale" });
   assert(dLive.cls.includes("ounres") && !dStale.cls.includes("ounres") && dLive.icon !== dStale.icon && dLive.tag !== dStale.tag && dChoice.icon !== dLive.icon && /bloqu/i.test(dLive.tag) && /sans réponse/i.test(dStale.tag) && M.pendingDecor(null).tag && M.pendingDecor(undefined).icon);
@@ -94,7 +95,7 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   const body = fakeElement("workbody"), fresh = fakeElement("workfresh"), nav = fakeElement("outnav"); const btnIds = ["batch-etudier-btn", "batch-btn", "batch-atester-btn", "mr-dev-btn", "mr-prod-btn", "batch-close-btn", "batch-offload-btn"]; btnIds.forEach(id => { nav.kids["#" + id] = { style: {}, textContent: "" }; });
   const ev = []; let att = "42"; const modalContent = { boxes: [], querySelectorAll() { return this.boxes; } }; const modal = { open: (t, f, on) => { ev.push(["modal", t]); modal.on = on; modal.frag = String(f); }, close: () => ev.push(["modal-close"]), content: () => modalContent };
   const RCACHE = { "1": { found: true, client: "acme", project: "shop", cwd: "/w/shop", title: "Un" }, "2": { found: true, client: "acme", project: "shop", cwd: "/w/shop" }, "20": { found: true, client: "beta", project: "api", cwd: "/w/api" } };
-  const ctr = mountWorklog({ body, fresh, nav }, { service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), ago: () => "1min", attached: () => att, sess: () => ({ "42": { registry: { branches: ["1-br"] } } }), cfg: () => CFG, resolve: () => RCACHE, tipAttr: () => "", pinOf: () => "", linkify: (s) => escO(s),
+  const ctr = mountWorklog({ body, fresh, nav }, { service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), ago: () => "1min", attached: () => att, sess: () => mkStore("sess", { "42": { registry: { branches: ["1-br"] } } }), cfg: () => CFG, resolve: () => mkStore("r", RCACHE), tipAttr: () => "", pinOf: () => "", linkify: (s) => escO(s),
     openReview: (rm) => ev.push(["review", rm]), openStatusMenu: (ref) => ev.push(["status", ref]), showTicket: (rm) => ev.push(["show", rm]), modal, confirm: () => true, prompt: () => "Testé.", alert: (m) => ev.push(["alert", m]), capture: (t) => ev.push(["capture", t]),
     ticket: { ensureResolved: async (rm) => ev.push(["resolve", rm]) }, launcher: () => ({ engine: "claude", model: "" }), warnSpawn: () => ev.push("warn"), refreshSessions: async () => ev.push("sessions"), attach: (rm) => ev.push(["attach", rm]), forgetOpened: (rm) => ev.push(["forget", rm]), forgetTicketSessions: (rm) => ev.push(["ts", rm]), openExternal: (u) => ev.push(["open", u]), projectWorklog: () => ev.push("proj"), afterLoad: () => ev.push("afterLoad") });
   calls.length = 0; await ctr.load(); assert.deepStrictEqual(calls[0], ["load", "42", false]); assert(/data-key="todo"/.test(body.innerHTML) && fresh.textContent === "vérifié 1min" && ev.includes("afterLoad"), "chargé, rendu, la liste des tickets prévenue (RM2673)");

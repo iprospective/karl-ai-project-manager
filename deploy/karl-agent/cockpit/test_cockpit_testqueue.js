@@ -7,11 +7,11 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/testqueue/testQueue.js"));
-  const { TestQueueViewModel } = await import(path.join(DIR, "src/viewmodels/testqueue/TestQueueViewModel.js"));
-  const { TestQueuePanel } = await import(path.join(DIR, "src/views/testqueue/TestQueue.view.js"));
-  const { TestQueueService } = await import(path.join(DIR, "src/services/testqueue.service.js"));
-  const { mountTestQueue } = await import(path.join(DIR, "src/controllers/testqueue.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/testqueue/testQueue.js"));
+  const { TestQueueViewModel } = await import(path.join(DIR, "src/modules/testqueue/TestQueueViewModel.js"));
+  const { TestQueuePanel } = await import(path.join(DIR, "src/modules/testqueue/TestQueue.view.js"));
+  const { TestQueueService } = await import(path.join(DIR, "src/modules/testqueue/testqueue.service.js"));
+  const { mountTestQueue } = await import(path.join(DIR, "src/modules/testqueue/testqueue.controller.js"));
   const entry = { rm_id: "2302", title: "Améliorations ergonomiques design cockpit", client: "iprospective", project: "pm-ai-agents", status: "a_tester_demandeur", branch: "2302-ameliorations-ergonomiques-desogn-cockpit", env: "ai-project-management-rm2302", tags: ["cockpit", "ux"] };
   assert(M.tqMatch(entry, "") && M.tqMatch(entry, "   ") && M.tqMatch(entry, "2302") && M.tqMatch(entry, "RM2302") && M.tqMatch(entry, "COCKPIT") && M.tqMatch(entry, "ameliorations") && M.tqMatch(entry, "cockpit ergonomiques"));
   assert(!M.tqMatch(entry, "cockpit prestashop") && M.tqMatch(entry, "pm-ai-agents") && M.tqMatch(entry, "desogn") && M.tqMatch(entry, "ux") && !M.tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"));

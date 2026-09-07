@@ -14,6 +14,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
+  des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :
+  en six jours, 337 fichiers modifiés et 16 non suivis (fiches, `.log.md`, `reporting.yml`, CDC
+  édités à la main ou par un agent) s'étaient accumulés sans commit. Pas de timer ni de process
+  dédié : c'est chaque auto-commit qui referme le filet — sur un dépôt de données, ce qui n'a pas
+  été modifié depuis plus d'1 h (`git.sweep_after_min`) part dans un commit `pm(rattrapage): N
+  fichier(s) laissés non commités > 60 min (déclenché par <outil>)` séparé, poussé avec le nôtre.
+  Un fichier touché il y a moins d'1 h est laissé à la session qui est dessus ; un dépôt de code
+  n'est jamais balayé ; `git.sweep: false` débraye. Journalisé (catégorie `pm`) ; les échecs
+  d'auto-commit y tombent aussi en `warn`. Sources connues bouchées au passage : `pm-env-expose`,
+  `pm-decisions`, `pm-glossaire`, `pm-task-doc` committent désormais leurs écritures.
 - **Un env de dev ou de test PrestaShop ne se prend plus pour la production** (RM2932). Le
   back-office des envs de recette affichait en permanence « Action requise : confirmez l'URL de
   votre boutique ». Le réflexe — aligner `ps_shop_url` — ne pouvait pas marcher : le bandeau vient
@@ -277,6 +288,47 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Le cockpit n'écrit plus de HTML qu'en un seul endroit** (RM3001). Quarante-cinq `innerHTML =`
+  subsistaient dans les contrôleurs (options de listes déroulantes, badges, cartes secondaires),
+  chacun avec son `String(vue)` — autant de portes par lesquelles une chaîne construite à la main
+  aurait pu passer. `core/dom.js` gagne `paint(el, frag)` et `append(el, frag)`, qui n'acceptent
+  qu'un fragment sûr (`html\`…\``, `raw()`) ou le vide et lèvent sur une chaîne nue ; tous les
+  sites y passent, `jarg()` (argument d'un handler inline, plus aucun `on*`) est retiré, et
+  `esc()` n'est plus appelé par aucune vue (linkify, titres, surlignage, glossaire réécrits sur
+  le gabarit). Garde de test : aucune écriture HTML hors `core/dom.js`.
+- **Sonde mémoire par module** (RM3007). Le cockpit savait dire, depuis la console, combien de
+  montages et d'entrées de store il retenait (`karl.stats()`), mais rien n'était activable
+  depuis l'interface ni ventilé par module — l'enquête RM2807 (onglets à 20 Go) en restait à
+  la sonde opt-in du terminal. `core/probe.js` échantillonne, à la cadence choisie, ce que
+  chaque module retient (montages, nœuds, écouteurs/minuteries/abonnements, entrées de store,
+  rendus par minute — le module d'un montage est lu dans la pile d'appel, sans rien demander
+  aux contrôleurs) et lit dans l'historique ce qui **grimpe sans redescendre**. Activation dans
+  🔧 réglages (préférence de ce navigateur, coût nul décochée), panneau 🧠 mémoire au centre
+  (tableau, courbe des nœuds par module, alertes, export JSON). Front v3.2.0.
+- **Cockpit 3.0.0 — refonte CSMV** (RM2889, puis RM3012, RM3010/RM3011, RM3000, RM3005). Le
+  cockpit était un `index.html` de plusieurs milliers de lignes avec un script inline, des
+  `onclick`, des caches partagés par référence et des routes historiques. Il est désormais un
+  front en **modules ES sans build runtime** : `src/boot.js` monte les domaines, `src/core/`
+  porte le socle (html sûr, dom, store, api, endpoints, erreurs, markdown, journal, version), et
+  chaque domaine vit dans `src/modules/<domaine>/` avec ses couches classées par suffixe (modèle,
+  `Repository`, `service`, `ViewModel`, `.view`, `controller`, `.scss`) — gardes d'imports par
+  suffixe. Zéro `on*` : tous les gestes passent par délégation `data-action` / `data-cmd` /
+  `data-link`. L'API se lit `/api/<type>/<action>` (`route()`), les chemins historiques restant
+  servis par alias généré (`scripts/karl_api_routes.py`). Le CSS est compilé depuis
+  `src/styles/*.scss` + `src/modules/*/*.scss` en un seul `cockpit.css` (`npm run build:css` dans
+  `tooling/`, empreinte des sources vérifiée par les tests). Les six caches partagés sont des
+  **stores nommés et bornés** (`core/store.js` : LRU + TTL + abonnement) que `karl.stats()`
+  compte. Le front porte une **version** (`src/core/version.js`, pied de page, `/health`) et le
+  cockpit prévient quand serveur et front divergent. Un **journal structuré** (RM3010, `logs/
+  karl-agent.jsonl`, sévérités debug/info/warn/error, catégories auth/issue/provider/tmux/claude/
+  worklog/files/api/mail/sets/refresh/pm/session/voice/env/front/system) est lisible depuis le
+  bouton **📜 journal** de l'en-tête (filtres, suivi, copie ; les erreurs du navigateur y tombent
+  aussi). Deux incidents de MEP le 2026-09-05/06 ont fixé deux gardes : un `Object.assign` figeait
+  le getter `authRequired` (jeton jamais envoyé → écran de login par-dessus la page) — les
+  descripteurs sont conservés ; un `setTimeout` détaché appelé en méthode levait « Illegal
+  invocation » dans tout navigateur mais pas sous node (page bloquée à « chargement… ») — garde
+  statique et **test navigateur** Playwright (`test_cockpit_browser.js`, Chromium + Firefox,
+  stockage semé d'un utilisateur revenu) à lancer avant une MEP du front. 35 suites node.
 - **Retrouver une session par mots-clés** (RM2991). Le panneau « Reprendre une session » ne
   se pilotait qu'avec des filtres fermés — client, projet, marqueur, moteur — alors que la
   question qu'on se pose devant lui est « où ai-je traité ça ? ». Le serveur savait déjà

@@ -644,10 +644,24 @@ class GithubForge(Forge):
                             access_level_model="github")
 
     def token(self, role):
-        tok = os.environ.get("GITHUB_TOKEN")
-        if not tok:
-            raise ForgeError("GITHUB_TOKEN absent (PAT GitHub, scope repo).")
-        return tok
+        """Le jeton, par ORGANISATION d'abord (RM3016) : `GITHUB__<OWNER>__TOKEN` — l'owner du
+        chemin (organisation ou utilisateur), slugifié comme les clés d'instance du PM
+        (`REDMINE__<INSTANCE>__API_KEY`) ; puis `GITHUB__<INSTANCE>__TOKEN` ; puis
+        `GITHUB_TOKEN`. Un dev tient un jeton par organisation dans son .env utilisateur."""
+        slug = lambda x: "".join(c if c.isalnum() else "_" for c in str(x)).upper()
+        cands = []
+        owner = (self.repo_path or "").split("/")[0]
+        if owner:
+            cands.append(f"GITHUB__{slug(owner)}__TOKEN")
+        inst = getattr(getattr(self, "instance", None), "name", "") or ""
+        if inst:
+            cands.append(f"GITHUB__{slug(inst)}__TOKEN")
+        cands.append("GITHUB_TOKEN")
+        for var in cands:
+            tok = os.environ.get(var)
+            if tok:
+                return tok
+        raise ForgeError("jeton GitHub absent : " + " ou ".join(cands) + " (PAT, permissions Administration + Contents + Pull requests).")
 
     def api(self, method, path, token, fields=None):
         """(status, parsed_json|None, raw). Corps JSON, auth Bearer. Jamais d'exception sur 4xx/5xx."""

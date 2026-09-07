@@ -8,13 +8,14 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data) { const n = { dataset: { action, ...(data || {}) } }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => s === "[data-action]" ? n : null }, preventDefault() {}, stopPropagation() {} }); } }; }
 (async () => {
-  const T = await import(path.join(DIR, "src/models/center/tabs.js"));
-  const H = await import(path.join(DIR, "src/models/center/history.js"));
-  const K = await import(path.join(DIR, "src/models/center/viewKey.js"));
-  const SC = await import(path.join(DIR, "src/models/files/scope.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/center/CenterViewModels.js"));
-  const V = await import(path.join(DIR, "src/views/center/Center.view.js"));
-  const { mountCenter } = await import(path.join(DIR, "src/controllers/center.controller.js"));
+  const T = await import(path.join(DIR, "src/modules/center/tabs.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
+  const H = await import(path.join(DIR, "src/modules/center/history.js"));
+  const K = await import(path.join(DIR, "src/modules/center/viewKey.js"));
+  const SC = await import(path.join(DIR, "src/modules/files/scope.js"));
+  const VM = await import(path.join(DIR, "src/modules/center/CenterViewModels.js"));
+  const V = await import(path.join(DIR, "src/modules/center/Center.view.js"));
+  const { mountCenter } = await import(path.join(DIR, "src/modules/center/center.controller.js"));
 
   // — RM2672 : temporaire unique, épinglage, fermeture —
   let st = T.upsertTab([], "session", "2668", "RM2668");
@@ -133,7 +134,7 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
     async fsLs(wt, tag, p) { calls.push(["fsLs", wt, tag, p]); return { entries: [{ name: "s", dir: true }] }; }, async commit(sid, sha) { calls.push(["commit", sid, sha]); if (sha === "dead") throw new Error("erreur 404"); return { commit: { short: sha }, message: "m", stats: { count: 0 }, patch: "" }; },
     async email(k) { return { key: k, subject: "Devis", body: "b" }; }, async client(c) { return { client: c }; }, async conf() { return { content: "a: 1" }; } };
   let histOpen = false; let placeholder = null;
-  const ctr = mountCenter(hosts, { repo, storage: store, md: (x) => "<md>" + x + "</md>", resolve: () => ({}),
+  const ctr = mountCenter(hosts, { repo, storage: store, md: (x) => "<md>" + x + "</md>", resolve: () => mkStore("r"),
     scope: () => ({ filesData: { projects: [{ root: "/w/appli", client: "acme", project: "appli" }] }, attached: attachedSid, projectKey: null }),
     surfaces: { session: { sessions: () => ({ "42": { rm_id: "42" } }), list: async () => [{ rm_id: "77", ghost: true, session_id: "s77" }], open: (sid) => { attachedSid = sid; ev2.push(["attach", sid]); }, relaunch: (s) => ev2.push(["relaunch", s.session_id]), close: () => { if (attachedSid) { ev2.push(["detach", attachedSid]); attachedSid = null; } } },
       review: { open: (rm) => { review = rm; ev2.push(["review", rm]); }, close: () => { if (review) { ev2.push(["closeReview", review]); review = null; } } },
@@ -172,7 +173,7 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   assert.deepEqual(ctr.state.tabs.map(t => t.kind), ["dash"]); assert.strictEqual(ctr.state.active, "dash:");
   // restauration au démarrage : jamais une session
   mem.karlTabs = JSON.stringify([{ kind: "session", key: "42", label: "RM42", pinned: true }]); mem.karlTabActive = "session:42";
-  const ctr2 = mountCenter({ tabs: fakeElement(), title: fakeElement() }, { storage: store, surfaces: { session: { open: () => ev2.push("ATTACH-AU-BOOT") } } });
+  const ctr2 = mountCenter({ tabs: fakeElement(), title: fakeElement() }, { storage: store, resolve: () => mkStore("r"), surfaces: { session: { open: () => ev2.push("ATTACH-AU-BOOT") } } });
   ctr2.restore(); assert(!ev2.includes("ATTACH-AU-BOOT"), "une session restaurée n'est PAS rattachée au boot"); assert.strictEqual(ctr2.state.active, "dash:"); assert.deepEqual(ctr2.state.tabs.map(t => t.kind), ["dash", "session"], "…mais son onglet reste sous la main");
   assert.strictEqual(ctr2.pinOf("session", "42").includes("📌"), true); assert(ctr2.hasTab("42", ["session"]) && !ctr2.hasTab("42", ["review"]));
   ctr.unmount(); assert.strictEqual(hosts.tabs.listenerCount + hosts.view.listenerCount, 0);

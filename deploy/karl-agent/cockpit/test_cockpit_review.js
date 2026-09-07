@@ -11,13 +11,14 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   async click(action, data) { const n = { dataset: { action, ...(data || {}) }, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => (s === "[data-action]" ? n : s === "button[data-st]" && data && data.st ? { dataset: { st: data.st, reason: data.reason, note: data.note } } : null) }, stopPropagation() {} }); return n; },
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
-  const ST = await import(path.join(DIR, "src/models/tickets/ticketStatus.js"));
-  const P = await import(path.join(DIR, "src/models/tickets/prompts.js"));
-  const { effDisposition } = await import(path.join(DIR, "src/models/tickets/ticketFormat.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/tickets/ReviewViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/tickets/Review.view.js"));
-  const { ReviewService } = await import(path.join(DIR, "src/services/review.service.js"));
-  const { mountReview } = await import(path.join(DIR, "src/controllers/review.controller.js"));
+  const ST = await import(path.join(DIR, "src/modules/ticket/ticketStatus.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
+  const P = await import(path.join(DIR, "src/modules/ticket/prompts.js"));
+  const { effDisposition } = await import(path.join(DIR, "src/modules/ticket/ticketFormat.js"));
+  const VM = await import(path.join(DIR, "src/modules/review/ReviewViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/review/Review.view.js"));
+  const { ReviewService } = await import(path.join(DIR, "src/modules/review/review.service.js"));
+  const { mountReview } = await import(path.join(DIR, "src/modules/review/review.controller.js"));
   // — RM2786 : verdicts par statut —
   const CFG = { closable_statuses: ["a_mep", "a_tester_demandeur", "a_tester_dev", "en_mep"], statuses: ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger", "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "ferme"] };
   assert.deepEqual(ST.ticketVerdicts("en_cours", CFG), []); assert.strictEqual(ST.ticketVerdicts("a_tester_demandeur", CFG).length, 3); assert.deepEqual(ST.ticketVerdicts("a_mep", CFG).map(v => v.kind), ["valider", "renvoyer"]);
@@ -34,7 +35,7 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(/data-st="a_tester_dev"/.test(st) && /data-st="a_mep"[^>]*disabled/.test(st) && /Redmine refusera/.test(st) && /data-st="ferme"[^>]*data-reason="1"/.test(st) && !/⚠ transitions NORMS seules/.test(st));
   const deg = menu({ status: "a_faire", redmine_checked: false, transitions: [{ status: "en_cours", condition: "prise en charge", redmine_ok: null }] }); assert(/data-st="en_cours"/.test(deg) && !/disabled/.test(/data-st="en_cours"[^>]*>/.exec(deg)[0]) && /⚠ transitions NORMS seules/.test(deg));
   assert(/aucune transition/.test(menu({ status: "ferme", transitions: [] })) && /aucune transition/.test(menu(null)));
-  const viewSrc = require("fs").readFileSync(path.join(DIR, "src/views/tickets/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/controllers/review.controller.js"), "utf8");
+  const viewSrc = require("fs").readFileSync(path.join(DIR, "src/modules/review/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/modules/review/review.controller.js"), "utf8");
   for (const s of CFG.statuses) assert(!viewSrc.includes('"' + s + '"'), "aucun statut en dur dans la vue ni le contrôleur : " + s);
   console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus, mode dégradé, zéro règle recopiée");
   // — RM2726 / RM2873 / RM2833 : consignes —
@@ -88,8 +89,8 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   const b2 = await svc.busyFor("42"); assert.deepStrictEqual(b2.alive.map(s => s.sid), ["9"]);
   console.log("✓ service : gardes NORMS franchies explicitement (checklist, merge gate), jamais avalées ni forcées d'office");
   // — le contrôleur —
-  const el = fakeElement(); const ev = []; const resolve = { "42": Object.assign({}, R, { status: "a_tester_demandeur" }) };
-  const T = { repo: { c: { mc: {}, ts: {} } }, ensureResolved: async (rm) => { ev.push(["resolve", rm]); return resolve[rm]; }, revalidate: async () => {}, ensureMergecheck: async () => {}, ensureTicketSessions: async () => {}, mcBanner: () => "", reload: async (rm) => ev.push(["reload", rm]) };
+  const el = fakeElement(); const ev = []; const resolve = mkStore("r", { "42": Object.assign({}, R, { status: "a_tester_demandeur" }) });
+  const T = { repo: { s: { mc: mkStore("mc"), ts: mkStore("ts") } }, ensureResolved: async (rm) => { ev.push(["resolve", rm]); return resolve.get(rm); }, revalidate: async () => {}, ensureMergecheck: async () => {}, ensureTicketSessions: async () => {}, mcBanner: () => "", reload: async (rm) => ev.push(["reload", rm]) };
   const center = { yield: (k) => ev.push(["yield", k]), note: (...a) => ev.push(["note", ...a]), title: () => {}, fallback: () => ev.push("fallback") };
   const ctr = mountReview(el, { ticket: T, service: svc, center, notify: (m, e) => ev.push(["toast", m, !!e]), confirm: () => true, prompt: () => "ma note", resolve: () => resolve, cfg: () => CFG, show: (on) => ev.push(["show", on]), setMeta: (rm) => ev.push(["meta", rm]), renderMeta: () => ev.push("renderMeta"), noteOpened: (rm) => ev.push(["opened", rm]), showRight: (t) => ev.push(["right", t]), refreshSessions: () => ev.push("sessions"), attach: (s) => ev.push(["attach", s]), tq: { entry: () => ({ branch: "b" }), loaded: () => true, size: () => 1, load: () => ev.push("tqload") }, launcher: () => ({ engine: "claude", model: "" }), popover: () => { const m = fakeElement(); el.sub.menu = m; return m; }, place: () => {}, onOutsideClick: () => {} });
   ctr.open("42"); assert.deepStrictEqual(ev.slice(0, 5), [["opened", "42"], ["yield", "review"], ["meta", "42"], ["show", true], ["note", "review", "42", "RM42"]]); assert.strictEqual(ctr.current(), "42"); assert.deepStrictEqual(ctr.tabs(), ["42"]); assert(/🧪 RM42/.test(el.innerHTML));

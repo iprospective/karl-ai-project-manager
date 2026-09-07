@@ -1,0 +1,6 @@
+// modules/resume/resume.scss — style du module « resume » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2991 : note des sessions archivées — lisible, jamais cliquable */
+.rs-archived { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--muted);
+               color: var(--muted); font-size: 11px; line-height: 1.5; }
+.rs-archived code { font-size: 10px; }

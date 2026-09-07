@@ -12,79 +12,91 @@
 //
 // Ce pont disparaît au lot L6, quand plus rien d'inline ne subsiste.
 
-import { esc, jarg, html, raw, isSafe, attrs } from "./core/html.js";
-import { Store, defineStore, storeStats, resetStores } from "./core/store.js";
-import { mount, on, domStats } from "./core/dom.js";
+import { html, raw, isSafe, attrs } from "./core/html.js";
+import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
+import { createProbe } from "./core/probe.js";
+import { mountMemory } from "./modules/memory/memory.controller.js";
+import { mount, on, domStats, domStatsByModule, paint } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
 import { AppError, ApiError, asAppError } from "./core/errors.js";
-import { Repository } from "./models/Repository.js";
-import { Factory } from "./models/Factory.js";
-import { EntityViewModel, withConso } from "./viewmodels/EntityViewModel.js";
-import { mountMailPanel } from "./controllers/mail.controller.js";
-import { mountGitPanel } from "./controllers/git.controller.js";
-import { mountDashboard } from "./controllers/dashboard.controller.js";
-import { mountProjectsPanel } from "./controllers/projects.controller.js";
-import { mountEnv } from "./controllers/env.controller.js";
-import { mountPmCommands } from "./controllers/pmcmd.controller.js";
-import { mountSettings } from "./controllers/settings.controller.js";
-import { mountVoice } from "./controllers/voice.controller.js";
-import { mountCenter } from "./controllers/center.controller.js";
-import { mountNewTicket } from "./controllers/newticket.controller.js";
-import { mountProject } from "./controllers/project.controller.js";
-import { mountTestQueue } from "./controllers/testqueue.controller.js";
-import { TicketRepository } from "./models/tickets/TicketRepository.js";
-import * as TF from "./models/tickets/ticketFormat.js";
-import { MergeBanner } from "./views/tickets/MergeBanner.view.js";
-import { mountReview } from "./controllers/review.controller.js";
-import { mountMeta } from "./controllers/meta.controller.js";
-import { mountTicketsPanel } from "./controllers/tickets.controller.js";
-import { mountDocModal } from "./controllers/doc.controller.js";
-import { mountOutline } from "./controllers/outline.controller.js";
-import { mountResume } from "./controllers/resume.controller.js";
-import { mountSearch } from "./controllers/search.controller.js";
-import { mountFiles } from "./controllers/files.controller.js";
-import { mountWorklog } from "./controllers/worklog.controller.js";
-import { mountLayout } from "./controllers/layout.controller.js";
-import { mountLauncher } from "./controllers/launcher.controller.js";
-import { mountSessionActions } from "./controllers/actions.controller.js";
-import { mountTerminal } from "./controllers/terminal.controller.js";
-import { mountSessions } from "./controllers/sessions.controller.js";
-import { mountSets } from "./controllers/sets.controller.js";
-import { mountRefresh } from "./controllers/refresh.controller.js";
-import { mountAuth } from "./controllers/auth.controller.js";
-import { mountNotify } from "./controllers/notify.controller.js";
+import { Repository } from "./core/Repository.js";
+import { Factory } from "./core/Factory.js";
+import { EntityViewModel, withConso } from "./core/EntityViewModel.js";
+import { mountMailPanel } from "./modules/mail/mail.controller.js";
+import { mountGitPanel } from "./modules/git/git.controller.js";
+import { mountDashboard } from "./modules/dashboard/dashboard.controller.js";
+import { mountProjectsPanel } from "./modules/projects/projects.controller.js";
+import { mountEnv } from "./modules/env/env.controller.js";
+import { mountPmCommands } from "./modules/pmcmd/pmcmd.controller.js";
+import { mountSettings } from "./modules/settings/settings.controller.js";
+import { mountVoice } from "./modules/voice/voice.controller.js";
+import { mountCenter } from "./modules/center/center.controller.js";
+import { mountNewTicket } from "./modules/newticket/newticket.controller.js";
+import { mountProject } from "./modules/projects/project.controller.js";
+import { mountTestQueue } from "./modules/testqueue/testqueue.controller.js";
+import { TicketRepository } from "./modules/ticket/TicketRepository.js";
+import * as TF from "./modules/ticket/ticketFormat.js";
+import { MergeBanner } from "./modules/ticket/MergeBanner.view.js";
+import { mountReview } from "./modules/review/review.controller.js";
+import { mountMeta } from "./modules/meta/meta.controller.js";
+import { mountTicketsPanel } from "./modules/tickets/tickets.controller.js";
+import { mountDocModal } from "./modules/doc/doc.controller.js";
+import { mountOutline } from "./modules/outline/outline.controller.js";
+import { mountResume } from "./modules/resume/resume.controller.js";
+import { mountSearch } from "./modules/search/search.controller.js";
+import { mountFiles } from "./modules/files/files.controller.js";
+import { mountWorklog } from "./modules/worklog/worklog.controller.js";
+import { mountLayout } from "./modules/layout/layout.controller.js";
+import { mountLauncher } from "./modules/launcher/launcher.controller.js";
+import { mountSessionActions } from "./modules/actions/actions.controller.js";
+import { mountTerminal } from "./modules/terminal/terminal.controller.js";
+import { mountSessions } from "./modules/sessions/sessions.controller.js";
+import { mountSets } from "./modules/sets/sets.controller.js";
+import { mountRefresh } from "./modules/refresh/refresh.controller.js";
+import { mountAuth } from "./modules/auth/auth.controller.js";
+import { mountNotify } from "./modules/shell/notify.controller.js";
 import { VERSION } from "./core/version.js";
-import { mountLinks } from "./controllers/links.controller.js";
-import { mountAttach } from "./controllers/attach.controller.js";
-import { mountCommands } from "./controllers/commands.controller.js";
-import { PmService } from "./services/pm.service.js";
-import { ago } from "./models/sessions/sessions.js";
-import { entryLabel } from "./models/sessions/sets.js";
-import { effDisposition } from "./models/sessions/sessions.js";
-import { MrLine } from "./views/worklog/Worklog.view.js";
-import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
+import { createLog, installGlobalCapture, errorBrief } from "./core/log.js";
+import { mountJournal } from "./modules/journal/journal.controller.js";
+import { mountLinks } from "./modules/shell/links.controller.js";
+import { mountAttach } from "./modules/shell/attach.controller.js";
+import { mountCommands } from "./modules/shell/commands.controller.js";
+import { PmService } from "./modules/pm/pm.service.js";
+import { ago } from "./modules/sessions/sessions.js";
+import { entryLabel } from "./modules/sets/sets.js";
+import { effDisposition } from "./modules/sessions/sessions.js";
+import { MrLine } from "./modules/worklog/Worklog.view.js";
+import { mrLine } from "./modules/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
-import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
-import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
-import { fsScope, scopeTag } from "./models/files/scope.js";
-import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
-import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
+import { glossaireRows, glossaireFiltre } from "./modules/doc/glossary.js";
+import { promptTemplates, taskPromptText, promptFillOnChange } from "./modules/ticket/prompts.js";
+import { fsScope, scopeTag } from "./modules/files/scope.js";
+import { FileViewModel } from "./modules/center/CenterViewModels.js";
+import { FileBody, centerBtnHtml } from "./modules/center/Center.view.js";
 
-// La configuration d'instance (/cockpit-config, chargée par init) et les caches partagés entre domaines vivent ici — le script inline
+// La configuration d'instance (/cockpit-config, chargée par init) et les stores partagés entre domaines vivent ici — le script inline
 // a disparu (L6). CFG est rempli après le login ; le transport le lit à la demande, jamais au chargement.
 const CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
-const caches = { resolve: {}, resolveAt: {}, sess: {}, mc: {}, usage: {}, ts: {} };
+const stores = appStores();   // RM3005 : les caches partagés sont des stores nommés et bornés (core/store.js), visibles dans karl.stats()
 let auth = null, attachCtl = null;
+// RM3011 : le journal du front — mêmes sévérités et catégories que le serveur ; warn/error remontés par POST /api/log/write ; les exceptions
+// non rattrapées et les promesses rejetées y tombent. Créé AVANT tout montage : le premier domaine qui trébuche est déjà consigné.
+const log = createLog({ remote: (rec) => post(route("log.write"), rec), version: VERSION, ua: (typeof navigator !== "undefined" ? navigator.userAgent : "") });
+installGlobalCapture(log, window);
 configureApi({
   get authRequired() { return !!CFG.auth_required; },
   token: () => (auth ? auth.token() : (localStorage.getItem("karlToken") || "")),
   onUnauthorized: () => { if (auth) auth.showGate(); },   // 401 : l'écran de login revient (RM2334)
 });
 
+// RM3007 : la sonde mémoire — un échantillon = DOM par module + stores + tas JS (Chromium seulement) ; rien ne tourne tant que
+// la préférence « sonde » de ce navigateur n'est pas posée (réglages). Le panneau 🧠 mémoire la pilote.
+const probe = createProbe({ sample: () => ({ dom: domStatsByModule(), stores: storeStats(), heap: (typeof performance !== "undefined" && performance.memory) ? performance.memory.usedJSHeapSize : null }) });
+
 const karl = Object.freeze({
   // rendu
-  esc, jarg, html, raw, isSafe, attrs,
+  html, raw, isSafe, attrs,
   // cache
   Store, defineStore, resetStores,
   // montage et cycle de vie
@@ -103,6 +115,8 @@ const karl = Object.freeze({
     const stores = storeStats();
     return {
       dom: domStats(),
+      modules: domStatsByModule(),                 // RM3007 : ventilé par module
+      probe: probe.latest,                         // dernier échantillon de la sonde (null si désactivée)
       stores,
       entries: stores.reduce((n, s) => n + s.entries, 0),
       subscribers: stores.reduce((n, s) => n + s.subscribers, 0),
@@ -114,7 +128,7 @@ const byId = (id) => document.getElementById(id);
 // le toast (simple / erreur / avec action RM2451), les références cliquables (RM2585/2596/2718 — un écouteur en capture sur le document)
 // et le runner PM partagé : montés d'abord, tous les domaines les empruntent. La fiche ℹ, les fichiers et le glossaire sont lus à l'appel.
 const notify = mountNotify(byId("toast"));
-const pm = new PmService({ caches });
+const pm = new PmService({ stores });
 const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket(id), openFileRef: (p) => files && files.openRef(p), glossify: (s) => doc.glossify(s), redmineBase: () => CFG.redmine_url || "" });
 // la modale doc : documents rendus (RM2309), aide intégrée (RM2593), glossaire du jargon (RM2623) — et les termes
 // soulignés partout dans la page. Montée d'abord : tous les panneaux lui empruntent l'aide. Le routeur (center)
@@ -148,7 +162,7 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
 const git = mountGitPanel(document.getElementById("rp-git"), {
   notify: notify.toast,
   attached: () => attachCtl.current(),
-  branchesOf: (sid) => ((caches.sess[sid] || {}).registry || {}).branches || [],
+  branchesOf: (sid) => ((stores.sess.get(sid) || {}).registry || {}).branches || [],
   openCenter: (sid, sha) => center.openCommit(sid, sha),
 });
 
@@ -156,7 +170,7 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
   notify: notify.toast,
   attach: (rm) => attachCtl.attach(rm), openReview: (rm) => review.open(rm),
   pull: () => refreshCtl.fetch(["dashboard"]),
-  sessions: () => caches.sess,
+  sessions: () => stores.sess.view,
   stale: () => [...refreshCtl.stale()],
   nameOf: entryLabel,
   // visible = le vide central est affiché et aucune session n'est attachée (RM2697)
@@ -172,8 +186,8 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
 
 const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
   notify: notify.toast, help: (t) => doc.openHelp(t),
-  sessions: () => Object.values(caches.sess),
-  resolve: () => caches.resolve,
+  sessions: () => stores.sess.values(),
+  resolve: () => stores.resolve,
   clientContext: () => launcher.clientContext(),
   pin: (kind, key) => center.pinOf(kind, key),
   openProject: (key) => project.open(key), openClient: (c) => center.openClient(c), openConf: (scope, c, p) => center.openConf(scope, c, p),
@@ -187,12 +201,16 @@ const env = mountEnv(document.getElementById("doccontent"), {
   secure: () => !!window.isSecureContext,
   modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
     if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
-  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { el.innerHTML = h; el.style.display = h ? "" : "none"; } },
+  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { paint(el, h); el.style.display = String(h || "") ? "" : "none"; } },
   lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
 });
 
 const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), run: (n, a, o) => pm.run(n, a, o),
+});
+const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard") }, {
+  probe, storage: localStorage, notify: notify.toast, help: (t) => doc.openHelp(t),
+  download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
 });
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
@@ -203,7 +221,7 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
 const synth = () => (typeof speechSynthesis !== "undefined" ? speechSynthesis : null);
 const voice = mountVoice(document.getElementById("voicecard"), {
   notify: notify.toast, storage: localStorage,
-  attached: () => attachCtl.current(), resolve: () => caches.resolve,
+  attached: () => attachCtl.current(), resolve: () => stores.resolve,
   voiceBtn: (on) => { const b = document.getElementById("voicebtn"); if (b) { b.style.color = on ? "var(--ok)" : ""; b.style.borderColor = on ? "var(--ok)" : ""; } },
   mic: (s) => { const b = document.getElementById("micbtn"); if (b) { b.style.color = s.color; b.textContent = s.text; } },
   engines: {
@@ -229,18 +247,20 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let journal = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
-  resolve: () => caches.resolve,
+  resolve: () => stores.resolve,
   scope: () => ({ filesData: files.data(), attached: attachCtl.current(), projectKey: project ? project.current() : null }),
   surfaces: {
-    session:   { sessions: () => caches.sess, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
+    session:   { sessions: () => stores.sess.view, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
                  open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
     settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
+    journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
+    memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   placeholder: (on) => show("placeholder", on, "flex"),
@@ -281,18 +301,15 @@ project = mountProject(byId("projpane"), {
   filesEnsure: () => { if (layout.rightVisible("files")) files.ensure(); },
 });
 center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
-// le modèle ticket : la logique dans le module, les caches partagés PAR RÉFÉRENCE avec le
-// monolithe (une soixantaine de vues les lisent encore en direct — L6 les rapatriera)
-const ticketRepo = new TicketRepository({ caches: { resolve: caches.resolve, resolveAt: caches.resolveAt, mc: caches.mc, usage: caches.usage, ts: caches.ts } });
-// RM2775 : un titre arrivé après coup atteint l'infobulle de son onglet — seulement si un onglet le porte
-const onResolved = (rm) => { if (center.hasTab(rm, ["review", "session"])) center.renderTabs(); };
+// le modèle ticket : la logique dans le module, le stockage dans les stores nommés (RM3005) — les vues lisent `get`, ou s'abonnent
+const ticketRepo = new TicketRepository({ stores });
 const ticket = {
   stale: (rm) => ticketRepo.stale(rm),
   inFlight: (rm) => !!ticketRepo.inflight.resolve[String(rm)],   // RM2807 : garde anti fan-out des listes du monolithe
-  ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force, onResolved),
-  revalidate: (rm, after) => ticketRepo.revalidate(rm, after, onResolved),
+  ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force),
+  revalidate: (rm, after) => ticketRepo.revalidate(rm, after),
   /** Rechargement explicite (⟳) : recharge, puis re-rend ce que le monolithe affiche encore. */
-  reload: (rm) => ticketRepo.ensureResolved(String(rm), true, onResolved).then(() => {
+  reload: (rm) => ticketRepo.ensureResolved(String(rm), true).then(() => {
     rm = String(rm);
     if (meta && meta.ticketIs(rm)) meta.render();
     if (review && review.current() === rm) review.render();
@@ -320,7 +337,7 @@ const resume = mountResume(byId("rescard"), {
 // l'onglet 📂 fichiers (RM2586/2622/2659/2673/2675/2759/2861) : le contexte de lecture (session, fiche de ticket, fiche projet,
 // jeu courant), le rendu commun d'un fichier, la portée d'un worktree et l'ouverture au centre sont prêtés
 files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: document.querySelector("#rp-files .outnav") }, {
-  notify: notify.toast, attached: () => attachCtl.current(), resolve: () => caches.resolve,
+  notify: notify.toast, attached: () => attachCtl.current(), resolve: () => stores.resolve,
   reviewCurrent: () => (review ? review.current() : null), projectKey: () => (project ? project.current() : null),
   sets: () => setsCtl.sets(), currentSet: () => setsCtl.current(),
   fileBody: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))), scopeTagOf: (wt) => center.scopeTagOf(wt), showRight: layout.showRight,
@@ -330,7 +347,7 @@ files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: docu
 // la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
 tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
   ticket, notify: notify.toast, storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
-  resolve: () => caches.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
+  resolve: () => stores.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
   clientContext: () => launcher.clientContext(), spawnBatch: (items, btn, opts) => worklogCtl.spawnBatch(items, btn, opts),
 });
 // la recherche de tickets (RM2770/2639/2830) : projets connus, contexte client, statuts NORMS, lien de titre, épinglage prêtés ;
@@ -346,20 +363,20 @@ const search = mountSearch(byId("searchcard"), {
 // la capture, la modale doc (écrans de lot), l'infobulle, la marque, linkify, la revue, la fiche ℹ, le lanceur et l'attache sont prêtés
 worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), nav: document.querySelector("#rp-state .outnav") }, {
   ticket, notify: notify.toast, ago: ago, run: (n, a, o) => pm.run(n, a, o), capture: (t, txt) => doc.openPlain(t, txt),
-  attached: () => attachCtl.current(), sess: () => caches.sess, cfg: () => CFG, resolve: () => caches.resolve,
+  attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG, resolve: () => stores.resolve,
   tipAttr: (id) => tickets.tipAttr(id), pinOf: (k, key) => center.pinOf(k, key), linkify: (s) => links.linkify(s),
   openReview: (rm) => review.open(rm), openStatusMenu: (ref, n, e) => review.openStatusMenu(ref, n, e), showTicket: (rm) => meta && meta.showTicket(rm),
   modal: { open: (t, f, on) => doc.openCustom(t, f, on), close: () => doc.closeDoc(), content: () => doc.contentEl() },
   launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
   warnSpawn: (r) => setsCtl.warnSpawn(r), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm), forgetOpened: (rm) => tickets.forget(rm),
-  forgetTicketSessions: (rm) => { caches.ts[rm] = undefined; },
+  forgetTicketSessions: (rm) => ticketRepo.forgetTicketSessions(rm),
   openExternal: (u) => window.open(u, "_blank", "noopener"), projectWorklog: () => project && project.refreshWorklog(),
   afterLoad: () => { if (layout.rightVisible("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
 });
 // les actions d'une session (RM1893 §2 chips, RM2720 actions PM d'un ticket, §3 moniteurs, RM2515 disposition, fermeture) :
 // la session attachée, le registre, CFG, le détachement et les rafraîchissements sont prêtés
 const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabactions") }, {
-  notify: notify.toast, attached: () => attachCtl.current(), sess: () => caches.sess, cfg: () => CFG,
+  notify: notify.toast, attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG,
   detach: () => attachCtl.detach(), refreshSessions: (() => refreshCtl.refreshSessions()), refreshHealth: (() => refreshCtl.refreshHealth()),
   popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "dispmenu"; document.body.appendChild(m); return m; },
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
@@ -369,7 +386,7 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 // (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => CFG, notify: notify.toast,
-  attached: () => attachCtl.current(), sess: () => caches.sess, token: () => auth.token(),
+  attached: () => attachCtl.current(), sess: () => stores.sess, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
   copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
   capture: (t, txt) => doc.openPlain(t, txt), domCount: () => document.getElementsByTagName("*").length,
@@ -379,7 +396,7 @@ terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer
 review = mountReview(byId("reviewpane"), {
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
-  resolve: () => caches.resolve, cfg: () => CFG,
+  resolve: () => stores.resolve, cfg: () => CFG,
   show: (on) => show("reviewpane", on),
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
   noteOpened: (rm) => tickets.noteOpened(rm), showRight: layout.showRight, refreshSessions: (() => refreshCtl.refreshSessions()),
@@ -396,7 +413,7 @@ review = mountReview(byId("reviewpane"), {
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
   onOutsideClick: (fn) => document.addEventListener("click", fn, { once: true }),
 });
-Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => promptTemplates().map(t => `<option value="${esc(t.value)}"${t.value === String(sel == null ? "" : sel) ? " selected" : ""}>${esc(t.label)}</option>`).join("") });
+Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => html`${promptTemplates().map(t => html`<option ${attrs({ value: t.value, selected: t.value === String(sel == null ? "" : sel) })}>${t.label}</option>`)}` });
 center.register("review", { open: review.open, close: () => { if (review.current()) review.close(); } });
 // le lanceur (§1 résolution, RM1941 modèles, RM2873 consigne, RM2818 garde, spawn), la saisie éclair d'un ticket (§8) et le contexte
 // client (RM2639) : CFG, la consigne et la garde (revue), le runner PM, l'attache et les suites sont prêtés ; le contexte prévient le reste
@@ -411,12 +428,12 @@ launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), cli
     if (!initial) { search.refreshIfQuery(); projects.render(); search.fillProjects(); refreshCtl.refreshSessions(); } },
 });
 // RM2873 : le lanceur de gauche propose les mêmes modèles de consigne que la fiche
-{ const sel = byId("ptpl"); if (sel) sel.innerHTML = review.promptTemplateOptions("traiter"); }
+{ const sel = byId("ptpl"); if (sel) paint(sel, review.promptTemplateOptions("traiter")); }
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
-// lui prête la session attachée, le registre, les caches ticket, le worklog, la colonne et les gestes voisins.
+// lui prête la session attachée, le registre, les stores ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   ticket, notify: notify.toast, md: mdToHtml, ago: ago, tipAttr: (id) => tickets.tipAttr(id),
-  resolve: () => caches.resolve, sess: () => caches.sess, usage: () => caches.usage,
+  resolve: () => stores.resolve, sess: () => stores.sess, usage: () => stores.usage,
   attached: () => attachCtl.current(), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
   showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: (rm) => launcher.goto(rm), reopen: (rm) => launcher.reopen(rm),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
@@ -434,7 +451,7 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
 sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
-  caches: { sess: caches.sess }, resolve: () => caches.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
+  sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),
   clientContext: () => launcher.clientContext(), setClientContext: (c) => launcher.setClientContext(c),
@@ -454,10 +471,11 @@ setsCtl = mountSets({ bar: byId("setbar"), card: byId("sessions-set-card") }, {
   ordered: () => sessionsCtl.ordered(), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm),
 });
 // la pile /refresh (RM2763 composite unique, RM2613 cadence adaptative), la pastille de santé, « ⬆ MAJ dispo » (RM2571) et les questions
-// sans réponse (RM2598) : les blocs reçus vont aux domaines migrés ; les caches de résolution sont partagés par référence ; le premier tick
+// sans réponse (RM2598) : les blocs reçus vont aux domaines migrés ; les briefs sèment le store de résolution (RM3005) ; le premier tick
 // est déclenché par l'init du monolithe (tickSessions) une fois la configuration connue
-refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt"), updbtn: byId("updbtn") }, {
-  caches: { resolve: caches.resolve, resolveAt: caches.resolveAt }, root: document, alert: (t) => window.alert(t),
+refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt"), updbtn: byId("updbtn"), verwarn: byId("verwarn") }, {
+  version: VERSION,   // RM3000 : la version servie par /health est comparée à celle du front
+  stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
 });
@@ -480,14 +498,17 @@ const commands = mountCommands(document, {
   "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
+// le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
+journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
 // une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
-const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); return undefined; } };
+const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); log.error("front", label + " en erreur", { trace: errorBrief(e) }); return undefined; } };
+{ const v = byId("ver"); if (v) v.textContent = "cockpit v" + VERSION; }   // RM3000 : pied de page
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

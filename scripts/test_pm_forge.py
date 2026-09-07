@@ -235,3 +235,19 @@ if __name__ == "__main__":
             fails += 1; print(f"  ✗ {fn.__name__} — ERREUR {type(e).__name__}: {e}")
     print(f"\n{len(CASES) - fails}/{len(CASES)} ok")
     sys.exit(1 if fails else 0)
+
+
+def test_github_token_par_organisation_puis_instance_puis_generique(monkeypatch):
+    """RM3016 : GITHUB__<OWNER>__TOKEN prime, puis l'instance, puis GITHUB_TOKEN ; sinon refus qui nomme les clés."""
+    f = pm_forge.GithubForge("iprospective/atombox")
+    for v in ("GITHUB__IPROSPECTIVE__TOKEN", "GITHUB_TOKEN"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "generique")
+    assert f.token("manager") == "generique"
+    monkeypatch.setenv("GITHUB__IPROSPECTIVE__TOKEN", "par-org")
+    assert f.token("manager") == "par-org"
+    monkeypatch.delenv("GITHUB__IPROSPECTIVE__TOKEN"); monkeypatch.delenv("GITHUB_TOKEN")
+    try:
+        f.token("manager"); assert False, "un jeton absent doit refuser"
+    except pm_forge.ForgeError as e:
+        assert "GITHUB__IPROSPECTIVE__TOKEN" in str(e) and "GITHUB_TOKEN" in str(e)

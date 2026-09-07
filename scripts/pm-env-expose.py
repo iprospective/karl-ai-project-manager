@@ -200,6 +200,11 @@ def append_log(task_file: Path, rmid: int, msg: str, dry: bool) -> None:
     stamp = time.strftime("%Y-%m-%dT%H:%M")
     with log.open("a", encoding="utf-8") as f:
         f.write(f"\n## {stamp} — pm-env-expose\n{msg}\n")
+    try:  # RM3013 : l'écriture part avec les autres données PM (sinon elle traîne jusqu'au rattrapage)
+        import pm_git
+        pm_git.autocommit([log], f"pm(env-expose): RM{rmid} journal")
+    except Exception as e:  # jamais bloquant : l'exposition a réussi, le commit est de la plomberie
+        print(f"  ⚠ auto-commit du journal : {e}", file=sys.stderr)
 
 
 def pick_port(reg: dict, asked: int | None) -> int:

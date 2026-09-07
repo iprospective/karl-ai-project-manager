@@ -187,10 +187,16 @@ tmux attach -t karl-RM1669
 Première UI web du système PM — **seed de RM1679**. Donne *lancer + superviser +
 reprise de main* dans le navigateur, sur l'API karl-agent existante.
 
-- **UI servie en même origine** par le daemon (`GET /`), HTML/JS auto-contenu
-  (`deploy/karl-agent/cockpit/index.html`) : pas de CORS, pas de build, pas de
-  dépendance. Liste les sessions (poll `/sessions`), formulaire de lancement
-  (`/spawn`), boutons Attach / Kill.
+- **UI servie en même origine** par le daemon (`GET /`) : pas de CORS, aucune
+  dépendance au chargement. Depuis la **3.0.0 (RM2889)** ce n'est plus un HTML
+  auto-contenu : `index.html` (coquille) + `src/boot.js` + modules ES par domaine
+  (`src/modules/<domaine>/`), servis tels quels sous `/static/` ; seul le CSS est
+  compilé (`cockpit.css` depuis les `.scss`, `npm run build:css` dans `tooling/`).
+  Routes `/api/<type>/<action>` (les chemins historiques ci-dessous restent servis
+  par alias). Version du front dans `src/core/version.js`, portée par `/health` et
+  le pied de page. Architecture, règles, tests et MEP : `deploy/karl-agent/cockpit/README.md`.
+  Liste les sessions (composite `/refresh`), formulaire de lancement (`/spawn`),
+  boutons Attach / Kill, et bien plus — voir l'aide intégrée (`❓`, `help/*.md`).
 - **Terminal web = ttyd** (`ttyd.service`), un seul process, lancé writable (`-W`)
   avec `-a` : le cockpit passe le `rm_id` en argument d'URL (`?arg=<id>`) ; le
   wrapper `cockpit/attach-karl.sh` **valide** `rm_id` (`^[0-9]+$`) puis fait
@@ -239,6 +245,25 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
 5. **Token partagé optionnel.** Si `KARL_AGENT_TOKEN` est défini (dans le `.env`
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
+
+## Journal structuré (RM3010)
+
+`logs/karl-agent.jsonl` à la racine du projet (ignoré par git ; `KARL_JOURNAL_DIR` pour le déplacer) : un enregistrement JSON par
+ligne — `ts`, `level` (`debug` < `info` < `warn` < `error`), `cat` (`auth`, `issue`, `provider`, `tmux`, `claude`, `worklog`, `files`,
+`api`, `mail`, `sets`, `refresh`, `pm`, `session`, `voice`, `env`, `front`, `system`), `msg`, puis les champs (rm_id, user, path,
+status, ms, trace…). Écrit par `scripts/pm_log.py` (thread-safe, ne lève jamais) :
+
+- toute réponse HTTP ≥ 400 (catégorie d'après le chemin, `auth` pour 401/403, traceback court sur 5xx) ;
+- les POST aboutis des domaines qui mutent (tmux, jeux, session, auth, mail, pm, voix, tickets, worklog, fichiers), en `info`,
+  avec un résumé de la charge utile (rm_id, group, sid, engine…) ;
+- sessions tmux lancées / fermées, échecs tmux, connexions ; les autres requêtes en `debug` (`KARL_JOURNAL_LEVEL=debug`) ;
+- ce que le cockpit dépose par `POST /log` (catégorie `front`, RM3011).
+
+Rotation par taille (`KARL_JOURNAL_MAX_MB`, 20) vers `karl-agent-<horodatage>.jsonl`, rétention `KARL_JOURNAL_KEEP_DAYS` (14).
+`warn`/`error` sont aussi reflétés sur stderr (journald), `KARL_JOURNAL_STDERR=0` pour l'éviter.
+
+Lecture : `mmi-pm log-tail [-c auth,api] [-l warn] [--since ISO] [-n 100] [-q texte] [-f] [--json] [--stats]`, ou
+`GET /api/log/tail?category=&level=&since=&limit=&q=` (auth requise) — c'est ce que le menu « journal » du cockpit consomme.
 
 ## Variables d'environnement
 

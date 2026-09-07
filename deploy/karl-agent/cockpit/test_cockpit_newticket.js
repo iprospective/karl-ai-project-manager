@@ -8,11 +8,11 @@ function fakeElement() { const L = []; let inner = ""; const nodes = {}; return 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/tickets/newTicket.js"));
-  const { NewTicketViewModel } = await import(path.join(DIR, "src/viewmodels/tickets/NewTicketViewModel.js"));
-  const { NewTicketForm, ClientProjectPicker, ProjectRadios } = await import(path.join(DIR, "src/views/tickets/NewTicket.view.js"));
-  const { NewTicketService } = await import(path.join(DIR, "src/services/newticket.service.js"));
-  const { mountNewTicket } = await import(path.join(DIR, "src/controllers/newticket.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/newticket/newTicket.js"));
+  const { NewTicketViewModel } = await import(path.join(DIR, "src/modules/newticket/NewTicketViewModel.js"));
+  const { NewTicketForm, ClientProjectPicker, ProjectRadios } = await import(path.join(DIR, "src/modules/newticket/NewTicket.view.js"));
+  const { NewTicketService } = await import(path.join(DIR, "src/modules/newticket/newticket.service.js"));
+  const { mountNewTicket } = await import(path.join(DIR, "src/modules/newticket/newticket.controller.js"));
   const PROJ = [{ client: "acme", project: "boutique" }, { client: "acme", project: "infra" }, { client: "iprospective", project: "pm-ai-agents" }, { client: "vide", project: "" }];
   const mk = (client, project, projects = PROJ) => new NewTicketViewModel({ types: [{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }], priorities: ["low", "normal", "high", "urgent"], projects }, { client, project });
   // — RM2726 : filtre client, radios projet, défauts sûrs —

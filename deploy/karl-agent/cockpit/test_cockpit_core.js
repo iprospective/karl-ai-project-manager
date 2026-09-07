@@ -70,18 +70,12 @@ function fakeElement() {
 
   // — 1. le déplacement n'a rien changé — (RM2889 L6 : le script inline a disparu ; la référence est l'implémentation historique, recopiée ici)
   const escRef = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const jargRef = (v) => "'" + String(v == null ? "" : v).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
-  for (const [name, ref] of [["esc", escRef], ["jarg", jargRef]]) {
-    for (const v of CAS) assert.strictEqual(H[name](v), ref(v), `${name}(${JSON.stringify(v)}) diverge de l'implémentation historique`);
-  }
-  console.log(`✓ esc et jarg identiques à l'implémentation historique sur ${CAS.length} cas`);
+  for (const v of CAS) assert.strictEqual(H.esc(v), escRef(v), `esc(${JSON.stringify(v)}) diverge de l'implémentation historique`);
+  console.log(`✓ esc identique à l'implémentation historique sur ${CAS.length} cas`);
 
-  // — 2. jarg protège bien un handler inline en guillemets doubles —
-  //      (le piège documenté : JSON.stringify refermerait l'attribut)
-  const arg = H.jarg('il a dit "bonjour" et c\'est tout');
-  assert(!arg.slice(1, -1).includes('"'), "jarg laisse passer un guillemet double");
-  assert(arg.startsWith("'") && arg.endsWith("'"), "jarg doit rendre des simples");
-  console.log("✓ jarg ne peut pas refermer un attribut HTML");
+  // — 2. RM3001 : jarg a disparu avec le dernier handler inline ; esc n'est plus qu'un détail du gabarit (exporté pour les tests) —
+  assert.strictEqual(H.jarg, undefined, "jarg ne doit plus exister : plus aucun on* à protéger");
+  console.log("✓ jarg retiré");
 
   // — 3. html : échappe par défaut, raw() seul fait exception —
   assert.strictEqual(String(H.html`<p>${"<b>"}</p>`), "<p>&lt;b&gt;</p>");
@@ -139,7 +133,18 @@ function fakeElement() {
   assert.strictEqual(vus, 1, "un abonné désabonné ne doit plus rien recevoir");
   assert.strictEqual(st.stats().subscribers, 0);
   assert.throws(() => new S.Store("x", { max: 0 }), /max doit être/);
-  console.log("✓ store : LRU borné, péremption, désabonnement effectif");
+  // RM3005 : fraîcheur douce (age/expire), lecture indexée en lecture seule (view), stores nommés et bornés (appStores)
+  { let t = 0; const s2 = new S.Store("doux", { ttl: 1000, max: 5, now: () => t });
+    s2.set(7, { titre: "sept" }); assert.strictEqual(s2.get("7").titre, "sept", "clé numérique ≡ chaîne"); assert(s2.has(7) && s2.age("7") === 0);
+    t = 300; assert.strictEqual(s2.age(7), 300); s2.expire(7); assert.strictEqual(s2.age(7), Infinity, "expire : à revalider…"); assert.strictEqual(s2.get(7).titre, "sept", "…mais toujours servie (la vue ne clignote pas)");
+    s2.set("8", "huit"); assert.deepStrictEqual(s2.keys(), ["7", "8"]); assert.deepStrictEqual(s2.values(), [{ titre: "sept" }, "huit"]); assert.strictEqual(s2.size, 2);
+    const v = s2.view; assert.strictEqual(v[8], "huit"); assert("8" in v && !("9" in v)); assert.deepStrictEqual(Object.keys(v), ["7", "8"]); assert.deepStrictEqual(Object.values(v), [{ titre: "sept" }, "huit"]);
+    assert.throws(() => { v.x = 1; }, /lecture seule/); assert.throws(() => { delete v[8]; }, /lecture seule/);
+    t = 5000; assert.strictEqual(v[8], undefined, "la vue voit la péremption dure"); assert.deepStrictEqual(s2.keys(), []);
+    S.resetStores(); const app = S.appStores({ now: () => t }); assert.deepStrictEqual(Object.keys(app), ["resolve", "sess", "mc", "usage", "ts", "trans"]);
+    for (const [k, b] of Object.entries(S.STORE_BOUNDS)) assert(app[k].name === b.name && app[k].max === b.max && app[k].ttl === b.ttl && app[k].max > 0 && app[k].ttl > 0, "borné : " + k);
+    assert.strictEqual(S.appStores().resolve, app.resolve, "un seul store par nom"); assert.strictEqual(S.storeStats().length, 6, "karl.stats() les voit tous"); S.resetStores(); }
+  console.log("✓ store : LRU borné, péremption, désabonnement effectif, fraîcheur douce, vue indexée en lecture seule, stores nommés (RM3005)");
 
   // — 7. LA garde du chantier : un unmount() libère tout ce que mount() a créé —
   const D = await import(path.join(DIR, "src/core/dom.js"));
@@ -166,6 +171,16 @@ function fakeElement() {
   el.dispatch("click", { closest: () => ({}) });
   assert.strictEqual(clics, 1, "un composant démonté ne doit plus réagir");
   console.log("✓ cycle de vie : unmount() libère écouteurs, abonnements et minuteries");
+
+  // — 7b. RM3001 : paint()/append() = le seul point d'écriture HTML hors mount/update, et il n'accepte que du SÛR —
+  { const sub = fakeElement();
+    assert.strictEqual(D.paint(sub, H.html`<b>${"<x>"}</b>`), sub); assert.strictEqual(sub.innerHTML, "<b>&lt;x&gt;</b>", "un fragment html est peint tel quel");
+    D.paint(sub, ""); assert.strictEqual(sub.innerHTML, "", "le vide efface"); D.paint(sub, null); assert.strictEqual(sub.innerHTML, "");
+    assert.throws(() => D.paint(sub, "<b>nu</b>"), /fragment non sûr/, "une chaîne nue est refusée"); assert.throws(() => D.paint(sub, String(H.html`x`)), /fragment non sûr/, "même stringifiée");
+    assert.strictEqual(D.paint(null, H.html`x`), null, "hôte absent : rien, sans erreur");
+    const acc = fakeElement(); acc.insertAdjacentHTML = (where, h2) => { acc.innerHTML += h2; }; D.paint(acc, H.html`<i>a</i>`); D.append(acc, H.html`<i>${"b"}</i>`); D.append(acc, ""); assert.strictEqual(acc.innerHTML, "<i>a</i><i>b</i>", "append ajoute sans repeindre");
+    assert.throws(() => D.append(acc, "<i>c</i>"), /fragment non sûr/);
+    console.log("✓ paint/append : fragments sûrs seulement, vide accepté, hôte absent toléré"); }
 
   // — 8. la coquille de cohabitation est réellement branchée —
   assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html),
@@ -210,8 +225,8 @@ function fakeElement() {
   console.log("✓ api : headers identiques, corps json/texte, 401, erreurs à quatre champs");
 
   // — 10. modèle : factory qui garantit l'invariant, repository qui cache —
-  const F = await import(path.join(DIR, "src/models/Factory.js"));
-  const RP = await import(path.join(DIR, "src/models/Repository.js"));
+  const F = await import(path.join(DIR, "src/core/Factory.js"));
+  const RP = await import(path.join(DIR, "src/core/Repository.js"));
   const f = new F.Factory({ type: "ticket", required: ["id"], defaults: { tags: [] }, coerce: { id: Number } });
   const e1 = f.one({ id: "12", title: "t" });
   assert.strictEqual(e1.id, 12); assert.deepStrictEqual(e1.tags, []); assert.strictEqual(e1.type, "ticket");
@@ -228,7 +243,7 @@ function fakeElement() {
   console.log("✓ modèle : factory (invariants, défauts, coercition), repository (cache, routes nommées)");
 
   // — 11. ViewModel : inerte, testable sans réseau, héritage plat —
-  const V = await import(path.join(DIR, "src/viewmodels/EntityViewModel.js"));
+  const V = await import(path.join(DIR, "src/core/EntityViewModel.js"));
   class TicketVM extends V.withConso(V.EntityViewModel) {
     get badges() { return [...super.badges, this.e.priority]; }
     sections() { return [{ id: "resume", title: "résumé", summary: true }, this.consoSection()]; }
@@ -241,31 +256,32 @@ function fakeElement() {
   assert.throws(() => new V.EntityViewModel(null), /exige une entité/);
   console.log("✓ ViewModel : présente sans réseau, mixin withConso, contexte injecté");
 
-  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir —
+  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir. RM3012 : les modules vivent par domaine
+  //   (src/modules/<domaine>/), la couche se lit sur le SUFFIXE du fichier — même contrat qu'avec les dossiers par couche.
+  const layerOf = (f) => /\.view\.js$/.test(f) ? "view" : /ViewModel/.test(f) ? "viewmodel" : /\.service\.js$/.test(f) ? "service" : /\.controller\.js$/.test(f) ? "controller" : /Repository\.js$/.test(f) ? "repository" : "model";
   const FORBIDDEN = {
-    views:       [/core\/api\.js/, /services\//, /models\//],       // une vue rend, elle ne charge rien
-    viewmodels:  [/core\/api\.js/, /core\/dom\.js/, /services\//],   // inerte : ni réseau ni DOM
-    models:      [/core\/dom\.js/, /views\//, /controllers\//],      // jamais de DOM
-    services:    [/core\/dom\.js/, /views\//, /controllers\//],      // aucun balisage
-    components:  [/core\/api\.js/, /services\//, /models\//],
-    controllers: [/core\/api\.js/],                                  // aucun appel réseau direct
+    view:       [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /Repository\.js$/, /\.controller\.js$/, /ViewModel/],   // une vue rend, elle ne charge rien
+    viewmodel:  [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /\.controller\.js$/, /\.view\.js$/],                  // inerte : ni réseau ni DOM
+    model:      [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],                       // jamais de DOM
+    repository: [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],
+    service:    [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/],                                                    // aucun balisage
+    controller: [/core\/api\.js/],                                                                                        // aucun appel réseau direct
   };
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x =>
     x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
-  let verifies = 0;
-  for (const [layer, bans] of Object.entries(FORBIDDEN)) {
-    const dir = path.join(DIR, "src", layer);
-    if (!fs.existsSync(dir)) continue;
-    for (const file of walk(dir)) {
-      const src = fs.readFileSync(file, "utf8");
-      for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
-        for (const ban of bans) assert(!ban.test(spec),
-          `${path.relative(DIR, file)} importe ${spec} — interdit à la couche ${layer}`);
-        verifies++;
-      }
+  let verifies = 0; const seen = {};
+  for (const file of walk(path.join(DIR, "src", "modules"))) {
+    const layer = layerOf(file); seen[layer] = (seen[layer] || 0) + 1;
+    const src = fs.readFileSync(file, "utf8");
+    for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
+      for (const ban of FORBIDDEN[layer]) assert(!ban.test(spec), `${path.relative(DIR, file)} (${layer}) importe ${spec} — interdit à cette couche`);
+      verifies++;
     }
   }
-  console.log(`✓ gardes d'imports : ${verifies} import(s) vérifié(s) sur 6 couches`);
+  assert(Object.keys(seen).length === 6 && verifies > 300, "gardes : les six couches sont représentées (" + JSON.stringify(seen) + ", " + verifies + " imports)");
+  // un module = un dossier de src/modules ; chaque fichier y est classé par son suffixe ; aucun dossier par couche ne subsiste
+  for (const d of ["models", "services", "viewmodels", "views", "controllers", "components"]) assert(!fs.existsSync(path.join(DIR, "src", d)), "dossier par couche résiduel : src/" + d);
+  console.log(`✓ gardes d'imports par suffixe : ${verifies} import(s) vérifié(s), ${Object.keys(seen).length} couches, ${fs.readdirSync(path.join(DIR, "src", "modules")).length} modules`);
 
   // — 13. aucune référence DÉTACHÉE à une fonction native du navigateur (setTimeout, fetch…) : appelée comme méthode d'un objet,
   //   elle lève « Illegal invocation » dans un navigateur mais pas sous node — d'où un test statique (incident du 2026-09-06)
@@ -274,6 +290,34 @@ function fakeElement() {
       if (/[:=]\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\s*[,)}\];]/.test(line.replace(/\/\/.*$/, "").replace(/^\s*\*.*$|^\s*\/\*.*$/, "")) && !/=>\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\b|globalThis\.|window\./.test(line)) bare.push(path.relative(DIR, file) + ":" + (i + 1));
     assert.deepStrictEqual(bare, [], "référence détachée à une fonction native : " + bare.join(", "));
     console.log("✓ aucune référence détachée à setTimeout/fetch… dans src/"); }
+
+  // — 15. RM3001 : toute écriture HTML passe par core/dom.js (mount/update/paint/append) ; plus de jarg ; esc réservé au gabarit
+  { const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); const code = fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+      if (rel !== path.join("src", "core", "dom.js") && /\.(innerHTML|outerHTML)\s*=[^=]|insertAdjacentHTML\(/.test(code)) offenders.push(rel + " : écrit du HTML sans passer par core/dom.js");
+      if (/\bjarg\b/.test(code)) offenders.push(rel + " : jarg");
+      if (rel !== path.join("src", "core", "html.js") && /\besc\s*\(/.test(code)) offenders.push(rel + " : esc() hors du gabarit");
+    }
+    assert.deepStrictEqual(offenders, [], offenders.join(" ; "));
+    console.log("✓ aucune écriture HTML hors core/dom.js, plus de jarg, esc réservé au gabarit (RM3001)"); }
+
+  // — 14. RM3005 : zéro cache hors core/store.js — un store se définit LÀ (appStores/STORE_BOUNDS), jamais dans un module ; aucun objet
+  //   de cache partagé (`caches`, `resolveAt`, `resolveCache = {}`) ; boot.js prête les stores nommés et le dépôt ticket les reçoit
+  { const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+    const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); if (rel === path.join("src", "core", "store.js")) continue;
+      const code = strip(fs.readFileSync(file, "utf8"));
+      if (/\bnew Store\s*\(/.test(code) || (/\bdefineStore\s*\(/.test(code) && rel !== path.join("src", "core", "Repository.js"))) offenders.push(rel + " : définit un store");   // la classe de base Repository nomme le sien par defineStore
+      if (/\b(caches|resolveAt)\b/.test(code)) offenders.push(rel + " : objet de cache partagé");
+      if (/\b\w*[cC]ache\w*\s*=\s*(\{\}|new Map\(\))/.test(code)) offenders.push(rel + " : cache local hors store");
+    }
+    assert.deepStrictEqual(offenders, [], "caches hors core/store.js : " + offenders.join(" ; "));
+    const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"), repo = fs.readFileSync(path.join(DIR, "src/modules/ticket/TicketRepository.js"), "utf8");
+    assert(/const stores = appStores\(\);/.test(boot) && /new TicketRepository\(\{ stores \}\)/.test(boot) && /resolve: \(\) => stores\.resolve/.test(boot) && /sess: \(\) => stores\.sess/.test(boot), "boot.js prête les stores nommés");
+    assert(/this\.s = stores \|\| appStores\(/.test(repo) && !/this\.c\b/.test(repo), "le dépôt ticket range tout dans les stores");
+    console.log("✓ zéro cache hors core/store.js : stores définis dans core/store.js seulement, prêtés par boot.js, reçus par le dépôt ticket (RM3005)"); }
 
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

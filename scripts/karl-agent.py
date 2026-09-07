@@ -222,6 +222,8 @@ SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le t
 # cwd quelconque, et l'import échouerait silencieusement au boot sans lui.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from karl_api_routes import api_alias   # RM2889 L7 : /api/<type>/<action> → chemin historique
+from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 : journal structuré (sévérité, catégories)
+                    category_for_path as _jcat, exception_brief as _jexc, CATEGORIES as _JCATS)   # noqa: E402
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -718,6 +720,16 @@ def op_auth_devices_list(ctx: dict) -> dict:
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
+
+
+def _cockpit_version() -> str:
+    """RM3000 : la version du cockpit, lue dans src/core/version.js (source unique, côté front) — exposée par /health et
+    comparée par la page à sa propre constante (un cache navigateur périmé se voit)."""
+    try:
+        m = re.search(r'export const VERSION = "([^"]+)"', (COCKPIT_DIR / "src" / "core" / "version.js").read_text(encoding="utf-8"))
+        return m.group(1) if m else "?"
+    except OSError:
+        return "?"
 # Aide intégrée (RM2593) : pages markdown versionnées, servies via /help.
 HELP_DIR = COCKPIT_DIR / "help"
 # Base URL du terminal web ttyd. Vide → le client la calcule (location.hostname:7681).
@@ -760,8 +772,11 @@ def op_help_get(topic: str) -> dict | None:
 
 # ── Helpers tmux ─────────────────────────────────────────────────────────────
 def _tmux(*args, timeout=10):
-    """Exécute tmux et renvoie (rc, stdout, stderr)."""
+    """Exécute tmux et renvoie (rc, stdout, stderr). RM3010 : un échec est journalisé (`tmux`, warn) — sauf les sondes
+    d'existence (has-session) dont le rc ≠ 0 est une réponse, pas une erreur."""
     p = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+    if p.returncode != 0 and args and args[0] not in ("has-session", "-V", "display-message", "list-sessions", "list-windows", "list-panes", "show-options"):
+        _jlog("tmux", "warn", f"tmux {args[0]} rc={p.returncode}", args=[str(a) for a in args[:8]], stderr=(p.stderr or "")[:300])
     return p.returncode, p.stdout, p.stderr
 
 
@@ -1248,6 +1263,7 @@ def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
     )
     if rc != 0:
         raise ApiError(500, f"tmux new-session a échoué : {err.strip()}")
+    _jlog("tmux", "info", "session lancée", rm_id=rm_id, name=name, cwd=str(cwd), cmd=str(cmd)[:160])   # RM3010
 
     # RM2690 : plafond mémoire sur la scope systemd du pane — une session qui fuit
     # se fait tuer SEULE au lieu de laisser le kernel arbitrer. Couvre spawn ET
@@ -1446,6 +1462,7 @@ def op_kill(payload: dict) -> dict:
     rc, _, err = _tmux("kill-session", "-t", _session_name(rm_id))
     if rc != 0:
         raise ApiError(500, f"kill-session a échoué : {err.strip()}")
+    _jlog("tmux", "info", "session fermée", rm_id=rm_id, name=_session_name(rm_id))   # RM3010
     return {"rm_id": rm_id, "killed": True}
 
 
@@ -10606,8 +10623,51 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # journald capte stderr ; format compact
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
+    # ── RM3010 : journal structuré ─────────────────────────────────────────
+    # Chaque requête est horodatée ; toute réponse ≥ 400 est journalisée (catégorie
+    # d'après le chemin, `auth` pour 401/403, traceback court sur 5xx) ; les POST
+    # aboutis des domaines qui MUTENT (tmux, jeux, session, auth, mail, pm, voix,
+    # tickets) le sont en `info` ; les autres réponses en `debug` (visibles avec
+    # KARL_JOURNAL_LEVEL=debug). Le journal ne lève jamais.
+    _JOURNAL_MUTATIONS = frozenset({"tmux", "sets", "session", "auth", "mail", "pm", "voice", "issue", "worklog", "files"})
+
+    def handle_one_request(self):
+        self._t0 = time.monotonic(); self._status = None
+        return super().handle_one_request()
+
+    def send_response(self, code, message=None):
+        self._status = code
+        return super().send_response(code, message)
+
+    def _journal_fields(self) -> dict:
+        ctx = getattr(self, "auth_ctx", None) or {}
+        t0 = getattr(self, "_t0", None)
+        return {"method": getattr(self, "command", None), "path": urlparse(self.path).path,
+                "ms": int((time.monotonic() - t0) * 1000) if t0 else None, "user": ctx.get("user"), "ip": self.client_address[0]}
+
+    def _journal_response(self, code: int, obj: dict | None) -> None:
+        try:
+            f = self._journal_fields(); path = f["path"]
+            if code >= 400:
+                cat = "auth" if code in (401, 403) else _jcat(path)
+                lvl = "error" if code >= 500 else "warn"
+                msg = (obj or {}).get("error") or f"HTTP {code}"
+                _jlog(cat, lvl, str(msg)[:400], status=code, trace=_jexc(sys.exc_info()[1]) if code >= 500 else None, **f)
+            elif f["method"] in ("POST", "PUT", "DELETE") and _jcat(path) in self._JOURNAL_MUTATIONS:
+                _jlog(_jcat(path), "info", f"{f['method']} {path} → {code}", status=code, **self._journal_payload_summary(), **f)
+            else:
+                _jlog("api", "debug", f"{f['method']} {path} → {code}", status=code, **f)
+        except Exception:  # noqa: BLE001 — le journal n'emporte jamais la réponse
+            pass
+
+    def _journal_payload_summary(self) -> dict:
+        p = getattr(self, "_journal_payload", None) or {}
+        keep = {k: p[k] for k in ("rm_id", "sid", "group", "name", "engine", "view", "user", "to", "from") if k in p and isinstance(p[k], (str, int, float, bool))}
+        return {"payload": keep} if keep else {}
+
     # -- utilitaires de réponse --
     def _send_json(self, code: int, obj: dict, extra_headers=None):
+        self._journal_response(code, obj if isinstance(obj, dict) else None)   # RM3010
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -10754,6 +10814,10 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(
             {"error": "authentification requise (login, Basic ou X-Karl-Token)"},
             ensure_ascii=False).encode("utf-8")
+        try:   # RM3010 : un client sans jeton (page ouverte sans login) — info, pas warn
+            _jlog("auth", "info", "authentification requise", status=401, **self._journal_fields())
+        except Exception:  # noqa: BLE001
+            pass
         self.send_response(401)
         if (BASIC_USER is not None and BASIC_PASS is not None
                 and (self.headers.get("Authorization") or "").startswith("Basic ")):
@@ -10853,11 +10917,20 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/auth/users":
                 self._require_admin()
                 return self._send_json(200, op_auth_users_list())
+            if path == "/log/tail":   # RM3010 : lecture filtrée du journal (auth requise)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                try:
+                    limit = int(qs.get("limit") or 200)
+                except ValueError:
+                    limit = 200
+                return self._send_json(200, {"entries": _jtail(qs.get("category"), qs.get("level"), qs.get("since"), limit, qs.get("q")),
+                                             "categories": sorted(_JCATS), "stats": _jstats()})
             if path == "/health":
                 return self._send_json(200, {
                     "status": "ok",
                     "sessions": len(_list_sessions()),
                     "tmux": _tmux("-V")[0] == 0,
+                    "version": _cockpit_version(),   # RM3000
                 })
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
@@ -11041,7 +11114,9 @@ class Handler(BaseHTTPRequestHandler):
         # progressif par IP dans op_auth_login).
         if path == "/auth/login":
             try:
-                res = op_auth_login(self._read_json(), self.client_address[0])
+                login_payload = self._read_json()
+                res = op_auth_login(login_payload, self.client_address[0])
+                _jlog("auth", "info", "connexion", user=res.get("user"), admin=bool(res.get("admin")), device=str(login_payload.get("device_name") or ""), ip=self.client_address[0])
                 # RM2700 : pose AUSSI le token en cookie de session même-origine
                 # (en plus de la réponse JSON que le cockpit met en localStorage).
                 # Sert exclusivement au gate du terminal distant `/ttyd`.
@@ -11055,6 +11130,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_auth_required()
         try:
             payload = self._read_json()
+            self._journal_payload = payload if isinstance(payload, dict) else None   # RM3010 : résumé dans le journal des mutations
+            if path == "/log":   # RM3010/RM3011 : le front dépose ses erreurs et avertissements
+                fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else {}
+                _jlog(str(payload.get("category") or "front"), str(payload.get("level") or "info"), str(payload.get("message") or "")[:1000],
+                      via="front", user=(self.auth_ctx or {}).get("user"), ip=self.client_address[0], **{k: v for k, v in fields.items() if k not in ("via", "user", "ip")})
+                return self._send_json(200, {"ok": True})
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.

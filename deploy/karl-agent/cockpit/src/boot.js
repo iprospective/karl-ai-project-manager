@@ -48,6 +48,7 @@ import { mountSearch } from "./modules/search/search.controller.js";
 import { mountFiles } from "./modules/files/files.controller.js";
 import { mountWorklog } from "./modules/worklog/worklog.controller.js";
 import { mountLayout } from "./modules/layout/layout.controller.js";
+import { MOBILE_MAX_PX } from "./modules/layout/mobile.js";
 import { mountLauncher } from "./modules/launcher/launcher.controller.js";
 import { mountSessionActions } from "./modules/actions/actions.controller.js";
 import { mountTerminal } from "./modules/terminal/terminal.controller.js";
@@ -136,8 +137,11 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
 // domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
 // les contrôleurs à l'appel, jamais au montage).
-const layout = mountLayout({ main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
+const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
+  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
+  attention: () => stores.sess.values().filter(s => s && !s.ghost && (s.state === "attention" || s.state === "choice")).length, attached: () => (attachCtl ? attachCtl.current() : null),
   onApply: (r, visible) => {
     const att = attachCtl.current();
     if (visible("outline") && att) outlineCtl.load();                       // RM2330 : ne charge qu'une fois réellement visible
@@ -263,6 +267,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
+  noted: () => layout.centerShown(),   // RM3003 : une vue, une session, un panneau ou une fiche ouverte → la page « centre » du gabarit mobile
   placeholder: (on) => show("placeholder", on, "flex"),
   dashboard: () => dashboard.refresh(),
   nothingElse: () => !attachCtl.current() && !(review && review.current()) && !(project && project.current()),

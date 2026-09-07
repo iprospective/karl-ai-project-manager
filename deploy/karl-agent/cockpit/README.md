@@ -72,6 +72,17 @@ La garde d'imports (`test_cockpit_core.js` § 12) vérifie ces interdits sur cha
   s'ajoute dans `MIGRATION-ROUTES.tsv` puis `python3 scripts/cockpit-gen-endpoints.py`
   (régénère `src/core/endpoints.js` **et** `scripts/karl_api_routes.py` côté serveur).
 
+## Le gabarit mobile (RM3003)
+
+Pas un second cockpit : la même page, **disposée autrement**. `modules/layout/mobile.js` décide
+(`detectLayout` : `?layout=mobile|desktop` dans l'URL, sinon la préférence `karlLayout`, sinon la
+media query ≤ 820 px prêtée par `boot.js`) ; le contrôleur `layout` pose `html[data-layout]` et
+`main[data-mpage]` (`left` panneaux · `center` onglets/terminal/vues · `right` colonne de droite) et
+peint la barre du bas (`#mnav`, `Layout.view.js`). Tout le reste est du CSS (`layout.scss`, bloc
+`html[data-layout="mobile"]`) : aucun contrôleur, ViewModel ou vue n'est rendu deux fois. Les
+surfaces préviennent la disposition par deux hooks : `center.note()` → page centre, `showRight()` →
+page droite, `switchPanel()` → page panneaux. Le test navigateur joue un viewport de 390 px.
+
 ## Le registre des types d'entités (RM3002)
 
 `core/entities.js` connaît chaque **type** que le centre et les listes manipulent (session, review,

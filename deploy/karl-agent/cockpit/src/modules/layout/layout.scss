@@ -55,3 +55,27 @@ main.lcollapsed { grid-template-columns: 34px 1fr; }
 main.lcollapsed .lnav, main.lcollapsed .lbody { display: none; }
 .ltoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
   border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
+
+/* RM3003 : gabarit MOBILE — une colonne à la fois, barre de navigation en bas. Les surfaces sont celles du bureau, seule la disposition
+   change : `html[data-layout="mobile"]` (posé par layout.controller : écran ≤ 820 px ou ?layout=mobile), `main[data-mpage]` = la page montrée. */
+.mnav { display: none; }
+html[data-layout="mobile"] {
+  header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  header h1 { display: none; }
+  main, main.lcollapsed { grid-template-columns: 1fr; }
+  .ltoggle, .rtoggle, .rhandle { display: none; }
+  .left { border-right: 0; }
+  main[data-mpage="center"] .left, main[data-mpage="right"] .left { display: none; }
+  main[data-mpage="left"] .right { display: none; }
+  main[data-mpage="center"] .rpanel { display: none; }
+  main[data-mpage="right"] .tabbar, main[data-mpage="right"] .termwrap > :not(.rpanel) { display: none; }
+  main[data-mpage="right"] .rpanel, main[data-mpage="right"] .rpanel.collapsed, main[data-mpage="right"] .rpanel.wide { width: 100%; border-left: 0; }
+  main[data-mpage="right"] .rpanel.collapsed .rnav, main[data-mpage="right"] .rpanel.collapsed .rbody { display: flex; }
+  main[data-mpage="right"] .rtitle { display: block; }
+  .mnav { display: flex; flex: none; justify-content: space-around; gap: 4px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border-top: 1px solid var(--line); }
+  .mnav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 10.5px; position: relative; }
+  .mnav-btn .mnav-ico { font-size: 16px; line-height: 1.1; }
+  .mnav-btn.active { color: var(--accent); background: var(--bg); border-color: var(--line); font-weight: 600; }
+  .mnav-btn .nbadge { position: absolute; top: 2px; right: 10px; }
+  .foot { display: none; }
+}

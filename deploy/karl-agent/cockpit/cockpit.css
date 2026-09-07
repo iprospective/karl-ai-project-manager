@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 50a5ba75580a0e8c (29 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : bfade8af6451365e (29 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -872,6 +872,93 @@ main.lcollapsed .lnav, main.lcollapsed .lbody {
   height: 32px;
   font-size: 14px;
   flex: none;
+}
+
+/* RM3003 : gabarit MOBILE — une colonne à la fois, barre de navigation en bas. Les surfaces sont celles du bureau, seule la disposition
+   change : `html[data-layout="mobile"]` (posé par layout.controller : écran ≤ 820 px ou ?layout=mobile), `main[data-mpage]` = la page montrée. */
+.mnav {
+  display: none;
+}
+
+html[data-layout=mobile] header {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+html[data-layout=mobile] header h1 {
+  display: none;
+}
+html[data-layout=mobile] main, html[data-layout=mobile] main.lcollapsed {
+  grid-template-columns: 1fr;
+}
+html[data-layout=mobile] .ltoggle, html[data-layout=mobile] .rtoggle, html[data-layout=mobile] .rhandle {
+  display: none;
+}
+html[data-layout=mobile] .left {
+  border-right: 0;
+}
+html[data-layout=mobile] main[data-mpage=center] .left, html[data-layout=mobile] main[data-mpage=right] .left {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=left] .right {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=center] .rpanel {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=right] .tabbar, html[data-layout=mobile] main[data-mpage=right] .termwrap > :not(.rpanel) {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=right] .rpanel, html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed, html[data-layout=mobile] main[data-mpage=right] .rpanel.wide {
+  width: 100%;
+  border-left: 0;
+}
+html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed .rnav, html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed .rbody {
+  display: flex;
+}
+html[data-layout=mobile] main[data-mpage=right] .rtitle {
+  display: block;
+}
+html[data-layout=mobile] .mnav {
+  display: flex;
+  flex: none;
+  justify-content: space-around;
+  gap: 4px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+html[data-layout=mobile] .mnav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  position: relative;
+}
+html[data-layout=mobile] .mnav-btn .mnav-ico {
+  font-size: 16px;
+  line-height: 1.1;
+}
+html[data-layout=mobile] .mnav-btn.active {
+  color: var(--accent);
+  background: var(--bg);
+  border-color: var(--line);
+  font-weight: 600;
+}
+html[data-layout=mobile] .mnav-btn .nbadge {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+}
+html[data-layout=mobile] .foot {
+  display: none;
 }
 
 /* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */

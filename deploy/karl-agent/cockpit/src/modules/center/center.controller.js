@@ -61,6 +61,7 @@ export function mountCenter(hosts, ctx = {}) {
 
   // ── onglets ───────────────────────────────────────────────────────────────
   function note(kind, key, label, opts) {
+    if (ctx.noted && !entity(kind).fixed) ctx.noted(kind, key);   // RM3003 : le gabarit mobile passe sur la page du centre (pas pour l'onglet permanent du démarrage)
     const r = upsertTab(state.tabs, kind, key, label, opts);
     state.tabs = r.tabs; state.active = r.active;
     save(); renderTabs();

@@ -42,11 +42,11 @@ vhost `<repo>-rm<id>.lxc` + `.user.ini` `error_log` par worktree (surchargeable 
 
 ## Déploiement du helper (box de dev)
 
-**Canal normal (RM2358)** : `sudo mmi-pm core update` installe/rafraîchit le
+**Canal normal (RM2358)** : `mmi-pm core-update` (sudo demandé) installe/rafraîchit le
 helper automatiquement (copie idempotente `tools/env-runtime/pm-env-helper.sh`
 → `/usr/local/sbin/pm-env-helper`, root:root 755) — même canal root que le
-code du core, barrière mot de passe sudoers. NB : `core update` s'exécutant
-depuis l'ancien `bin/mmi-pm`, une évolution du bloc d'install lui-même ne prend
+code du core, barrière mot de passe sudoers. NB : `core-update` s'exécutant
+depuis l'ancien `scripts/pm-core-update.py` (RM3033), une évolution du bloc d'install lui-même ne prend
 effet qu'au run suivant.
 
 **Bootstrap d'une box neuve** (avant le premier `core update`) :

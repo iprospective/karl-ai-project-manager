@@ -221,6 +221,6 @@ scinder par couche. `scripts/test_cockpit_view_cost.py` teste la mesure elle-mê
 
 ## Livrer
 
-MR ticket → `dev` → `main` (`mmi-pm mr create` / `mr merge`), puis `sudo mmi-pm core update`
+MR ticket → `dev` → `main` (`mmi-pm mr create` / `mr merge`), puis `mmi-pm core-update` (sudo demandé)
 sur l'instance. `systemctl --user restart karl-agent` **seulement** si `scripts/karl-agent.py`
 change ; un front seul se recharge avec Ctrl+F5 (l'avertissement de version le dit).

@@ -73,5 +73,5 @@ export function coreUpdateState(d) {
 export function coreUpdateText(d) {
   const u = d || {}; const l = (u.local || "?").slice(0, 7), r = (u.remote || "?").slice(0, 7);
   return "Mise à jour du code PM disponible\n\nbranche : " + u.branch + "\ninstallé : " + l + "\ndisponible : " + r + "\n" + (u.checked_at ? "vérifié : " + u.checked_at + "\n" : "") +
-    "\nÀ lancer dans un terminal (mot de passe sudo demandé) :\n\n  sudo /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update\n\nNote : karl-agent redémarre si son propre code a changé — le cockpit se reconnecte tout seul.";
+    "\nÀ lancer dans un terminal (mot de passe sudo demandé) :\n\n  mmi-pm core-update\n\nNote : karl-agent redémarre si son propre code a changé — le cockpit se reconnecte tout seul.";
 }

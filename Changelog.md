@@ -78,6 +78,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   vendors complétée (xterm.js MIT, compatible), norme de gouvernance : toute contribution est
   faite sous cette licence, toute dépendance doit lui être compatible. Les données de projets
   (dépôt privé) ne sont pas couvertes.
+- **Un seul `mmi-pm`** (RM3033). Deux outils portaient le nom : `bin/mmi-pm` (bash, provisioning
+  `<nom> <verbe>`, porte sudo) et `scripts/mmi-pm.py` (dispatcher `mmi-pm <cmd>` → `pm-<cmd>.py`,
+  dans le PATH) — et aucun ne connaissait l'autre : `mmi-pm core update` en PATH répondait
+  « sous-commande inconnue », la moitié du bash ne faisait que ré-exécuter des `pm-*.py` déjà
+  atteignables. La logique bash est portée en python sous la convention des 90 autres scripts :
+  `pm-core-update.py` (agent SSH éphémère, pull, `core-lock`, hooks du core, redémarrage de
+  karl-agent, co-déploiement du helper — et il **se ré-exécute en sudo lui-même**, mot de passe
+  demandé, sauf `--dry-run`), `pm-index-add|remove|rebuild|list.py`, `pm-env-vhost.py`. Le
+  dispatcher gagne le repli `<nom> <verbe>` → `pm-<nom>-<verbe>` (l'ancienne grammaire reste
+  valide) et les alias par nom d'appel : `mmi-core update`, `mmi-task show 42` (liens
+  `/usr/local/bin/mmi-<domaine>` posés par `core-update`). `bin/mmi-pm` n'est plus qu'une
+  coquille de transition.
 - **Un projet, un dépôt, naissent avec leur licence** (RM3030, suite de RM3029). Aucun outil ne
   posait la question : un dépôt naissait sans `LICENSE` — donc sans droit d'usage pour personne —
   et la décision n'était consignée nulle part. `pm-project-new` demande la licence du code

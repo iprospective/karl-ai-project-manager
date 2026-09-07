@@ -1,5 +1,16 @@
 # Changelog des normes
 
+## [2.20.0] - 2026-09-07
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « archiver les sessions »** (RM2997) :
+  `pm-sessions-archive.py`. Il existait un dépôt d'archivage et un remote, mais
+  aucun outil : le geste était manuel, et il a cessé le 2026-06-23 sur un verrou
+  git périmé — 75 jours sans que rien ne le signale, 42 transcripts effacés
+  entre-temps par la rétention de Claude Code. La règle anti-trou vaut aussi
+  pour ce qui *protège* le travail, pas seulement pour ce qui le produit.
+  Détail et invariants : `knowledge/karl-agent/sessions.md`.
+
 ## [2.19.0] - 2026-09-07
 
 > La 2.18.0 est arrivée par `dev` (RM3016, jeton GitHub par organisation) sans

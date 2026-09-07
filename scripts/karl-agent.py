@@ -9254,8 +9254,37 @@ def _envchk_workspace_bridge():
                  "scripts/pm-workspace-bridge.py --update")]
 
 
+def _envchk_sessions_archive():
+    """RM2997 — les sessions sont-elles encore archivées ?
+
+    Le contrôle qui a manqué. L'archivage de `~/.claude/projects` s'est arrêté le
+    2026-06-23 sur un verrou git périmé et personne ne l'a su pendant 75 jours ;
+    pendant ce temps la rétention de Claude Code effaçait 42 transcripts, et avec
+    eux la réflexion de 70 tickets ouverts. Une panne d'archivage ne se voit pas
+    toute seule : elle ne produit rien, elle cesse de produire.
+
+    Délègue au script — jamais de seconde implémentation du verdict."""
+    script = REPO_ROOT / "scripts" / "pm-sessions-archive.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script), "--check"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("archivage des sessions", "warn", "contrôle impossible")]
+    detail = " ; ".join(l.strip().lstrip("✗ ") for l in p.stdout.splitlines()
+                        if l.strip()) or "état inconnu"
+    if p.returncode == 0:
+        return [_chk("archivage des sessions", "ok", detail[:200])]
+    # `error` et non `warn` : ce qui est perdu ici ne se rattrape pas — et seuls
+    # `warn`/`error` sont comptés par le résumé du cockpit (envStatus.js), donc
+    # seul `error` fait vraiment rougir la pastille.
+    return [_chk("archivage des sessions", "error", detail[:200],
+                 "scripts/pm-sessions-archive.py (ou --install-timer)")]
+
+
 def _envchk_pm():
-    out = _envchk_workspace_bridge()
+    out = _envchk_workspace_bridge() + _envchk_sessions_archive()
     vf = REPO_ROOT / "norms" / "VERSION"
     try:
         norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()

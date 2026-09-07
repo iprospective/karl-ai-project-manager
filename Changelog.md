@@ -70,6 +70,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   reconstitution. `--prompts-all` lève le filtre sur le numéro, parce qu'une demande parle du
   sujet et rarement du ticket. Le brief d'onboarding, lui, reste strictement inchangé : 30 lignes,
   mêmes clés JSON.
+- **Le code du PM a une licence : GPL-3.0-or-later** (RM3029). Le repo, pourtant miroité en
+  public sur GitHub, n'avait ni `LICENSE` ni mention de copyright — au sens du droit d'auteur,
+  personne n'avait le droit de l'utiliser. Décision iProspective du 2026-09-07 : GPL v3 ou
+  ultérieure. `LICENSE` (texte intégral) à la racine, section « Licence » du README (ce que
+  cela implique pour les modules), `license` du `package.json` du tooling, provenance des
+  vendors complétée (xterm.js MIT, compatible), norme de gouvernance : toute contribution est
+  faite sous cette licence, toute dépendance doit lui être compatible. Les données de projets
+  (dépôt privé) ne sont pas couvertes.
 - **Un projet, un dépôt, naissent avec leur licence** (RM3030, suite de RM3029). Aucun outil ne
   posait la question : un dépôt naissait sans `LICENSE` — donc sans droit d'usage pour personne —
   et la décision n'était consignée nulle part. `pm-project-new` demande la licence du code

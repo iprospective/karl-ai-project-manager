@@ -3,6 +3,7 @@
 
 @use "tokens";
 @use "base";
+@use "entities";   // RM3002 : convention des quatre niveaux d'entité, avant les modules
 @use "../modules/layout/layout";
 @use "../modules/sessions/sessions";
 @use "../modules/auth/auth";

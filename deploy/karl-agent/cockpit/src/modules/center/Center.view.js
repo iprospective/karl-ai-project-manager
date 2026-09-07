@@ -17,7 +17,7 @@ export function CenterTitle(vm) {
   switch (vm.mode) {
     case "view":  return html`${vm.icon} <span class="ttitle">${vm.viewLabel}</span>`;
     case "panel": return html`${vm.icon} <span class="ttitle">${vm.panelLabel}</span>`;
-    case "dash":  return html`📊 <span class="ttitle">tableau de bord</span>`;
+    case "home":  return html`📊 <span class="ttitle">tableau de bord</span>`;
     default:      return html`<span class="notabs">aucune vue — choisis une session dans « en cours »</span>`;
   }
 }

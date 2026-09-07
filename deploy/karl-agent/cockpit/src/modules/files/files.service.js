@@ -8,11 +8,11 @@ export class FilesService {
   /** Périmètre de lecture : une SESSION (ses worktrees) ou un PROJET (sa racine, sa doc) — le serveur autorise les deux. */
   query(attached, wt) { return fsQuery(wt == null ? this.nav.wt : wt, null, { filesData: this.data, attached }); }
   reset() { this.data = { sid: null, worktrees: [] }; }
-  /** Charge le contexte. Rend { kind: "none" | "empty" | "ok", roots, ctx } ; `force` repart de la première racine. */
+  /** Charge le contexte. Rend { scope: "none" | "empty" | "ok", roots, ctx } ; `force` repart de la première racine. */
   async load(ctx, force) {
     this.data = { sid: null, worktrees: [], ctxKey: filesCtxKey(ctx) };
-    if (ctx.kind === "none") return { kind: "none", ctx };
-    const r = ctx.kind === "session" ? await this.repo.worktrees(ctx.sid) : await this.repo.projectRoots(ctx.client, ctx.project);
+    if (ctx.scope === "none") return { kind: "none", ctx };
+    const r = ctx.scope === "session" ? await this.repo.worktrees(ctx.sid) : await this.repo.projectRoots(ctx.client, ctx.project);
     this.data = Object.assign({}, r, { ctxKey: filesCtxKey(ctx), from: ctx.from || null });
     // RM2659 : une session sans worktree a quand même un projet — sa racine et sa doc restent lisibles
     const roots = filesGroups(this.data.projects, this.data.worktrees).reduce((a, g) => a.concat(g.roots), []);

@@ -1,12 +1,27 @@
 // viewmodels/projects — fiche, worklog projet, fichiers, conf. RM2889. Inertes.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
 import { configPrefill, crumbs } from "./projectConfig.js";
+import { bindEntity } from "../../core/entities.js";
+import { html } from "../../core/html.js";
 
 export class ProjectSheetViewModel extends EntityViewModel {
   /** e = fiche ; ctx = { key, tab, sessions: [..], ago } */
   constructor(e, ctx) { super(e || {}, ctx); }
   get key() { return this.ctx.key || ""; }
   get clientKey() { return this.key.split("/")[0]; }
+  // RM3002 : quatre niveaux depuis sections() (core/entities) — la fiche du centre reste ProjectSheet
+  get type() { return "project"; }
+  get id() { return this.key; }
+  get title() { return this.e.title || this.e.name || this.key || "projet"; }
+  get subtitle() { return this.e.title || this.e.name ? this.key : ""; }
+  get badges() { const n = this.byStatus.reduce((a, s) => a + (s.n || 0), 0); return n ? [{ text: n + " ticket(s) ouvert(s)" }] : []; }
+  sections() {
+    return [{ id: "links", title: "liens", summary: true, body: () => this.links.map(l => (l.kind === "a" ? html`<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>` : l.label)), empty: "aucun lien" },
+            { id: "status", title: "tickets ouverts par statut", summary: true, body: () => this.byStatus.map(s => [s.status, String(s.n)]), empty: "aucun ticket ouvert" },
+            { id: "environments", title: "environnements", body: () => this.environments.map(e => [e.name || "env", e.url || ""]), empty: "aucun environnement" },
+            { id: "docs", title: "documents", body: () => this.docs.map(d => d.title || d.name || d.path || ""), empty: "aucun document" },
+            { id: "recent", title: "récents", level: "full", body: () => this.openRecent.map(t => "RM" + t.rm_id + " · " + t.status + (t.title ? " — " + t.title : "")), empty: "rien de récent" }];
+  }
   get tab() { return this.ctx.tab === "worklog" ? "worklog" : "fiche"; }
   get links() { const d = this.e, out = []; if (d.redmine_project_url) out.push({ kind: "a", href: d.redmine_project_url, label: "🎫 Projet Redmine ↗" }); if (d.redmine_issues_url) out.push({ kind: "a", href: d.redmine_issues_url, label: "📋 Liste des tickets ↗" }); if (d.gitlab_repo) out.push({ kind: "pill", label: "🗄 " + d.gitlab_repo, title: "repo GitLab" + (d.default_branch ? " · branche " + d.default_branch : "") }); out.push({ kind: "pill", label: (d.total == null ? "?" : d.total) + " tickets" }); return out; }
   sessions() { return (this.ctx.sessions || []).map(s => ({ sid: String(s.rm_id), state: s.state || "idle", label: s.is_ticket === false ? String(s.rm_id) : "RM" + s.rm_id })); }
@@ -50,3 +65,4 @@ export class ProjectConfigViewModel extends EntityViewModel {
   rows() { const pre = configPrefill(this.ctx.scope, this.e), out = [{ id: "cfg-name", field: "name", label: "Nom affiché", value: pre.name }, { id: "cfg-redmine", field: "redmine", label: this.isProject ? "Projet Redmine (id/slug)" : "Projet Redmine parent (id/slug)", value: pre.redmine }];
     if (this.isProject) out.push({ id: "cfg-repo", field: "repo", label: "Repo GitLab (groupe/nom)", value: pre.repo }, { id: "cfg-branch", field: "branch", label: "Branche par défaut", value: pre.branch }); return out; }
 }
+bindEntity("project", ProjectSheetViewModel);   // RM3002

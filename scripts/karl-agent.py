@@ -7557,10 +7557,40 @@ def _root_project(root) -> tuple | None:
     return str(client), str(slug)
 
 
+DOC_ROOT_SUBS = ("project", "docs")
+
+
+def _doc_root_id(client: str, project: str, sub: str) -> str:
+    """RM3014 : identifiant d'une racine documentaire — `doc:<client>/<projet>/<docs|project>`.
+    C'est lui que le cockpit manipule et met dans ses URL : jamais le chemin absolu
+    (interface, URL, journal du démon)."""
+    return f"doc:{client}/{project}/{sub}"
+
+
+def _doc_root_path(ident: str):
+    """Chemin réel d'une racine documentaire depuis son identifiant, ou None si
+    l'identifiant est mal formé, désigne un projet inconnu ou une racine absente.
+    Résolution SERVEUR uniquement (le client ne connaît que l'identifiant)."""
+    if not (isinstance(ident, str) and ident.startswith("doc:")):
+        return None
+    parts = ident[4:].split("/")
+    if len(parts) != 3:
+        return None
+    client, project, sub = parts
+    if sub not in DOC_ROOT_SUBS or not (_PART_RE.match(client) and _PART_RE.match(project)):
+        return None
+    pdir = PROJECTS_BASE / client / "projects" / project / sub
+    return pdir if pdir.is_dir() else None
+
+
 def _project_docs_entries(client: str, project: str) -> list:
     """Racines documentaires d'un projet, au format « racine lisible » de
-    l'explorateur (chemin, nom, nombre de .md, libellé)."""
-    return [{"path": d, "name": Path(d).name,
+    l'explorateur. RM3014 : `path` est l'IDENTIFIANT `doc:<client>/<projet>/<racine>`
+    (projet:file), pas le chemin absolu — le triplet client/projet/racine est
+    porté à plat pour que le front s'en serve sans rien deviner."""
+    return [{"path": _doc_root_id(client, project, Path(d).name),
+             "client": client, "project": project, "root": Path(d).name,
+             "name": Path(d).name,
              "docs": len(list(Path(d).glob("*.md"))),
              "label": ("documents du projet" if Path(d).name == "docs"
                        else "fiches canoniques (overview, environnements)")}
@@ -7608,14 +7638,16 @@ def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str 
         allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
-        allowed |= set(_project_doc_roots(client, project))   # RM2622
+        allowed |= set(_project_doc_roots(client, project))   # RM2622 (chemins réels : clients historiques)
         # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
         # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
         # l'explorateur ouvre quand aucune session n'est attachée.
         allowed |= _project_root_paths(client, project)
     if worktree in allowed:
-        p = Path(worktree)
-        if p.is_dir():
+        # RM3014 : une racine documentaire se désigne par `doc:<client>/<projet>/<racine>`
+        # (projet:file) ; le chemin réel n'est résolu qu'ici, côté serveur.
+        p = _doc_root_path(worktree) if worktree.startswith("doc:") else Path(worktree)
+        if p is not None and p.is_dir():
             return p
     raise ApiError(403, "worktree hors du périmètre autorisé")
 
@@ -7751,12 +7783,8 @@ def op_project_worktrees(client: str, project: str) -> dict:
         out.append(item)
     # RM2622 : la doc du projet, marquée `kind: doc` — la présenter comme un
     # worktree ferait attendre une branche et des commits qui n'existent pas.
-    for d in _project_doc_roots(client, project):
-        p = Path(d)
-        n = len(list(p.glob("*.md")))
-        out.append({"path": d, "name": p.name, "exists": True, "kind": "doc",
-                    "docs": n, "label": ("documents du projet" if p.name == "docs"
-                                         else "fiches canoniques (overview, environnements)")})
+    for d in _project_docs_entries(client, project):   # RM3014 : identifiant projet:file, jamais le chemin
+        out.append(dict(d, exists=True, kind="doc"))
     return {"client": client, "project": project, "worktrees": out}
 
 

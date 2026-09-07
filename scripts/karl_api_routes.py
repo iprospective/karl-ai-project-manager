@@ -24,6 +24,7 @@ TARGET_TO_CURRENT = {
     "/api/file/log": "/fs/log",
     "/api/file/ls": "/fs/ls",
     "/api/file/project-roots": "/project-roots",
+    "/api/file/read": "/fs/file",
     "/api/file/worktrees": "/worktrees",
     "/api/git/diff": "/git/diff",
     "/api/git/log": "/git/log",

@@ -138,6 +138,57 @@ check("doc du projet lisible sans session",
 check("hors périmètre toujours refusé sans sid",
       raises(403, lambda: ka.op_fs_ls("", "/etc", "", "cli", "prj")))
 
+
+# — RM3014 : /fs/file a sa propre cible /api/file/read (l'alias /api/file/file ne
+#   doit plus avaler les requêtes du navigateur de fichiers → 403 « hors de projects/ ») —
+import importlib.util as _ilu
+_rspec = _ilu.spec_from_file_location("karl_api_routes", HERE / "karl_api_routes.py")
+_routes = _ilu.module_from_spec(_rspec); _rspec.loader.exec_module(_routes)
+check("alias /api/file/read → /fs/file (query conservée)",
+      _routes.api_alias("/api/file/read?sid=1&worktree=doc:c/p/docs&path=a.md") == "/fs/file?sid=1&worktree=doc:c/p/docs&path=a.md")
+check("alias /api/file/file → /file (route générique inchangée)",
+      _routes.api_alias("/api/file/file?path=projects/x.md") == "/file?path=projects/x.md")
+
+# — RM3014 : racines documentaires désignées par projet:file (`doc:<client>/<projet>/<racine>`),
+#   jamais par chemin absolu ; résolution serveur, gardes, compatibilité —
+with tempfile.TemporaryDirectory() as td:
+    tmp = pathlib.Path(td)
+    root = tmp / "repo"; (root / "projects/clients/c/projects").mkdir(parents=True)
+    ws = tmp / "ws/erp"; (ws / ".mmi-pm/docs").mkdir(parents=True); (ws / ".mmi-pm/project").mkdir()
+    (ws / ".mmi-pm/docs/cdc.md").write_text("# cdc", encoding="utf-8")
+    (ws / ".mmi-pm/project/overview.md").write_text("# ov", encoding="utf-8")
+    (ws / ".mmi-pm/meta.yml").write_text("slug: erp\nclient: c\n", encoding="utf-8")
+    (root / "projects/clients/c/projects/erp").symlink_to(ws / ".mmi-pm")   # projet co-localisé (symlink)
+    ka.REPO_ROOT = root; ka.PROJECTS_BASE = root / "projects/clients"
+    ents = ka._project_docs_entries("c", "erp")
+    check("racines doc : identifiants projet:file, pas de chemin absolu",
+          sorted(e["path"] for e in ents) == ["doc:c/erp/docs", "doc:c/erp/project"]
+          and all(not e["path"].startswith("/") for e in ents))
+    check("racines doc : triplet client/projet/racine porté à plat",
+          all(e["client"] == "c" and e["project"] == "erp" and e["root"] in ("docs", "project") for e in ents))
+    check("op_fs_ls par identifiant (portée projet)",
+          [e["name"] for e in ka.op_fs_ls(None, "doc:c/erp/docs", "", "c", "erp")["entries"]] == ["cdc.md"])
+    check("op_fs_file par identifiant (portée projet), racine symlinkée",
+          ka.op_fs_file(None, "doc:c/erp/docs", "cdc.md", "c", "erp")["content"] == "# cdc")
+    check("op_fs_file par identifiant : la réponse n'expose pas le chemin réel",
+          ka.op_fs_file(None, "doc:c/erp/docs", "cdc.md", "c", "erp")["worktree"] == "doc:c/erp/docs")
+    check("racine inconnue refusée (doc:c/erp/tmp)", raises(403, lambda: ka.op_fs_ls(None, "doc:c/erp/tmp", "", "c", "erp")))
+    check("identifiant mal formé refusé", raises(403, lambda: ka.op_fs_ls(None, "doc:c/erp", "", "c", "erp")))
+    check("autre projet refusé en portée projet", raises(403, lambda: ka.op_fs_ls(None, "doc:c/autre/docs", "", "c", "erp")))
+    check("évasion .. depuis une racine doc refusée", raises(403, lambda: ka.op_fs_file(None, "doc:c/erp/docs", "../meta.yml", "c", "erp")))
+    check("chemin absolu d'une racine doc encore accepté (clients historiques)",
+          ka.op_fs_file(None, str(ka.PROJECTS_BASE / "c/projects/erp/docs"), "cdc.md", "c", "erp")["content"] == "# cdc")
+    # portée session : la session touche le workspace → ses racines doc sont lisibles par identifiant
+    (ws / "envs/x").mkdir(parents=True)
+    ka._key_info = lambda sid: {"cwd": str(ws / "envs/x")}
+    ka._session_worktrees = lambda sid: [str(ws / "envs/x")]
+    sp = ka._session_projects("S1")
+    check("session : racines doc annoncées par identifiant", sorted(d["path"] for d in sp[0]["docs"]) == ["doc:c/erp/docs", "doc:c/erp/project"])
+    check("session : op_fs_file par identifiant", ka.op_fs_file("S1", "doc:c/erp/docs", "cdc.md")["content"] == "# cdc")
+    check("session : projet étranger refusé", raises(403, lambda: ka.op_fs_file("S1", "doc:c/autre/docs", "cdc.md")))
+    check("op_project_worktrees : doc par identifiant",
+          [w["path"] for w in ka.op_project_worktrees("c", "erp")["worktrees"] if w.get("kind") == "doc"] == ["doc:c/erp/project", "doc:c/erp/docs"])
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

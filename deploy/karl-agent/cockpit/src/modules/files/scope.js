@@ -5,7 +5,9 @@ export function fsScope(wt, filesData, attached, projectKey) {
   const out = {};
   if (attached) out.sid = attached;
   const hit = (fd.projects || []).find(p => p && p.root && (wtp === String(p.root) || wtp.indexOf(String(p.root) + "/") === 0));
+  const doc = /^doc:([^/]+)\/([^/]+)\/[^/]+$/.exec(wtp);   // RM3014 : racine documentaire désignée par projet:file
   if (hit && hit.client && hit.project) { out.client = hit.client; out.project = hit.project; }
+  else if (doc) { out.client = doc[1]; out.project = doc[2]; }
   else if (fd.client && fd.project) { out.client = fd.client; out.project = fd.project; }
   else {
     const k = String(projectKey || "");

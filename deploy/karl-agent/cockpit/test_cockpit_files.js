@@ -35,6 +35,20 @@ function fakeElement(id) { const L = []; let inner = ""; return { id, textConten
   assert.strictEqual(M.filesCtxKey({ kind: "session", sid: "7" }), "s:7"); assert.strictEqual(M.filesCtxKey({ kind: "project", client: "a", project: "b" }), "p:a/b"); assert.strictEqual(M.filesCtxKey({ kind: "none" }), "none");
   const gsDoc = M.filesGroups([{ client: "a", project: "b", docs: [{ path: "/pm/b/docs", name: "docs" }] }], []); assert(gsDoc.length === 1 && gsDoc[0].roots[0].kind === "doc"); assert.strictEqual(M.filesGroups([{ client: "a", project: "b", docs: [] }], [{ path: "/ailleurs/x", name: "x", exists: true }])[0].label, "hors projet");
   console.log("✓ modèle (RM2586/2622/2659/2673) : fil d'ariane, doc ≠ worktree, racines groupées, orphelins gardés, contexte de lecture et sa clé");
+  // — RM3014 : racines documentaires par projet:file, jamais de chemin absolu dans l'interface ni les URL —
+  const SC = await import(path.join(DIR, "src/modules/files/scope.js")); const EP = await import(path.join(DIR, "src/core/endpoints.js"));
+  assert.notStrictEqual(EP.route("file.read"), EP.route("file.file"), "RM3014 : /fs/file a sa propre cible, distincte de /file");
+  assert.strictEqual(EP.route("file.read"), "/api/file/read"); assert.strictEqual(EP.routeFor("/fs/file"), "file.read");
+  assert.deepStrictEqual(M.docRootParts({ path: "doc:ca/appli/docs" }), { client: "ca", project: "appli", root: "docs" }); assert.strictEqual(M.docRootParts({ path: "/abs/docs" }), null);
+  assert.strictEqual(M.docRootRef({ client: "ca", project: "appli", root: "docs" }), "ca/appli · docs");
+  const tipDoc = M.fileRootLabel({ kind: "doc", name: "docs", docs: 2, label: "documents du projet", path: "doc:ca/appli/docs" }).tip;
+  assert(/ca\/appli · docs/.test(tipDoc) && !/\/pm\//.test(tipDoc), "l'infobulle nomme le projet, pas un chemin");
+  const gDoc = M.filesGroups([{ client: "ca", project: "appli", root: "/w/appli", docs: [{ path: "doc:ca/appli/docs", name: "docs", root: "docs" }] }], [])[0].roots.find(r => r.kind === "doc");
+  assert(gDoc.client === "ca" && gDoc.project === "appli" && gDoc.root === "docs" && gDoc.path === "doc:ca/appli/docs");
+  assert.deepStrictEqual(SC.fsScope("doc:ca/appli/docs", { projects: [] }, null, ""), { client: "ca", project: "appli" }, "la portée se lit dans l'identifiant");
+  assert.deepStrictEqual(SC.fsScope("doc:ca/appli/docs", { projects: [] }, "S1", ""), { sid: "S1", client: "ca", project: "appli" });
+  assert(!/%2F(zfs|home)/.test(SC.fsQuery("doc:ca/appli/docs", null, { attached: "S1", filesData: {} })), "aucun chemin absolu dans l'URL");
+  console.log("✓ RM3014 : /fs/file ≠ /file, racines doc par projet:file (identifiant, portée, infobulle, URL)");
   // — vue —
   const DATA = { projects: [P1, P2], worktrees: W, client: "ca", project: "appli", from: "ticket RM2605" };
   const nav = (o) => Object.assign(M.freshNav("/w/appli"), o || {});

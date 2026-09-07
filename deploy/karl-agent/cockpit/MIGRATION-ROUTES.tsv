@@ -18,7 +18,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck
 /env-status	L5	env	/api/env/env-status	1	openEnvStatus
 /file	L4,L5	files	/api/file/file	2	openCenterFile;openDoc
-/fs/file	L4	files	/api/file/file	4	filesOpen;openCenterFile;projOpen;vocabShow
+/fs/file	L4	files	/api/file/read	4	filesOpen;openCenterFile;projOpen;vocabShow
 /fs/log	L4	files	/api/file/log	1	filesToggleCommits
 /fs/ls	L4	files	/api/file/ls	3	filesLoadDir;openCenterDir;projBrowse
 /git/diff	L4	git	/api/git/diff	1	gitShowDiff

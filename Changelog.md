@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### RM3014 — Cockpit : docs du projet par projet:file, plus d'alias confondu (2026-09-07)
+- **Correctif** : l'explorateur de fichiers ne pouvait plus ouvrir aucun fichier (« chemin hors de projects/ ») — depuis L7 (RM2889), `/fs/file` et `/file` partageaient la cible `/api/file/file`, résolue côté serveur vers la seule route générique. `/fs/file` a désormais sa cible `/api/file/read` (`MIGRATION-ROUTES.tsv` régénérée : `endpoints.js` + `karl_api_routes.py`).
+- **Racines documentaires par projet:file** : une racine `docs/` ou `project/` se désigne par `doc:<client>/<projet>/<racine>` — le cockpit ne reçoit, n'affiche et n'envoie plus de chemin absolu pour la documentation (infobulle « client/projet · docs », URL, journal du démon) ; la résolution du chemin réel est serveur (`_doc_root_path`), avec les gardes existantes (projet du périmètre, racine connue, sous-chemin confiné). Les chemins absolus restent acceptés pour les clients historiques.
+- Tests : `test_karl_agent_fs.py` (alias, identifiants, gardes, portées session/projet, symlink), `test_cockpit_files.js` (routes distinctes, identifiant → portée, infobulle et URL sans chemin).
+
 ### Outillage PM
 - **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
   des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :

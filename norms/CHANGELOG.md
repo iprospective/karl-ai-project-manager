@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.21.0] - 2026-09-07
+
+### Ajouté
+- **`structure-reference` § « L'annuaire de contacts »** et deux lignes
+  d'outillage (RM2703) : l'identité d'une personne vit dans une fiche unique du
+  dépôt de données, la relation (rôle, titre) reste chez le client. La forme
+  précédente imposait de réécrire une personne chez chaque client — mesuré :
+  31 contacts sur 21 clients dont **19 lignes pour la même personne**, en deux
+  orthographes. Y sont écrits aussi les deux endroits où l'annuaire ne peut PAS
+  vivre (le dépôt de code part sur un miroir public ; la racine de
+  `projects_root` n'est versionnée par aucun dépôt) et ce qu'un historique git
+  n'oublie pas.
+
 ## [2.20.0] - 2026-09-07
 
 ### Ajouté

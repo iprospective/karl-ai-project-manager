@@ -197,15 +197,48 @@ def _hint_clients(cfg, addr: str, display_name: str) -> list:
     return hits
 
 
+def _annuaire_par_email(cfg) -> dict:
+    """{email → ref} de l'annuaire (RM2703), ou {} s'il n'existe pas encore.
+
+    C'est ce qui permet de retrouver une personne par **n'importe laquelle** de
+    ses adresses : une seule était connue tant que le contact vivait en ligne
+    chez son client."""
+    try:
+        d = cfg.path("contacts_dir")
+    except Exception:  # noqa: BLE001
+        return {}
+    if not d.is_dir():
+        return {}
+    idx = {}
+    for f in sorted(d.glob("*.yml")):
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        ref = data.get("ref") or f.stem
+        for e in data.get("emails") or []:
+            idx.setdefault(str(e).strip().lower(), ref)
+    return idx
+
+
 def _contacts_clients(cfg, addr: str) -> list:
-    """Clients dont `contacts[]` porte cette adresse (adresses maison exclues)."""
+    """Clients dont `contacts[]` porte cette adresse (adresses maison exclues).
+
+    Deux formes lues : le contact en ligne (`email`) et le rattachement
+    (`ref` → annuaire). Pendant la migration elles cohabitent ; après, seule la
+    seconde subsiste — et c'est elle qui rend une personne trouvable par
+    n'importe laquelle de ses adresses."""
     if is_own(addr, cfg):
         return []
+    par_email = _annuaire_par_email(cfg)
+    ref_cible = par_email.get(addr)
     hits = []
     for slug, _ in cfg.iter_entities():
         meta = cfg.client_meta(slug) or {}
         for c in meta.get("contacts") or []:
-            if isinstance(c, dict) and (c.get("email") or "").lower() == addr:
+            if not isinstance(c, dict):
+                continue
+            if (c.get("email") or "").lower() == addr or (ref_cible and c.get("ref") == ref_cible):
                 hits.append(slug)
                 break
     return hits

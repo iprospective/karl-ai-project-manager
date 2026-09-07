@@ -246,6 +246,26 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
 
+## Canal de push (RM3006)
+
+Le cockpit tire tout par son tick `/api/session/refresh` (3–7 s). Depuis RM3006 les blocs
+**arrivent** aussi : `GET /api/session/events?blocks=<mêmes specs bloc:hash>` ouvre un canal
+SSE (le jeton d'appareil voyage en query `token=` — EventSource ne pose aucun en-tête ; il
+n'est jamais journalisé, seul le chemin l'est). À chaque publication, le serveur rejoue
+`op_refresh` avec les hashs de CE client et pousse `event: blocks` (les blocs changés) et
+`event: topics` (les sujets publiés) ; battement `: ping` toutes les 20 s ; au plus
+`KARL_AGENT_MAX_STREAMS` canaux (24) ; un client parti est décompté au tour suivant. Les
+données poussées sont filtrées par le même `auth_ctx` que le tick.
+
+Les scripts PM publient par `scripts/pm_events.py` (`POST /api/session/events/publish
+{"topics": [...], "source": "..."}` — best-effort, 0,6 s, silencieux si karl-agent est absent ;
+`PM_EVENTS_DISABLE=1` coupe) : `pm-task-status-update` (tickets, sessions, pending, worklog,
+dashboard), `pm-task-comment` (tickets), `pm-session-status` (worklog, sessions, pending),
+`karl-mail-fetch` (mail). Sujets connus : `EVENT_TOPICS`. Côté front, `push.service.js`
+branche le canal sur la pile /refresh (`RefreshService.ingest`, dédoublonnage par hash) ; le
+tick reste, en réconciliation, à 6 s / 30 s quand le canal est vivant (pastille de santé
+cerclée). Coupure → EventSource se reconnecte seul, le tick reprend sa cadence entre-temps.
+
 ## Journal structuré (RM3010)
 
 `logs/karl-agent.jsonl` à la racine du projet (ignoré par git ; `KARL_JOURNAL_DIR` pour le déplacer) : un enregistrement JSON par

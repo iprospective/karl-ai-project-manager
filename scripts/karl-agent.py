@@ -199,6 +199,8 @@ import uuid
 import signal
 import subprocess
 import sys
+import select
+import socket
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -4987,6 +4989,72 @@ def _subtasks_status(refs) -> list:
         out.append({"rm_id": rid, "status": meta.get("status") or "",
                     "title": meta.get("title") or ""})
     return out
+
+
+class _EventBus:
+    """RM3006 : le bus des événements du cockpit. Les scripts PM (statut, note, worklog, relève mail) PUBLIENT des sujets ; chaque
+    connexion SSE `/api/session/events` attend sur la condition et, réveillée, rejoue `op_refresh` avec SES hashs — la donnée poussée
+    est donc exactement celle du tick, filtrée par le même `auth_ctx`. Pas de veilleur de fichiers : c'est l'écriture qui prévient."""
+
+    def __init__(self) -> None:
+        self.cond = threading.Condition()
+        self.seq = 0
+        self.last: dict = {}          # seq → {topics, source, ts}
+        self.listeners = 0
+
+    def publish(self, topics: list, source: str | None = None, **meta) -> int:
+        with self.cond:
+            self.seq += 1
+            self.last[self.seq] = {"topics": list(topics), "source": source, "ts": time.time(), **meta}
+            for k in [k for k in self.last if k < self.seq - 200]:   # borné : on ne garde que le récent
+                del self.last[k]
+            self.cond.notify_all()
+            return self.seq
+
+    def wait(self, since: int, timeout: float) -> int:
+        """Bloque jusqu'à un seq > since (ou le timeout) ; rend le seq courant."""
+        with self.cond:
+            if self.seq <= since:
+                self.cond.wait(timeout)
+            return self.seq
+
+    def topics_since(self, since: int) -> list:
+        with self.cond:
+            out: list = []
+            for k in sorted(self.last):
+                if k > since:
+                    for t in self.last[k]["topics"]:
+                        if t not in out:
+                            out.append(t)
+            return out
+
+
+EVENTS = _EventBus()
+EVENT_TOPICS = ("tickets", "sessions", "pending", "worklog", "dashboard", "mail", "env", "sets")
+MAX_EVENT_STREAMS = int(os.environ.get("KARL_AGENT_MAX_STREAMS", "24"))
+EVENT_HEARTBEAT_S = 20
+
+
+def op_events_publish(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """POST /api/session/events/publish — `{"topics": [...], "source": "pm-task-status-update", "rm_id": "…"}`.
+    Un sujet inconnu est refusé (400) : la liste EVENT_TOPICS est le contrat entre les scripts et le front."""
+    topics = payload.get("topics") if isinstance(payload, dict) else None
+    if not isinstance(topics, list) or not topics or not all(isinstance(t, str) for t in topics):
+        raise ApiError(400, "topics : liste non vide de chaînes attendue")
+    bad = [t for t in topics if t not in EVENT_TOPICS]
+    if bad:
+        raise ApiError(400, f"sujet(s) inconnu(s) : {', '.join(bad)} — connus : {', '.join(EVENT_TOPICS)}")
+    source = str(payload.get("source") or "")[:80] or None
+    seq = EVENTS.publish(topics, source=source, rm_id=str(payload.get("rm_id") or "")[:40] or None, user=(auth_ctx or {}).get("user"))
+    try:
+        _jlog("refresh", "debug", "événement publié", topics=topics, source=source, seq=seq, listeners=EVENTS.listeners)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "seq": seq, "listeners": EVENTS.listeners}
+
+
+def _sse_frame(event: str, data) -> bytes:
+    return (f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n").encode("utf-8")
 
 
 def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
@@ -10874,6 +10942,10 @@ class Handler(BaseHTTPRequestHandler):
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/events":   # RM3006 : EventSource ne pose aucun en-tête — le jeton voyage en query (jamais journalisé : _journal_fields ne garde que le chemin)
+            tok = {k: v[0] for k, v in parse_qs(parsed.query).items()}.get("token")
+            if tok and not self.headers.get("X-Karl-Token"):
+                self.headers["X-Karl-Token"] = tok
         # Routes publiques du cockpit (RM1873/RM2334) : la page et sa config se
         # chargent SANS auth — nécessaire pour afficher la carte de login (mdp
         # → token d'appareil) — et ne divulguent rien de sensible (le ttyd_base
@@ -10967,6 +11039,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/refresh":       # RM2763 : pile de refresh (composite)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
+            if path == "/events":        # RM3006 : canal de push (SSE) — mêmes blocs, même auth_ctx, poussés à la publication
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._events_stream(qs.get("blocks", ""))
             if path == "/voice/caps":
                 return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
@@ -11165,6 +11240,8 @@ class Handler(BaseHTTPRequestHandler):
                 _jlog(str(payload.get("category") or "front"), str(payload.get("level") or "info"), str(payload.get("message") or "")[:1000],
                       via="front", user=(self.auth_ctx or {}).get("user"), ip=self.client_address[0], **{k: v for k, v in fields.items() if k not in ("via", "user", "ip")})
                 return self._send_json(200, {"ok": True})
+            if path == "/events/publish":   # RM3006 : un script PM (ou le front) signale que quelque chose a changé
+                return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.
@@ -11321,6 +11398,64 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(e.code, {"error": e.msg})
         except Exception as e:  # noqa: BLE001
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    # -- SSE RM3006 : le canal de push du cockpit — les blocs du composite /refresh ARRIVENT quand un script PM publie --
+    def _events_stream(self, blocks_qs: str):
+        if EVENTS.listeners >= MAX_EVENT_STREAMS:
+            return self._send_json(503, {"error": f"trop de canaux ouverts ({MAX_EVENT_STREAMS}) — le tick suffit"})
+        hashes: dict = {}
+        names: list = []
+        for spec in [x for x in (blocks_qs or "").split(",") if x]:
+            name, *rest = spec.split(":")
+            if name == "worklog":
+                names.append("worklog:" + ":".join(rest[:-1]) if len(rest) >= 2 else "worklog:" + (rest[0] if rest else ""))
+                hashes["worklog"] = rest[-1] if len(rest) >= 2 else ""
+            else:
+                names.append(name); hashes[name] = rest[0] if rest else ""
+        def specs():
+            return ",".join((n + ":" + hashes.get("worklog", "")) if n.startswith("worklog:") else (n + ":" + hashes.get(n, "")) for n in names)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        with EVENTS.cond:
+            EVENTS.listeners += 1
+        since = EVENTS.seq
+        try:
+            _jlog("refresh", "debug", "canal de push ouvert", blocks=names, user=(self.auth_ctx or {}).get("user"), listeners=EVENTS.listeners)
+            self.wfile.write(_sse_frame("hello", {"seq": since, "blocks": names, "heartbeat_s": EVENT_HEARTBEAT_S})); self.wfile.flush()
+            last_beat = time.time()
+            while True:
+                try:   # le client est-il parti ? (connexion lisible et vide = fermée) — sans attendre le battement suivant
+                    r, _, _ = select.select([self.connection], [], [], 0)
+                    if r and not self.connection.recv(1, socket.MSG_PEEK):
+                        return
+                except (OSError, ValueError):
+                    return
+                seq = EVENTS.wait(since, 1.0)
+                if seq > since:
+                    topics = EVENTS.topics_since(since); since = seq
+                    self.wfile.write(_sse_frame("topics", {"seq": seq, "topics": topics}))
+                    if names:
+                        r = op_refresh(specs(), self.auth_ctx)
+                        for n, b in (r.get("blocks") or {}).items():
+                            hashes[n] = b.get("hash", "")
+                        if r.get("blocks"):
+                            self.wfile.write(_sse_frame("blocks", {"seq": seq, "blocks": r["blocks"], "errors": r.get("errors") or {}}))
+                    self.wfile.flush(); last_beat = time.time()
+                elif time.time() - last_beat > EVENT_HEARTBEAT_S:
+                    self.wfile.write(b": ping\n\n"); self.wfile.flush(); last_beat = time.time()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return   # client parti
+        finally:
+            with EVENTS.cond:
+                EVENTS.listeners -= 1
+            try:
+                _jlog("refresh", "debug", "canal de push fermé", listeners=EVENTS.listeners)
+            except Exception:  # noqa: BLE001
+                pass
 
     # -- SSE : tail du log pipe-pane (octets de terminal bruts) --
     def _stream(self, rm_id: str):

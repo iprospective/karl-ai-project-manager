@@ -537,6 +537,12 @@ def main():
     if not args.dry_run:
         write_queue(res["entries"])
         save_index(index)
+        if st.get("new"):   # RM3006 : le panneau 📧 du cockpit se rafraîchit sans attendre
+            try:
+                import pm_events
+                pm_events.publish(["mail"], source="karl-mail-fetch", new=int(st["new"]))
+            except Exception:  # noqa: BLE001 — jamais bloquant
+                pass
     if args.json:
         print(json.dumps(res["entries"], ensure_ascii=False, indent=1))
     out.op("relève", extra=(f"{st['new']} nouveau(x) · {st['known']} déjà vu(s) · "

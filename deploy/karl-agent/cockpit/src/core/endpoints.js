@@ -61,6 +61,8 @@ export const ROUTES = {
   "session.approve_all": { current: "/approve-all", target: "/api/session/approve-all", lot: "L2", callers: 1 },
   "session.cockpit_config": { current: "/cockpit-config", target: "/api/session/cockpit-config", lot: "L2", callers: 1 },
   "session.disposition": { current: "/disposition", target: "/api/session/disposition", lot: "L2", callers: 1 },
+  "session.events": { current: "/events", target: "/api/session/events", lot: "L8", callers: 1 },
+  "session.events.publish": { current: "/events/publish", target: "/api/session/events/publish", lot: "L8", callers: 1 },
   "session.kill": { current: "/kill", target: "/api/session/kill", lot: "L2", callers: 1 },
   "session.layout": { current: "/layout", target: "/api/session/layout", lot: "L2", callers: 1 },
   "session.monitor": { current: "/monitor", target: "/api/session/monitor", lot: "L2", callers: 1 },

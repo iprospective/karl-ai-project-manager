@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : bfade8af6451365e (29 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 472d9312dc30788b (29 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -142,6 +142,10 @@ header .sub {
   box-shadow: 0 0 6px var(--ok);
 }
 
+.dot.push {
+  outline: 2px solid var(--accent-soft-hover);
+  outline-offset: 1px;
+} /* RM3006 : canal de push vivant */
 .dot.ko {
   background: var(--danger);
   box-shadow: 0 0 6px var(--danger);

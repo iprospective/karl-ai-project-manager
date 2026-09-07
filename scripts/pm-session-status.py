@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout
 from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
+import pm_events   # RM3006 : le worklog change → le cockpit l'apprend sans attendre son tick
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -1085,6 +1086,8 @@ def main():
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
      "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
      "mr": cmd_mr, "request": cmd_request}[cmd](data, args)
+    if cmd != "show":
+        pm_events.publish(["worklog", "sessions", "pending"], source="pm-session-status", cmd=cmd)
 
 
 if __name__ == "__main__":

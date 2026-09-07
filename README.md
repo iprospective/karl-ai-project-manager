@@ -14,7 +14,7 @@ surface CLI (command-catalog) et porte la **console de test/revue** des tickets 
 ./install-mmi-pm            # depuis un clone frais ; voir --help
 ```
 
-Mise à jour d'une instance : `sudo mmi-pm core update` (pull + re-verrou 3 couches
+Mise à jour d'une instance : `mmi-pm core-update` (sudo demandé par la commande ; pull + re-verrou 3 couches
 via `core-lock` ; une seule passphrase SSH — multiplexing RM2069 + agent éphémère RM2239).
 
 Étapes manuelles équivalentes (dev / instance jetable) :
@@ -98,7 +98,7 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     reviewer.md
     summarizer.md
   bin/
-    mmi-pm                             # CLI d'instance (core update, index, doctor…)
+    mmi-pm                             # coquille de transition (RM3033) → scripts/mmi-pm.py, LE point d'entrée
   deploy/
     karl-agent/                        # cockpit web : karl-agent.py (service), cockpit/ (UI 3.x :
                                        # index.html + src/{boot.js,core,modules/<domaine>,styles},

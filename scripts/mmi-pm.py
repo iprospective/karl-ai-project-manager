@@ -11,6 +11,9 @@ commande stable — `mmi-pm <cmd>` (→ `/usr/bin/mmi-pm` une fois packagé).
     mmi-pm session-status refresh    ->  pm-session-status.py refresh
     mmi-pm --list                    ->  liste les sous-commandes disponibles
     mmi-pm task-show 2580            ->  pm-task-show.py 2580
+    mmi-pm core update               ->  pm-core-update.py   (RM3033 : `<nom> <verbe>` → `pm-<nom>-<verbe>`, l'ancienne
+                                                              grammaire de bin/mmi-pm reste valide ; sudo demandé par le verbe)
+    mmi-core update / mmi-task add … ->  un lien `mmi-<domaine>` vers ce script préfixe le domaine
 
 Résolution du code (priorité) : $PM_CORE_DIR/scripts (relocalisable, cohérent
 avec pm_paths), sinon le dossier de CE script (auto-localisation robuste : un
@@ -66,18 +69,46 @@ def main(argv):
         print(f"  (code PM résolu : {SCRIPTS})", file=sys.stderr)
         return 0
     if argv[0] == "--list":
-        print("\n".join(_list_commands()))
+        prefix = (argv[1] + "-") if len(argv) > 1 else ""
+        print("\n".join(c for c in _list_commands() if c.startswith(prefix)))
         return 0
 
     cmd, rest = argv[0], argv[1:]
-    for target in _candidates(cmd):
-        if target.is_file():
-            _exec(target, rest)  # ne revient pas (execv)
+    target, rest = resolve(cmd, rest)
+    if target:
+        _exec(target, rest)  # ne revient pas (execv)
     sys.exit(
         f"mmi-pm : sous-commande inconnue '{cmd}' "
         f"(pas de {SCRIPTS}/pm-{cmd}[.py]) — voir `mmi-pm --list`"
     )
 
 
+def resolve(cmd: str, rest):
+    """`<cmd>` → `pm-<cmd>` ; sinon (RM3033) `<nom> <verbe>` → `pm-<nom>-<verbe>` : la grammaire historique de bin/mmi-pm
+    (`core update`, `index add`, `env vhost`, `hooks install`, `norms version`) reste valide sans dupliquer un routeur."""
+    for target in _candidates(cmd):
+        if target.is_file():
+            return target, list(rest)
+    if rest and rest[0] and not rest[0].startswith("-"):
+        for target in _candidates(f"{cmd}-{rest[0]}"):
+            if target.is_file():
+                return target, list(rest[1:])
+    return None, list(rest)
+
+
+def argv_for(prog: str, argv):
+    """RM3033 : un lien `mmi-<domaine>` vers ce script préfixe le domaine — `mmi-core update` ≡ `mmi-pm core-update`,
+    `mmi-task show 42` ≡ `mmi-pm task-show 42` ; `mmi-<domaine>` seul liste les verbes du domaine."""
+    name = Path(prog).name
+    if name.endswith(".py"):
+        name = name[:-3]
+    if not name.startswith("mmi-") or name == "mmi-pm":
+        return list(argv)
+    domain = name[4:]
+    if not argv or argv[0] in ("--list", "-h", "--help", "help"):
+        return ["--list", domain]
+    return [f"{domain}-{argv[0]}", *argv[1:]]
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(argv_for(sys.argv[0], sys.argv[1:])))

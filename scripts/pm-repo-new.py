@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402  — charge le .env (et dépouille les quotes)
+import pm_license   # RM3030 : la licence fait partie de la naissance d'un dépôt
 from pm_forge import ForgeError, get_forge  # noqa: E402
 from pm_output import out  # noqa: E402
 
@@ -197,6 +198,35 @@ def check_push_source(local):
     return local
 
 
+def ensure_license(local, license_opt, holder, dry, warn=say):
+    """RM3030 : un dépôt naît avec sa licence. Choix = --license, sinon le `license:` du projet PM qui contient le dépôt,
+    sinon la question en terminal, sinon `proprietary` (rien n'est publié). Écrit + committe LICENSE si le dépôt n'en a pas."""
+    local = Path(local).resolve()
+    if any((local / n).exists() for n in ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING")):
+        return None
+    chosen = None
+    if not license_opt:
+        ov = pm_license.project_overview_from_workspace(local)
+        chosen = pm_license.read_from_overview(ov) if ov else None
+        if chosen:
+            say(f"licence lue dans le projet PM : {chosen}")
+    if not chosen:
+        chosen = pm_license.choose(license_opt, warn=lambda m: warn("⚠ " + m))
+    if dry:
+        say(f"[dry] écrirait LICENSE ({chosen}) dans {local} et le committerait")
+        return chosen
+    written = pm_license.write_license(local, chosen, holder)
+    if written:
+        files = ["LICENSE"] + (["NOTICE"] if (local / "NOTICE").exists() else [])
+        r = subprocess.run(["git", "-C", str(local), "add", "--"] + files, capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run(["git", "-C", str(local), "commit", "-q", "-m", f"chore: licence {chosen} (LICENSE)", "--"] + files, capture_output=True, text=True)
+        if r.returncode != 0:
+            die(f"LICENSE écrit mais non committé : {(r.stderr or r.stdout).strip()[:200]}")
+        say(f"LICENSE ({chosen}) écrit et committé dans {local}")
+    return chosen
+
+
 def push_from(local, full_path, default_branch, dry, alias="gitlab", branches=None, remote="origin"):
     """Pousse un dépôt local existant. Remote en alias SSH canonique — jamais HTTPS.
 
@@ -263,6 +293,10 @@ def main():
     ap.add_argument("--default-branch", default="main")
     ap.add_argument("--push-from", metavar="CHEMIN",
                     help="dépôt local (bare ou worktree) à pousser tel quel")
+    ap.add_argument("--license", default=None, metavar="SPDX",
+                    help="licence du code (MPL-2.0, Apache-2.0, MIT, LGPL-3.0, GPL-3.0, AGPL-3.0, proprietary) ; avec --push-from, "
+                         "écrit LICENSE dans le dépôt s'il n'en a pas — sans l'option : le meta.yml du projet PM, sinon la question (TTY), sinon proprietary")
+    ap.add_argument("--copyright", default=None, metavar="TITULAIRE", help="titulaire du copyright (défaut : PM_LICENSE_HOLDER ou iProspective)")
     ap.add_argument("--no-protect", action="store_true",
                     help="ne pas appliquer les protections de branche")
     ap.add_argument("--porcelain", action="store_true",
@@ -283,6 +317,7 @@ def main():
 
     if args.push_from:                       # validé AVANT toute création
         check_push_source(args.push_from)
+        ensure_license(args.push_from, args.license, args.copyright, args.dry_run)   # RM3030 : avant le push, dry-run compris
     branches = args.branches.split(",") if args.branches else None
 
     if args.forge == "github":

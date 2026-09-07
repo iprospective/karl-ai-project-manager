@@ -111,6 +111,9 @@ mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
 pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
+#   RM3030 : la LICENCE fait partie de la naissance — `--license <SPDX>` (sinon la question en
+#   terminal, défaut GPL-3.0 ; sinon proprietary) ; `--push-from` écrit et committe LICENSE si absent.
+#   pm-project-new pose la même question et la consigne dans .mmi-pm/meta.yml (`license:`).
 ```
 
 **La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`

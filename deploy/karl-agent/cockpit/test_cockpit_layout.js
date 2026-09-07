@@ -23,6 +23,16 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
   svc.setStartOpen(true); svc.setDefaultTab("outline"); svc.saveLeft(true); svc.saveWidth(5000); assert(svc.startOpen() && svc.defaultTab() === "outline" && svc.leftCollapsed() && svc.width() === 900, "préférences persistées, largeur bornée"); svc.resetWidth(); assert.strictEqual(svc.width(), null); svc.saveRight({ tab: "git", collapsed: false, manual: false }); assert.strictEqual(store.d.karlRight, '{"tab":"git","collapsed":false,"manual":false}');
   assert.doesNotThrow(() => new LayoutService({ storage: { getItem() { throw new Error("privé"); }, setItem() { throw new Error("privé"); } } }).setStartOpen(true), "stockage refusé : silencieux");
   console.log("✓ service : préférences de ce navigateur, largeur bornée, stockage privé toléré");
+  // — RM3003 : gabarit mobile — modèle —
+  const MB = await import(path.join(DIR, "src/modules/layout/mobile.js"));
+  assert.strictEqual(MB.detectLayout({ narrow: true }), "mobile"); assert.strictEqual(MB.detectLayout({ narrow: false }), "desktop"); assert.strictEqual(MB.detectLayout({ forced: "desktop", narrow: true }), "desktop"); assert.strictEqual(MB.detectLayout({ forced: "mobile", narrow: false }), "mobile"); assert.strictEqual(MB.detectLayout({ forced: "zz", narrow: true }), "mobile");
+  assert.strictEqual(MB.forcedLayout("?a=1&layout=mobile", null), "mobile"); assert.strictEqual(MB.forcedLayout("?layout=desktop", "mobile"), "desktop", "l'URL gagne sur la préférence"); assert.strictEqual(MB.forcedLayout("", "mobile"), "mobile"); assert.strictEqual(MB.forcedLayout("?layout=géant", "zz"), null);
+  assert.strictEqual(MB.pageOf("right"), "right"); assert.strictEqual(MB.pageOf("zz"), "left");
+  const ni = MB.navItems("center", { attention: 2, attached: "42" }); assert.deepStrictEqual(ni.map(i => [i.page, i.active, i.badge, i.label]), [["left", false, "2", "panneaux"], ["center", true, "", "centre"], ["right", false, "", "session RM42"]]);
+  assert.strictEqual(MB.navItems("left", { attention: 0, attached: "calymix" })[2].label, "session calymix"); assert.strictEqual(MB.navItems("left", {})[2].label, "détail"); assert.strictEqual(MB.navItems("left", {})[0].badge, "");
+  const svc3 = new LayoutService({ storage: { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } } });
+  assert.strictEqual(svc3.layoutPref(), null); svc3.setLayoutPref("mobile"); assert.strictEqual(svc3.layoutPref(), "mobile"); svc3.setLayoutPref("zz"); assert.strictEqual(svc3.layoutPref(), null);
+  console.log("✓ gabarit mobile (RM3003) — modèle : détection (largeur, forçage URL/préférence), pages, barre du bas");
   const rpanel = fakeEl("rpanel", { classes: ["rpanel", "collapsed"] }), main = fakeEl("main"), rnav = fakeEl("rnav"), rtoggle = fakeEl("rtoggle"), ltoggle = fakeEl("ltoggle"), rhandle = fakeEl("rhandle"), startOpen = fakeEl("rp-startopen"), defTab = fakeEl("rp-deftab");
   const tabs = ["state", "infos", "tickets", "files", "git", "outline"]; rpanel.kids = tabs.map(t => fakeEl("b-" + t, { dataset: { rpanel: t } })).concat(tabs.map(t => fakeEl("rp-" + t, { rp: true })));
   const rootStyle = { vars: {}, setProperty(k, v) { this.vars[k] = v; }, removeProperty(k) { delete this.vars[k]; } }; const root = fakeEl("document", { documentElement: { style: rootStyle } }); global.getComputedStyle = () => ({ getPropertyValue: (k) => rootStyle.vars[k] || "" });
@@ -53,4 +63,29 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     lay.unmount(); assert.strictEqual(L2.length, 0);
     console.log("✓ panneaux gauche (RM2283/2760/2816) : actif persisté, chargeurs à la première activation, inconnu → en cours, clic délégué"); }
   console.log("\nTous les tests de la disposition passent.");
+
+  // — RM3003 : gabarit mobile — contrôleur : media + mnav, pages, hooks du centre et de la droite —
+  { const { mountLayout: ML } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
+    const mk = (id) => fakeEl(id, { dataset: {} }); const mainM = mk("main"), rpanelM = fakeEl("rpanel", { classes: ["rpanel", "collapsed"] }), rnavM = mk("rnav"), mnav = mk("mnav");
+    let inner = ""; Object.defineProperty(mnav, "innerHTML", { get() { return inner; }, set(v) { inner = v; } });
+    const media = { matches: true, L: [], addEventListener(t, f) { this.L.push([t, f]); }, removeEventListener(t, f) { this.L = this.L.filter(([a, b]) => !(a === t && b === f)); } };
+    const rootM = { documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, addEventListener() {}, removeEventListener() {} };
+    const layouts = []; let att = null;
+    const stM = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
+    const lay = ML({ main: mainM, rpanel: rpanelM, rnav: rnavM, mnav }, { storage: stM, root: rootM, media, search: "", attention: () => 3, attached: () => att, onLayout: (l) => layouts.push(l) });
+    lay.restore();
+    assert(lay.isMobile() && rootM.documentElement.dataset.layout === "mobile" && mainM.dataset.mpage === "left" && layouts.join() === "mobile", "écran étroit → gabarit mobile, page panneaux, onLayout prévenu");
+    assert(/data-mpage="left"[^>]*class|class="mnav-btn active" data-mpage="left"/.test(inner) && /nbadge att">3</.test(inner) && /détail/.test(inner) && !/\son[a-z]+=/.test(inner), "barre du bas rendue : page active, badge des sessions en attente, aucun on*");
+    assert.strictEqual(lay.centerShown(), "center"); assert.strictEqual(mainM.dataset.mpage, "center", "une vue ouverte au centre → page centre");
+    lay.showRight("files"); assert(mainM.dataset.mpage === "right" && lay.rightVisible("files"), "un onglet de droite montré → page droite");
+    lay.switchPanel("running"); assert.strictEqual(mainM.dataset.mpage, "left", "changer de panneau gauche → page panneaux");
+    att = "42"; await mnav.fire("click", { target: { closest: () => ({ dataset: { mpage: "right" } }) } }); assert(mainM.dataset.mpage === "right" && /session RM42/.test(inner), "la barre du bas navigue et se repeint");
+    assert.strictEqual(lay.mobileGo("zz"), "left", "page inconnue → panneaux");
+    media.matches = false; media.L.find(([t]) => t === "change")[1](); assert(!lay.isMobile() && rootM.documentElement.dataset.layout === "desktop" && inner === "" && layouts.join() === "mobile,desktop", "écran élargi → bureau, barre vidée");
+    assert.strictEqual(lay.mobileGo("right"), null, "au bureau, mobileGo est sans effet"); assert.strictEqual(lay.showRight("infos").tab, "infos");
+    const lay2 = ML({ main: mk("main2"), mnav: mk("mnav2") }, { storage: stM, root: { documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, addEventListener() {}, removeEventListener() {} }, media: { matches: false }, search: "?layout=mobile" });
+    lay2.restore(); assert(lay2.isMobile(), "?layout=mobile force le gabarit sur un grand écran");
+    stM.setItem("karlLayout", "desktop"); const lay3 = ML({ main: mk("main3") }, { storage: stM, root: null, media: { matches: true }, search: "" }); lay3.restore(); assert(!lay3.isMobile(), "la préférence karlLayout=desktop gagne sur la largeur");
+    lay.unmount(); assert.strictEqual(media.L.length, 0, "unmount retire l'écouteur de media query");
+    console.log("✓ gabarit mobile (RM3003) — contrôleur : détection et bascule à chaud, pages, hooks centre/droite/panneaux, barre du bas, forçages"); }
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

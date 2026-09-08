@@ -10,7 +10,7 @@ export const LABEL = { question: "une session attend ta réponse", test: "livré
   mr: "MR ouverte, pas mergée", mep: "attend sa mise en production",
   idle: "session au repos, travail en cours", request: "demande pas encore ticketée" };
 export const ICON = { question: "⚠", test: "🧪", mr: "🔀", mep: "🚀", idle: "💤", request: "📥" };
-const ALERT_ICON = { orphan: "💤", verdict: "🧪", mep: "🚀", mr: "🔀" };
+const ALERT_ICON = { orphan: "💤", verdict: "🧪", mep: "🚀", mr: "🔀", client_notify: "✉️" };
 export const CAP = 5;
 
 export class DashboardViewModel extends EntityViewModel {

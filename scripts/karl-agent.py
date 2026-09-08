@@ -5280,6 +5280,12 @@ def _overview_open_tasks(client=None, project=None) -> list:
         entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
                  "status": meta.get("status"), "priority": meta.get("priority") or "",
                  "client": cl, "project": pr}
+        # RM3026 — ticket déployé en attente de notification client (queued_at posé,
+        # sent_at non) : on le remonte au cockpit (alerte `client_notify`) pour ne pas
+        # oublier d'envoyer le récap au client.
+        _cn = meta.get("client_notify") or {}
+        if _cn.get("queued_at") and not _cn.get("sent_at"):
+            entry["notify_queued_at"] = _cn.get("queued_at")
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:
@@ -6074,6 +6080,15 @@ def build_alerts(projects, thresholds, now_ts, snoozed=None):
                 add("mr", f"m:{m.get('repo')}:{m.get('iid')}", age, "MR ouverte, pas mergée",
                     iid=m.get("iid"), url=m.get("url"), rm_id=str(m.get("ref") or "").replace("RM", ""),
                     client=cl, project=pr, title=str(m.get("ref") or ""))
+        # RM3026 — évolutions déployées en attente de notification client, AGRÉGÉES par
+        # PROJET (une alerte par projet, pas une par ticket) ; âge = la plus ancienne en
+        # file, pour ne pas oublier d'envoyer le récap (`mmi-pm client-notify send`).
+        _nq = [t.get("notify_queued_at") for t in (g.get("tickets") or []) if t.get("notify_queued_at")]
+        if _nq:
+            _age = max((alert_age_days(x, now_ts) or 0.0) for x in _nq)
+            add("client_notify", f"cn:{cl}/{pr}", _age,
+                f"{len(_nq)} évolution(s) en prod à notifier au client",
+                client=cl, project=pr, count=len(_nq))
     # le plus vieux d'abord, et un nombre BORNÉ : une liste d'alertes qu'on ne
     # finit pas de lire se contourne, puis s'ignore
     out.sort(key=lambda a: -a["age_days"])

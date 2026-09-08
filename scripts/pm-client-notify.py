@@ -95,7 +95,9 @@ def _queued_tickets(cfg, project_dir):
             "title": fm.get("title") or "",
             "url": f"{base}/issues/{rid}" if base and rid else "",
             "criteria": _clean_criteria(body),
-            "protocol": fm.get("test_protocol") or "",
+            # RM3026 : PAS le test_protocol interne (jargon recette : Dolibarr, ids produits…)
+            # dans un email CLIENT. Le « quoi » (critères) suffit ; le détail est sur le ticket.
+            "protocol": "",
             "queued_at": pcn.queue_state(fm)[0],
         })
     return out
@@ -191,7 +193,9 @@ def _recipients(cfg, entity, project):
 
 def _render(cfg, entity, project):
     tickets = _queued_tickets(cfg, _project_dir(cfg, entity, project))
-    subject, body = pcn.compose_email(project, tickets)
+    # nom LISIBLE du projet (meta.name), pas le slug technique, pour l'email client
+    name = (cfg.project_meta(entity, project) or {}).get("name") or project
+    subject, body = pcn.compose_email(name, tickets)
     return tickets, subject, body
 
 

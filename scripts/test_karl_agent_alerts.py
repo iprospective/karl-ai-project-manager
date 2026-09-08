@@ -71,6 +71,22 @@ check("chaque alerte porte son ÂGE", all(a.get("age_days") for a in res["alerts
 check("la plus ancienne en tête",
       [a["key"] for a in res["alerts"]][:2] == ["t:4", "m:r:9"], str([a["key"] for a in res["alerts"]]))
 
+# — RM3026 : évolutions en prod à notifier au client, AGRÉGÉES par projet —
+PROJ_CN = [{"client": "acme", "project": "shop", "mrs": [], "tickets": [
+    {"rm_id": "20", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-10",
+     "title": "livré A", "notify_queued_at": "2026-08-10T09:00"},
+    {"rm_id": "21", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-16",
+     "title": "livré B", "notify_queued_at": "2026-08-16T09:00"},
+    {"rm_id": "22", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-16",
+     "title": "déjà notifié"},  # pas de notify_queued_at -> non compté
+]}]
+_cn = [a for a in ka.build_alerts(PROJ_CN, TH, NOW)["alerts"] if a["kind"] == "client_notify"]
+check("file notif client → UNE alerte par projet", len(_cn) == 1 and _cn[0]["key"] == "cn:acme/shop")
+check("compte les tickets EN FILE (2), pas les déjà notifiés", _cn[0].get("count") == 2)
+check("âge de l'alerte = le plus ancien en file (8 j)", round(_cn[0]["age_days"]) == 8)
+check("pas d'alerte notif si la file est vide",
+      not [a for a in res["alerts"] if a["kind"] == "client_notify"])
+
 # — plafond : borné ET annoncé —
 gros = [{"client": "c", "project": "p", "mrs": [], "tickets": [
     {"rm_id": str(100 + i), "status": "a_tester_demandeur", "bucket": "waiting",

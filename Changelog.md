@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Menus Fonctionnalités · CDC · Feuille de route et onglet projets** (RM3044, RM3045,
+  cockpit 3.7.0) : la barre du POC AtomBox reprise en haut du cockpit — trois pages
+  centrales sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :
+  table des fonctionnalités triable/filtrable (`/api/doc/cdc-features`, registre yml →
+  JSON), chapitres du CDC en sous-onglets avec ancres `D012`/`Q003` et `RM` cliquables,
+  feuille de route par jalon (`jalon`, `jalons:` du registre) ou par état ; sélecteur
+  quand un projet porte plusieurs CDC (`pm`, `karl`). Onglet 📂 projets de la colonne
+  de droite : projets touchés par la session, raccourcis fiche / fichiers / CDC.
+  `pm-cdc-features` : registre curé par capacité (`--init --no-sync`, `tickets: […]`,
+  `jalon`). Modules `cdc/` et `sessproj/`.
 - **CDC vivant du projet et menu 📋 CDC** (RM3043) : `pm-cdc-features` (registre
   `docs/cdc-<prefix>/fonctionnalites.yml` dérivé des tickets, ids `F` stables, chapitre 10
   généré, `--check`) ; docs `cdc-pm-00/10/90/91/99` du projet PM (fonctionnalités reprises

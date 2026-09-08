@@ -1,7 +1,7 @@
 // models/layout/panels — la disposition des colonnes (RM2466 volet 3, RM2579, RM2599, RM2952) : ce qui se calcule sans DOM. RM2889.
 
 /** Les onglets de la colonne de droite. Un onglet présent dans la barre et absent d'ici devient inactivable (incident RM2579). */
-export const TABS = ["state", "infos", "tickets", "files", "git", "outline"];
+export const TABS = ["state", "infos", "tickets", "files", "git", "projects", "outline"];   // RM3045 : projets de la session
 export const R_WIDTH_DEFAULT = 330;
 
 /** État de la colonne de droite. « select » sur l'onglet DÉJÀ actif replie ; « show » sans onglet déplie sans changer d'onglet ;

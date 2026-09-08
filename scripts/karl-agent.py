@@ -7670,6 +7670,7 @@ def _session_projects(sid: str) -> list:
         out[str(root)] = {
             "root": str(root), "name": root.name, "client": client, "project": project,
             "docs": _project_docs_entries(client, project),
+            "cdcs": _project_cdcs(client, project),   # RM3045 : raccourcis vers les CDC vivants
         }
     return list(out.values())
 
@@ -7916,26 +7917,57 @@ def op_file(relpath: str) -> str:
         raise ApiError(500, f"lecture impossible : {e}")
 
 
-# ── CDC vivant des projets (RM3043) : sommaires `docs/cdc-<prefix>-00-*.md` ──
-def op_cdc_list() -> dict:
-    """Les CDC vivants disponibles : un par projet qui porte un sommaire
-    `docs/cdc-<prefix>-00-*.md` (modèle AtomBox RM2881). Chaque entrée donne le
-    chemin RELATIF à `projects/` (celui que `op_file` sert) du sommaire et de
-    ses chapitres, pour que le cockpit navigue de l'un à l'autre."""
+# ── CDC vivant des projets (RM3043, RM3044) : sommaires `docs/cdc-<prefix>-00-*.md` ──
+def _project_cdcs(client: str, project: str) -> list:
+    """Les CDC vivants d'un projet : un par préfixe portant un sommaire
+    `docs/cdc-<prefix>-00-*.md` (modèle AtomBox RM2881). Un projet peut en porter
+    plusieurs (pm-ai-agents : `pm` et `karl`). Chemins RELATIFS à `projects/`
+    (ceux que `op_file` sert) ; `registry` dit si le registre des fonctionnalités existe."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        return []
+    docs = PROJECTS_BASE / client / "projects" / project / "docs"
+    if not docs.is_dir():
+        return []
+    rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
     out = []
-    for som in sorted(PROJECTS_BASE.glob("*/projects/*/docs/cdc-*-00-*.md")):
+    for som in sorted(docs.glob("cdc-*-00-*.md")):
         m = re.match(r"cdc-(.+?)-00-", som.name)
         if not m:
             continue
-        prefix = m.group(1); pdir = som.parent.parent
-        client, project = pdir.parent.parent.name, pdir.name
-        rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
+        prefix = m.group(1)
         chapters = [{"file": f.name, "path": rel(f), "title": _help_title(f)}
-                    for f in sorted(som.parent.glob(f"cdc-{prefix}-*.md"))]
-        out.append({"client": client, "project": project, "prefix": prefix, "path": rel(som),
-                    "title": _help_title(som), "chapters": chapters})
+                    for f in sorted(docs.glob(f"cdc-{prefix}-*.md"))]
+        out.append({"client": client, "project": project, "prefix": prefix, "key": f"{client}/{project}/{prefix}",
+                    "path": rel(som), "title": _help_title(som), "chapters": chapters,
+                    "registry": (docs / f"cdc-{prefix}" / "fonctionnalites.yml").is_file()})
+    return out
+
+
+def op_cdc_list() -> dict:
+    """Tous les CDC vivants de l'instance, projet par projet."""
+    out = []
+    for pdir in sorted(PROJECTS_BASE.glob("*/projects/*")):
+        out.extend(_project_cdcs(pdir.parent.parent.name, pdir.name))
     return {"cdcs": out}
 
+
+def op_cdc_features(client: str, project: str, prefix: str) -> dict:
+    """RM3044 : le registre des fonctionnalités d'un CDC (`docs/cdc-<prefix>/fonctionnalites.yml`,
+    tenu par pm-cdc-features) tel quel, en JSON — le cockpit en fait la table triable et la
+    feuille de route ; le chapitre 10 markdown reste la vue pour le wiki."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "") and _PART_RE.match(prefix or "")):
+        raise ApiError(400, "client/projet/préfixe invalides")
+    f = PROJECTS_BASE / client / "projects" / project / "docs" / f"cdc-{prefix}" / "fonctionnalites.yml"
+    if not f.is_file():
+        raise ApiError(404, "registre des fonctionnalités introuvable")
+    try:
+        import yaml as _y2
+        reg = _y2.safe_load(f.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        raise ApiError(500, f"registre illisible : {e}")
+    return {"client": client, "project": project, "prefix": prefix, "projet": reg.get("projet"),
+            "domaines": [d.get("nom") for d in (reg.get("domaines") or []) if isinstance(d, dict)],
+            "jalons": reg.get("jalons") or [], "entrees": reg.get("entrees") or []}
 
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
@@ -11083,6 +11115,11 @@ class Handler(BaseHTTPRequestHandler):
                                    data or {"error": "topic d'aide inconnu"})
         if path == "/cdc":                   # RM3043 : sommaires des CDC vivants
             return self._send_json(200, op_cdc_list())
+        if path.startswith("/cdc-features/"):   # RM3044 : registre des fonctionnalités d'un CDC
+            parts = path[len("/cdc-features/"):].split("/")
+            if len(parts) != 3:
+                return self._send_json(400, {"error": "attendu /cdc-features/<client>/<projet>/<prefix>"})
+            return self._send_json(200, op_cdc_features(*parts))
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,

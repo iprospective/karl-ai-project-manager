@@ -25,7 +25,7 @@ centre, en [onglet](onglets) :
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 | 📜 **journal** | ce que le serveur et le navigateur ont consigné (sévérité, catégorie) | [Journal](journal) |
-| 📋 **CDC** | le cahier des charges vivant du projet : fonctionnalités, décisions, questions, vrac | [CDC vivant](cdc) |
+| 📋 **fonctionnalités** · 📘 **CDC** · 🗺 **feuille de route** | le cahier des charges vivant du projet en contexte (modèle POC AtomBox) | [CDC vivant](cdc) |
 
 Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte est un
 onglet temporaire, épingle-la pour la conserver.

@@ -30,5 +30,21 @@ c = r["cdcs"][0]
 check("chemin relatif à projects/ (celui d'op_file) et titre du sommaire", c["path"] == "projects/clients/acme/projects/site/docs/cdc-site-00-sommaire.md" and c["title"] == "CDC Site — sommaire")
 check("chapitres triés par numéro, sommaire inclus, doc hors préfixe exclue", [x["file"] for x in c["chapters"]] == ["cdc-site-00-sommaire.md", "cdc-site-10-fonctionnalites.md", "cdc-site-90-decisions.md"])
 check("aucun projet → liste vide, pas d'erreur", ka.op_cdc_list.__doc__ and isinstance(r["cdcs"], list))
+check("clé client/projet/prefix et registre absent signalé", c["key"] == "acme/site/site" and c["registry"] is False)
+# RM3044 : registre des fonctionnalités → JSON ; deux CDC dans un même projet
+(d / "cdc-site").mkdir(); (d / "cdc-site" / "fonctionnalites.yml").write_text("prefix: site\nprojet: acme/site\ndomaines:\n- nom: A\n  mots: a\njalons:\n- id: V1\n  titre: pilote\nentrees:\n- id: F001\n  rm: 10\n  libelle: x\n  domaine: A\n  etat: livré\n  jalon: 1\n")
+(d / "cdc-karl-00-sommaire.md").write_text("# CDC karl\n")
+r2 = ka.op_cdc_features("acme", "site", "site")
+check("op_cdc_features : registre lu, domaines à plat, jalons, entrées", r2["domaines"] == ["A"] and r2["jalons"][0]["id"] == "V1" and r2["entrees"][0]["id"] == "F001" and r2["entrees"][0]["jalon"] == 1)
+try:
+    ka.op_cdc_features("acme", "site", "nope"); check("registre absent → 404", False)
+except ka.ApiError as e:
+    check("registre absent → 404", e.status == 404 if hasattr(e, "status") else True)
+try:
+    ka.op_cdc_features("../x", "site", "site"); check("client invalide → 400", False)
+except ka.ApiError:
+    check("client invalide → 400", True)
+cs = ka._project_cdcs("acme", "site")
+check("deux CDC dans un même projet (pm + karl), registre détecté pour le premier", [x["prefix"] for x in cs] == ["karl", "site"] and cs[1]["registry"] is True and cs[0]["registry"] is False)
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — op_cdc_list"))
 sys.exit(1 if fails else 0)

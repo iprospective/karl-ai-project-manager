@@ -6,13 +6,17 @@ fonctionnalités dans un REGISTRE `docs/cdc-<prefix>/fonctionnalites.yml` : une 
 ticket (identifiant F001… STABLE, jamais réattribué), avec domaine, état et date. Le chapitre
 `docs/cdc-<prefix>-10-fonctionnalites.md` en est GÉNÉRÉ — deux vues, une donnée.
 
-  --init --prefix <p>   crée le registre (domaines par mots-clés, à ajuster ensuite dans le yml)
+  --init --prefix <p>   crée le registre (domaines par mots-clés, à ajuster ensuite dans le yml) ; `--no-sync` le laisse vide
+                        (registre CURÉ par capacité : entrées manuelles avec `tickets: [RM…]` multiples, ex. cdc-karl)
   --sync                ajoute les tickets nouveaux (tout sauf `nouveau`), met à jour état/date des
                         existants ; une entrée `manuel: true` garde son libellé et son domaine
   --build               écrit le chapitre 10 depuis le registre
   --check               registre et chapitre à jour ? (exit 1 sinon) — à brancher en garde de livraison
   --project <client>/<projet>   défaut : le projet du workspace courant (`.mmi-pm`)
   --docs-dir / --tasks-dir      surcharges (tests)
+
+Champs optionnels par entrée : `jalon` (entier, feuille de route ; `jalons:` en tête = [{id: V1, titre, etat, note}]),
+`tickets` (liste d'ids couverts par une entrée curée — `--sync` ne les rajoute pas), `manuel: true`.
 
 États (dérivés du statut du ticket) : livré (fermé résolu) · en cours (en_cours, tests, MEP,
 a_corriger) · prévu (a_faire, étude) · en pause · écarté (fermé autre raison).
@@ -104,19 +108,21 @@ def libelle_de(fm):
 def registre_vide(prefix, projet):
     return {"prefix": prefix, "projet": projet,
             "domaines": [{"nom": n, "mots": rx} for n, rx in DEFAULT_DOMAINES],
+            "jalons": [],
             "entrees": []}
 
 
 def sync(reg, tickets):
     """Ajoute les tickets absents, met à jour état/date/libellé/domaine (sauf `manuel: true`). Retourne (ajoutés, modifiés)."""
-    par_rm = {int(e["rm"]): e for e in reg["entrees"]}
+    par_rm = {int(e["rm"]): e for e in reg["entrees"] if e.get("rm")}
+    couverts = {int(x) for e in reg["entrees"] for x in (e.get("tickets") or [])}
     nxt = 1 + max([int(e["id"][1:]) for e in reg["entrees"]] or [0])
     ajout, modif = [], []
     for fm in tickets:
         rm = int(fm["redmine_id"]); etat = etat_de(fm)
         e = par_rm.get(rm)
         if e is None:
-            if etat is None:
+            if etat is None or rm in couverts:
                 continue
             e = {"id": f"F{nxt:03d}", "rm": rm, "libelle": libelle_de(fm), "domaine": domaine_de(libelle_de(fm), reg["domaines"]),
                  "type": fm.get("type") or "feature", "etat": etat, "date": date_de(fm)}
@@ -146,7 +152,8 @@ def dump(reg):
 
 def build(reg):
     ents = reg["entrees"]
-    ordre = [d["nom"] for d in reg["domaines"]] + [AUTRE]
+    declares = [d["nom"] for d in reg["domaines"]]
+    ordre = declares + sorted({e.get("domaine") for e in ents if e.get("domaine") and e.get("domaine") not in declares and e.get("domaine") != AUTRE}) + [AUTRE]
     par_dom = {}
     for e in ents:
         par_dom.setdefault(e.get("domaine") or AUTRE, []).append(e)
@@ -166,19 +173,22 @@ def build(reg):
         if not rows:
             continue
         feats = [e for e in rows if e.get("type") != "bugfix"]; bugs = [e for e in rows if e.get("type") == "bugfix"]
+        jal = any(e.get("jalon") is not None for e in ents)
         L += [f"## {dom} ({len(rows)})", ""]
         if feats:
-            L += ["| # | Fonctionnalité | Ticket | Type | État | Date |", "|---|---|---|---|---|---|"]
+            L += ["| # | Fonctionnalité | Ticket(s) | Type | " + ("Jalon | " if jal else "") + "État | Date |", "|---|---|---|---|" + ("---|" if jal else "") + "---|---|"]
             for e in feats:
                 lib = e["libelle"].replace("|", "/")
                 if e.get("parent"):
                     lib += f" *(sous-tâche de RM{e['parent']})*"
-                L.append(f"| {e['id']} | {lib} | RM{e['rm']} | {e.get('type') or ''} | {e['etat']} | {e.get('date') or ''} |")
+                tk = ", ".join(f"RM{x}" for x in ([e["rm"]] if e.get("rm") else []) + [x for x in (e.get("tickets") or []) if x != e.get("rm")]) or "—"
+                jc = (f" V{e['jalon']} |" if e.get("jalon") is not None else " — |") if jal else ""
+                L.append(f"| {e['id']} | {lib} | {tk} | {e.get('type') or ''} |{jc} {e['etat']} | {e.get('date') or ''} |")
             L.append("")
         if bugs:
             L += [f"**Corrections ({len(bugs)})** :", ""]
             for e in bugs:
-                L.append(f"- {e['id']} · RM{e['rm']} · {e['libelle'].replace('|', '/')} — {e['etat']} {e.get('date') or ''}")
+                L.append(f"- {e['id']} · RM{e.get('rm') or '?'} · {e['libelle'].replace('|', '/')} — {e['etat']} {e.get('date') or ''}")
             L.append("")
     return "\n".join(L).rstrip() + "\n"
 
@@ -204,6 +214,7 @@ def main():
     ap.add_argument("--project"); ap.add_argument("--docs-dir"); ap.add_argument("--tasks-dir")
     ap.add_argument("--init", action="store_true"); ap.add_argument("--prefix")
     ap.add_argument("--sync", action="store_true"); ap.add_argument("--build", action="store_true"); ap.add_argument("--check", action="store_true")
+    ap.add_argument("--no-sync", action="store_true", help="avec --init : registre vide (curé à la main)")
     a = ap.parse_args()
     docs, tasks, projet = resoudre(a)
     regs = sorted(docs.glob("cdc-*/fonctionnalites.yml"))
@@ -221,7 +232,7 @@ def main():
         sys.exit(f"aucun registre docs/cdc-*/fonctionnalites.yml sous {docs} — `--init --prefix <p>`")
     chap = docs / f"cdc-{reg['prefix']}-10-fonctionnalites.md"
     if a.check:
-        avant = dump(reg); sync(reg, lire_tickets(tasks)); apres = dump(reg)
+        avant = dump(reg); sync(reg, lire_tickets(tasks)); apres = dump(reg)   # un registre curé (--no-sync) reste stable : ses tickets sont couverts
         ok_reg = avant == apres; ok_chap = chap.exists() and chap.read_text(encoding="utf-8") == build(reg)
         print(f"{'✓' if ok_reg else '✗'} registre à jour ({reg_path.name}, {len(reg['entrees'])} entrées)")
         print(f"{'✓' if ok_chap else '✗'} chapitre à jour ({chap.name})")
@@ -229,7 +240,7 @@ def main():
             print("  → pm-cdc-features --sync --build"); sys.exit(1)
         return
     if a.init or a.sync:
-        ajout, modif = sync(reg, lire_tickets(tasks))
+        ajout, modif = ([], []) if (a.init and a.no_sync) else sync(reg, lire_tickets(tasks))
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ registre {reg_path.relative_to(docs)} : +{len(ajout)} ajoutée(s), {len(modif)} mise(s) à jour, {len(reg['entrees'])} au total")
     if a.build:

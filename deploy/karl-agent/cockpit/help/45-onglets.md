@@ -21,6 +21,7 @@ onglet, avec la place qu'ils demandent — et de quoi y revenir.
 | Où le trouver | Ce qui s'ouvre |
 |---|---|
 | Fenêtre d'un document (fiche projet → *Docs projet*) | 📄 le document, markdown rendu |
+| Panneau 📂 projets, boutons d'un CDC vivant | 📋 fonctionnalités · 📘 CDC · 🗺 feuille de route du projet |
 | Panneau 📁 fichiers, sur un fichier ouvert | 📄 le fichier (rendu si `.md`, brut sinon) |
 | Panneau 📁 fichiers, au-dessus du fil d'Ariane | 🗂 le dossier, **navigable** au centre |
 | Panneau ⎇ git, bouton ⤢ d'une ligne de commit | ⎇ le commit et son patch complet |

@@ -7972,20 +7972,13 @@ def _self_project():
         return ("iprospective", "pm-ai-agents")
 
 
-def _order_cdcs(cdcs, self_project):
-    """Le CDC du projet PROPRE de l'instance en TÊTE (= défaut du menu cockpit quand il n'y
-    a ni préférence mémorisée ni projet de session), le reste dans l'ordre reçu. Pur/testable.
-    RM3049 : le menu CDC montre PM, pas le premier projet dans l'ordre alphabétique (AtomBox)."""
-    sc, sp = self_project
-    return sorted(cdcs, key=lambda c: (not (c.get("client") == sc and c.get("project") == sp)))
-
-
 def op_cdc_list() -> dict:
-    """Tous les CDC vivants de l'instance, projet par projet ; le projet PROPRE en tête."""
-    out = []
-    for pdir in sorted(PROJECTS_BASE.glob("*/projects/*")):
-        out.extend(_project_cdcs(pdir.parent.parent.name, pdir.name))
-    return {"cdcs": _order_cdcs(out, _self_project())}
+    """Le(s) CDC du projet PROPRE de l'instance UNIQUEMENT (le cockpit montre EN HAUT le CDC
+    de PM — `pm-ai-agents` —, PAS une liste multi-projets). RM3049 : un seul CDC en haut ;
+    quand le projet propre n'en porte qu'un, le front l'ouvre directement (pas de sélecteur).
+    Les CDC des AUTRES projets restent accessibles depuis le panneau « projets » (données
+    séparées, par projet), jamais depuis ce menu global."""
+    return {"cdcs": _project_cdcs(*_self_project())}
 
 
 def op_cdc_features(client: str, project: str, prefix: str) -> dict:

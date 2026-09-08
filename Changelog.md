@@ -13,11 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
-- **Menu CDC : défaut = le projet PM** (RM3049) : le menu CDC en haut du cockpit montre par
-  défaut le CDC du **projet propre de l'instance** (`pm-ai-agents`), plus le premier projet en
-  ordre alphabétique — correctif : AtomBox s'affichait par défaut. (`op_cdc_list` ordonne le
-  projet propre en tête, dérivé du `contacts_dir` ; `pickCdc` inchangé : préférence mémorisée
-  et projet de session gardent la priorité.)
+- **Menu CDC en haut = le seul CDC de PM** (RM3049) : le menu CDC en haut du cockpit affiche
+  **uniquement** le CDC du projet propre de l'instance (`pm-ai-agents`) — plus de liste ni de
+  sélecteur multi-projets (AtomBox et les autres n'y apparaissent plus). `op_cdc_list` ne
+  renvoie que le CDC de ce projet (dérivé du `contacts_dir`) ; comme il n'y en a qu'un, le
+  front l'ouvre directement (pas de sélecteur). Les CDC des autres projets restent accessibles
+  depuis le panneau « projets » (par projet), jamais depuis ce menu global.
 
 - **Notification client à la MEP** (RM3026) : quand des tickets passent en `en_mep`, un
   projet ayant l'option `notif_client_mep` (actif + contacts d'annuaire) met ses tickets

@@ -31,6 +31,21 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 3. Lire la tâche + son `.log.md` + ses `outputs[]`
 4. Appliquer le protocole de validation
 
+## CDC vivant du projet — à tenir au fil de l'eau (RM3043)
+
+Le projet `pm-ai-agents` a un **cahier des charges vivant** dans `{docs_dir}` (`cdc-pm-*.md`, bouton
+**📋 CDC** du cockpit), sur le modèle AtomBox. Comme pour NORMS et la doc vivante (`governance`
+§ Développement du PM), il se met à jour **dans la même livraison**, jamais en rattrapage :
+
+- une **décision / un arbitrage** de Mathieu en séance → ligne `Dnnn` dans `cdc-pm-90-decisions.md` (conseil rendu en `Cnnn`) ;
+- une **question** laissée ouverte → `Qnnn` dans `cdc-pm-99-questions-ouvertes.md` ; tranchée → barrée + renvoi vers sa `D` ;
+- une **remarque** jetée en passant → verbatim `Nnnn` dans `cdc-pm-91-vrac.md`, puis triée ;
+- une **fonctionnalité** livrée / prise / planifiée → `pm-cdc-features --sync --build` (registre `cdc-pm/fonctionnalites.yml`,
+  chapitre 10 généré, jamais édité à la main) ; `--check` doit être vert à la livraison.
+
+Identifiants à trois chiffres, stables, jamais réattribués. Version alpha en plein développement : c'est le
+moment où c'est le plus facile — on ne reconstitue pas un registre après coup.
+
 ## Rappels critiques
 
 - Tu n'écris que dans les fichiers dont tu es propriétaire (voir `worker-common.md`)

@@ -7916,6 +7916,27 @@ def op_file(relpath: str) -> str:
         raise ApiError(500, f"lecture impossible : {e}")
 
 
+# ── CDC vivant des projets (RM3043) : sommaires `docs/cdc-<prefix>-00-*.md` ──
+def op_cdc_list() -> dict:
+    """Les CDC vivants disponibles : un par projet qui porte un sommaire
+    `docs/cdc-<prefix>-00-*.md` (modèle AtomBox RM2881). Chaque entrée donne le
+    chemin RELATIF à `projects/` (celui que `op_file` sert) du sommaire et de
+    ses chapitres, pour que le cockpit navigue de l'un à l'autre."""
+    out = []
+    for som in sorted(PROJECTS_BASE.glob("*/projects/*/docs/cdc-*-00-*.md")):
+        m = re.match(r"cdc-(.+?)-00-", som.name)
+        if not m:
+            continue
+        prefix = m.group(1); pdir = som.parent.parent
+        client, project = pdir.parent.parent.name, pdir.name
+        rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
+        chapters = [{"file": f.name, "path": rel(f), "title": _help_title(f)}
+                    for f in sorted(som.parent.glob(f"cdc-{prefix}-*.md"))]
+        out.append({"client": client, "project": project, "prefix": prefix, "path": rel(som),
+                    "title": _help_title(som), "chapters": chapters})
+    return {"cdcs": out}
+
+
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
@@ -11060,6 +11081,8 @@ class Handler(BaseHTTPRequestHandler):
             data = op_help_get(path[len("/help/"):])
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
+        if path == "/cdc":                   # RM3043 : sommaires des CDC vivants
+            return self._send_json(200, op_cdc_list())
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,

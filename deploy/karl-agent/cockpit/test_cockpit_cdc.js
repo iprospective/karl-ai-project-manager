@@ -59,18 +59,20 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   // — contrôleur —
   const calls = []; const store = { m: {}, getItem(k) { return this.m[k] || null; }, setItem(k, v) { this.m[k] = String(v); } };
   const svc = new S.CdcService({ storage: store, repo: { cdcs: async () => cdcs, features: async (cl, p, pr) => { calls.push("feat:" + pr); return data; }, file: async (pth) => { calls.push("file:" + pth.split("/").pop()); return "# " + pth.split("/").pop() + "\n\n| # | O |\n|---|---|\n| D001 | x |\n\n[déc](cdc-pm-90-decisions.md#sec-D001)"; } } });
-  const F = fakeEl("cdcfeat"), C = fakeEl("cdcchap"), R = fakeEl("cdcroad"); const opened = [], tickets = [];
-  const ctl = mountCdc({ features: F, chapters: C, roadmap: R }, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, openPanel: (n) => opened.push(n), showTicket: (rm) => tickets.push(rm), sessionProjects: () => ["a/site"] });
-  await ctl.open("cdc-features"); assert(ctl.current().key === "a/site/site", "le CDC du projet de la session est pris"); assert(/pas de registre/.test(F.innerHTML), "site n'a pas de registre");
+  const F = fakeEl("cdccard"); const C = F, R = F; const opened = [], tickets = [];
+  const ctl = mountCdc(F, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, openPanel: () => opened.push("cdc"), showTicket: (rm) => tickets.push(rm), sessionProjects: () => ["a/site"] });
+  await ctl.open("cdc-features"); assert(ctl.page() === "cdc-features" && store.m.karlCdcPage === "cdc-features", "onglet courant mémorisé"); assert(ctl.current().key === "a/site/site", "le CDC du projet de la session est pris"); assert(/pas de registre/.test(F.innerHTML), "site n'a pas de registre");
   await F.click("select", { key: "i/pm/pm" }); assert(ctl.current().key === "i/pm/pm" && store.m.karlCdc === "i/pm/pm" && /F001/.test(F.innerHTML), "changer de CDC : mémorisé, table rendue");
   await F.click("sort", { key: "date" }); assert(ctl.state.sort === "date" && store.m.karlCdcSort === "date:0"); await F.click("sort", { key: "date" }); assert(ctl.state.desc === true, "second clic inverse");
   await F.input("journal"); await settle(); assert(ctl.state.q === "journal" && /F001/.test(F.innerHTML) && !/F003/.test(F.innerHTML), "filtre appliqué (debounce immédiat en test)");
   await F.click("ticket", { rm: "10" }); assert.deepStrictEqual(tickets, ["10"], "un ticket ouvre sa fiche");
-  await F.click("page", { page: "cdc-roadmap" }); assert(opened.includes("cdc-roadmap"), "les chips de page passent par le centre");
+  await F.click("page", { page: "cdc-roadmap" }); assert(ctl.page() === "cdc-roadmap" && /En cours/.test(F.innerHTML) && opened.length === 0, "les onglets changent la page DANS le panneau, sans passer par le centre");
+  await F.click("page", { page: "zzz" }); assert(ctl.page() === "cdc-roadmap", "onglet inconnu ignoré");
   await ctl.open("cdc"); assert(/cdc-pm-00-sommaire.md/.test(C.innerHTML) && calls.includes("file:cdc-pm-00-sommaire.md"), "le CDC s'ouvre sur son sommaire");
   await C.link("cdc-pm-90-decisions.md#sec-D001"); assert(calls.includes("file:cdc-pm-90-decisions.md") && ctl.state.chapter.endsWith("cdc-pm-90-decisions.md"), "lien relatif : chapitre suivi dans la page");
   await C.click("chapter", { path: cdcs[0].chapters[0].path }); assert(ctl.state.chapter === cdcs[0].chapters[0].path, "sous-onglet");
-  ctl.goto({ key: "i/pm/pm", path: cdcs[0].chapters[1].path, sec: "D001" }); await settle(); assert(opened.includes("cdc") && ctl.state.chapter.endsWith("decisions.md"), "goto : CDC + chapitre + section");
+  await ctl.open("cdc-roadmap"); ctl.goto({ key: "i/pm/pm", path: cdcs[0].chapters[1].path, sec: "D001" }); await settle(); assert(opened.includes("cdc") && ctl.page() === "cdc" && ctl.state.chapter.endsWith("decisions.md"), "goto : ouvre le panneau sur l'onglet chapitres, CDC + chapitre + section");
+  const ctl2 = mountCdc(fakeEl("x"), { service: svc, storage: store, md: mdToHtml }); assert(ctl2.page() === "cdc", "l'onglet mémorisé est repris au montage"); ctl2.unmount();
   await ctl.open("cdc-roadmap"); assert(/En cours/.test(R.innerHTML) && /F003/.test(R.innerHTML), "feuille de route rendue");
   const n0 = calls.filter(x => x.startsWith("feat:")).length; await ctl.open("cdc-features"); assert(calls.filter(x => x.startsWith("feat:")).length === n0, "registre mis en cache par CDC");
   ctl.unmount();

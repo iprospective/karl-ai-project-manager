@@ -9,7 +9,7 @@ const ETAT_CLS = { "livré": "ok", "éprouvé": "ok", "codé": "wait", "en cours
 export const etatClass = (e) => ETAT_CLS[etatKey(e)] || "";
 const ticketsOf = (e) => [].concat(e.rm ? [e.rm] : [], (e.tickets || []).filter(t => t !== e.rm)).map(Number).filter(n => n);
 
-/** Le sélecteur commun aux trois pages : les CDC disponibles, celui en contexte, les pages. */
+/** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get title() { const c = this.e.current; return c ? c.title : "CDC vivant"; }

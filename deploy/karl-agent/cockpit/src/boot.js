@@ -269,10 +269,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
-    // RM3044 : les pages du CDC vivant — un seul contrôleur, trois hôtes ; `open` relit le contexte (session) à chaque ouverture
-    "cdc-features": { label: "fonctionnalités", load: () => cdc.open("cdc-features"), show: (on) => show("cp-cdc-features", on) },
-    "cdc":          { label: "CDC",             load: () => cdc.open("cdc"),          show: (on) => show("cp-cdc", on) },
-    "cdc-roadmap":  { label: "feuille de route", load: () => cdc.open("cdc-roadmap"), show: (on) => show("cp-cdc-roadmap", on) },
+    cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   noted: () => layout.centerShown(),   // RM3003 : une vue, une session, un panneau ou une fiche ouverte → la page « centre » du gabarit mobile
@@ -511,18 +508,18 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
-  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open("cdc"); }, "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
+  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open(); }, "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
 // RM3044 : pages du CDC vivant ; RM3045 : onglet projets de la session (prête ses projets au choix du CDC en contexte)
 sessproj = mountSessProj(byId("rp-projects"), {
   attached: () => attachCtl.current(), openDoc: (p, n) => doc.openDoc(p, n), showFiles: () => layout.switchRight("files"),
-  openCdc: (key, page) => { cdc.select(key); center.openPanel(page); cdc.open(page); },
+  openCdc: (key, page) => { cdc.select(key); center.openPanel("cdc"); cdc.open(page); },
 });
-cdc = mountCdc({ features: byId("cdcfeat"), chapters: byId("cdcchap"), roadmap: byId("cdcroad") }, {
+cdc = mountCdc(byId("cdccard"), {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), md: mdToHtml, notify: notify.toast,
-  openPanel: (n) => { center.openPanel(n); cdc.open(n); }, showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(),
+  openPanel: () => center.openPanel("cdc"), showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(),
 });
 journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session

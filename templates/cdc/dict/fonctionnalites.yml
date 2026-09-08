@@ -1,0 +1,26 @@
+# FONCTIONNALITÉS — une ligne par fonctionnalité du produit.
+# etat : UNE SEULE ÉCHELLE, ordonnée — on ne code pas ce qui n'est pas décidé, et une
+#   fonctionnalité ne recule pas. Deux champs (« décidé » d'un côté, « codé » de l'autre)
+#   seraient deux vérités à tenir d'accord ; il n'y en a qu'une, et les vues la comptent.
+#     à trancher → décidé → maquetté → codé → éprouvé
+#     en pause / écarté   (hors chaîne)
+#   à trancher : une question ouverte la bloque — elle est dans `questions`
+#   décidé     : tranché au CDC, la règle est écrite, rien n'est construit
+#   maquetté   : l'interface le montre, aucun serveur derrière
+#   codé       : écrit et testé des deux côtés, jamais confronté au réel
+#   éprouvé    : a tourné POUR DE VRAI (vraies données, vrai service) — le seul état qui
+#                vaille une promesse à un client
+#   en pause   : écarté pour l'instant, avec sa condition de reprise (⏸)
+#   écarté     : abandon ou doublon ; la ligne RESTE, jalon null, l'identifiant jamais réattribué
+# jalon : 0 = V0, 1..N ; absent (null) = écarté volontairement — on ne SUPPRIME jamais une F…
+# ticket : le RM qui la réalise, quand il existe (le CDC finit en tickets estimés)
+# depend_de : les fonctionnalités qui doivent EXISTER avant celle-ci — [] = racine, null = pas encore renseigné.
+#   Identifiants F001… STABLES, jamais réattribués. Le tri topologique de ce graphe donne L'ORDRE DE CODAGE.
+#   Le harnais casse sur un cycle, un id inconnu, ou une dépendance vers un jalon ultérieur — donc :
+#   - DÉPLACER une F… vers un jalon plus tard fait apparaître tout ce qui en dépend et doit bouger avec elle ;
+#   - ÉCARTER une F… (jalon null) est une suppression EN CASCADE : le harnais nomme ses dépendantes encore à jalon
+#     et refuse tant qu'elles ne sont pas écartées, déplacées ou découplées. C'est le warning et la confirmation.
+#   La feuille de route est DÉRIVÉE de ce fichier (par jalon, dans l'ordre topologique) : deux vues, une donnée.
+# null ≠ [] : « pas encore renseigné » et « aucune dépendance » ne doivent jamais se confondre.
+
+[]

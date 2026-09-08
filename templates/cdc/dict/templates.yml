@@ -1,0 +1,7 @@
+# TEMPLATES — les vues partielles du registre (R.define / R.defineFor / R.render), inventoriées depuis le POC.
+# Une partielle est SURCHARGEABLE par variante (nom@variante) sans toucher au code qui l'appelle ;
+# la variante est déduite du dossier, sinon de l'axe, sinon du sens (views/list.js : variante()).
+# contexte : liste | message | arborescence | admin | composition
+# Blocs du message ouvert qui ne sont pas encore des partielles du registre (méthodes de Views.Message) — à migrer :
+
+[]

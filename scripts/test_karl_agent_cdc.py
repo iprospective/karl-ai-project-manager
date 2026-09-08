@@ -24,6 +24,7 @@ d = base / "acme" / "projects" / "site" / "docs"; d.mkdir(parents=True)
 (d / "cdc-site-00-sommaire.md").write_text("# CDC Site — sommaire\n"); (d / "cdc-site-90-decisions.md").write_text("# Registre des décisions\n"); (d / "cdc-site-10-fonctionnalites.md").write_text("# 10 — Fonctionnalités\n")
 (d / "autre-doc.md").write_text("# pas un CDC\n")
 d2 = base / "acme" / "projects" / "sans-cdc" / "docs"; d2.mkdir(parents=True); (d2 / "note.md").write_text("# note\n")
+ka._self_project = lambda: ("acme", "site")   # RM3049 : op_cdc_list est scopé au projet PROPRE ; en test, c'est la fixture
 r = ka.op_cdc_list()
 check("un CDC par projet qui porte un sommaire, les autres docs ignorés", len(r["cdcs"]) == 1 and r["cdcs"][0]["client"] == "acme" and r["cdcs"][0]["project"] == "site" and r["cdcs"][0]["prefix"] == "site")
 c = r["cdcs"][0]
@@ -47,17 +48,19 @@ except ka.ApiError:
 cs = ka._project_cdcs("acme", "site")
 check("deux CDC dans un même projet (pm + karl), registre détecté pour le premier", [x["prefix"] for x in cs] == ["karl", "site"] and cs[1]["registry"] is True and cs[0]["registry"] is False)
 
-# — RM3049 : le CDC du projet PROPRE de l'instance passe en TÊTE (défaut du menu cockpit) —
-_ord = ka._order_cdcs([
-    {"client": "iprospective", "project": "atombox-webmail", "key": "a"},
-    {"client": "iprospective", "project": "pm-ai-agents", "key": "pm"},
-    {"client": "acme", "project": "site", "key": "s"},
-], ("iprospective", "pm-ai-agents"))
-check("RM3049 : le projet propre en TÊTE, reste dans l'ordre reçu", [c["key"] for c in _ord] == ["pm", "a", "s"])
-check("RM3049 : projet propre absent → ordre inchangé, pas d'erreur",
-      [c["key"] for c in ka._order_cdcs([{"client": "acme", "project": "site", "key": "s"},
-                                         {"client": "iprospective", "project": "atombox-webmail", "key": "a"}],
-                                        ("iprospective", "pm-ai-agents"))] == ["s", "a"])
+# — RM3049 : le menu CDC du haut = le CDC du projet PROPRE UNIQUEMENT (jamais multi-projets) —
+_calls = []
+_orig_pc, _orig_sp = ka._project_cdcs, ka._self_project
+ka._project_cdcs = lambda c, p: (_calls.append((c, p)) or [{"client": c, "project": p, "key": f"{c}/{p}/x"}])
+ka._self_project = lambda: ("iprospective", "pm-ai-agents")
+try:
+    _res = ka.op_cdc_list()
+finally:
+    ka._project_cdcs, ka._self_project = _orig_pc, _orig_sp
+check("RM3049 : op_cdc_list ne lit QUE le projet propre (pm-ai-agents), pas les autres",
+      _calls == [("iprospective", "pm-ai-agents")])
+check("RM3049 : ne renvoie que le(s) CDC de ce projet",
+      [c["key"] for c in _res["cdcs"]] == ["iprospective/pm-ai-agents/x"])
 
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — op_cdc_list"))
 sys.exit(1 if fails else 0)

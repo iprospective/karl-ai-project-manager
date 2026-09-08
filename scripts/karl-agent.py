@@ -5280,12 +5280,11 @@ def _overview_open_tasks(client=None, project=None) -> list:
         entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
                  "status": meta.get("status"), "priority": meta.get("priority") or "",
                  "client": cl, "project": pr}
-        # RM3026 — ticket déployé en attente de notification client (queued_at posé,
-        # sent_at non) : on le remonte au cockpit (alerte `client_notify`) pour ne pas
-        # oublier d'envoyer le récap au client.
-        _cn = meta.get("client_notify") or {}
-        if _cn.get("queued_at") and not _cn.get("sent_at"):
-            entry["notify_queued_at"] = _cn.get("queued_at")
+        # RM3026 — ticket déployé en attente de notification client (client_notify :
+        # queued_at posé, sent_at vide) : lu par _read_task_meta (notify_queued) et remonté
+        # au cockpit (alerte `client_notify`) pour ne pas oublier d'envoyer le récap.
+        if meta.get("notify_queued"):
+            entry["notify_queued_at"] = meta["notify_queued"]
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:
@@ -6325,7 +6324,7 @@ def _read_task_meta(path: Path) -> dict:
     """
     meta = {"title": "", "status": "", "priority": "", "type": "",
             "test_url": "", "target_env": "", "schema_version": "",
-            "git_branch": "", "tags": []}
+            "git_branch": "", "tags": [], "notify_queued": ""}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -6336,6 +6335,8 @@ def _read_task_meta(path: Path) -> dict:
     fm = text[3:end] if end != -1 else text
     in_tags = False
     in_git = False
+    in_cn = False                 # RM3026 : bloc client_notify (file de notif client)
+    _cn_q = _cn_s = ""
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -6349,8 +6350,19 @@ def _read_task_meta(path: Path) -> dict:
                     meta["git_branch"] = _scalar(line)
                 continue
             in_git = False
+        if in_cn:
+            if line.startswith("  "):
+                s = line.strip()
+                if s.startswith("queued_at:"):
+                    _cn_q = _scalar(line)
+                elif s.startswith("sent_at:"):
+                    _cn_s = _scalar(line)
+                continue
+            in_cn = False
         if line.startswith("schema_version:"):
             meta["schema_version"] = _scalar(line)
+        elif line.startswith("client_notify:"):
+            in_cn = True
         elif line.startswith("git:"):
             in_git = True
         elif line.startswith("title:"):
@@ -6367,6 +6379,8 @@ def _read_task_meta(path: Path) -> dict:
             meta["target_env"] = _scalar(line)
         elif line.startswith("tags:"):
             in_tags = True
+    # RM3026 : « en file de notif client » = queued_at posé ET sent_at vide/null.
+    meta["notify_queued"] = _cn_q if (_cn_q and not _cn_s) else ""
     return meta
 
 

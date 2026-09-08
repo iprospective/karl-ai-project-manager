@@ -32,6 +32,7 @@ TARGET_TO_CURRENT = {
     "/api/glossary/help": "/help",
     "/api/glossary/project": "/project",
     "/api/layout/outline": "/outline",
+    "/api/log/historical": "/log/historical",
     "/api/log/tail": "/log/tail",
     "/api/log/write": "/log",
     "/api/mail/create": "/mail/create",
@@ -106,6 +107,22 @@ TARGET_TO_CURRENT = {
     "/api/worklog/mr/merge": "/mr/merge",
     "/api/worklog/worklog": "/worklog",
 }
+
+# RM3004 : la table inverse — un chemin historique appelé directement (hors cockpit) est repérable, et journalisé avant retrait.
+CURRENT_TO_TARGET = {v: k for k, v in TARGET_TO_CURRENT.items()}
+
+
+def historical_target(path):
+    """Cible /api/… d'un chemin HISTORIQUE (sans query string), suffixe conservé ; None si ce n'est pas un chemin routé."""
+    if path.startswith("/api/"):
+        return None
+    hit = CURRENT_TO_TARGET.get(path)
+    if hit is None:
+        for cur in sorted(CURRENT_TO_TARGET, key=len, reverse=True):
+            if path.startswith(cur + "/"):
+                hit = CURRENT_TO_TARGET[cur] + path[len(cur):]
+                break
+    return hit
 
 
 def api_alias(path_qs):

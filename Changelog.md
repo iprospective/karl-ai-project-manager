@@ -78,6 +78,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   vendors complétée (xterm.js MIT, compatible), norme de gouvernance : toute contribution est
   faite sous cette licence, toute dépendance doit lui être compatible. Les données de projets
   (dépôt privé) ne sont pas couvertes.
+- **Les chemins historiques de karl-agent sont comptés avant d'être retirés** (RM3004, étape 1).
+  Le front parle `/api/<type>/<action>` depuis la 3.0.0 ; les chemins historiques restent servis
+  par un alias généré pour les autres clients. Chaque appel direct d'un chemin historique est
+  désormais compté et journalisé (catégorie `api` : info à la première occurrence par chemin et
+  client, puis une fois par heure) ; `GET /api/log/historical` donne les compteurs et la sorte de
+  client depuis le démarrage. Les appelants connus sont basculés (`karl-ttyd-auth.py`,
+  `karl-voice-setup.sh`, exemples de la doc). Zéro appel pendant une semaine ⇒ retrait de l'alias.
 - **Un seul `mmi-pm`** (RM3033). Deux outils portaient le nom : `bin/mmi-pm` (bash, provisioning
   `<nom> <verbe>`, porte sudo) et `scripts/mmi-pm.py` (dispatcher `mmi-pm <cmd>` → `pm-<cmd>.py`,
   dans le PATH) — et aucun ne connaissait l'autre : `mmi-pm core update` en PATH répondait

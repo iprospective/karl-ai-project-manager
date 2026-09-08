@@ -4991,6 +4991,62 @@ def _subtasks_status(refs) -> list:
     return out
 
 
+# RM3004 : chaque appel d'un chemin HISTORIQUE (hors /api/…) est compté et journalisé (catégorie api) — période de tolérance
+# avant le retrait de l'alias : au bout d'une semaine sans appel, karl_api_routes.py peut disparaître. Journal : info à la
+# première occurrence par (chemin, client) puis une fois par heure ; debug à chaque appel ; GET /api/log/historical = les compteurs.
+_HIST_LOCK = threading.Lock()
+_HIST: dict = {}          # chemin historique → {"n", "first", "last", "target", "clients": {ua-kind: n}}
+_HIST_SEEN: dict = {}     # (chemin, client) → dernier `info` (epoch)
+_HIST_INFO_EVERY_S = 3600
+
+
+def _client_kind(ua: str) -> str:
+    u = (ua or "").lower()
+    if not u:
+        return "sans-ua"
+    for k in ("curl", "python", "okhttp", "dart", "mozilla", "wget"):
+        if k in u:
+            return k
+    return u[:24]
+
+
+def note_historical_path(path: str, ua: str = "", ip: str = "", user=None) -> str | None:
+    """Rend la cible /api/… si `path` est un chemin historique routé (et l'enregistre), None sinon."""
+    from karl_api_routes import historical_target
+    target = historical_target(path)
+    if not target:
+        return None
+    kind = _client_kind(ua); now = time.time()
+    with _HIST_LOCK:
+        rec = _HIST.setdefault(path, {"n": 0, "first": now, "last": now, "target": target, "clients": {}})
+        rec["n"] += 1; rec["last"] = now; rec["clients"][kind] = rec["clients"].get(kind, 0) + 1
+        key = (path, kind); first_or_stale = now - _HIST_SEEN.get(key, 0) >= _HIST_INFO_EVERY_S
+        if first_or_stale:
+            _HIST_SEEN[key] = now
+    try:
+        _jlog("api", "info" if first_or_stale else "debug", "chemin historique appelé — migrer vers la cible /api (RM3004)",
+              path=path, target=target, client=kind, ua=(ua or "")[:120], ip=ip, user=user, n=rec["n"])
+    except Exception:  # noqa: BLE001
+        pass
+    return target
+
+
+def op_historical_paths() -> dict:
+    with _HIST_LOCK:
+        rows = [{"path": p, "target": r["target"], "n": r["n"], "clients": dict(r["clients"]),
+                 "first": _dtfmt(r["first"]), "last": _dtfmt(r["last"])} for p, r in sorted(_HIST.items(), key=lambda kv: -kv[1]["n"])]
+    return {"paths": rows, "total": sum(r["n"] for r in rows), "since": _AGENT_STARTED_ISO, "note": "0 appel pendant une semaine ⇒ karl_api_routes.py peut être retiré (RM3004)"}
+
+
+def _dtfmt(ts: float) -> str:
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+
+
+import datetime as _dt_boot
+_AGENT_STARTED_ISO = _dt_boot.datetime.now().isoformat(timespec="seconds")
+
+
 class _EventBus:
     """RM3006 : le bus des événements du cockpit. Les scripts PM (statut, note, worklog, relève mail) PUBLIENT des sujets ; chaque
     connexion SSE `/api/session/events` attend sur la condition et, réveillée, rejoue `op_refresh` avec SES hashs — la donnée poussée
@@ -10764,6 +10820,15 @@ class Handler(BaseHTTPRequestHandler):
         self._status = code
         return super().send_response(code, message)
 
+    def _note_historical(self):
+        try:
+            p = urlparse(self.path).path
+            if p.startswith("/api/") or p in ("/", "/cockpit") or p.startswith("/static/") or p.startswith("/help") or p == "/cockpit-config":
+                return
+            note_historical_path(p, self.headers.get("User-Agent", ""), self.client_address[0], (getattr(self, "auth_ctx", None) or {}).get("user"))
+        except Exception:  # noqa: BLE001 — jamais bloquant
+            pass
+
     def _journal_fields(self) -> dict:
         ctx = getattr(self, "auth_ctx", None) or {}
         t0 = getattr(self, "_t0", None)
@@ -10967,6 +11032,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routage --
     def do_GET(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         parsed = urlparse(self.path)
         path = parsed.path
@@ -11067,6 +11133,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/refresh":       # RM2763 : pile de refresh (composite)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
+            if path == "/log/historical":   # RM3004 : qui appelle encore les chemins historiques (compteurs depuis le démarrage)
+                return self._send_json(200, op_historical_paths())
             if path == "/events":        # RM3006 : canal de push (SSE) — mêmes blocs, même auth_ctx, poussés à la publication
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._events_stream(qs.get("blocks", ""))
@@ -11240,6 +11308,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         path = urlparse(self.path).path
         # /auth/login est LA porte d'entrée : pas d'auth préalable (throttle
@@ -11376,6 +11445,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_PUT(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
@@ -11392,6 +11462,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_DELETE(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()

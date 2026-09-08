@@ -1,0 +1,35 @@
+# runtime·status-workflow — machine d'états, attribution, mapping Redmine
+Ouvrir quand : je change un statut · je prends une tâche · fin de dev / routage test · un ticket me revient · phase d'étude · micro-tâche. Outils `pm-task-status-update` (`--list-next`), `redmine-fetch-updates`, `pm-task-take`, `pm-task-deliver`. Source : `norms/src/modules/status-workflow.md`.
+
+## Passe agent-testeur (`requires_agent_test`)
+Fin de dev : voie canonique `a_tester_dev` (testeur ≠ dev) avant `a_tester_demandeur`, conditionnée par : champ tâche `requires_agent_test` (`default`|`oui`|`non`|`demander`) → si `default`, `defaults.requires_agent_test` du projet (`overview.md`) → si absent, `non`. Redmine : CF 27 « AI Test par agent » (Oui/Non/Demander = 39/40/41 ; `redmine.reference.yml :: agent_test_values`) ; non sélectionné = `default` ; le MD fait foi, `pm-task-sync` rafraîchit.
+Depuis `en_cours` : `oui` → `a_tester_dev` (testeur ≠ dev) · `non` → `a_tester_demandeur` (bypass, au demandeur) · `demander` → demander au demandeur puis appliquer. Non interactif sur `demander` (ou irrésoluble) ⇒ rester `en_cours` et le signaler.
+
+## Machine d'états
+`a_etudier_chiffrer` →(estimation lancée) `etude_chiffrage_en_cours` →(étude/CDC + chiffrage finis) `etude_chiffrage_a_valider` (au demandeur) →(validé) `a_faire` ; retour demandeur (ajustements) → `etude_chiffrage_en_cours` ; abandon/hors périmètre → `ferme`.
+`a_faire` →(démarrage + branche `<RMid>-<desc>`) `en_cours` →(dev terminé) `a_tester_dev` →(OK) `a_tester_demandeur` [env DEV : le demandeur valide sur dev ; MR branche→dev, CF GIT PR, merge] → `a_tester_preprod` [env PRÉPROD : déploiement préprod, recette] →(recette OK) `a_mep` [validé, en file de MEP, PAS déployé] →(MR préprod→prod + pull prod ; 2 branches : MR dev→prod) `en_mep` [EN PROD : déployé, dernière vérif] →(vérif prod OK) `ferme`.
+Retours → `a_corriger` : problèmes en `a_tester_dev`, rejet en `a_tester_demandeur`, régression préprod, régression prod ; corrections faites → `en_cours`.
+Raccourcis : `en_pause` ⇄ tout état actif (blocage tiers ; reprend à l'état précédent) · `a_tester_demandeur` → `ferme` (sans code à déployer, `close_reason: resolu`) · `a_tester_demandeur` → `a_mep` (projet SANS env préprod) · `a_tester_preprod` → `en_mep` (instruction « mets en prod » ⇒ MEP dans la foulée ; « preprod ok » ⇒ `a_mep`) · `en_cours` → `a_tester_demandeur` (`requires_agent_test=non`).
+Sémantique aval par env : `a_tester_demandeur` = dev ; `a_tester_preprod` (optionnel, sauté sans env préprod) = préprod ; `a_mep` = validé, pas encore déployé ; `en_mep` = déployé en prod, dernière vérif avant fermeture (le déploiement prod se fait EN ENTRANT dans `en_mep`).
+**Toute transition vers `ferme` exige un `close_reason`.**
+
+## Flux court micro-tâches
+Critère : `estimate.time_minutes ≤ 30` ET pas de livrable code (audit éclair, doc courte, correction de données, assistance). Mêmes statuts et notes, zéro infrastructure : 1 `pm-task-take <id> --no-branch` (en_cours + assignation, ni branche ni env) · 2 travail + entrée `.log.md` · 3 `pm-task-deliver <id> --summary -` (critères/protocole/routage inchangés). Travail déjà fait à la création → `pm-task-add --retro` (traverse la machine d'états en un appel). Micro-ticket qui exige du code → `pm-task-take <id>` (idempotent) crée branche + env.
+
+## Lien Redmine ↔ MD (obligatoire, vérifié par le validateur)
+Tâche : `redmine_id` obligatoire ; fichier `RM{id}_{titre}.md` = `redmine_id` ; pas de MD sans ticket Redmine préexistant. Projet : `redmine.project_id: <slug>` obligatoire dans `project/overview.md` ; `redmine.subprojects: [...]` optionnel.
+
+## Sync statut MD ↔ Redmine, même cycle
+Frontmatter (`status`, `status_history`, `updated`) + `.log.md` + note Redmine + `status_id` (`redmine-post-note.py --norms-status <statut>` ; en pratique `pm-task-status-update.py` fait tout).
+Demandeur = `author_id` natif. À la création (`pm-task-add.py`), PUT immédiat : défaut → Manager IA (`pm.config.yml :: ia.default_manager.redmine_id`) ; `--initiator-agent` → karl (id 79 : audits autonomes, bootstrap, tâches initiées par un agent). CF `Demandeur` (id 12) déprécié, plus consulté.
+Résolveur « demandeur » : author == karl → Manager IA ; author ≠ karl avec email accessible → author ; sinon → Manager IA.
+Attribution automatique par `pm-task-status-update.py` : `etude_chiffrage_a_valider` → demandeur (résolveur) · `a_tester_dev` → testeur ≠ dev (manuel `--assign-to <id>` ; orchestrateur plus tard) · `a_tester_demandeur` → demandeur · `a_tester_preprod` → responsable recette préprod (défaut demandeur ; configurable par projet) · `a_mep` → responsable MEP/intégration (défaut Manager IA ou orchestrateur ; configurable) · `en_mep` → demandeur (vérif finale en prod) · `a_corriger` → worker précédent (manuel `--assign-to <id>`) · `en_pause`, `ferme` → conserver.
+Manager IA : humain superviseur des agents, notif mail à chaque livraison, assigné des `a_tester_demandeur` quand l'auteur est karl. `pm.config.yml :: ia.default_manager: {redmine_id: 5, email: mathieu@iprospective.fr, name: Mathieu Moulin}` (V2 : cascade `ia.managers:` par `paths.project` et/ou `ia_manager:` dans `project/overview.md`).
+
+## Prise en charge : `en_cours` ⇒ auto-assignation
+Dans le même mouvement : `status` → `en_cours` (Redmine + MD + log) ET `assigned_to` = soi. Une tâche `en_cours` sans assigné = état invalide. Vaut hors orchestrateur (interactif) : ticket ni `en_cours` ni assigné à l'agent ⇒ l'agent fait les deux avant de travailler (symétrique de la vérification initiale de `worker-common`). `pm-task-status-update.py` couple les deux : cible `en_cours` ⇒ auto-assigne au user Redmine de l'agent (`pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79) ; `--no-assign` pour outrepasser.
+
+## Mapping NORMS → Redmine (instance iprospective)
+`nouveau`=1 Nouveau · `a_etudier_chiffrer`=8 · `etude_chiffrage_en_cours`=14 · `etude_chiffrage_a_valider`=21 · `a_faire`=12 · `en_cours`=2 · `a_tester_dev`=19 · `a_tester_demandeur`=9 · `a_tester_preprod`=20 « MEP/Tester en preprod » · `a_mep`=3 « Résolu/Validé/A MEP » (NON terminal) · `en_mep`=22 « MEP/Vérifier en prod » · `en_pause`=13 · `a_corriger`=11 · `ferme` (toutes raisons)=18 Fermé (seul terminal). `a_tester_verifier` déprécié → lu `a_tester_demandeur` (9). Vérifier que le workflow Redmine (tracker × rôle) autorise l'entrée en 20 depuis `a_tester_demandeur` et en 22 depuis `a_mep`, sinon PUT silencieusement ignoré (`knowledge/redmine/gotchas.md`).
+`nouveau` = statut d'entrée : `pm-task-add.py` crée en `nouveau` (`author_id` posé, sans `assigned_to`) ; tri ensuite vers `a_faire`/`a_etudier_chiffrer`/`en_cours` (ou `--status <s>` à la création, qui transitionne via `pm-task-status-update.py` pour le couplage). Rester en `nouveau` est légitime tant que non engagé.
+`close_reason` ↔ CF « Raison Fermé » (id 11, enum) : `resolu`=10 Résolu · `wont_fix`/`hors_perimetre`=11 Rejeté · `abandonne`=12 · `doublon`=13 Déjà existant · `invalide`=14 Pas un bug / rien à faire. Anciens terminaux 5/6/7/10 dépréciés ; ne pas confondre avec `a_mep` (3), non terminal.

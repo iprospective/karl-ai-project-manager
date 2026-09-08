@@ -26,7 +26,7 @@
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
-| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
+| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC de ticket** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
@@ -34,6 +34,8 @@
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
 | j'introduis/fais évoluer une donnée ou un artefact partagé Redmine↔PM (champ, vue, template, doc, métrique) | `modules/redmine-sync.md` (principe de parité) | scripts de sync dédiés |
+| je démarre un travail et je ne sais pas **par quel bout** le prendre — projet neuf, reprise d'existant, migration, ticket qui ressemble à une étude | `modules/methodes-travail.md` (quatre natures, quatre protocoles) | — |
+| j'attaque un **projet neuf par un cahier des charges complet**, je consigne un arbitrage dans un CDC, ou je veux savoir quand il est fini | `modules/cdc.md` (trois livrables, grille 360°, harnais) | `pm-cdc` |
 | on me demande un **audit** (site, sécurité, infra, DNS, mail, conformité), d'où que parte la demande | `modules/audits.md` — lire l'existant AVANT de mesurer ; findings dans `iprospective/audits`, remédiation dans le projet propriétaire | skill `mmi-audit`, `new-audit-session.sh` |
 | je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |

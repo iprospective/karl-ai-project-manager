@@ -46,5 +46,18 @@ except ka.ApiError:
     check("client invalide → 400", True)
 cs = ka._project_cdcs("acme", "site")
 check("deux CDC dans un même projet (pm + karl), registre détecté pour le premier", [x["prefix"] for x in cs] == ["karl", "site"] and cs[1]["registry"] is True and cs[0]["registry"] is False)
+
+# — RM3049 : le CDC du projet PROPRE de l'instance passe en TÊTE (défaut du menu cockpit) —
+_ord = ka._order_cdcs([
+    {"client": "iprospective", "project": "atombox-webmail", "key": "a"},
+    {"client": "iprospective", "project": "pm-ai-agents", "key": "pm"},
+    {"client": "acme", "project": "site", "key": "s"},
+], ("iprospective", "pm-ai-agents"))
+check("RM3049 : le projet propre en TÊTE, reste dans l'ordre reçu", [c["key"] for c in _ord] == ["pm", "a", "s"])
+check("RM3049 : projet propre absent → ordre inchangé, pas d'erreur",
+      [c["key"] for c in ka._order_cdcs([{"client": "acme", "project": "site", "key": "s"},
+                                         {"client": "iprospective", "project": "atombox-webmail", "key": "a"}],
+                                        ("iprospective", "pm-ai-agents"))] == ["s", "a"])
+
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — op_cdc_list"))
 sys.exit(1 if fails else 0)

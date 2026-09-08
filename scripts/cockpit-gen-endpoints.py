@@ -58,7 +58,17 @@ py = ['"""karl_api_routes — alias /api/<type>/<action> → chemin historique (
       'historiques tels quels pour les autres clients (scripts, app mobile).', '"""', '',
       'TARGET_TO_CURRENT = {']
 py += [f'    "{t}": "{alias[t]}",' for t in sorted(alias)]
-py += ['}', '', '',
+py += ['}', '', '# RM3004 : la table inverse — un chemin historique appelé directement (hors cockpit) est repérable, et journalisé avant retrait.',
+       'CURRENT_TO_TARGET = {v: k for k, v in TARGET_TO_CURRENT.items()}', '', '',
+       'def historical_target(path):',
+       '    """Cible /api/… d\'un chemin HISTORIQUE (sans query string), suffixe conservé ; None si ce n\'est pas un chemin routé."""',
+       '    if path.startswith("/api/"):', '        return None',
+       '    hit = CURRENT_TO_TARGET.get(path)',
+       '    if hit is None:',
+       '        for cur in sorted(CURRENT_TO_TARGET, key=len, reverse=True):',
+       '            if path.startswith(cur + "/"):',
+       '                hit = CURRENT_TO_TARGET[cur] + path[len(cur):]', '                break',
+       '    return hit', '', '',
        'def api_alias(path_qs):',
        '    """Réécrit une URL cible en URL historique (la query string est conservée) ; les autres URL passent telles quelles.',
        '    Un suffixe après la cible (identifiant : /api/auth/devices/<id>) est reporté sur le chemin historique."""',

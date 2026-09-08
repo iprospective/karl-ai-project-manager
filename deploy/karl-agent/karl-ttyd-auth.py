@@ -22,7 +22,7 @@ Conf Apache (vhost public mmi) :
 
 Test hors Apache :
   karl-ttyd-auth --check 'karl_session=<token>'      # → OK / DENY
-  KARL_VERIFY_URL=http://127.0.0.1:9876/auth/whoami   (défaut)
+  KARL_VERIFY_URL=http://127.0.0.1:9876/api/auth/whoami   (défaut ; RM3004 : cible /api)
 """
 import os
 import sys
@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 from http.cookies import SimpleCookie
 
-VERIFY_URL = os.environ.get("KARL_VERIFY_URL", "http://127.0.0.1:9876/auth/whoami")
+VERIFY_URL = os.environ.get("KARL_VERIFY_URL", "http://127.0.0.1:9876/api/auth/whoami")
 SESSION_COOKIE = "karl_session"
 TIMEOUT_S = float(os.environ.get("KARL_VERIFY_TIMEOUT", "3"))
 

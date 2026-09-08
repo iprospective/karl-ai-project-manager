@@ -43,30 +43,51 @@ def queue_state(fm):
     return cn.get("queued_at"), cn.get("sent_at")
 
 
+def dismissed_at(fm):
+    """Date de mise à l'écart — le client n'a PAS besoin d'être notifié pour ce ticket
+    (RM3052 « dismiss ») : il sort de la file sans email. None si non écarté."""
+    return ((fm or {}).get(QUEUE_KEY) or {}).get("dismissed_at")
+
+
 def is_pending(fm):
-    """En file d'attente d'envoi : queued_at posé ET sent_at non posé."""
+    """En file d'attente d'envoi : queued_at posé, NI envoyé NI écarté."""
     q, s = queue_state(fm)
-    return bool(q) and not s
+    return bool(q) and not s and not dismissed_at(fm)
 
 
 def set_queued(fm, now):
-    """Met le ticket en file (queued_at=now, sent_at=None) SI pas déjà en attente.
-    Idempotent : re-jouer une transition en_mep ne réinitialise pas une file déjà
-    posée, et ne ré-ouvre pas une notif déjà envoyée. Renvoie (fm, changed:bool)."""
+    """Met le ticket en file (queued_at=now) SI pas déjà en attente. Idempotent : re-jouer
+    une transition en_mep ne réinitialise pas une file déjà posée. Un NOUVEAU cycle (déjà
+    envoyé OU écarté, puis redéployé) ré-entre en file et repart propre (sent_to/dismissed
+    effacés). Renvoie (fm, changed:bool)."""
     fm = dict(fm or {})
     q, s = queue_state(fm)
-    if q and not s:
+    if q and not s and not dismissed_at(fm):
         return fm, False                      # déjà en file, ne rien changer
     fm[QUEUE_KEY] = {"queued_at": now, "sent_at": None}
     return fm, True
 
 
-def mark_sent(fm, now):
-    """Pose sent_at=now (vide la file pour ce ticket). Conserve queued_at."""
+def mark_sent(fm, now, emails=None):
+    """Pose sent_at=now et, RM3052, `sent_to` = les emails réellement notifiés (savoir QUI
+    a été prévenu, pas seulement quand). Conserve queued_at ; vide la file pour ce ticket."""
     fm = dict(fm or {})
     cn = dict(fm.get(QUEUE_KEY) or {})
     cn.setdefault("queued_at", now)
     cn["sent_at"] = now
+    if emails:
+        cn["sent_to"] = list(emails)
+    fm[QUEUE_KEY] = cn
+    return fm
+
+
+def mark_dismissed(fm, now):
+    """RM3052 — sort le ticket de la file SANS notification (le client n'a pas besoin d'être
+    prévenu pour celui-là). Conserve queued_at ; pas d'email, pas de sent_at."""
+    fm = dict(fm or {})
+    cn = dict(fm.get(QUEUE_KEY) or {})
+    cn.setdefault("queued_at", now)
+    cn["dismissed_at"] = now
     fm[QUEUE_KEY] = cn
     return fm
 

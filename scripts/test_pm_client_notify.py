@@ -64,6 +64,22 @@ check("nouveau cycle (déjà envoyé puis redéployé) => ré-entre en file",
 check("mark_sent sans queued_at préalable pose les deux",
       cn.queue_state(cn.mark_sent({}, "2026-09-08T14:00")) == ("2026-09-08T14:00", "2026-09-08T14:00"))
 
+# RM3052 — sent_to (à QUI on a notifié) et dismiss (écarter sans notifier)
+fm_to = cn.mark_sent(fm1, "2026-09-08T12:00", ["a@x.fr", "b@x.fr"])
+check("mark_sent consigne sent_to = les emails notifiés",
+      fm_to[cn.QUEUE_KEY]["sent_to"] == ["a@x.fr", "b@x.fr"])
+check("sans emails, pas de sent_to inventé",
+      "sent_to" not in cn.mark_sent(fm1, "2026-09-08T12:00")[cn.QUEUE_KEY])
+fm_dis = cn.mark_dismissed(fm1, "2026-09-08T15:00")
+check("dismiss => sort de la file, SANS sent_at (aucun email)",
+      (not cn.is_pending(fm_dis)) and cn.dismissed_at(fm_dis) == "2026-09-08T15:00"
+      and cn.queue_state(fm_dis)[1] is None)
+check("dismiss conserve queued_at (trace du cycle)",
+      cn.queue_state(fm_dis)[0] == "2026-09-08T10:00")
+fm_re, ch_re = cn.set_queued(fm_dis, "2026-09-08T16:00")
+check("redéployé après dismiss => ré-entre en file (dismissed effacé)",
+      ch_re and cn.is_pending(fm_re) and cn.dismissed_at(fm_re) is None)
+
 # ── 3. résolution annuaire + emails ──────────────────────────────────────────
 ANN = {
     "sandrine-roche-pizzo": {"ref": "sandrine-roche-pizzo", "first_name": "Sandrine",

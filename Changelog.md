@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Notification client à la MEP** (RM3026) : quand des tickets passent en `en_mep`, un
+  projet ayant l'option `notif_client_mep` (actif + contacts d'annuaire) met ses tickets
+  en FILE ; `mmi-pm client-notify {config,list,preview,send}` agrège la file en **UN** email
+  récap (par projet, pas un par déploiement) — sujet au nom lisible du projet, « ce qui
+  change » = critères d'acceptation, sans le protocole de test interne — envoyé aux contacts
+  client (via `karl-mail-send`, jamais sans OK humain), puis vide la file (`sent_at`). Un
+  contact à plusieurs emails les notifie tous. Le **cockpit** signale la file par une alerte
+  `client_notify` (✉️) « N évolution(s) en prod à notifier au client », par projet, datée de
+  la plus ancienne en file.
+
 - **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.1) : un seul
   bouton 📋 CDC en haut ouvre un panneau central dont les onglets reprennent la barre
   du POC AtomBox — Fonctionnalités · CDC · Feuille de route — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :

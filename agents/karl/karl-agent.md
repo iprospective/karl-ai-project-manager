@@ -172,12 +172,12 @@ les cases *reprise au démarrage* et *fallback spawn*.
 
 ```bash
 curl -s http://127.0.0.1:9876/health
-curl -s -X POST http://127.0.0.1:9876/spawn \
+curl -s -X POST http://127.0.0.1:9876/api/session/spawn \
   -d '{"rm_id":"1669","cwd":"/zfs/workspaces/ai/project-management","engine":"claude"}'
-curl -s -X POST http://127.0.0.1:9876/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
-curl -s "http://127.0.0.1:9876/capture/1669?lines=200"
+curl -s -X POST http://127.0.0.1:9876/api/session/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
+curl -s "http://127.0.0.1:9876/api/terminal/capture/1669?lines=200"
 curl -sN http://127.0.0.1:9876/stream/1669      # SSE live
-curl -s -X POST http://127.0.0.1:9876/kill -d '{"rm_id":"1669"}'
+curl -s -X POST http://127.0.0.1:9876/api/session/kill -d '{"rm_id":"1669"}'
 # reprise de main humaine, directement sur dev :
 tmux attach -t karl-RM1669
 ```
@@ -245,6 +245,17 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
 5. **Token partagé optionnel.** Si `KARL_AGENT_TOKEN` est défini (dans le `.env`
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
+
+## Chemins historiques — période de tolérance (RM3004)
+
+Le front appelle les cibles `/api/<type>/<action>` ; les chemins historiques (`/sessions`, `/spawn`,
+`/resolve/<id>`…) restent servis par l'alias généré `scripts/karl_api_routes.py` pour les autres
+clients. Chaque appel direct d'un chemin historique est **compté et journalisé** (catégorie `api`,
+`info` à la première occurrence par chemin et client puis une fois par heure, `debug` à chaque
+appel) : `GET /api/log/historical` liste les chemins, leurs compteurs et le type de client depuis
+le démarrage ; `mmi-pm log-tail --cat api | grep historique` côté journal. **Zéro appel pendant une
+semaine ⇒ l'alias peut être retiré** (étape 2 de RM3004). Les appelants connus ont été basculés :
+`karl-ttyd-auth.py` (`/api/auth/whoami`), `karl-voice-setup.sh`, les exemples ci-dessus.
 
 ## Canal de push (RM3006)
 

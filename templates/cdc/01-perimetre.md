@@ -9,7 +9,7 @@ le problème que le produit résout, pour qui, et ce qui se passe aujourd'hui sa
 
 | Contrainte | Pourquoi | Source |
 |---|---|---|
-| | | N01 |
+| | | N001 |
 
 ## Ce que l'agent croit comprendre
 
@@ -22,7 +22,7 @@ confirmée au premier lot, et une décision (`D`) si elle l'est.
 
 | # | Supposition | Si elle est fausse | État |
 |---|---|---|---|
-| S01 | | | 🕐 |
+| S001 | | | 🕐 |
 
 ## Ce qui est hors périmètre, et pourquoi
 

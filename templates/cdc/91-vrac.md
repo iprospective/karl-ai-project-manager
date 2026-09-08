@@ -11,7 +11,7 @@ répondu à tout ce qui a été dit ?*
 
 | # | Verbatim | État | Traitée par |
 |---|---|---|---|
-| N01 | « » | 🕐 | |
+| N001 | « » | 🕐 | |
 
 ## Retours d'utilisateurs
 
@@ -21,7 +21,7 @@ coûte du temps ou fait peur), **idée** (recueillie en dernier, jamais en premi
 
 | # | Source (rôle) | Canal | Nature | Verbatim / observation | État | Traité par |
 |---|---|---|---|---|---|---|
-| U01 | | observation / entretien / maquette | fait / irritant / idée | | 🕐 | |
+| U001 | | observation / entretien / maquette | fait / irritant / idée | | 🕐 | |
 
 ## Couverture
 

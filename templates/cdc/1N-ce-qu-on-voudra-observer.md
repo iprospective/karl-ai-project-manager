@@ -8,9 +8,9 @@ est la source de la page d'état du produit et de ce qu'il expose à une supervi
 
 | # | La question | La mesure qui y répond | Où elle se lit |
 |---|---|---|---|
-| O01 | « est-ce que ça prend du retard ? » | | |
-| O02 | « est-ce que quelque chose s'est perdu ? » | | |
-| O03 | « qu'est-ce qui a échoué, et depuis quand ? » | | |
+| O001 | « est-ce que ça prend du retard ? » | | |
+| O002 | « est-ce que quelque chose s'est perdu ? » | | |
+| O003 | « qu'est-ce qui a échoué, et depuis quand ? » | | |
 
 ## Ce qui doit crier, ce qui doit se taire
 

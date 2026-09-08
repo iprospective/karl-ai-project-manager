@@ -107,6 +107,18 @@ check("relever le seuil fait taire l'alerte",
       "t:4" not in {a["key"] for a in ka.build_alerts(PROJ, th2, NOW)["alerts"]})
 check("entrées vides tolérées", ka.build_alerts(None, TH, NOW)["total"] == 0)
 
+# — RM3026 : _read_task_meta expose notify_queued (chemin overview→alerte cockpit) —
+import tempfile
+_td = pathlib.Path(tempfile.mkdtemp(prefix="rm3026-meta-"))
+def _mk(name, fm):
+    p = _td / name; p.write_text("---\n" + fm + "\n---\ncorps\n", encoding="utf-8"); return p
+check("notify_queued lu quand queued_at posé et sent_at null",
+      ka._read_task_meta(_mk("RM1_x.md", "title: T\nstatus: en_mep\nclient_notify:\n  queued_at: '2026-09-08T18:58'\n  sent_at: null"))["notify_queued"] == "2026-09-08T18:58")
+check("notify_queued VIDE quand déjà notifié (sent_at posé)",
+      ka._read_task_meta(_mk("RM2_x.md", "title: T\nstatus: en_mep\nclient_notify:\n  queued_at: '2026-09-08T18:58'\n  sent_at: '2026-09-08T19:30'"))["notify_queued"] == "")
+check("notify_queued VIDE sans bloc client_notify",
+      ka._read_task_meta(_mk("RM3_x.md", "title: T\nstatus: en_mep\ntags:\n- a"))["notify_queued"] == "")
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

@@ -14,6 +14,32 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Le PM sait faire naître un dépôt sur GitHub, pas seulement sur GitLab** (RM3016). Le registre
+  `providers` déclarait GitHub depuis longtemps et `pm_forge` savait y ouvrir des PR, mais
+  `pm-repo-new` ne savait créer que des projets GitLab : miroiter un dépôt sur GitHub restait un
+  geste manuel — création à la souris, remote posé à la main, branches poussées en vrac. La
+  première demande réelle (miroir d'un projet, `main` et `dev` seulement) a montré ce que le geste
+  manuel coûte : trois différences de fond entre les deux forges, invisibles tant qu'on n'écrit
+  pas le script. L'owner d'un dépôt GitHub est soit une **organisation**, soit un **utilisateur**,
+  et l'API n'est pas la même (`POST /orgs/{org}/repos` contre `POST /user/repos`) : `pm-repo-new`
+  le résout **par lecture**, jamais par convention de nom. GitHub prend pour branche par défaut
+  **la première reçue** : elle est donc fixée explicitement *après* le push, sinon un dépôt dont
+  on pousse `dev` puis `main` s'ouvre sur `dev`. Et la **protection de branche n'existe pas sur
+  les dépôts privés d'un plan gratuit** : l'échec est un avertissement, pas une erreur — refuser
+  la création parce que la forge ne sait pas protéger reviendrait à ne rien livrer. `--branches`
+  pousse la liste choisie et elle seule (les branches de ticket restent chez soi), `--remote`
+  nomme le remote pour que `origin` (GitLab) reste intact, et le remote posé est l'**alias
+  canonique** `github:owner/repo.git` — jamais une URL HTTPS avec jeton (RM2328). Le jeton se
+  résout **par organisation** — `GITHUB__<OWNER>__TOKEN`, sinon `GITHUB__<INSTANCE>__TOKEN`,
+  sinon `GITHUB_TOKEN` — d'abord dans le `.env` utilisateur (identité par dev, RM2497) : un même
+  poste travaille pour plusieurs organisations sans jamais mélanger les jetons.
+  `deploy/karl-agent/git-credential-pm-github` le sert à `git` (avec
+  `credential.…useHttpPath true`, sans quoi le helper ne reçoit pas le chemin et donc pas
+  l'organisation), le secret ne transitant ni par un fichier de conf git ni par un remote URL.
+  Piège rencontré au premier usage, et qui vaut d'être su : un jeton *fine-grained* qui lit tout
+  peut n'avoir **aucun droit d'écriture** — l'API répond juste, et seul `git push` échoue en
+  « Permission denied ». La sonde fiable est un `POST` d'écriture inoffensif (créer un blob) :
+  403 ⇒ jeton en lecture seule, à corriger côté GitHub (permission *Contents* en écriture).
 - **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
   des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :
   en six jours, 337 fichiers modifiés et 16 non suivis (fiches, `.log.md`, `reporting.yml`, CDC

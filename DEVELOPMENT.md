@@ -111,6 +111,9 @@ mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
 pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
+pm-repo-new.py --forge github --path <owner>/<nom> [--branches main,dev] [--remote github]
+#   RM3016 : owner résolu (organisation OU utilisateur), branche par défaut fixée APRÈS le push,
+#   protection selon le plan (avertissement si le plan ne l'a pas), jeton GITHUB__<OWNER>__TOKEN.
 ```
 
 **La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`

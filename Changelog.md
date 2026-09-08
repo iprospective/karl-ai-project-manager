@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
+  **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
+  `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné
+  (`client-notify preview|send --avec-protocole | --sans-protocole`) ; réglable avec
+  `client-notify config <projet> --protocole true|false`.
+
 - **Notif client : `sent_to`, `dismiss`** (RM3052, socle du panneau compte-rendu) : à l'envoi,
   `client_notify.sent_to` consigne **à qui** le client a été notifié (pas seulement quand) ;
   nouveau verbe `mmi-pm client-notify dismiss <projet> [--rm ID]` pour **écarter** des tickets

@@ -24,7 +24,8 @@ cockpit/
   help/                 aide intégrée (markdown, servie par /help, bouton ❓)
   tooling/              outillage de DÉVELOPPEMENT seulement : package.json (sass), npm run build:css
   scripts/css-stamp.js  écrit l'empreinte des sources SCSS dans cockpit.css
-  test_cockpit*.js      suites node (une par domaine + core, runtime, shell) ; test_cockpit_browser.js = Playwright
+  test_cockpit*.js      suites node (une par domaine + core, runtime, shell ; les gros domaines scindées par couche :
+                        .helpers / .model / .view / .controller) ; test_cockpit_browser.js = Playwright
   MIGRATION-MAP.tsv · MIGRATION-ROUTES.tsv   cartes encore lues par des outils (remap, gen-endpoints, test core)
 ```
 
@@ -154,7 +155,7 @@ périmé (la CI et la MEP n'ont pas de sass : le CSS compilé est versionné).
 
 ```bash
 cd deploy/karl-agent/cockpit
-for t in test_cockpit*.js; do node "$t" || break; done      # 35 suites node, ~15 s, sans réseau
+for t in test_cockpit*.js; do node "$t" || break; done      # les suites node (~20 s, sans réseau ; les *.helpers.js sont des modules)
 KARL_PLAYWRIGHT_DIR=/chemin/vers/node_modules KARL_BROWSERS=chromium,firefox \
   node test_cockpit_browser.js                              # AVANT une MEP du front
 ```
@@ -176,48 +177,54 @@ sans redescendre », export JSON), `karl.log.entries()`, le panneau 📜 journal
 Objectif de la refonte : modifier une vue ne doit demander de lire que son domaine, sous
 **15 000 tokens** (≈ 4 caractères par token), contre ~120 k avec le monolithe. La mesure vit
 dans `scripts/cockpit-view-cost.py` (`--md` pour ce tableau, `--domain <d>` fichier par fichier,
-`--check 15000` comme garde ; `core` figure dans le tableau mais pas dans la garde : c'est le
-socle, pas un domaine). Instantané du 2026-09-06, à régénérer plutôt qu'à corriger à la main :
+`--check 15000` comme garde). La colonne **vue** est ce qu'un agent lit pour modifier une vue :
+ViewModel + vue + contrôleur + leurs tests ; c'est elle que la garde borne. `core` figure dans le
+tableau mais pas dans la garde (socle, pas un domaine). Instantané du 2026-09-08, à régénérer
+plutôt qu'à corriger à la main :
 
 | domaine | total | vue | model | repository | service | viewmodel | view | controller | style | test |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| sets ⚠ | 23746 | 18158 | 2843 | 692 | 2054 | 1084 | 1755 | 3939 | 0 | 11381 |
-| sessions ⚠ | 21584 | 16885 | 2443 | 227 | 768 | 2252 | 2050 | 2881 | 1262 | 9704 |
-| worklog ⚠ | 20569 | 15735 | 2799 | 258 | 1035 | 1460 | 2679 | 3162 | 743 | 8436 |
-| center ⚠ | 17020 | 13918 | 1910 | 525 | 0 | 1351 | 1808 | 4006 | 668 | 6754 |
-| core ⚠ | 16570 | 6112 | 9941 | 518 | 0 | 537 | 0 | 0 | 0 | 5575 |
-| meta ⚠ | 16161 | 13634 | 860 | 465 | 256 | 2656 | 2906 | 2052 | 948 | 6022 |
-| tickets | 12478 | 9007 | 1779 | 545 | 596 | 651 | 866 | 2250 | 553 | 5240 |
-| review | 12391 | 11708 | 0 | 0 | 683 | 1154 | 2268 | 3367 | 0 | 4920 |
-| doc | 11518 | 5498 | 4451 | 245 | 224 | 402 | 312 | 1528 | 1101 | 3257 |
-| files | 11497 | 8646 | 1735 | 288 | 761 | 973 | 1333 | 1558 | 68 | 4784 |
-| projects | 10863 | 8931 | 717 | 680 | 423 | 1641 | 2833 | 2275 | 115 | 2183 |
-| terminal | 8708 | 6481 | 768 | 269 | 360 | 173 | 141 | 2662 | 832 | 3505 |
-| launcher | 8524 | 6957 | 811 | 281 | 381 | 228 | 191 | 2631 | 95 | 3909 |
-| auth | 8326 | 6531 | 468 | 345 | 708 | 0 | 383 | 1891 | 277 | 4257 |
-| outline | 8297 | 5910 | 836 | 238 | 377 | 477 | 447 | 1411 | 938 | 3576 |
-| env | 8213 | 6293 | 560 | 223 | 350 | 774 | 1283 | 1068 | 790 | 3168 |
-| journal | 7904 | 5850 | 540 | 229 | 745 | 434 | 626 | 1015 | 541 | 3776 |
-| refresh | 7623 | 4933 | 1241 | 226 | 872 | 0 | 0 | 1082 | 353 | 3852 |
-| resume | 7456 | 6011 | 709 | 221 | 407 | 465 | 413 | 1679 | 109 | 3454 |
-| layout | 6828 | 4842 | 494 | 0 | 403 | 0 | 0 | 1617 | 1091 | 3226 |
+| sets | 24258 | 13804 | 2843 | 692 | 2054 | 1084 | 1756 | 3924 | 0 | 11907 |
+| sessions | 22460 | 14435 | 2443 | 227 | 768 | 2522 | 2077 | 2876 | 1262 | 10287 |
+| core | 21708 | 6558 | 14633 | 518 | 0 | 537 | 0 | 0 | 0 | 6022 |
+| worklog | 21008 | 13635 | 2799 | 258 | 1035 | 1460 | 2679 | 3162 | 743 | 8875 |
+| center | 17708 | 12224 | 1498 | 525 | 0 | 1872 | 1808 | 4022 | 668 | 7318 |
+| meta | 16606 | 12954 | 860 | 465 | 256 | 2656 | 2906 | 2052 | 948 | 6466 |
+| review | 12894 | 12211 | 0 | 0 | 683 | 1657 | 2268 | 3367 | 0 | 4920 |
+| tickets | 12469 | 8997 | 1779 | 545 | 596 | 651 | 866 | 2241 | 553 | 5240 |
+| files | 12243 | 9128 | 2000 | 286 | 762 | 973 | 1333 | 1558 | 68 | 5266 |
+| doc | 11528 | 5510 | 4449 | 245 | 224 | 402 | 312 | 1537 | 1101 | 3260 |
+| projects | 11246 | 9313 | 717 | 680 | 423 | 2023 | 2833 | 2276 | 115 | 2183 |
+| layout | 9986 | 6942 | 989 | 0 | 485 | 0 | 123 | 2169 | 1570 | 4651 |
+| refresh | 9939 | 6180 | 1298 | 226 | 1884 | 0 | 0 | 1289 | 353 | 4891 |
+| terminal | 8706 | 6479 | 768 | 269 | 360 | 173 | 141 | 2660 | 832 | 3505 |
+| launcher | 8516 | 6950 | 811 | 281 | 381 | 228 | 191 | 2623 | 95 | 3909 |
+| auth | 8328 | 6532 | 468 | 345 | 708 | 0 | 383 | 1893 | 277 | 4257 |
+| outline | 8306 | 5919 | 836 | 238 | 377 | 477 | 456 | 1411 | 938 | 3576 |
+| env | 8211 | 6291 | 560 | 223 | 350 | 774 | 1283 | 1066 | 790 | 3168 |
+| journal | 7940 | 5886 | 540 | 229 | 745 | 434 | 626 | 1013 | 541 | 3814 |
+| resume | 7448 | 6003 | 709 | 221 | 407 | 465 | 413 | 1671 | 109 | 3454 |
+| memory | 6791 | 5680 | 679 | 0 | 0 | 316 | 864 | 747 | 432 | 3754 |
 | dashboard | 6773 | 4556 | 956 | 237 | 305 | 735 | 794 | 586 | 721 | 2442 |
 | voice | 6709 | 4640 | 615 | 315 | 1140 | 313 | 625 | 1219 | 0 | 2484 |
-| shell | 6513 | 6242 | 0 | 0 | 0 | 0 | 643 | 2017 | 271 | 3582 |
+| shell | 6517 | 6246 | 0 | 0 | 0 | 0 | 667 | 1998 | 271 | 3582 |
 | mail | 6316 | 5182 | 366 | 331 | 437 | 605 | 1237 | 955 | 0 | 2386 |
-| search | 6176 | 5013 | 656 | 193 | 152 | 389 | 270 | 1449 | 164 | 2907 |
-| actions | 6106 | 4708 | 574 | 288 | 241 | 211 | 202 | 1571 | 296 | 2725 |
-| testqueue | 5949 | 4582 | 787 | 139 | 442 | 309 | 965 | 1079 | 0 | 2231 |
+| search | 6160 | 4997 | 656 | 193 | 152 | 389 | 270 | 1432 | 164 | 2907 |
+| actions | 6091 | 4693 | 574 | 288 | 241 | 211 | 202 | 1556 | 296 | 2725 |
+| testqueue | 5962 | 4596 | 787 | 139 | 442 | 309 | 965 | 1092 | 0 | 2231 |
 | ticket | 5877 | 2245 | 1932 | 1458 | 0 | 0 | 178 | 0 | 243 | 2067 |
 | git | 5240 | 4196 | 270 | 328 | 110 | 657 | 851 | 795 | 338 | 1895 |
-| newticket | 4962 | 3903 | 576 | 154 | 165 | 276 | 897 | 681 | 165 | 2051 |
+| newticket | 4960 | 3902 | 576 | 154 | 165 | 276 | 897 | 679 | 165 | 2051 |
 | settings | 4303 | 3757 | 0 | 404 | 142 | 167 | 606 | 716 | 0 | 2269 |
 | pmcmd | 2067 | 1432 | 0 | 335 | 300 | 377 | 554 | 502 | 0 | 0 |
 | pm | 329 | 0 | 0 | 120 | 209 | 0 | 0 | 0 | 0 | 0 |
 
-Les domaines marqués ⚠ ont chacun leur ticket de découpage (RM3017 sets, RM3018 sessions,
-RM3019 worklog, RM3020 center, RM3021 meta) : le poste principal est le fichier de test, à
-scinder par couche. `scripts/test_cockpit_view_cost.py` teste la mesure elle-même.
+Les cinq domaines qui dépassaient (RM3017 sets, RM3018 sessions, RM3019 worklog, RM3020 center,
+RM3021 meta) ont leur test **scindé par couche** : `test_cockpit_<d>.helpers.js` (faux DOM et
+fixtures partagés, CommonJS), `.model.js` (fonctions pures, service, dépôt — hors coût « vue »),
+`.view.js` (ViewModels et vues), `.controller.js` (contrôleur et câblage de la page). Chaque
+fichier s'exécute seul ; `for t in test_cockpit*.js` les lance tous. `scripts/test_cockpit_view_cost.py`
+teste la mesure elle-même.
 
 ## Livrer
 

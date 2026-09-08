@@ -1,0 +1,24 @@
+// test_cockpit_sets.helpers — le faux DOM et les fixtures partagés par les trois suites du domaine sets (RM3017 : le test est scindé
+// par couche pour qu'un agent qui modifie une vue ne lise que test_cockpit_sets.view.js / .controller.js). CommonJS (require).
+"use strict";
+const path = require("path"); const DIR = __dirname;
+function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.assign({ id, style: {}, value: "", dataset: {}, kids: {}, textContent: "", title: "", checked: false, disabled: false, classList: { on: new Set(), toggle(c, v) { v ? this.on.add(c) : this.on.delete(c); }, contains(c) { return this.on.has(c); } }, get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, contains: () => true,
+  querySelector(sel) { return self.kids[sel] || null; }, addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
+  async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); await new Promise(r => setTimeout(r, 0)); },   // les gestes ne sont pas attendus par l'écouteur : on laisse la chaîne finir
+  async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await new Promise(r => setTimeout(r, 0)); return n; } }, extra || {}); return self; }
+const facets = { clients: [{ slug: "acme", count: 3, projects: ["shop", "api"] }, { slug: "beta", count: 1, projects: ["api"] }], tags: [{ tag: "urgent", count: 2 }] };
+const SETS3 = [{ name: "default", label: "Défaut" }, { name: "pm", label: "PM", derived: true }];
+const now = Math.floor(Date.now() / 1000);
+const R = { exists: true, count: 2, label: "Défaut", saved_at: now - 3600, hide_idle_days: 7, entries: [{ sid: "12", engine: "claude", alive: true, restart: "auto", title: "Sujet 12", cwd: "/w/12" }, { sid: "slug", engine: "codex", resumable: false, last_active: now - 86400 }] };
+/** Le faux dépôt des jeux : `calls` journalise, `st.listResp` est ce que `list()` rend (le serveur fait foi, RM2445 : setCurrent/create le font évoluer). */
+function mkRepo(sets, fac, t) {
+  const calls = []; const st = { listResp: { sets, current: "default", view: "set", facets: fac, live_count: 1 } };
+  const repo = { async list() { calls.push(["list"]); return st.listResp; }, async get(g) { calls.push(["get", g]); return g === "pm" ? { exists: true, count: 3, derived: true, entries: [{ alive: false }, { alive: true }, { alive: false }] } : { exists: true, count: 2, entries: [{ sid: "1", alive: true }, { sid: "2" }] }; },
+  async add(g, sids) { calls.push(["add", g, sids]); return { count: 4, added: ["9"] }; }, async remove(g, sid) { calls.push(["remove", g, sid]); return { undo: sid ? "u1" : undefined, count: 1 }; }, async setCurrent(b) { calls.push(["current", b]); if (b.group === "ko" || b.view === "ko") throw new Error("refusé"); st.listResp = Object.assign({}, st.listResp, b.group ? { current: b.group, view: "set" } : { view: b.view }); return {}; }, /* le serveur fait foi (RM2445) : il mémorise ce qu'on lui pose */
+  async move(b) { calls.push(["move", b]); return { moved: ["1", "2"] }; }, async create(b) { calls.push(["create", b]); st.listResp = Object.assign({}, st.listResp, { current: b.group, view: "set", sets: [...(st.listResp.sets || []), { name: b.group, label: b.label, count: 2 }] }); return { count: 2, moved: b.move_from ? ["1"] : [] }; }, /* le jeu créé devient courant côté serveur */ async rule(g, r) { calls.push(["rule", g, r]); return { count: 5 }; }, async materialize(g) { calls.push(["materialize", g]); return { count: 3 }; },
+  async retention(g, d) { calls.push(["retention", g, d]); return {}; }, async rename(g, l) { calls.push(["rename", g, l]); return {}; }, async estimate(g) { calls.push(["estimate", g]); return { relaunchable: 2, tokens_est: 3000, already_live: 1 }; }, async relaunch(g, sp) { calls.push(["relaunch", g, sp]); return { counts: { resumed: 2 } }; },
+  async restart(sid, g, r) { calls.push(["restart", sid, g, r]); return {}; }, async restore(g, id) { calls.push(["restore", g, id]); return { count: 2 }; }, async history() { calls.push(["history"]); return { keep: 20, versions: [{ id: "v1", at: t - 60, sets: [{ name: "default", count: 2 }] }, { id: "v2", at: t, sets: [{ name: "pm", count: 1 }] }] }; },
+  async resume(b) { calls.push(["resume", b]); return { spawned: !!b.spawn, blocked: b.rm_id === "blk" ? "approbation attendue" : undefined }; } };
+  return { repo, calls, st };
+}
+module.exports = { fakeEl, facets, SETS3, now, R, mkRepo, DIR };

@@ -91,7 +91,8 @@ def resolve_recipients(annuaire, refs):
         out.append({
             "ref": ref,
             "label": display(p),
-            "email": emails[0] if emails else None,
+            "email": emails[0] if emails else None,   # 1er email (compat/affichage)
+            "emails": emails,                         # TOUS les emails du contact (destinataires)
             "tel": phones[0] if phones else None,
             "orphan": False,
         })
@@ -99,13 +100,19 @@ def resolve_recipients(annuaire, refs):
 
 
 def recipient_emails(recipients):
-    """Emails non vides, dédoublonnés en conservant l'ordre."""
+    """Emails non vides, dédoublonnés en conservant l'ordre. Un contact peut porter
+    PLUSIEURS emails (ex. mathieu@ + contact@) : tous deviennent destinataires."""
     seen, out = set(), []
     for r in recipients or []:
-        e = (r or {}).get("email")
-        if e and e not in seen:
-            seen.add(e)
-            out.append(e)
+        r = r or {}
+        emails = r.get("emails")
+        if emails is None:                            # tolérant : fiche pré-`emails`
+            e = r.get("email")
+            emails = [e] if e else []
+        for e in emails:
+            if e and e not in seen:
+                seen.add(e)
+                out.append(e)
     return out
 
 

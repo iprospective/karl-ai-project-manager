@@ -82,6 +82,17 @@ check("ref inconnue => orphan signalé (jamais tue)",
 check("emails agrégés = non vides, dédoublonnés, ordre conservé",
       cn.recipient_emails(r + r) == ["sandrine@calicote.com"])
 
+# un contact peut porter PLUSIEURS emails : tous deviennent destinataires (RM3026)
+ANN_MULTI = {"ipro": {"ref": "ipro", "first_name": "Mathieu",
+                      "emails": ["mathieu@iprospective.fr", "contact@iprospective.fr"]}}
+rm = cn.resolve_recipients(ANN_MULTI, ["ipro"])
+check("contact multi-emails => 1er en email, tous en emails",
+      rm[0]["email"] == "mathieu@iprospective.fr"
+      and rm[0]["emails"] == ["mathieu@iprospective.fr", "contact@iprospective.fr"])
+check("recipient_emails prend TOUS les emails du contact (ordre + dédup)",
+      cn.recipient_emails(rm + rm)
+      == ["mathieu@iprospective.fr", "contact@iprospective.fr"])
+
 # ── 4. composition de l'email ────────────────────────────────────────────────
 subj1, body1 = cn.compose_email("Calicote", [
     {"id": 3025, "title": "Fix paliers", "url": "https://redmine/issues/3025",

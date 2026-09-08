@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [2.24.0] - 2026-09-08
+
+### Ajouté
+- **CDC vivant du projet** dans la doc vivante du PM (`governance` § Développement du PM,
+  RM3043) : cinquième cible — décision/arbitrage rendu en séance → registre `D/C`, question
+  ouverte → `Q`, remarque → vrac `N` verbatim, fonctionnalité livrée/prise/planifiée →
+  `pm-cdc-features --sync --build` (registre yml → chapitre 10 généré, `--check` vert à la
+  livraison). Modèle AtomBox (`modele-cdc/`), bouton 📋 CDC du cockpit. Ajout seul, pas de
+  ledger.
+
 ## [2.23.0] - 2026-09-07
 
 ### Ajouté

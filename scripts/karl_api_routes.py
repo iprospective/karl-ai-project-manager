@@ -15,6 +15,7 @@ TARGET_TO_CURRENT = {
     "/api/dashboard/alerts": "/alerts",
     "/api/dashboard/overview": "/overview",
     "/api/dashboard/snooze": "/alerts/snooze",
+    "/api/doc/cdc": "/cdc",
     "/api/env/env-check": "/env-check",
     "/api/env/env-status": "/env-status",
     "/api/env/ssh-add": "/vault/ssh-add",

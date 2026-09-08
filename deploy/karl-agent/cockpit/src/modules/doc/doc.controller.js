@@ -8,7 +8,7 @@ import { html, raw } from "../../core/html.js";
 import { mdToHtml } from "../../core/markdown.js";
 import { HelpService } from "./help.service.js";
 import { GlossaryViewModel, HelpViewModel } from "./GlossaryViewModel.js";
-import { GlossaryPanel, GlossaryList, HelpPage } from "./Doc.view.js";
+import { GlossaryPanel, GlossaryList, HelpPage, CdcList } from "./Doc.view.js";
 import { glossify, glossNorm } from "./glossary.js";
 import { paint as paintInto } from "../../core/dom.js";
 
@@ -41,6 +41,22 @@ export function mountDocModal(el, ctx = {}) {
     try { const page = await svc.page(topic); state.help = new HelpViewModel(page); paint(HelpPage(state.help, { md: mdToHtml }), "help"); }
     catch (e) { paint(html`erreur : ${e.message}`, "help"); }
   }
+  /** RM3043 : le menu « CDC » — un seul CDC vivant s'ouvre directement, plusieurs se choisissent. */
+  async function openCdc() {
+    state.current = null; state.custom = null; toCenterBtn(false); title("📋 CDC vivant");
+    paint(html`chargement…`, "cdc"); show(true);
+    const cdcs = await svc.cdcs();
+    if (cdcs.length === 1) return openDoc(cdcs[0].path, cdcs[0].title);
+    paint(CdcList(cdcs), "cdc");
+  }
+  /** Un lien relatif vers un autre .md du même dossier (chapitres d'un CDC) : navigation dans la modale, pas dans la page. */
+  function followDocLink(href) {
+    if (!state.current || !href || /^[a-z]+:/i.test(href) || href.startsWith("/") || href.startsWith("#")) return false;
+    const target = href.split("#")[0]; if (!target.endsWith(".md")) return false;
+    const dir = state.current.path.split("/").slice(0, -1); const parts = target.split("/");
+    for (const p of parts) { if (p === "..") dir.pop(); else if (p !== ".") dir.push(p); }
+    openDoc(dir.join("/"), decodeURIComponent(parts[parts.length - 1])); return true;
+  }
   function renderGlossary(query, focus) {
     const vm = new GlossaryViewModel({ query, focus });
     const list = q("#glosslist"), cnt = q("#glosscount");
@@ -62,15 +78,18 @@ export function mountDocModal(el, ctx = {}) {
   listen(el, "click", (e) => {
     if (e.target === el) { closeDoc(); return; }                                  // clic sur le voile
     const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null;
-    if (n) { const a = n.dataset.action; if (a === "close") closeDoc(); else if (a === "to-center") docToCenter(); else if (a === "help") openHelp(n.dataset.topic); else if (state.mode === "custom" && state.custom) state.custom(a, n, e); return; }
+    if (n) { const a = n.dataset.action; if (a === "close") closeDoc(); else if (a === "to-center") docToCenter(); else if (a === "help") openHelp(n.dataset.topic); else if (a === "cdc-open") openDoc(n.dataset.path, n.dataset.name); else if (state.mode === "custom" && state.custom) state.custom(a, n, e); return; }
     // liens markdown internes de l'aide (href = id de topic) → navigation d'aide interne
     const a = e.target && e.target.closest ? e.target.closest(".helpbody a[href]") : null;
-    if (a && state.help && state.help.isTopic(a.getAttribute("href"))) { e.preventDefault(); openHelp(a.getAttribute("href")); }
+    if (a && state.help && state.help.isTopic(a.getAttribute("href"))) { e.preventDefault(); openHelp(a.getAttribute("href")); return; }
+    // RM3043 : liens relatifs d'un document rendu (chapitres d'un CDC) → le document visé, dans la modale
+    const d = e.target && e.target.closest ? e.target.closest("#doccontent a[href]") : null;
+    if (d && state.mode === "doc" && followDocLink(d.getAttribute("href"))) e.preventDefault();
   });
   listen(el, "input", (e) => { const t = e.target; if (t && t.id === "glosssearch") renderGlossary(t.value, null); });
   // RM2623 : un terme souligné (.gloss), où qu'il soit dans la page → le glossaire ouvert dessus
   listen(ctx.root, "click", (e) => { const t = e.target; const g = t && t.closest ? t.closest(".gloss") : null; if (g) { e.preventDefault(); e.stopPropagation(); openGlossary(g.getAttribute("data-term")); } });
 
-  return { openDoc, closeDoc, openHelp, openGlossary, docToCenter, renderGlossary, openCustom, openPlain, contentEl, md: mdToHtml, glossify: (s) => glossify(s), current: () => state.current, mode: () => state.mode, state,
+  return { openDoc, closeDoc, openHelp, openGlossary, openCdc, followDocLink, docToCenter, renderGlossary, openCustom, openPlain, contentEl, md: mdToHtml, glossify: (s) => glossify(s), current: () => state.current, mode: () => state.mode, state,
     unmount() { disposers.forEach(d => d()); disposers.length = 0; } };
 }

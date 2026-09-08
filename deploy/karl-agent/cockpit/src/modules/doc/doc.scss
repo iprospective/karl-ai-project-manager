@@ -55,3 +55,10 @@
 .glosscat { margin: 15px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
 .glosscat:first-child { margin-top: 2px; }
+// RM3043 : liste des CDC vivants (menu 📋 CDC)
+.cdclist { display: flex; flex-direction: column; gap: 6px; }
+.cdcrow { display: flex; gap: 10px; align-items: baseline; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--fg); cursor: pointer; }
+.cdcrow:hover { border-color: var(--accent); }
+.cdcproj { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.cdctitle { flex: 1; font-weight: 600; }
+.cdcn { font-size: 11px; color: var(--muted); }

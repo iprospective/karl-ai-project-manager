@@ -13,4 +13,6 @@ export class HelpService {
     return { topics, topic, md };
   }
   doc(path) { return this.repo.file(path); }
+  /** RM3043 : les CDC vivants ; la liste vide dit qu'aucun projet n'en porte. */
+  async cdcs() { try { return await this.repo.cdcs(); } catch (e) { return []; } }
 }

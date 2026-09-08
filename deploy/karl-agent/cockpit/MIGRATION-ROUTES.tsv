@@ -98,3 +98,4 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /events	L8	refresh	/api/session/events	1	push.service
 /events/publish	L8	refresh	/api/session/events/publish	1	pm_events
 /log/historical	L8	journal	/api/log/historical	0	(hors cockpit : compteur RM3004)
+/cdc	L5	doc	/api/doc/cdc	1	openCdc

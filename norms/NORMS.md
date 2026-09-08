@@ -1,9 +1,9 @@
 ---
-schema_version: "2.23.0"
-updated: 2026-09-07
+schema_version: "2.24.0"
+updated: 2026-09-08
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.23.0
+# Normes de gestion des tâches — v2.24.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -3874,8 +3874,9 @@ peut refuser une MR « surface » dont la doc n'a pas suivi.
 | `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
 | **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
 | **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+| **CDC vivant du projet** (RM3043) | une **décision / un arbitrage** est rendu en séance, une **question** reste ouverte, une **fonctionnalité** est livrée, prise ou planifiée | `docs/cdc-<prefix>-90-decisions.md` (D/C), `-99-questions-ouvertes.md` (Q), `-91-vrac.md` (N verbatim) ; fonctionnalités : `pm-cdc-features --sync --build` (registre yml → chapitre 10 généré, `--check` vert à la livraison). Modèle AtomBox (`modele-cdc/`) ; bouton 📋 CDC du cockpit |
 
-Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+Principe commun (le CDC vivant inclus) : **pas de rattrapage** (RM2250), pas de valeur qui rouille
 (pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
 commit-par-commit (le détail vit dans les tickets).
 

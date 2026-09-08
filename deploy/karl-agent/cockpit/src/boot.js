@@ -504,7 +504,7 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
-  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
+  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => doc.openCdc(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête

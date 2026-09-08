@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 472d9312dc30788b (29 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 40bac0ae349ca561 (29 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3371,6 +3371,45 @@ iframe {
 
 .glosscat:first-child {
   margin-top: 2px;
+}
+
+.cdclist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cdcrow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.cdcrow:hover {
+  border-color: var(--accent);
+}
+
+.cdcproj {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cdctitle {
+  flex: 1;
+  font-weight: 600;
+}
+
+.cdcn {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .jl-bar {

@@ -77,6 +77,6 @@ ls -1 "$MODELS"/*.onnx 2>/dev/null | sed 's#.*/#    #'
 echo "  STT (Whisper) : sidecar karl-whisper.service, modèle $WHISPER_MODEL"
 echo
 echo "Active/rafraîchit :  systemctl --user restart karl-agent"
-echo "Vérifie          :  curl -s http://127.0.0.1:9876/voice/caps  (avec auth)"
+echo "Vérifie          :  curl -s http://127.0.0.1:9876/api/voice/caps  (avec auth)"
 echo "                    → {\"tts\": true, \"stt\": true, \"stt_engine\": \"whisper\", ...}"
 echo "Sidecar STT      :  systemctl --user status karl-whisper   ·   curl -s http://127.0.0.1:9877/health"

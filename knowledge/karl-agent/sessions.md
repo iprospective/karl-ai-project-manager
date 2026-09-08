@@ -2,7 +2,7 @@
 type: procedure
 product: karl-agent
 created: 2026-07-28
-refs: [RM2418, RM2391, RM2144, RM1939, RM2068, RM2991]
+refs: [RM2418, RM2391, RM2144, RM1939, RM2068, RM2991, RM2997]
 ---
 
 # karl-agent — sessions Claude Code : stockage, host↔conteneur, déplacement
@@ -24,6 +24,35 @@ donc viser le système de fichiers **du conteneur**.
 | `~/.local/state/karl-agent/sessions/<engine>/<sid>.json` | **store per-session** karl (dont le `cwd` de relance) | **NON** (stores distincts) |
 | `~/.claude/session-worklogs/<sid>.json` (+ `.md`) | **worklog PM** de la session (RM2068) | **OUI** |
 | `~/.local/state/karl-agent/tasks/<client>/<projet>/RM<id>-<n>.json` | **jonction ticket ↔ session** | **NON** |
+
+## Archivage — ce qui protège vraiment (RM2997)
+
+`~/.claude/projects` est un dépôt git (remote `claude-projects-sessions`).
+**Un commit local suffit à immuniser un transcript** : git garde le blob même
+quand Claude Code efface le fichier. Le push met hors machine ; la protection,
+elle, commence au commit.
+
+`pm-sessions-archive.py` fait les deux, toutes les heures (timer systemd
+`--user`), et archive aussi `history.jsonl` et les worklogs — sous `_meta/`, à
+une profondeur qui ne les fasse pas passer pour des transcripts (le moteur
+énumère `*/*.jsonl`, profondeur **deux** exactement).
+
+Deux invariants, appris à la dure :
+
+- **aucune suppression n'est consignée.** Un transcript déjà effacé doit garder
+  son blob atteignable dans l'historique — c'est ce qui a permis d'en récupérer
+  313. Consigner sa disparition le retirerait de l'arbre courant, et un clone
+  frais ne le ramènerait plus.
+- **un verrou ne se lève que mort** : plus vieux que 15 min ET aucun git vivant
+  dans le dépôt. Le 2026-06-23, un `.git/index.lock` laissé par un git
+  interrompu a fait échouer chaque archivage pendant **75 jours sans un mot** —
+  aucun cron, aucun log, aucune alerte, le geste étant manuel. Le verrou est mis
+  de côté (`index.lock.perime-<epoch>`), jamais détruit.
+
+Surveillance : `pm-sessions-archive.py --check` (âge du dernier commit, commits
+non poussés, verrou) est branché sur le contrôle d'environnement de karl-agent
+(`_envchk_sessions_archive`, niveau `error`) — ce qui est perdu ici ne se
+rattrape pas.
 
 ## Le worklog : les métadonnées PM d'une session (RM2068, RM2991)
 

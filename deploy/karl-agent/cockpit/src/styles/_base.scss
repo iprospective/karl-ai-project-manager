@@ -17,6 +17,7 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; 
 header .sub { color: var(--muted); font-size: 12px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.push { outline: 2px solid var(--accent-soft-hover); outline-offset: 1px; }   /* RM3006 : canal de push vivant */
 .dot.ko { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
 header { flex: none; }
 main { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; min-height: 0; }

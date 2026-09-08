@@ -11,27 +11,37 @@ export function filesCrumbs(path) {
  *  ou règle du jeu courant. `from` DIT d'où vient ce qu'on affiche. Une vue par client ne désigne aucun projet : on ne devine pas. */
 export function filesContext(ctx) {
   const c = ctx || {};
-  if (c.attached) return { kind: "session", sid: String(c.attached) };
+  if (c.attached) return { scope: "session", sid: String(c.attached) };
   const r = c.currentReview ? (c.resolveCache || {})[c.currentReview] : null;
-  if (r && r.found && r.client && r.project) return { kind: "project", client: r.client, project: r.project, from: "ticket RM" + c.currentReview };
+  if (r && r.found && r.client && r.project) return { scope: "project", client: r.client, project: r.project, from: "ticket RM" + c.currentReview };
   const parts = String(c.currentProjectView || "").split("/");
-  if (parts.length === 2 && parts[0] && parts[1]) return { kind: "project", client: parts[0], project: parts[1], from: "fiche projet" };
+  if (parts.length === 2 && parts[0] && parts[1]) return { scope: "project", client: parts[0], project: parts[1], from: "fiche projet" };
   const cur = (c.sets || []).find(s => s && s.name === c.currentSet);
   const rule = (cur && cur.rule) || null;
-  if (rule && rule.client && rule.project) return { kind: "project", client: rule.client, project: rule.project, from: "jeu « " + (cur.label || cur.name) + " »" };
-  return { kind: "none" };
+  if (rule && rule.client && rule.project) return { scope: "project", client: rule.client, project: rule.project, from: "jeu « " + (cur.label || cur.name) + " »" };
+  return { scope: "none" };
 }
 /** Identité du contexte affiché — pour ne recharger que lorsqu'il change VRAIMENT (le poll repasse toutes les quelques secondes). */
 export function filesCtxKey(ctx) {
   const c = ctx || {};
-  if (c.kind === "session") return "s:" + c.sid;
-  if (c.kind === "project") return "p:" + c.client + "/" + c.project;
+  if (c.scope === "session") return "s:" + c.sid;
+  if (c.scope === "project") return "p:" + c.client + "/" + c.project;
   return "none";
 }
+/** RM3014 : une racine documentaire se désigne par projet:file (`doc:<client>/<projet>/<racine>`), jamais par un chemin absolu.
+ *  Le triplet vient du serveur ; à défaut on le relit dans l'identifiant. */
+export function docRootParts(r) {
+  const o = r || {};
+  if (o.client && o.project) return { client: o.client, project: o.project, root: o.root || o.name || "docs" };
+  const m = /^doc:([^/]+)\/([^/]+)\/([^/]+)$/.exec(String(o.path || o));
+  return m ? { client: m[1], project: m[2], root: m[3] } : null;
+}
+/** Référence lisible d'une racine documentaire : « client/projet · docs » — ce que l'infobulle montre à la place du chemin. */
+export function docRootRef(r) { const p = docRootParts(r); return p ? p.client + "/" + p.project + " · " + p.root : ""; }
 /** RM2622 : la doc du projet n'est PAS un worktree — icône, libellé et infobulle propres. */
 export function fileRootLabel(w) {
   const r = w || {};
-  if (r.kind === "doc") return { icon: "📄", name: r.name === "docs" ? "docs" : "fiches", tip: (r.label || "documentation du projet") + (r.docs ? " — " + r.docs + " fichier" + (r.docs > 1 ? "s" : "") : "") + "\n" + (r.path || "") };
+  if (r.kind === "doc") return { icon: "📄", name: r.name === "docs" ? "docs" : "fiches", tip: (r.label || "documentation du projet") + (r.docs ? " — " + r.docs + " fichier" + (r.docs > 1 ? "s" : "") : "") + "\n" + docRootRef(r) };
   if (r.kind === "root") return { icon: "🏠", name: r.name || "racine", tip: (r.label || "racine du workspace") + "\n" + (r.path || "") };
   return { icon: "", name: r.name || "?", tip: r.path || "" };
 }
@@ -40,7 +50,7 @@ export function fileRootLabel(w) {
 export function filesGroups(projects, worktrees) {
   const gs = (projects || []).filter(p => p && (p.root || (p.docs || []).length)).map(p => ({
     key: (p.client || "") + "/" + (p.project || ""), label: p.project || p.name || "?", client: p.client || "", project: p.project || "", root: p.root || "",
-    roots: (p.root ? [Object.assign({}, p, { path: p.root, kind: "root", label: "racine du workspace" })] : []).concat((p.docs || []).map(d => ({ path: d.path, name: d.name, kind: "doc", label: d.label, docs: d.docs }))),
+    roots: (p.root ? [Object.assign({}, p, { path: p.root, kind: "root", label: "racine du workspace" })] : []).concat((p.docs || []).map(d => ({ path: d.path, name: d.name, kind: "doc", label: d.label, docs: d.docs, client: d.client || p.client || "", project: d.project || p.project || "", root: d.root || d.name }))),
   }));
   const orphans = [];
   for (const w of (worktrees || [])) {

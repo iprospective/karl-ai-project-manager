@@ -2,11 +2,13 @@
 // Repris tels quels : RM2672 (temporaire unique, épinglage), RM2744 (onglet
 // permanent), RM2775 (infobulle), RM2795 (marque), RM2819 (session éteinte).
 
+import { entity, tooltipOf, entityTypes, iconOf } from "../../core/entities.js";
+
 export function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
 
 /** L'onglet permanent du tableau de bord : toujours en tête, jamais fermable. */
 export function ensureDashTab(tabs) {
-  const rest = (tabs || []).filter(t => t && t.kind !== "dash");
+  const rest = (tabs || []).filter(t => t && !entity(t.kind).fixed);
   return [{ kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true }].concat(rest);
 }
 
@@ -43,33 +45,8 @@ export function closeTabAt(tabs, id, activeId) {
   return { tabs: out, active };
 }
 
-/** L'infobulle dit ce que le libellé ne peut pas dire (RM2775). `parse` = parseViewKey. */
-export function tabTooltip(t, rcache, parse) {
-  const tab = t || {};
-  const cache = rcache || {};
-  const parts = parse ? parse(tab.key || "") : [];
-  const key = String(tab.key == null ? "" : tab.key);
-  const lbl = String(tab.label || "");
-  const resolu = (id) => { const r = cache[String(id)]; return (r && r.found && r.title) ? String(r.title) : ""; };
-  const avec = (tete, suite) => suite ? tete + " — " + suite : tete;
-  switch (tab.kind) {
-    case "review":   return avec("RM" + key, resolu(key));
-    case "session":  return avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key, resolu(key));
-    case "project":  return avec("fiche projet", key);
-    case "client":   return avec("fiche client", parts[0] || key);
-    case "conf":     return avec("configuration", parts[0] === "project" ? (parts[1] || "") + "/" + (parts[2] || "") : (parts[1] || ""));
-    case "file":     return avec("fichier", parts[2] || parts[1] || lbl);
-    case "dir":      return avec("dossier", parts[2] || "racine du dépôt");
-    case "commit":   return avec("commit " + (parts[1] || lbl), parts[0] ? "session " + parts[0] : "");
-    case "mail":     return avec("email", lbl);
-    case "newticket": return "nouveau ticket";
-    case "dash":     return "tableau de bord";
-    case "pm":       return "commandes PM";
-    case "settings": return "réglages du cockpit";
-    case "journal":  return "journal (serveur + navigateur)";
-    default:         return lbl || key;
-  }
-}
+/** L'infobulle dit ce que le libellé ne peut pas dire (RM2775) — chaque type la formule dans le registre (RM3002). `parse` = parseViewKey. */
+export function tabTooltip(t, rcache, parse) { return tooltipOf(t, rcache, parse); }
 
 /** La marque d'épinglage, la même partout (RM2795) : l'onglet permanent n'en porte pas. */
 export function pinMark(tabs, kind, key) {
@@ -89,5 +66,5 @@ export function sessionTabAction(sid, sessions) {
   return { action: "missing", session: null };
 }
 
-export const ICONS = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
-  file: "📄", dir: "🗂", commit: "⎇", mail: "📧", client: "🏢", conf: "⚙", pm: "⚙", settings: "🔧", journal: "📜" };
+/** Icônes par type — lues dans le registre (RM3002) ; gardé pour les appelants historiques. */
+export const ICONS = Object.fromEntries(entityTypes().map(t => [t, iconOf(t)]));

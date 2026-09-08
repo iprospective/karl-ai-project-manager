@@ -12,9 +12,11 @@
 //
 // Ce pont disparaît au lot L6, quand plus rien d'inline ne subsiste.
 
-import { esc, jarg, html, raw, isSafe, attrs } from "./core/html.js";
+import { html, raw, isSafe, attrs } from "./core/html.js";
 import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
-import { mount, on, domStats } from "./core/dom.js";
+import { createProbe } from "./core/probe.js";
+import { mountMemory } from "./modules/memory/memory.controller.js";
+import { mount, on, domStats, domStatsByModule, paint } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
 import { AppError, ApiError, asAppError } from "./core/errors.js";
@@ -46,6 +48,7 @@ import { mountSearch } from "./modules/search/search.controller.js";
 import { mountFiles } from "./modules/files/files.controller.js";
 import { mountWorklog } from "./modules/worklog/worklog.controller.js";
 import { mountLayout } from "./modules/layout/layout.controller.js";
+import { MOBILE_MAX_PX } from "./modules/layout/mobile.js";
 import { mountLauncher } from "./modules/launcher/launcher.controller.js";
 import { mountSessionActions } from "./modules/actions/actions.controller.js";
 import { mountTerminal } from "./modules/terminal/terminal.controller.js";
@@ -88,9 +91,13 @@ configureApi({
   onUnauthorized: () => { if (auth) auth.showGate(); },   // 401 : l'écran de login revient (RM2334)
 });
 
+// RM3007 : la sonde mémoire — un échantillon = DOM par module + stores + tas JS (Chromium seulement) ; rien ne tourne tant que
+// la préférence « sonde » de ce navigateur n'est pas posée (réglages). Le panneau 🧠 mémoire la pilote.
+const probe = createProbe({ sample: () => ({ dom: domStatsByModule(), stores: storeStats(), heap: (typeof performance !== "undefined" && performance.memory) ? performance.memory.usedJSHeapSize : null }) });
+
 const karl = Object.freeze({
   // rendu
-  esc, jarg, html, raw, isSafe, attrs,
+  html, raw, isSafe, attrs,
   // cache
   Store, defineStore, resetStores,
   // montage et cycle de vie
@@ -109,6 +116,9 @@ const karl = Object.freeze({
     const stores = storeStats();
     return {
       dom: domStats(),
+      modules: domStatsByModule(),                 // RM3007 : ventilé par module
+      probe: probe.latest,                         // dernier échantillon de la sonde (null si désactivée)
+      push: refreshCtl ? refreshCtl.push.state() : null,   // RM3006 : le canal de push (vivant ? blocs ? compteurs)
       stores,
       entries: stores.reduce((n, s) => n + s.entries, 0),
       subscribers: stores.reduce((n, s) => n + s.subscribers, 0),
@@ -128,8 +138,11 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
 // domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
 // les contrôleurs à l'appel, jamais au montage).
-const layout = mountLayout({ main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
+const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
+  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
+  attention: () => stores.sess.values().filter(s => s && !s.ghost && (s.state === "attention" || s.state === "choice")).length, attached: () => (attachCtl ? attachCtl.current() : null),
   onApply: (r, visible) => {
     const att = attachCtl.current();
     if (visible("outline") && att) outlineCtl.load();                       // RM2330 : ne charge qu'une fois réellement visible
@@ -193,12 +206,16 @@ const env = mountEnv(document.getElementById("doccontent"), {
   secure: () => !!window.isSecureContext,
   modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
     if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
-  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { el.innerHTML = h; el.style.display = h ? "" : "none"; } },
+  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { paint(el, h); el.style.display = String(h || "") ? "" : "none"; } },
   lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
 });
 
 const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), run: (n, a, o) => pm.run(n, a, o),
+});
+const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard") }, {
+  probe, storage: localStorage, notify: notify.toast, help: (t) => doc.openHelp(t),
+  download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
 });
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
@@ -248,8 +265,10 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
     settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
+    memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
+  noted: () => layout.centerShown(),   // RM3003 : une vue, une session, un panneau ou une fiche ouverte → la page « centre » du gabarit mobile
   placeholder: (on) => show("placeholder", on, "flex"),
   dashboard: () => dashboard.refresh(),
   nothingElse: () => !attachCtl.current() && !(review && review.current()) && !(project && project.current()),
@@ -400,7 +419,7 @@ review = mountReview(byId("reviewpane"), {
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
   onOutsideClick: (fn) => document.addEventListener("click", fn, { once: true }),
 });
-Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => promptTemplates().map(t => `<option value="${esc(t.value)}"${t.value === String(sel == null ? "" : sel) ? " selected" : ""}>${esc(t.label)}</option>`).join("") });
+Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => html`${promptTemplates().map(t => html`<option ${attrs({ value: t.value, selected: t.value === String(sel == null ? "" : sel) })}>${t.label}</option>`)}` });
 center.register("review", { open: review.open, close: () => { if (review.current()) review.close(); } });
 // le lanceur (§1 résolution, RM1941 modèles, RM2873 consigne, RM2818 garde, spawn), la saisie éclair d'un ticket (§8) et le contexte
 // client (RM2639) : CFG, la consigne et la garde (revue), le runner PM, l'attache et les suites sont prêtés ; le contexte prévient le reste
@@ -415,7 +434,7 @@ launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), cli
     if (!initial) { search.refreshIfQuery(); projects.render(); search.fillProjects(); refreshCtl.refreshSessions(); } },
 });
 // RM2873 : le lanceur de gauche propose les mêmes modèles de consigne que la fiche
-{ const sel = byId("ptpl"); if (sel) sel.innerHTML = review.promptTemplateOptions("traiter"); }
+{ const sel = byId("ptpl"); if (sel) paint(sel, review.promptTemplateOptions("traiter")); }
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
 // lui prête la session attachée, le registre, les stores ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
@@ -465,6 +484,9 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
   stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
+  token: () => auth.token(),   // RM3006 : le canal de push (EventSource) porte le jeton en query
+  onTopics: (topics) => { if (topics.includes("mail")) mail.refresh(); if (topics.includes("sets") && setsCtl) setsCtl.refreshSets(); },   // sujets sans bloc /refresh
+  onPush: () => layout.refreshMobileNav(),
 });
 // l'authentification (RM2334) : écran de login plein-cadre, cadenas, carte de session et appareils, comptes (superadmin). L'init du monolithe
 // appelle `boot` une fois CFG connu ; une connexion relance la santé et les sessions et ramène au panneau « en cours »
@@ -482,7 +504,7 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
-  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
+  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => doc.openCdc(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
@@ -495,7 +517,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

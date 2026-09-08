@@ -43,8 +43,8 @@ const seed = () => {
   for (const kind of (process.env.KARL_BROWSERS || "chromium").split(",")) {
     if (!pw[kind]) continue;
     let browser; try { browser = await pw[kind].launch({ headless: true }); } catch (e) { console.log("↷ " + kind + " indisponible : " + e.message.split("\n")[0]); continue; }
-    for (const [label, seeded] of [["stockage vide", false], ["utilisateur revenu (jeton, onglets épinglés, préférences)", true]]) {
-      const page = await browser.newPage(); const errors = []; const apiCalls = [];
+    for (const [label, seeded, viewport] of [["stockage vide", false, null], ["utilisateur revenu (jeton, onglets épinglés, préférences)", true, null], ["mobile 390 px (RM3003)", false, { width: 390, height: 800 }]]) {
+      const page = viewport ? await (await browser.newContext({ viewport })).newPage() : await browser.newPage(); const errors = []; const apiCalls = [];
       page.on("pageerror", e => errors.push(e.stack || e.message)); page.on("request", r => { if (/\/api\//.test(r.url())) apiCalls.push(new URL(r.url()).pathname); });
       if (seeded) await page.addInitScript(seed);
       await page.goto(url, { waitUntil: "load" }); await page.waitForTimeout(1500);
@@ -60,7 +60,21 @@ const seed = () => {
       // RM3011 : une exception non rattrapée tombe dans le journal du front, et le badge de l'en-tête la compte
       const jl = await page.evaluate(() => { setTimeout(() => { throw new Error("boum de test"); }, 0); return new Promise(r => setTimeout(() => r({ n: window.karl.log.entries().filter(e => e.level === "error" && /boum de test/.test(e.msg)).length, badge: document.getElementById("ln-journal").textContent }), 300)); });
       assert(jl.n === 1 && jl.badge === "1", kind + " / " + label + " : l'erreur injectée doit être dans karl.log et comptée par le badge (" + JSON.stringify(jl) + ")");
-      console.log("✓ " + kind + " — " + label + " : aucune erreur, boot évalué (v" + st.version + "), init jusqu'au premier tick, " + st.cmds + " commandes, écran de login");
+      // RM3003 : le gabarit suit la largeur — une colonne à la fois et la barre du bas sur un écran étroit, rien de tout ça au bureau
+      const lay = await page.evaluate(() => { const vis = (sel) => { const e = document.querySelector(sel); return !!e && getComputedStyle(e).display !== "none"; }; return { layout: document.documentElement.dataset.layout, page: document.querySelector("main").dataset.mpage, mnav: vis("#mnav"), left: vis("main > .left"), right: vis("main > .right"), cols: getComputedStyle(document.querySelector("main")).gridTemplateColumns.split(" ").length }; });
+      if (viewport) {
+        assert(lay.layout === "mobile" && lay.mnav && lay.cols === 1 && (lay.left !== lay.right), kind + " / " + label + " : gabarit mobile attendu, une colonne à la fois (" + JSON.stringify(lay) + ")");
+        // sans jeton, le boot ouvre 🔧 réglages (page centre) : on part explicitement de la page « panneaux »
+        const leftP = await page.evaluate(() => { document.querySelector('#mnav [data-mpage="left"]').click(); const vis = (sel) => getComputedStyle(document.querySelector(sel)).display !== "none"; return { page: document.querySelector("main").dataset.mpage, left: vis("main > .left"), right: vis("main > .right"), active: document.querySelector("#mnav .mnav-btn.active").dataset.mpage }; });
+        assert(leftP.page === "left" && leftP.left && !leftP.right && leftP.active === "left", kind + " : page panneaux (" + JSON.stringify(leftP) + ")");
+        const after = await page.evaluate(() => { document.querySelector('#mnav [data-mpage="center"]').click(); const vis = (sel) => getComputedStyle(document.querySelector(sel)).display !== "none"; return { page: document.querySelector("main").dataset.mpage, left: vis("main > .left"), right: vis("main > .right"), rpanel: vis("#rpanel") }; });
+        assert(after.page === "center" && !after.left && after.right && !after.rpanel, kind + " : la barre du bas montre le centre seul (" + JSON.stringify(after) + ")");
+        const rightP = await page.evaluate(() => { document.querySelector('#mnav [data-mpage="right"]').click(); const vis = (sel) => getComputedStyle(document.querySelector(sel)).display !== "none"; return { page: document.querySelector("main").dataset.mpage, rpanel: vis("#rpanel"), rnav: vis("#rpanel .rnav"), w: document.querySelector("#rpanel").getBoundingClientRect().width }; });
+        assert(rightP.page === "right" && rightP.rpanel && rightP.rnav && rightP.w >= 380, kind + " : la page droite déplie la colonne sur toute la largeur (" + JSON.stringify(rightP) + ")");
+        await page.goto(url + "?layout=desktop", { waitUntil: "load" }); await page.waitForTimeout(600);
+        assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.layout), "desktop", kind + " : ?layout=desktop force le bureau sur un écran étroit");
+      } else assert(lay.layout === "desktop" && !lay.mnav && lay.left && lay.right && lay.cols === 2, kind + " / " + label + " : bureau attendu (" + JSON.stringify(lay) + ")");
+      console.log("✓ " + kind + " — " + label + " : aucune erreur, boot évalué (v" + st.version + "), init jusqu'au premier tick, " + st.cmds + " commandes, écran de login, gabarit " + lay.layout);
       await page.close();
     }
     await browser.close();

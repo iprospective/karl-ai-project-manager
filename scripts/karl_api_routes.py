@@ -15,6 +15,7 @@ TARGET_TO_CURRENT = {
     "/api/dashboard/alerts": "/alerts",
     "/api/dashboard/overview": "/overview",
     "/api/dashboard/snooze": "/alerts/snooze",
+    "/api/doc/cdc": "/cdc",
     "/api/env/env-check": "/env-check",
     "/api/env/env-status": "/env-status",
     "/api/env/ssh-add": "/vault/ssh-add",
@@ -24,6 +25,7 @@ TARGET_TO_CURRENT = {
     "/api/file/log": "/fs/log",
     "/api/file/ls": "/fs/ls",
     "/api/file/project-roots": "/project-roots",
+    "/api/file/read": "/fs/file",
     "/api/file/worktrees": "/worktrees",
     "/api/git/diff": "/git/diff",
     "/api/git/log": "/git/log",
@@ -31,6 +33,7 @@ TARGET_TO_CURRENT = {
     "/api/glossary/help": "/help",
     "/api/glossary/project": "/project",
     "/api/layout/outline": "/outline",
+    "/api/log/historical": "/log/historical",
     "/api/log/tail": "/log/tail",
     "/api/log/write": "/log",
     "/api/mail/create": "/mail/create",
@@ -72,6 +75,8 @@ TARGET_TO_CURRENT = {
     "/api/session/approve-all": "/approve-all",
     "/api/session/cockpit-config": "/cockpit-config",
     "/api/session/disposition": "/disposition",
+    "/api/session/events": "/events",
+    "/api/session/events/publish": "/events/publish",
     "/api/session/kill": "/kill",
     "/api/session/layout": "/layout",
     "/api/session/monitor": "/monitor",
@@ -103,6 +108,22 @@ TARGET_TO_CURRENT = {
     "/api/worklog/mr/merge": "/mr/merge",
     "/api/worklog/worklog": "/worklog",
 }
+
+# RM3004 : la table inverse — un chemin historique appelé directement (hors cockpit) est repérable, et journalisé avant retrait.
+CURRENT_TO_TARGET = {v: k for k, v in TARGET_TO_CURRENT.items()}
+
+
+def historical_target(path):
+    """Cible /api/… d'un chemin HISTORIQUE (sans query string), suffixe conservé ; None si ce n'est pas un chemin routé."""
+    if path.startswith("/api/"):
+        return None
+    hit = CURRENT_TO_TARGET.get(path)
+    if hit is None:
+        for cur in sorted(CURRENT_TO_TARGET, key=len, reverse=True):
+            if path.startswith(cur + "/"):
+                hit = CURRENT_TO_TARGET[cur] + path[len(cur):]
+                break
+    return hit
 
 
 def api_alias(path_qs):

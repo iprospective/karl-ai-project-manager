@@ -10,7 +10,7 @@ import { SessionsService } from "./sessions.service.js";
 import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewModel, CountersViewModel, ReviewTileViewModel, SessionTitleViewModel } from "./SessionsViewModel.js";
 import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle } from "./Sessions.view.js";
 import { effDisposition, restartTip, approveShortcutVisible, tmuxName } from "./sessions.js";
-import { mount } from "../../core/dom.js";
+import { mount, paint } from "../../core/dom.js";
 import { raw } from "../../core/html.js";
 
 export function mountSessions(hosts = {}, ctx = {}) {
@@ -68,7 +68,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
   }
   const show = (el, on) => { if (el) el.style.display = on ? "" : "none"; };
   function paintCounters(cvm) {
-    if (hosts.counters) hosts.counters.innerHTML = String(Counters(cvm));
+    if (hosts.counters) paint(hosts.counters, Counters(cvm));
     if (hosts.navCount) { hosts.navCount.textContent = String(cvm.c.total); show(hosts.navCount, cvm.c.total); }
     if (hosts.navAtt) { hosts.navAtt.textContent = "⚠" + cvm.waiting; show(hosts.navAtt, cvm.waiting); }
     show(hosts.yesAll, cvm.showYesAll);                                                        // RM2327
@@ -115,8 +115,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
   function renderRTitle() {
     const el = hosts.rtitle; if (!el) return;
     const vm = titleVm();
-    if (!vm.shown) { el.style.display = "none"; el.innerHTML = ""; return; }
-    el.style.display = ""; el.innerHTML = String(RTitle(vm)); el.title = "Session attachée — " + tmuxName(vm.attached);
+    if (!vm.shown) { el.style.display = "none"; paint(el, ""); return; }
+    el.style.display = ""; paint(el, RTitle(vm)); el.title = "Session attachée — " + tmuxName(vm.attached);
   }
   /** Effets de bord d'un changement de vue : en-tête droit (RM2894), « ✔ Oui » aux deux emplacements (RM2302/2332), état de l'auto-oui (RM2327). */
   function afterTitle() {

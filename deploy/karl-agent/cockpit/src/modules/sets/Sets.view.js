@@ -1,8 +1,8 @@
 // views/sessions/Sets — la barre des jeux (options du sélecteur, destinations) et la carte « Sessions enregistrées » (règle, entrées,
 // réglages, versions). Gestes en data-action, aucun on*. RM2889.
-import { html, raw } from "../../core/html.js";
+import { html, raw, attrs } from "../../core/html.js";
 
-const Opt = (o) => html`<option value="${o.value}"${o.selected ? raw(" selected") : ""}>${o.label}</option>`;
+const Opt = (o) => html`<option ${attrs({ value: o.value, selected: !!o.selected })}>${o.label}</option>`;
 /** RM2446/2452 : les groupes d'options du sélecteur de la barre. */
 export function PickerOptions(groups) { return html`${groups.map(g => html`<optgroup label="${g.label}">${g.options.map(Opt)}</optgroup>`)}`; }
 /** RM2449 : destinations d'un déplacement. */

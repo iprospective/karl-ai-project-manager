@@ -25,6 +25,8 @@
 <KARL_USER> ALL=(<KARL_SUDO_USER>) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *
 
 # 2. Déploiement du code (root-owned) : pull + re-verrou via core-lock → root.
+#    RM3033 : `mmi-pm core-update` (dispatcher python) se ré-exécute lui-même par ce chemin exact — la règle reste la seule
+#    porte root du CLI, ne pas la remplacer par `python3 …`.
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update*
 
 # 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.

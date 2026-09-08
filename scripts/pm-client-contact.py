@@ -38,8 +38,32 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_contacts as pc                                   # noqa: E402
 from pm_output import out                                  # noqa: E402
 from pm_paths import PMConfig                              # noqa: E402
+
+
+def _annuaire(cfg):
+    """{ref → fiche} de l'annuaire (RM2703), ou {} s'il n'existe pas encore.
+
+    Lecture seule et tolérante : ce script reste le point d'écriture des
+    RELATIONS (rôle, titre) ; les identités s'écrivent avec `pm-contact`.
+    Pendant la migration, les deux formes cohabitent — un `contacts[]` peut
+    porter des `ref` et des contacts en ligne, et les deux doivent s'afficher."""
+    try:
+        d = cfg.path("contacts_dir")
+    except Exception:  # noqa: BLE001 — instance sans le motif : on n'empêche rien
+        return {}
+    if not d.is_dir():
+        return {}
+    ann = {}
+    for f in sorted(d.glob("*.yml")):
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        ann[data.get("ref") or f.stem] = data
+    return ann
 
 ROLES = ["owner", "decideur", "technique", "facturation", "autre"]
 OWN_DOMAINS = ["iprospective.fr", "iprospective.net"]
@@ -119,17 +143,28 @@ def find_contact(contacts: list, email: str):
     return None
 
 
-def print_contacts(client: str, contacts: list):
+def print_contacts(client: str, contacts: list, annuaire=None):
     if not contacts:
         print(f"  {client} : aucun contact")
         return
     for c in contacts:
-        tag = " (interne)" if c.get("internal") else ""
-        role = c.get("role") or ""
-        if c.get("title"):
-            role = f"{role} · {c['title']}" if role else c["title"]
-        print(f"  {client:20} {contact_label(c):28.28} {(c.get('email') or ''):32.32} "
-              f"{(c.get('phone') or ''):18.18} {role:26.26}{tag}")
+        r = pc.resolve_link(c, annuaire or {})
+        # Une `ref` sans fiche ne doit pas disparaître de l'affichage : c'est
+        # une anomalie à voir, et le rôle, lui, reste vrai.
+        if r["source"] == "orphelin":
+            print(f"  {client:20} {('⚠ ref inconnue : ' + str(r['ref'])):28.28} "
+                  f"{'':32.32} {'':18.18} {(r.get('role') or ''):26.26}")
+            continue
+        libelle = pc.display_name(r) if r["source"] == "annuaire" else contact_label(c)
+        email = (r["emails"] or [""])[0]
+        tel = (r["phones"] or [""])[0]
+        tag = " (interne)" if r.get("internal") else ""
+        marque = " ↗" if r["source"] == "annuaire" else ""     # vient de l'annuaire
+        role = r.get("role") or ""
+        if r.get("title"):
+            role = f"{role} · {r['title']}" if role else r["title"]
+        print(f"  {client:20} {(libelle + marque):28.28} {email:32.32} "
+              f"{tel:18.18} {role:26.26}{tag}")
 
 
 # ── Commandes ────────────────────────────────────────────────────────────────
@@ -146,7 +181,7 @@ def cmd_list(cfg, args):
                         if not c.get("internal") and not is_empty(c)
                         and not is_internal(c.get("email") or "")]
         if contacts or args.client:
-            print_contacts(slug, contacts)
+            print_contacts(slug, contacts, ann)
         total += len(contacts)
     out.op("contacts", extra=f"{total} sur {len(clients)} client(s)")
 

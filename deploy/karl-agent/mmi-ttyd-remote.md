@@ -29,7 +29,7 @@ Vérif depuis mmi : `curl -sI http://127.0.0.1:7681/ | head -1` (ttyd répond).
 
 Test hors Apache (doit rendre OK avec un vrai cookie, DENY sinon) :
 
-    KARL_VERIFY_URL=http://127.0.0.1:9876/auth/whoami \
+    KARL_VERIFY_URL=http://127.0.0.1:9876/api/auth/whoami \
       /usr/local/sbin/karl-ttyd-auth --check 'karl_session=<token-valide>'
 
 ## 3. Modules Apache (mmi)

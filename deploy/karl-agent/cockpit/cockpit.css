@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0d99cb97a6f3a92c (27 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 40bac0ae349ca561 (29 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -142,6 +142,10 @@ header .sub {
   box-shadow: 0 0 6px var(--ok);
 }
 
+.dot.push {
+  outline: 2px solid var(--accent-soft-hover);
+  outline-offset: 1px;
+} /* RM3006 : canal de push vivant */
 .dot.ko {
   background: var(--danger);
   box-shadow: 0 0 6px var(--danger);
@@ -496,6 +500,166 @@ details.card[open] > summary::before {
   color: var(--accent);
   border-color: var(--accent);
 } /* RM2718 : [A TESTER] */
+.e-entity {
+  color: var(--fg);
+}
+
+.e-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.e-icon {
+  flex: none;
+}
+
+.e-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.e-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.e-badges {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+
+.e-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.e-badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.e-badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.e-badge.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.e-badge.accent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.e-row {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.e-row:hover {
+  background: var(--panel2);
+}
+
+.e-row .e-sec {
+  display: none;
+}
+
+.e-card {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.e-card .e-head {
+  margin-bottom: 4px;
+}
+
+.e-card .e-sec {
+  margin-top: 4px;
+}
+
+.e-card .e-sec-title {
+  display: none;
+}
+
+.e-panel, .e-full {
+  font-size: 12.5px;
+}
+
+.e-panel .e-head, .e-full .e-head {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.e-panel .e-title, .e-full .e-title {
+  white-space: normal;
+}
+
+.e-sec {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.e-sec:first-of-type {
+  border-top: 0;
+}
+
+.e-sec-title {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.e-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.e-k {
+  color: var(--muted);
+}
+
+.e-v {
+  text-align: right;
+  word-break: break-word;
+}
+
+.e-line {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+
+.e-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.e-full .e-sec-body pre {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
 /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
 .lbody {
   flex: 1;
@@ -712,6 +876,93 @@ main.lcollapsed .lnav, main.lcollapsed .lbody {
   height: 32px;
   font-size: 14px;
   flex: none;
+}
+
+/* RM3003 : gabarit MOBILE — une colonne à la fois, barre de navigation en bas. Les surfaces sont celles du bureau, seule la disposition
+   change : `html[data-layout="mobile"]` (posé par layout.controller : écran ≤ 820 px ou ?layout=mobile), `main[data-mpage]` = la page montrée. */
+.mnav {
+  display: none;
+}
+
+html[data-layout=mobile] header {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+}
+html[data-layout=mobile] header h1 {
+  display: none;
+}
+html[data-layout=mobile] main, html[data-layout=mobile] main.lcollapsed {
+  grid-template-columns: 1fr;
+}
+html[data-layout=mobile] .ltoggle, html[data-layout=mobile] .rtoggle, html[data-layout=mobile] .rhandle {
+  display: none;
+}
+html[data-layout=mobile] .left {
+  border-right: 0;
+}
+html[data-layout=mobile] main[data-mpage=center] .left, html[data-layout=mobile] main[data-mpage=right] .left {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=left] .right {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=center] .rpanel {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=right] .tabbar, html[data-layout=mobile] main[data-mpage=right] .termwrap > :not(.rpanel) {
+  display: none;
+}
+html[data-layout=mobile] main[data-mpage=right] .rpanel, html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed, html[data-layout=mobile] main[data-mpage=right] .rpanel.wide {
+  width: 100%;
+  border-left: 0;
+}
+html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed .rnav, html[data-layout=mobile] main[data-mpage=right] .rpanel.collapsed .rbody {
+  display: flex;
+}
+html[data-layout=mobile] main[data-mpage=right] .rtitle {
+  display: block;
+}
+html[data-layout=mobile] .mnav {
+  display: flex;
+  flex: none;
+  justify-content: space-around;
+  gap: 4px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+html[data-layout=mobile] .mnav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  position: relative;
+}
+html[data-layout=mobile] .mnav-btn .mnav-ico {
+  font-size: 16px;
+  line-height: 1.1;
+}
+html[data-layout=mobile] .mnav-btn.active {
+  color: var(--accent);
+  background: var(--bg);
+  border-color: var(--line);
+  font-weight: 600;
+}
+html[data-layout=mobile] .mnav-btn .nbadge {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+}
+html[data-layout=mobile] .foot {
+  display: none;
 }
 
 /* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */
@@ -3122,6 +3373,45 @@ iframe {
   margin-top: 2px;
 }
 
+.cdclist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cdcrow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.cdcrow:hover {
+  border-color: var(--accent);
+}
+
+.cdcproj {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cdctitle {
+  flex: 1;
+  font-weight: 600;
+}
+
+.cdcn {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .jl-bar {
   display: flex;
   flex-wrap: wrap;
@@ -3279,4 +3569,125 @@ iframe {
   color: var(--muted);
   font-size: 10.5px;
   margin-top: 6px;
+}
+
+.mp-state {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  margin-left: 8px;
+}
+
+.mp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mp-int {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mp-int select {
+  width: auto;
+  font-size: 11.5px;
+  padding: 2px 6px;
+}
+
+.mp-alerts {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--warn);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.mp-alert b {
+  color: var(--fg);
+}
+
+.mp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.mp-table th, .mp-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mp-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mp-table td.mp-mod, .mp-table th:first-child {
+  text-align: left;
+}
+
+.mp-table tr.mp-leak td {
+  background: var(--danger-soft);
+}
+
+.mp-flag {
+  color: var(--warn);
+}
+
+.mp-trend {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mp-spark {
+  display: block;
+}
+
+.mp-spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.mp-foot {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: 6px;
+}
+
+.mp-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  margin: 6px 0;
+}
+
+.mp-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }

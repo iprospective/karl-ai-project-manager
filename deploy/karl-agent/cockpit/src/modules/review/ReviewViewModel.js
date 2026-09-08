@@ -3,6 +3,8 @@ import { EntityViewModel } from "../../core/EntityViewModel.js";
 import { ticketVerdicts } from "../ticket/ticketStatus.js";
 import { promptTemplates } from "../ticket/prompts.js";
 import { sinceLabel } from "../ticket/ticketFormat.js";
+import { bindEntity } from "../../core/entities.js";
+import { html } from "../../core/html.js";
 
 /** Les sessions d'un ticket (RM2726) et la consigne (RM2873). e = payload /ticket-sessions ou null ; ctx = { prompt } */
 export class TicketSessionsViewModel extends EntityViewModel {
@@ -21,6 +23,21 @@ export class TicketSessionsViewModel extends EntityViewModel {
 export class ReviewViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get rm() { return String(this.ctx.rm); }
+  // RM3002 : quatre niveaux depuis sections() (core/entities) — la fiche complète du centre reste ReviewPane
+  get type() { return "review"; }
+  get id() { return this.rm; }
+  get title() { return this.found && this.r.title ? this.r.title : "RM" + this.rm; }
+  get subtitle() { return this.found && this.r.client && this.r.project ? this.r.client + "/" + this.r.project : ""; }
+  get badges() { const out = []; if (this.status) out.push({ text: this.status, cls: /^ferme|termine/.test(this.status) ? "ok" : /a_corriger|bloqu/.test(this.status) ? "danger" : /a_tester|a_mep|en_mep/.test(this.status) ? "accent" : "" }); if (this.found && this.r.priority) out.push({ text: this.r.priority, cls: /urgent|high/.test(this.r.priority) ? "warn" : "" }); return out; }
+  sections() {
+    const r = this.r || {};
+    return [{ id: "links", title: "liens", summary: true, body: () => this.links.map(l => html`<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`), empty: "aucun lien" },
+            { id: "tags", title: "étiquettes", summary: true, body: () => this.tags.join(" · ") },
+            { id: "environments", title: "environnements", body: () => { const e = this.environments; return e ? (e.test_url ? [["test", e.test_url]] : []).concat(e.list.map(x => [x.name || "env", x.url])) : null; }, empty: "aucun environnement" },
+            { id: "protocol", title: "protocole de test", body: () => (this.protocol ? html`<pre>${this.protocol.text}</pre>` : null), empty: "pas de protocole" },
+            { id: "description", title: "description", level: "full", body: () => (r.description ? html`<pre>${r.description}</pre>` : null), empty: "pas de description" },
+            { id: "log", title: "dernière activité", level: "full", body: () => (r.log_tail ? html`<pre>${r.log_tail}</pre>` : null), empty: "aucune activité enregistrée" }];
+  }
   get r() { return this.e.r; }
   get found() { return !!(this.r && this.r.found); }
   get q() { return this.e.q; }
@@ -55,3 +72,4 @@ export class StatusMenuViewModel extends EntityViewModel {
   items() { return (this.e.transitions || []).map(t => ({ status: String(t.status), refused: t.redmine_ok === false, reason: !!t.needs_close_reason, note: !!t.needs_note,
     tip: String(t.condition || "") + (t.redmine_ok === false ? " — Redmine refusera cette transition pour ce compte" : "") })); }
 }
+bindEntity("review", ReviewViewModel);   // RM3002

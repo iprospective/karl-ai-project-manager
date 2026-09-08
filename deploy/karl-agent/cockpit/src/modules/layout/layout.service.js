@@ -17,6 +17,9 @@ export class LayoutService {
   width() { const v = parseInt(this._get("karlRightWidth") || "", 10); return v ? clampWidth(v) : null; }
   saveWidth(px) { this._set("karlRightWidth", String(clampWidth(px))); }
   resetWidth() { this._del("karlRightWidth"); }
+  /** RM3003 : forçage de la disposition (mobile|desktop) pour ce navigateur ; null = automatique. */
+  layoutPref() { const v = this._get("karlLayout"); return v === "mobile" || v === "desktop" ? v : null; }
+  setLayoutPref(v) { if (v === "mobile" || v === "desktop") this._set("karlLayout", v); else this._del("karlLayout"); }
   /** RM2283 : panneau gauche actif, persisté. */
   panel() { return this._get("karlPanel"); }
   savePanel(name) { this._set("karlPanel", name); }

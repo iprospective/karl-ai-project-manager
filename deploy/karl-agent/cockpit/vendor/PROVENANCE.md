@@ -11,7 +11,7 @@ fichiers sont **figés ici volontairement** : pas de npm, pas de bundler, pas de
 | `addon-fit.js` | `@xterm/addon-fit` | 0.10.0 | 2024-04-05 | `bdaefa370b1bfc42ee88d46fe6072400902a4d4b2d45cd93438dda9b23c97089` |
 | `addon-unicode11.js` | `@xterm/addon-unicode11` | 0.8.0 | 2024-04-05 | `b0c3be540a9984713aea996966c24ed1a639d11f60d44986b22661e3a8a148d0` |
 
-Licences : MIT (xterm.js et ses addons).
+Licences : MIT (xterm.js et ses addons) — compatible avec la licence du cœur, **GPL-3.0-or-later** (`LICENSE` à la racine du repo, RM3029).
 
 Les trois paquets ont été publiés le même jour : les versions d'addons ci-dessus
 sont celles qui accompagnent xterm 6.0.0.

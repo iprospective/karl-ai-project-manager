@@ -14,6 +14,15 @@
 
 const mounted = new Set();
 
+/** RM3007 : le module d'un montage, lu dans la pile d'appel (`/src/modules/<domaine>/`), sans rien demander aux contrôleurs. */
+export function moduleFromStack(stack) {
+  const m = /\/src\/modules\/([^/]+)\//.exec(stack || "");
+  if (m) return m[1];
+  if (/\/src\/boot\.js/.test(stack || "")) return "boot";
+  return "autre";
+}
+const callerModule = () => { try { return moduleFromStack(new Error().stack); } catch (e) { return "autre"; } };
+
 /** Écouteur délégué : un seul écouteur sur la racine, quel que soit le nombre
  *  d'éléments. Retourne la fonction de retrait. */
 export function on(root, type, selector, handler) {
@@ -33,9 +42,10 @@ export function on(root, type, selector, handler) {
  * @param {object}  opts   { events: [[type, selector, handler]…] }
  * @returns {{el, unmount(), track(fn), timer(fn, ms)}}
  */
-export function mount(el, frag, { events = [] } = {}) {
+export function mount(el, frag, { events = [], module = null } = {}) {
   if (!el) throw new Error("mount : élément hôte absent");
   const disposers = [];
+  let renders = 1;
   el.innerHTML = String(frag);
 
   for (const [type, selector, handler] of events) {
@@ -44,6 +54,7 @@ export function mount(el, frag, { events = [] } = {}) {
 
   const handle = {
     el,
+    module: module || callerModule(),
     /** Enregistre une libération à jouer au démontage (abonnement, observateur…). */
     track(dispose) {
       if (typeof dispose !== "function") throw new Error("track attend une fonction");
@@ -58,7 +69,7 @@ export function mount(el, frag, { events = [] } = {}) {
     },
     /** Repeint le fragment SANS démonter : la délégation étant posée sur
      *  l'hôte, les écouteurs survivent et rien n'est à re-poser. */
-    update(next) { el.innerHTML = String(next); return handle; },
+    update(next) { el.innerHTML = String(next); renders++; return handle; },
     /** Libère tout, dans l'ordre inverse, puis vide l'hôte. */
     unmount() {
       while (disposers.length) {
@@ -70,14 +81,41 @@ export function mount(el, frag, { events = [] } = {}) {
       mounted.delete(handle);
     },
     get pending() { return disposers.length; },
+    /** RM3007 : rendus cumulés (montage + update) et nœuds actuellement sous l'hôte — lus par la sonde, jamais en continu. */
+    get renders() { return renders; },
+    get nodes() { try { return el.querySelectorAll ? el.querySelectorAll("*").length : 0; } catch (e) { return 0; } },
   };
   mounted.add(handle);
   return handle;
 }
+
+/**
+ * RM3001 : écrire un fragment dans un sous-élément (options d'un select, badge, carte secondaire) — le SEUL point d'écriture HTML
+ * hors `mount()`/`update()`. N'accepte qu'un fragment SÛR (`html\`…\``, `raw()`) ou le vide : une chaîne nue lève, c'est la garde
+ * contre un attribut construit à la main. Rend l'élément (ou null s'il est absent : les hôtes optionnels restent optionnels).
+ */
+function safeHtml(frag, what) {
+  if (frag == null || frag === "") return "";
+  if (typeof frag === "object" && typeof frag.toString === "function" && frag.constructor && frag.constructor.name === "Safe") return String(frag);
+  throw new Error(what + " : fragment non sûr — passer par html`…` ou raw()");
+}
+export function paint(el, frag) { if (!el) return null; el.innerHTML = safeHtml(frag, "paint"); return el; }
+/** Ajoute un fragment sûr à la fin d'un élément (une option de plus dans un select) sans repeindre le reste. */
+export function append(el, frag) { if (!el) return null; const h = safeHtml(frag, "append"); if (h) el.insertAdjacentHTML("beforeend", h); return el; }
 
 /** Ce qui est monté et ce que ça retient — pour la sonde mémoire (L1b). */
 export function domStats() {
   let pending = 0;
   for (const h of mounted) pending += h.pending;
   return { mounted: mounted.size, pending };
+}
+
+/** RM3007 : la même chose, ventilée par module — pour la sonde mémoire (nœuds, écouteurs/minuteries/abonnements, rendus cumulés). */
+export function domStatsByModule() {
+  const out = {};
+  for (const h of mounted) {
+    const m = out[h.module] || (out[h.module] = { mounted: 0, pending: 0, nodes: 0, renders: 0 });
+    m.mounted++; m.pending += h.pending; m.nodes += h.nodes; m.renders += h.renders;
+  }
+  return out;
 }

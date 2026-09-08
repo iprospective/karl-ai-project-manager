@@ -172,12 +172,12 @@ les cases *reprise au démarrage* et *fallback spawn*.
 
 ```bash
 curl -s http://127.0.0.1:9876/health
-curl -s -X POST http://127.0.0.1:9876/spawn \
+curl -s -X POST http://127.0.0.1:9876/api/session/spawn \
   -d '{"rm_id":"1669","cwd":"/zfs/workspaces/ai/project-management","engine":"claude"}'
-curl -s -X POST http://127.0.0.1:9876/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
-curl -s "http://127.0.0.1:9876/capture/1669?lines=200"
+curl -s -X POST http://127.0.0.1:9876/api/session/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
+curl -s "http://127.0.0.1:9876/api/terminal/capture/1669?lines=200"
 curl -sN http://127.0.0.1:9876/stream/1669      # SSE live
-curl -s -X POST http://127.0.0.1:9876/kill -d '{"rm_id":"1669"}'
+curl -s -X POST http://127.0.0.1:9876/api/session/kill -d '{"rm_id":"1669"}'
 # reprise de main humaine, directement sur dev :
 tmux attach -t karl-RM1669
 ```
@@ -245,6 +245,37 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
 5. **Token partagé optionnel.** Si `KARL_AGENT_TOKEN` est défini (dans le `.env`
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
+
+## Chemins historiques — période de tolérance (RM3004)
+
+Le front appelle les cibles `/api/<type>/<action>` ; les chemins historiques (`/sessions`, `/spawn`,
+`/resolve/<id>`…) restent servis par l'alias généré `scripts/karl_api_routes.py` pour les autres
+clients. Chaque appel direct d'un chemin historique est **compté et journalisé** (catégorie `api`,
+`info` à la première occurrence par chemin et client puis une fois par heure, `debug` à chaque
+appel) : `GET /api/log/historical` liste les chemins, leurs compteurs et le type de client depuis
+le démarrage ; `mmi-pm log-tail --cat api | grep historique` côté journal. **Zéro appel pendant une
+semaine ⇒ l'alias peut être retiré** (étape 2 de RM3004). Les appelants connus ont été basculés :
+`karl-ttyd-auth.py` (`/api/auth/whoami`), `karl-voice-setup.sh`, les exemples ci-dessus.
+
+## Canal de push (RM3006)
+
+Le cockpit tire tout par son tick `/api/session/refresh` (3–7 s). Depuis RM3006 les blocs
+**arrivent** aussi : `GET /api/session/events?blocks=<mêmes specs bloc:hash>` ouvre un canal
+SSE (le jeton d'appareil voyage en query `token=` — EventSource ne pose aucun en-tête ; il
+n'est jamais journalisé, seul le chemin l'est). À chaque publication, le serveur rejoue
+`op_refresh` avec les hashs de CE client et pousse `event: blocks` (les blocs changés) et
+`event: topics` (les sujets publiés) ; battement `: ping` toutes les 20 s ; au plus
+`KARL_AGENT_MAX_STREAMS` canaux (24) ; un client parti est décompté au tour suivant. Les
+données poussées sont filtrées par le même `auth_ctx` que le tick.
+
+Les scripts PM publient par `scripts/pm_events.py` (`POST /api/session/events/publish
+{"topics": [...], "source": "..."}` — best-effort, 0,6 s, silencieux si karl-agent est absent ;
+`PM_EVENTS_DISABLE=1` coupe) : `pm-task-status-update` (tickets, sessions, pending, worklog,
+dashboard), `pm-task-comment` (tickets), `pm-session-status` (worklog, sessions, pending),
+`karl-mail-fetch` (mail). Sujets connus : `EVENT_TOPICS`. Côté front, `push.service.js`
+branche le canal sur la pile /refresh (`RefreshService.ingest`, dédoublonnage par hash) ; le
+tick reste, en réconciliation, à 6 s / 30 s quand le canal est vivant (pastille de santé
+cerclée). Coupure → EventSource se reconnecte seul, le tick reprend sa cadence entre-temps.
 
 ## Journal structuré (RM3010)
 

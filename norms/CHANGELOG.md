@@ -1,5 +1,64 @@
 # Changelog des normes
 
+## [2.24.0] - 2026-09-08
+
+### Ajouté
+- **CDC vivant du projet** dans la doc vivante du PM (`governance` § Développement du PM,
+  RM3043) : cinquième cible — décision/arbitrage rendu en séance → registre `D/C`, question
+  ouverte → `Q`, remarque → vrac `N` verbatim, fonctionnalité livrée/prise/planifiée →
+  `pm-cdc-features --sync --build` (registre yml → chapitre 10 généré, `--check` vert à la
+  livraison). Modèle AtomBox (`modele-cdc/`), bouton 📋 CDC du cockpit. Ajout seul, pas de
+  ledger.
+
+## [2.23.0] - 2026-09-07
+
+### Ajouté
+- **Module `testing` + tripwire KERNEL #17 « Tests au fil de l'eau »** (RM3028) :
+  discipline de tests obligatoire à chaque dev — TDD par défaut sur la logique,
+  tests unitaires (extraire en fonctions pures ce qui est dur à tester), tests
+  fonctionnels/workflow/intégration anticipés dès la conception, couverture de
+  TOUS les cas (tests auto ET protocole de test, complémentaires). `mmi-pm test`
+  vert avant livraison ; front/cockpit ⇒ tests node même MR. Seul motif de « pas
+  de test auto » : comportement non automatisable (rendu navigateur, intégration
+  tierce) ⇒ recette humaine + justification tracée. Déclencheur dans le KERNEL
+  (ouvert à la demande, hors précharge). Détail : `norms/src/modules/testing.md`.
+
+## [2.21.0] - 2026-09-07
+
+### Ajouté
+- **`structure-reference` § « L'annuaire de contacts »** et deux lignes
+  d'outillage (RM2703) : l'identité d'une personne vit dans une fiche unique du
+  dépôt de données, la relation (rôle, titre) reste chez le client. La forme
+  précédente imposait de réécrire une personne chez chaque client — mesuré :
+  31 contacts sur 21 clients dont **19 lignes pour la même personne**, en deux
+  orthographes. Y sont écrits aussi les deux endroits où l'annuaire ne peut PAS
+  vivre (le dépôt de code part sur un miroir public ; la racine de
+  `projects_root` n'est versionnée par aucun dépôt) et ce qu'un historique git
+  n'oublie pas.
+
+## [2.20.0] - 2026-09-07
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « archiver les sessions »** (RM2997) :
+  `pm-sessions-archive.py`. Il existait un dépôt d'archivage et un remote, mais
+  aucun outil : le geste était manuel, et il a cessé le 2026-06-23 sur un verrou
+  git périmé — 75 jours sans que rien ne le signale, 42 transcripts effacés
+  entre-temps par la rétention de Claude Code. La règle anti-trou vaut aussi
+  pour ce qui *protège* le travail, pas seulement pour ce qui le produit.
+  Détail et invariants : `knowledge/karl-agent/sessions.md`.
+
+## [2.19.0] - 2026-09-07
+
+> La 2.18.0 est arrivée par `dev` (RM3016, jeton GitHub par organisation) sans
+> entrée ici ; ce lot s'empile dessus.
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « reprendre un ticket sans sa session »**
+  (RM2998) : `pm-task-brief.py <id> --reprise`. La règle anti-trou veut que toute
+  opération de cette nature ait son outil déclaré ; celle-ci n'en avait aucun, et
+  la reprise passait par la conversation — ce qui ne tient plus dès qu'un
+  transcript disparaît (RM2997 : 42 effacés, 70 tickets ouverts orphelins).
+
 ## [2.17.0] - 2026-09-05
 
 > Renumérotation : écrit 2.16.0 sur sa branche, ce lot atterrit après le 2.16.0

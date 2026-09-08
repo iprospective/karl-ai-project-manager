@@ -44,6 +44,22 @@ Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
 (`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` / `KARL_AGENT_MEM_SWAP`) : elle
 s'édite alors dans le `.env`, suivi d'un redémarrage de karl-agent.
 
+## Sonde mémoire (ce navigateur)
+
+Un onglet de cockpit qui grossit avec les heures (RM2807) se diagnostique avec la **sonde
+mémoire** : cochée, elle prend un échantillon à la cadence choisie (5 à 60 s) et ventile,
+**par module** du cockpit (sessions, centre, worklog, tickets…), ce que la page retient :
+montages, **nœuds** DOM, écouteurs/minuteries/abonnements **retenus**, entrées de **store**,
+abonnés, **rendus par minute**. Le panneau **🧠 mémoire** (bouton « ouvrir le panneau »,
+ou l'onglet qu'il laisse au centre) montre le tableau, une courbe des nœuds par module et
+signale en orange un compteur qui **grimpe sans redescendre** sur les six derniers
+échantillons — c'est la signature d'une fuite. **⤓ JSON** télécharge l'historique pour le
+joindre à un ticket ; **↺ vider** l'oublie.
+
+Décochée, la sonde ne coûte rien : aucune minuterie ne tourne. La préférence et la cadence
+sont propres à ce navigateur. Depuis la console, `karl.stats()` donne le même instantané
+(`modules`, `probe`).
+
 ## Conf PM (surcharge contrôlée)
 
 Certains réglages PM sont éditables depuis le cockpit et écrits dans une
@@ -59,4 +75,4 @@ dans le header, en orange et **clignotant** — il est resté longtemps grisé a
 milieu des autres, donc invisible. Si tu as coupé les animations dans ton
 système (« mouvement réduit »), il ne clignote pas mais garde sa couleur.
 C'est **informatif** : l'application reste un geste humain au terminal
-(`mmi-pm core update`, mot de passe sudo).
+(`mmi-pm core-update`, mot de passe sudo demandé par la commande elle-même).

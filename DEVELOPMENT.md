@@ -26,7 +26,8 @@ onboarding agent), voir d'abord [README.md](README.md).
   plusieurs checkouts (ex. une copie **PROD** root-owned qui fait tourner le
   système, une copie **DEV** éditable).
 - **Privilege separation (3 couches).** Le provisioning privilégié passe par un
-  point d'entrée unique `bin/mmi-pm` (`core update`, doctor…) et un helper
+  point d'entrée unique `mmi-pm` (`scripts/mmi-pm.py` : `mmi-pm <domaine>-<verbe>` → `pm-<domaine>-<verbe>.py`,
+  `core-update` demande sudo lui-même ; RM3033 — `bin/mmi-pm` n'est plus qu'une coquille) et un helper
   confiné `pm-env-helper` (NOPASSWD ciblé). Détail : `docs/cdc/*privsep*`,
   `docs/cdc/*mmi-pm-cli*`.
 - **Cockpit / karl-agent.** Le service HTTP (loopback) est `scripts/karl-agent.py` ;
@@ -105,12 +106,15 @@ pm-task-deliver.py <RM> --check-all --protocol - --summary -
 
 # 4. MEP : promotion dev→main (branche protégée) puis déploiement
 pm-promote.py                 # ouvre + merge une MR dev→main
-mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
+mmi-pm core-update            # geste HUMAIN au terminal (sudo demandé) : pull + re-verrou + restart si karl-agent.py change
 
 # 0 bis. NAISSANCE d'un dépôt (RM2640) — avant tout le reste, si le dépôt n'existe pas
 pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
+#   RM3030 : la LICENCE fait partie de la naissance — `--license <SPDX>` (sinon la question en
+#   terminal, défaut GPL-3.0 ; sinon proprietary) ; `--push-from` écrit et committe LICENSE si absent.
+#   pm-project-new pose la même question et la consigne dans .mmi-pm/meta.yml (`license:`).
 pm-repo-new.py --forge github --path <owner>/<nom> [--branches main,dev] [--remote github]
 #   RM3016 : owner résolu (organisation OU utilisateur), branche par défaut fixée APRÈS le push,
 #   protection selon le plan (avertissement si le plan ne l'a pas), jeton GITHUB__<OWNER>__TOKEN.

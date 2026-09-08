@@ -199,6 +199,8 @@ import uuid
 import signal
 import subprocess
 import sys
+import select
+import socket
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -4989,6 +4991,128 @@ def _subtasks_status(refs) -> list:
     return out
 
 
+# RM3004 : chaque appel d'un chemin HISTORIQUE (hors /api/…) est compté et journalisé (catégorie api) — période de tolérance
+# avant le retrait de l'alias : au bout d'une semaine sans appel, karl_api_routes.py peut disparaître. Journal : info à la
+# première occurrence par (chemin, client) puis une fois par heure ; debug à chaque appel ; GET /api/log/historical = les compteurs.
+_HIST_LOCK = threading.Lock()
+_HIST: dict = {}          # chemin historique → {"n", "first", "last", "target", "clients": {ua-kind: n}}
+_HIST_SEEN: dict = {}     # (chemin, client) → dernier `info` (epoch)
+_HIST_INFO_EVERY_S = 3600
+
+
+def _client_kind(ua: str) -> str:
+    u = (ua or "").lower()
+    if not u:
+        return "sans-ua"
+    for k in ("curl", "python", "okhttp", "dart", "mozilla", "wget"):
+        if k in u:
+            return k
+    return u[:24]
+
+
+def note_historical_path(path: str, ua: str = "", ip: str = "", user=None) -> str | None:
+    """Rend la cible /api/… si `path` est un chemin historique routé (et l'enregistre), None sinon."""
+    from karl_api_routes import historical_target
+    target = historical_target(path)
+    if not target:
+        return None
+    kind = _client_kind(ua); now = time.time()
+    with _HIST_LOCK:
+        rec = _HIST.setdefault(path, {"n": 0, "first": now, "last": now, "target": target, "clients": {}})
+        rec["n"] += 1; rec["last"] = now; rec["clients"][kind] = rec["clients"].get(kind, 0) + 1
+        key = (path, kind); first_or_stale = now - _HIST_SEEN.get(key, 0) >= _HIST_INFO_EVERY_S
+        if first_or_stale:
+            _HIST_SEEN[key] = now
+    try:
+        _jlog("api", "info" if first_or_stale else "debug", "chemin historique appelé — migrer vers la cible /api (RM3004)",
+              path=path, target=target, client=kind, ua=(ua or "")[:120], ip=ip, user=user, n=rec["n"])
+    except Exception:  # noqa: BLE001
+        pass
+    return target
+
+
+def op_historical_paths() -> dict:
+    with _HIST_LOCK:
+        rows = [{"path": p, "target": r["target"], "n": r["n"], "clients": dict(r["clients"]),
+                 "first": _dtfmt(r["first"]), "last": _dtfmt(r["last"])} for p, r in sorted(_HIST.items(), key=lambda kv: -kv[1]["n"])]
+    return {"paths": rows, "total": sum(r["n"] for r in rows), "since": _AGENT_STARTED_ISO, "note": "0 appel pendant une semaine ⇒ karl_api_routes.py peut être retiré (RM3004)"}
+
+
+def _dtfmt(ts: float) -> str:
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+
+
+import datetime as _dt_boot
+_AGENT_STARTED_ISO = _dt_boot.datetime.now().isoformat(timespec="seconds")
+
+
+class _EventBus:
+    """RM3006 : le bus des événements du cockpit. Les scripts PM (statut, note, worklog, relève mail) PUBLIENT des sujets ; chaque
+    connexion SSE `/api/session/events` attend sur la condition et, réveillée, rejoue `op_refresh` avec SES hashs — la donnée poussée
+    est donc exactement celle du tick, filtrée par le même `auth_ctx`. Pas de veilleur de fichiers : c'est l'écriture qui prévient."""
+
+    def __init__(self) -> None:
+        self.cond = threading.Condition()
+        self.seq = 0
+        self.last: dict = {}          # seq → {topics, source, ts}
+        self.listeners = 0
+
+    def publish(self, topics: list, source: str | None = None, **meta) -> int:
+        with self.cond:
+            self.seq += 1
+            self.last[self.seq] = {"topics": list(topics), "source": source, "ts": time.time(), **meta}
+            for k in [k for k in self.last if k < self.seq - 200]:   # borné : on ne garde que le récent
+                del self.last[k]
+            self.cond.notify_all()
+            return self.seq
+
+    def wait(self, since: int, timeout: float) -> int:
+        """Bloque jusqu'à un seq > since (ou le timeout) ; rend le seq courant."""
+        with self.cond:
+            if self.seq <= since:
+                self.cond.wait(timeout)
+            return self.seq
+
+    def topics_since(self, since: int) -> list:
+        with self.cond:
+            out: list = []
+            for k in sorted(self.last):
+                if k > since:
+                    for t in self.last[k]["topics"]:
+                        if t not in out:
+                            out.append(t)
+            return out
+
+
+EVENTS = _EventBus()
+EVENT_TOPICS = ("tickets", "sessions", "pending", "worklog", "dashboard", "mail", "env", "sets")
+MAX_EVENT_STREAMS = int(os.environ.get("KARL_AGENT_MAX_STREAMS", "24"))
+EVENT_HEARTBEAT_S = 20
+
+
+def op_events_publish(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """POST /api/session/events/publish — `{"topics": [...], "source": "pm-task-status-update", "rm_id": "…"}`.
+    Un sujet inconnu est refusé (400) : la liste EVENT_TOPICS est le contrat entre les scripts et le front."""
+    topics = payload.get("topics") if isinstance(payload, dict) else None
+    if not isinstance(topics, list) or not topics or not all(isinstance(t, str) for t in topics):
+        raise ApiError(400, "topics : liste non vide de chaînes attendue")
+    bad = [t for t in topics if t not in EVENT_TOPICS]
+    if bad:
+        raise ApiError(400, f"sujet(s) inconnu(s) : {', '.join(bad)} — connus : {', '.join(EVENT_TOPICS)}")
+    source = str(payload.get("source") or "")[:80] or None
+    seq = EVENTS.publish(topics, source=source, rm_id=str(payload.get("rm_id") or "")[:40] or None, user=(auth_ctx or {}).get("user"))
+    try:
+        _jlog("refresh", "debug", "événement publié", topics=topics, source=source, seq=seq, listeners=EVENTS.listeners)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "seq": seq, "listeners": EVENTS.listeners}
+
+
+def _sse_frame(event: str, data) -> bytes:
+    return (f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n").encode("utf-8")
+
+
 def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
     """RM2763 : pile de refresh — endpoint composite des pollers continus du
     cockpit (/sessions, /health, /worklog/<sid>).
@@ -7489,10 +7613,40 @@ def _root_project(root) -> tuple | None:
     return str(client), str(slug)
 
 
+DOC_ROOT_SUBS = ("project", "docs")
+
+
+def _doc_root_id(client: str, project: str, sub: str) -> str:
+    """RM3014 : identifiant d'une racine documentaire — `doc:<client>/<projet>/<docs|project>`.
+    C'est lui que le cockpit manipule et met dans ses URL : jamais le chemin absolu
+    (interface, URL, journal du démon)."""
+    return f"doc:{client}/{project}/{sub}"
+
+
+def _doc_root_path(ident: str):
+    """Chemin réel d'une racine documentaire depuis son identifiant, ou None si
+    l'identifiant est mal formé, désigne un projet inconnu ou une racine absente.
+    Résolution SERVEUR uniquement (le client ne connaît que l'identifiant)."""
+    if not (isinstance(ident, str) and ident.startswith("doc:")):
+        return None
+    parts = ident[4:].split("/")
+    if len(parts) != 3:
+        return None
+    client, project, sub = parts
+    if sub not in DOC_ROOT_SUBS or not (_PART_RE.match(client) and _PART_RE.match(project)):
+        return None
+    pdir = PROJECTS_BASE / client / "projects" / project / sub
+    return pdir if pdir.is_dir() else None
+
+
 def _project_docs_entries(client: str, project: str) -> list:
     """Racines documentaires d'un projet, au format « racine lisible » de
-    l'explorateur (chemin, nom, nombre de .md, libellé)."""
-    return [{"path": d, "name": Path(d).name,
+    l'explorateur. RM3014 : `path` est l'IDENTIFIANT `doc:<client>/<projet>/<racine>`
+    (projet:file), pas le chemin absolu — le triplet client/projet/racine est
+    porté à plat pour que le front s'en serve sans rien deviner."""
+    return [{"path": _doc_root_id(client, project, Path(d).name),
+             "client": client, "project": project, "root": Path(d).name,
+             "name": Path(d).name,
              "docs": len(list(Path(d).glob("*.md"))),
              "label": ("documents du projet" if Path(d).name == "docs"
                        else "fiches canoniques (overview, environnements)")}
@@ -7540,14 +7694,16 @@ def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str 
         allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
-        allowed |= set(_project_doc_roots(client, project))   # RM2622
+        allowed |= set(_project_doc_roots(client, project))   # RM2622 (chemins réels : clients historiques)
         # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
         # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
         # l'explorateur ouvre quand aucune session n'est attachée.
         allowed |= _project_root_paths(client, project)
     if worktree in allowed:
-        p = Path(worktree)
-        if p.is_dir():
+        # RM3014 : une racine documentaire se désigne par `doc:<client>/<projet>/<racine>`
+        # (projet:file) ; le chemin réel n'est résolu qu'ici, côté serveur.
+        p = _doc_root_path(worktree) if worktree.startswith("doc:") else Path(worktree)
+        if p is not None and p.is_dir():
             return p
     raise ApiError(403, "worktree hors du périmètre autorisé")
 
@@ -7683,12 +7839,8 @@ def op_project_worktrees(client: str, project: str) -> dict:
         out.append(item)
     # RM2622 : la doc du projet, marquée `kind: doc` — la présenter comme un
     # worktree ferait attendre une branche et des commits qui n'existent pas.
-    for d in _project_doc_roots(client, project):
-        p = Path(d)
-        n = len(list(p.glob("*.md")))
-        out.append({"path": d, "name": p.name, "exists": True, "kind": "doc",
-                    "docs": n, "label": ("documents du projet" if p.name == "docs"
-                                         else "fiches canoniques (overview, environnements)")})
+    for d in _project_docs_entries(client, project):   # RM3014 : identifiant projet:file, jamais le chemin
+        out.append(dict(d, exists=True, kind="doc"))
     return {"client": client, "project": project, "worktrees": out}
 
 
@@ -7762,6 +7914,27 @@ def op_file(relpath: str) -> str:
         return target.read_text(encoding="utf-8")
     except OSError as e:
         raise ApiError(500, f"lecture impossible : {e}")
+
+
+# ── CDC vivant des projets (RM3043) : sommaires `docs/cdc-<prefix>-00-*.md` ──
+def op_cdc_list() -> dict:
+    """Les CDC vivants disponibles : un par projet qui porte un sommaire
+    `docs/cdc-<prefix>-00-*.md` (modèle AtomBox RM2881). Chaque entrée donne le
+    chemin RELATIF à `projects/` (celui que `op_file` sert) du sommaire et de
+    ses chapitres, pour que le cockpit navigue de l'un à l'autre."""
+    out = []
+    for som in sorted(PROJECTS_BASE.glob("*/projects/*/docs/cdc-*-00-*.md")):
+        m = re.match(r"cdc-(.+?)-00-", som.name)
+        if not m:
+            continue
+        prefix = m.group(1); pdir = som.parent.parent
+        client, project = pdir.parent.parent.name, pdir.name
+        rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
+        chapters = [{"file": f.name, "path": rel(f), "title": _help_title(f)}
+                    for f in sorted(som.parent.glob(f"cdc-{prefix}-*.md"))]
+        out.append({"client": client, "project": project, "prefix": prefix, "path": rel(som),
+                    "title": _help_title(som), "chapters": chapters})
+    return {"cdcs": out}
 
 
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
@@ -9254,8 +9427,37 @@ def _envchk_workspace_bridge():
                  "scripts/pm-workspace-bridge.py --update")]
 
 
+def _envchk_sessions_archive():
+    """RM2997 — les sessions sont-elles encore archivées ?
+
+    Le contrôle qui a manqué. L'archivage de `~/.claude/projects` s'est arrêté le
+    2026-06-23 sur un verrou git périmé et personne ne l'a su pendant 75 jours ;
+    pendant ce temps la rétention de Claude Code effaçait 42 transcripts, et avec
+    eux la réflexion de 70 tickets ouverts. Une panne d'archivage ne se voit pas
+    toute seule : elle ne produit rien, elle cesse de produire.
+
+    Délègue au script — jamais de seconde implémentation du verdict."""
+    script = REPO_ROOT / "scripts" / "pm-sessions-archive.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script), "--check"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("archivage des sessions", "warn", "contrôle impossible")]
+    detail = " ; ".join(l.strip().lstrip("✗ ") for l in p.stdout.splitlines()
+                        if l.strip()) or "état inconnu"
+    if p.returncode == 0:
+        return [_chk("archivage des sessions", "ok", detail[:200])]
+    # `error` et non `warn` : ce qui est perdu ici ne se rattrape pas — et seuls
+    # `warn`/`error` sont comptés par le résumé du cockpit (envStatus.js), donc
+    # seul `error` fait vraiment rougir la pastille.
+    return [_chk("archivage des sessions", "error", detail[:200],
+                 "scripts/pm-sessions-archive.py (ou --install-timer)")]
+
+
 def _envchk_pm():
-    out = _envchk_workspace_bridge()
+    out = _envchk_workspace_bridge() + _envchk_sessions_archive()
     vf = REPO_ROOT / "norms" / "VERSION"
     try:
         norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
@@ -10639,6 +10841,15 @@ class Handler(BaseHTTPRequestHandler):
         self._status = code
         return super().send_response(code, message)
 
+    def _note_historical(self):
+        try:
+            p = urlparse(self.path).path
+            if p.startswith("/api/") or p in ("/", "/cockpit") or p.startswith("/static/") or p.startswith("/help") or p == "/cockpit-config":
+                return
+            note_historical_path(p, self.headers.get("User-Agent", ""), self.client_address[0], (getattr(self, "auth_ctx", None) or {}).get("user"))
+        except Exception:  # noqa: BLE001 — jamais bloquant
+            pass
+
     def _journal_fields(self) -> dict:
         ctx = getattr(self, "auth_ctx", None) or {}
         t0 = getattr(self, "_t0", None)
@@ -10842,9 +11053,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routage --
     def do_GET(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/events":   # RM3006 : EventSource ne pose aucun en-tête — le jeton voyage en query (jamais journalisé : _journal_fields ne garde que le chemin)
+            tok = {k: v[0] for k, v in parse_qs(parsed.query).items()}.get("token")
+            if tok and not self.headers.get("X-Karl-Token"):
+                self.headers["X-Karl-Token"] = tok
         # Routes publiques du cockpit (RM1873/RM2334) : la page et sa config se
         # chargent SANS auth — nécessaire pour afficher la carte de login (mdp
         # → token d'appareil) — et ne divulguent rien de sensible (le ttyd_base
@@ -10865,6 +11081,8 @@ class Handler(BaseHTTPRequestHandler):
             data = op_help_get(path[len("/help/"):])
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
+        if path == "/cdc":                   # RM3043 : sommaires des CDC vivants
+            return self._send_json(200, op_cdc_list())
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
@@ -10938,6 +11156,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/refresh":       # RM2763 : pile de refresh (composite)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
+            if path == "/log/historical":   # RM3004 : qui appelle encore les chemins historiques (compteurs depuis le démarrage)
+                return self._send_json(200, op_historical_paths())
+            if path == "/events":        # RM3006 : canal de push (SSE) — mêmes blocs, même auth_ctx, poussés à la publication
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._events_stream(qs.get("blocks", ""))
             if path == "/voice/caps":
                 return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
@@ -11108,6 +11331,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         path = urlparse(self.path).path
         # /auth/login est LA porte d'entrée : pas d'auth préalable (throttle
@@ -11136,6 +11360,8 @@ class Handler(BaseHTTPRequestHandler):
                 _jlog(str(payload.get("category") or "front"), str(payload.get("level") or "info"), str(payload.get("message") or "")[:1000],
                       via="front", user=(self.auth_ctx or {}).get("user"), ip=self.client_address[0], **{k: v for k, v in fields.items() if k not in ("via", "user", "ip")})
                 return self._send_json(200, {"ok": True})
+            if path == "/events/publish":   # RM3006 : un script PM (ou le front) signale que quelque chose a changé
+                return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.
@@ -11242,6 +11468,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_PUT(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
@@ -11258,6 +11485,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_DELETE(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
         self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
@@ -11292,6 +11520,64 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(e.code, {"error": e.msg})
         except Exception as e:  # noqa: BLE001
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    # -- SSE RM3006 : le canal de push du cockpit — les blocs du composite /refresh ARRIVENT quand un script PM publie --
+    def _events_stream(self, blocks_qs: str):
+        if EVENTS.listeners >= MAX_EVENT_STREAMS:
+            return self._send_json(503, {"error": f"trop de canaux ouverts ({MAX_EVENT_STREAMS}) — le tick suffit"})
+        hashes: dict = {}
+        names: list = []
+        for spec in [x for x in (blocks_qs or "").split(",") if x]:
+            name, *rest = spec.split(":")
+            if name == "worklog":
+                names.append("worklog:" + ":".join(rest[:-1]) if len(rest) >= 2 else "worklog:" + (rest[0] if rest else ""))
+                hashes["worklog"] = rest[-1] if len(rest) >= 2 else ""
+            else:
+                names.append(name); hashes[name] = rest[0] if rest else ""
+        def specs():
+            return ",".join((n + ":" + hashes.get("worklog", "")) if n.startswith("worklog:") else (n + ":" + hashes.get(n, "")) for n in names)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        with EVENTS.cond:
+            EVENTS.listeners += 1
+        since = EVENTS.seq
+        try:
+            _jlog("refresh", "debug", "canal de push ouvert", blocks=names, user=(self.auth_ctx or {}).get("user"), listeners=EVENTS.listeners)
+            self.wfile.write(_sse_frame("hello", {"seq": since, "blocks": names, "heartbeat_s": EVENT_HEARTBEAT_S})); self.wfile.flush()
+            last_beat = time.time()
+            while True:
+                try:   # le client est-il parti ? (connexion lisible et vide = fermée) — sans attendre le battement suivant
+                    r, _, _ = select.select([self.connection], [], [], 0)
+                    if r and not self.connection.recv(1, socket.MSG_PEEK):
+                        return
+                except (OSError, ValueError):
+                    return
+                seq = EVENTS.wait(since, 1.0)
+                if seq > since:
+                    topics = EVENTS.topics_since(since); since = seq
+                    self.wfile.write(_sse_frame("topics", {"seq": seq, "topics": topics}))
+                    if names:
+                        r = op_refresh(specs(), self.auth_ctx)
+                        for n, b in (r.get("blocks") or {}).items():
+                            hashes[n] = b.get("hash", "")
+                        if r.get("blocks"):
+                            self.wfile.write(_sse_frame("blocks", {"seq": seq, "blocks": r["blocks"], "errors": r.get("errors") or {}}))
+                    self.wfile.flush(); last_beat = time.time()
+                elif time.time() - last_beat > EVENT_HEARTBEAT_S:
+                    self.wfile.write(b": ping\n\n"); self.wfile.flush(); last_beat = time.time()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return   # client parti
+        finally:
+            with EVENTS.cond:
+                EVENTS.listeners -= 1
+            try:
+                _jlog("refresh", "debug", "canal de push fermé", listeners=EVENTS.listeners)
+            except Exception:  # noqa: BLE001
+                pass
 
     # -- SSE : tail du log pipe-pane (octets de terminal bruts) --
     def _stream(self, rm_id: str):

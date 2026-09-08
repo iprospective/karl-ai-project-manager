@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **CDC vivant du projet et menu 📋 CDC** (RM3043) : `pm-cdc-features` (registre
+  `docs/cdc-<prefix>/fonctionnalites.yml` dérivé des tickets, ids `F` stables, chapitre 10
+  généré, `--check`) ; docs `cdc-pm-00/10/90/91/99` du projet PM (fonctionnalités reprises
+  des 660 tickets, décisions, vrac, questions) ; route `/api/doc/cdc` + bouton d'en-tête du
+  cockpit (3.6.0) qui ouvre le sommaire dans la modale doc, liens entre chapitres navigables ;
+  règle « au fil de l'eau » dans CLAUDE.md et NORMS `governance` (2.24.0).
+
+### RM3014 — Cockpit : docs du projet par projet:file, plus d'alias confondu (2026-09-07)
+- **Correctif** : l'explorateur de fichiers ne pouvait plus ouvrir aucun fichier (« chemin hors de projects/ ») — depuis L7 (RM2889), `/fs/file` et `/file` partageaient la cible `/api/file/file`, résolue côté serveur vers la seule route générique. `/fs/file` a désormais sa cible `/api/file/read` (`MIGRATION-ROUTES.tsv` régénérée : `endpoints.js` + `karl_api_routes.py`).
+- **Racines documentaires par projet:file** : une racine `docs/` ou `project/` se désigne par `doc:<client>/<projet>/<racine>` — le cockpit ne reçoit, n'affiche et n'envoie plus de chemin absolu pour la documentation (infobulle « client/projet · docs », URL, journal du démon) ; la résolution du chemin réel est serveur (`_doc_root_path`), avec les gardes existantes (projet du périmètre, racine connue, sous-chemin confiné). Les chemins absolus restent acceptés pour les clients historiques.
+- Tests : `test_karl_agent_fs.py` (alias, identifiants, gardes, portées session/projet, symlink), `test_cockpit_files.js` (routes distinctes, identifiant → portée, infobulle et URL sans chemin).
+
 ### Outillage PM
 - **Le PM sait faire naître un dépôt sur GitHub, pas seulement sur GitLab** (RM3016). Le registre
   `providers` déclarait GitHub depuis longtemps et `pm_forge` savait y ouvrir des PR, mais
@@ -40,6 +52,100 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   peut n'avoir **aucun droit d'écriture** — l'API répond juste, et seul `git push` échoue en
   « Permission denied ». La sonde fiable est un `POST` d'écriture inoffensif (créer un blob) :
   403 ⇒ jeton en lecture seule, à corriger côté GitHub (permission *Contents* en écriture).
+- **Un annuaire de contacts, indépendant des clients** (RM2703). Un contact vivait dans le
+  `meta.yml` de SON client : une personne présente chez vingt clients s'écrivait vingt fois,
+  et divergeait vingt fois. Le relevé le montrait sans appel — **31 contacts sur 21 clients,
+  dont 19 lignes pour la même personne**, en deux orthographes, marquée « interne » sur 2 de
+  ces 19. Ce n'était pas de la négligence de saisie mais la forme qui l'imposait. Désormais
+  **l'identité** (nom, adresses, téléphones, `internal`, compte Redmine) vit dans une fiche
+  unique, `contacts/<ref>.yml` ; **la relation** (rôle, titre) reste chez le client, sous la
+  forme d'un `ref` — parce que le rôle n'existe que dans la relation et qu'un `meta.yml` doit
+  rester lisible seul. `pm-contact.py` ajoute, cherche, fusionne (en réaiguillant les clients
+  concernés, sinon la moitié du travail resterait à faire) et **migre** : sur le parc réel,
+  31 lignes → **12 personnes**, en dry-run avec rapport avant toute écriture. La clé est un
+  slug lisible (`moulin-mathieu`) qui se lit dans un diff, avec repli sur l'adresse pour une
+  boîte fonctionnelle. Les deux formes cohabitent le temps de la migration : `pm-client-contact`
+  et le routage mail (RM2669) lisent les `ref` **et** les contacts en ligne, et une `ref` dont
+  la fiche a disparu se signale au lieu de disparaître. Effet de bord acquis : le routage
+  retrouve maintenant une personne par **n'importe laquelle** de ses adresses. L'annuaire ne
+  vit ni dans le dépôt de code (miroir GitHub public, données personnelles) ni à la racine de
+  `projects_root` (qu'aucun dépôt ne versionne), mais dans le dépôt de données, privé.
+- **Les sessions Claude sont archivées toutes les heures, et l'archivage est surveillé**
+  (RM2997). `~/.claude/projects` était déjà un dépôt git avec un remote GitLab, mais
+  l'archivage était un **geste manuel** : le 2026-06-23 à 03:17, un git interrompu y a laissé
+  un `.git/index.lock`, et pendant **75 jours** chaque tentative a échoué dessus — aucun cron,
+  aucun log, aucune alerte, donc aucun signal. Pendant ce temps la rétention par défaut de
+  Claude Code (`cleanupPeriodDays`, 30 jours, absente du `settings.json`) effaçait les
+  transcripts au fil de l'eau : **42 perdus**, dont dépendaient 70 tickets encore ouverts.
+  `pm-sessions-archive.py` commite et pousse toutes les heures (timer systemd `--user`), lève
+  un verrou **mort** — plus vieux que 15 min *et* aucun git vivant dans le dépôt, les deux
+  conditions étant nécessaires : lever celui d'un git en cours corromprait l'index — et le met
+  de côté plutôt que de le détruire. Il archive aussi `history.jsonl` et les worklogs, sous
+  `_meta/` à une profondeur qui ne les fasse pas passer pour des transcripts (le moteur
+  énumère `*/*.jsonl`, profondeur deux). Invariant central : **aucune suppression n'est jamais
+  consignée** — un transcript déjà effacé garde son blob atteignable, ce qui a permis d'en
+  récupérer 313. La surveillance manquante est le vrai livrable : `--check` distingue trois
+  pannes (pas de dépôt, plus de commit depuis trop longtemps, commits non poussés) et alimente
+  un contrôle d'environnement karl-agent en niveau `error` — ce qui est perdu ici ne se
+  rattrape pas.
+- **Reprendre un ticket sans sa session** (RM2998). Jusqu'ici, retrouver le fil d'un travail
+  interrompu passait par la reprise de la conversation — et c'est précisément ce qui a manqué
+  quand 42 transcripts ont été effacés (RM2997), laissant 70 tickets ouverts sans leur
+  réflexion. `pm-task-brief <id> --reprise` ne résume plus, il **rassemble** ce qui a été écrit
+  ailleurs et qui subsiste : les **séances** qui ont touché le ticket, avec **la prochaine étape
+  qui y était notée** — mise en tête, c'est ce qu'on cherche en premier ; les **demandes**
+  retrouvées dans `history.jsonl`, que le nettoyage de Claude Code n'atteint pas ; l'état
+  **constaté** du code — la branche existe-t-elle encore, porte-t-elle des commits non fusionnés,
+  le worktree est-il sale — plutôt que ce que raconte un frontmatter figé à la prise du ticket ;
+  et le journal débarrassé de sa plomberie (sur un ticket réel, 33 entrées de ticks et d'accusés
+  Redmine écartées sur 49 — les garder noyait les cinq lignes utiles). Une séance dont le
+  transcript survit propose sa commande de reprise ; une séance perdue renvoie vers sa
+  reconstitution. `--prompts-all` lève le filtre sur le numéro, parce qu'une demande parle du
+  sujet et rarement du ticket. Le brief d'onboarding, lui, reste strictement inchangé : 30 lignes,
+  mêmes clés JSON.
+- **Le code du PM a une licence : GPL-3.0-or-later** (RM3029). Le repo, pourtant miroité en
+  public sur GitHub, n'avait ni `LICENSE` ni mention de copyright — au sens du droit d'auteur,
+  personne n'avait le droit de l'utiliser. Décision iProspective du 2026-09-07 : GPL v3 ou
+  ultérieure. `LICENSE` (texte intégral) à la racine, section « Licence » du README (ce que
+  cela implique pour les modules), `license` du `package.json` du tooling, provenance des
+  vendors complétée (xterm.js MIT, compatible), norme de gouvernance : toute contribution est
+  faite sous cette licence, toute dépendance doit lui être compatible. Les données de projets
+  (dépôt privé) ne sont pas couvertes.
+- **Cinq domaines du cockpit repassent sous 15 000 tokens à lire pour modifier une vue**
+  (RM3017 sets, RM3018 sessions, RM3019 worklog, RM3020 center, RM3021 meta). La mesure de RM3008
+  montrait que le premier poste était le fichier de test, monolithique par domaine. Chacun est
+  scindé par couche — helpers (faux DOM et fixtures partagés), modèle et service, ViewModels et
+  vues, contrôleur — et chaque fichier s'exécute seul. La garde de `cockpit-view-cost.py` porte
+  désormais sur le coût « vue » (ViewModel + vue + contrôleur + leurs tests), l'objectif réel de
+  RM2889, et compte les tests scindés ; les cinq domaines sont sous le seuil.
+- **Les chemins historiques de karl-agent sont comptés avant d'être retirés** (RM3004, étape 1).
+  Le front parle `/api/<type>/<action>` depuis la 3.0.0 ; les chemins historiques restent servis
+  par un alias généré pour les autres clients. Chaque appel direct d'un chemin historique est
+  désormais compté et journalisé (catégorie `api` : info à la première occurrence par chemin et
+  client, puis une fois par heure) ; `GET /api/log/historical` donne les compteurs et la sorte de
+  client depuis le démarrage. Les appelants connus sont basculés (`karl-ttyd-auth.py`,
+  `karl-voice-setup.sh`, exemples de la doc). Zéro appel pendant une semaine ⇒ retrait de l'alias.
+- **Un seul `mmi-pm`** (RM3033). Deux outils portaient le nom : `bin/mmi-pm` (bash, provisioning
+  `<nom> <verbe>`, porte sudo) et `scripts/mmi-pm.py` (dispatcher `mmi-pm <cmd>` → `pm-<cmd>.py`,
+  dans le PATH) — et aucun ne connaissait l'autre : `mmi-pm core update` en PATH répondait
+  « sous-commande inconnue », la moitié du bash ne faisait que ré-exécuter des `pm-*.py` déjà
+  atteignables. La logique bash est portée en python sous la convention des 90 autres scripts :
+  `pm-core-update.py` (agent SSH éphémère, pull, `core-lock`, hooks du core, redémarrage de
+  karl-agent, co-déploiement du helper — et il **se ré-exécute en sudo lui-même**, mot de passe
+  demandé, sauf `--dry-run`), `pm-index-add|remove|rebuild|list.py`, `pm-env-vhost.py`. Le
+  dispatcher gagne le repli `<nom> <verbe>` → `pm-<nom>-<verbe>` (l'ancienne grammaire reste
+  valide) et les alias par nom d'appel : `mmi-core update`, `mmi-task show 42` (liens
+  `/usr/local/bin/mmi-<domaine>` posés par `core-update`). `bin/mmi-pm` n'est plus qu'une
+  coquille de transition.
+- **Un projet, un dépôt, naissent avec leur licence** (RM3030, suite de RM3029). Aucun outil ne
+  posait la question : un dépôt naissait sans `LICENSE` — donc sans droit d'usage pour personne —
+  et la décision n'était consignée nulle part. `pm-project-new` demande la licence du code
+  (`--license <SPDX>`, sinon un menu en terminal qui explique chaque choix — MPL-2.0 pour un cœur
+  ouvert à modules libres ou fermés, Apache-2.0, MIT, LGPL/GPL/AGPL-3.0, propriétaire — défaut
+  GPL-3.0 ; hors terminal : propriétaire, rien n'est publié) et l'écrit dans `.mmi-pm/meta.yml`.
+  `pm-repo-new --push-from` écrit et committe `LICENSE` (texte SPDX intégral, `templates/licenses/`,
+  `NOTICE` pour Apache) si le dépôt n'en a pas, en reprenant la licence du projet PM qui le
+  contient. Module `scripts/pm_license.py`.
 - **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
   des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :
   en six jours, 337 fichiers modifiés et 16 non suivis (fiches, `.log.md`, `reporting.yml`, CDC
@@ -314,6 +420,51 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Ce qui change arrive au cockpit sans attendre son tick** (RM3006). Statuts de tickets,
+  notes, worklog de session et relève mail n'apparaissaient qu'au prochain composite `/refresh`
+  (3 à 7 s). Les scripts qui écrivent publient désormais un sujet à karl-agent
+  (`scripts/pm_events.py`, best-effort et silencieux si l'agent est absent) ; le service tient
+  un canal SSE `/api/session/events` par cockpit, authentifié et filtré par le même `auth_ctx`
+  que le tick, et y pousse les blocs de `/refresh` qui ont changé pour ce client. Le front les
+  livre par la même voie que le tick (dédoublonnage par hash) ; le tick reste, en réconciliation
+  ralentie (6 s / 30 s) tant que le canal vit, et reprend sa cadence à la coupure — EventSource
+  se reconnecte seul. Pas de veilleur de fichiers : c'est l'écriture qui parle. Front v3.5.0.
+- **Le cockpit sur un téléphone : un gabarit, pas un second cockpit** (RM3003). Sur un écran étroit
+  (ou `?layout=mobile`), la page montre une colonne à la fois — panneaux, centre, colonne de la
+  session — avec une barre de navigation en bas dont le badge compte les sessions qui attendent.
+  Attacher une session ou ouvrir une fiche bascule sur le centre, montrer un onglet de droite sur
+  la colonne de droite. Ce sont les mêmes contrôleurs, ViewModels et vues qu'au bureau : la
+  disposition est décidée par `modules/layout/mobile.js` et rendue par du CSS sur
+  `html[data-layout]` / `main[data-mpage]`. Le test navigateur joue un viewport de 390 px
+  (Chromium + Firefox). Front v3.4.0.
+- **Un registre des types d'entités, quatre niveaux d'affichage** (RM3002). Le centre, les
+  onglets, l'historique, l'épinglage et les références cliquables dispatchaient chacun sur
+  `kind === "…"` — une cinquantaine de sites, et un type de plus (le panneau 🧠 mémoire, la
+  veille) se déclarait à cinq endroits. `core/entities.js` porte désormais chaque type : icône,
+  libellé, infobulle, titre d'erreur, recette d'ouverture, surface à fermer, restaurable ou non ;
+  le centre lit le registre et ne dispatche plus. Chaque ViewModel de type se lie au registre et
+  décrit sa fiche par une seule `sections()`, dont `row` / `card` / `panel` / `full` sont des
+  compositions — session, ticket, projet, email, fichier, dossier et client les exposent, depuis
+  une fixture, dans les tests. Convention CSS unique par niveau (`.e-row`, `.e-card`…) : ajouter
+  un type ne coûte aucune ligne de CSS ni aucun `kind ===`. Les vues spécialisées du bureau restent
+  ; le gabarit mobile (RM3003) compose les niveaux. Front v3.3.0.
+- **Le cockpit n'écrit plus de HTML qu'en un seul endroit** (RM3001). Quarante-cinq `innerHTML =`
+  subsistaient dans les contrôleurs (options de listes déroulantes, badges, cartes secondaires),
+  chacun avec son `String(vue)` — autant de portes par lesquelles une chaîne construite à la main
+  aurait pu passer. `core/dom.js` gagne `paint(el, frag)` et `append(el, frag)`, qui n'acceptent
+  qu'un fragment sûr (`html\`…\``, `raw()`) ou le vide et lèvent sur une chaîne nue ; tous les
+  sites y passent, `jarg()` (argument d'un handler inline, plus aucun `on*`) est retiré, et
+  `esc()` n'est plus appelé par aucune vue (linkify, titres, surlignage, glossaire réécrits sur
+  le gabarit). Garde de test : aucune écriture HTML hors `core/dom.js`.
+- **Sonde mémoire par module** (RM3007). Le cockpit savait dire, depuis la console, combien de
+  montages et d'entrées de store il retenait (`karl.stats()`), mais rien n'était activable
+  depuis l'interface ni ventilé par module — l'enquête RM2807 (onglets à 20 Go) en restait à
+  la sonde opt-in du terminal. `core/probe.js` échantillonne, à la cadence choisie, ce que
+  chaque module retient (montages, nœuds, écouteurs/minuteries/abonnements, entrées de store,
+  rendus par minute — le module d'un montage est lu dans la pile d'appel, sans rien demander
+  aux contrôleurs) et lit dans l'historique ce qui **grimpe sans redescendre**. Activation dans
+  🔧 réglages (préférence de ce navigateur, coût nul décochée), panneau 🧠 mémoire au centre
+  (tableau, courbe des nœuds par module, alertes, export JSON). Front v3.2.0.
 - **Cockpit 3.0.0 — refonte CSMV** (RM2889, puis RM3012, RM3010/RM3011, RM3000, RM3005). Le
   cockpit était un `index.html` de plusieurs milliers de lignes avec un script inline, des
   `onclick`, des caches partagés par référence et des routes historiques. Il est désormais un

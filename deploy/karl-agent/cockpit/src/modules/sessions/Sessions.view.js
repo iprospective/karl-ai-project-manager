@@ -1,7 +1,7 @@
 // views/sessions/Sessions — la liste « en cours » : bandeau « à traiter », bannière de contexte, groupes, tuiles vivantes et grises,
 // revues ouvertes, compteurs, titres. Gestes en data-action / data-k (délégation posée par le contrôleur), aucun on*. RM2889.
 // `titleLink` (lien vers la fiche ℹ) et `pin` (marque d'épinglage RM2795) sont prêtés : ils rendent du HTML déjà sûr.
-import { html, raw, esc } from "../../core/html.js";
+import { html, raw } from "../../core/html.js";
 
 /** RM2894 : en-tête du panneau de droite — identifiant + libellé (sujet Redmine, sinon titre du transcript, sinon « sans libellé »). Déplacé tel quel. */
 export function rTitleHtml(sid, sess, resolved, escFn) {
@@ -12,7 +12,7 @@ export function rTitleHtml(sid, sess, resolved, escFn) {
     + (label ? '<span class="rt-label">' + escFn(label) + '</span>' : '<span class="rt-label none">sans libellé</span>');
 }
 
-const attr = (name, v) => v ? raw(" " + name + '="' + esc(v) + '"') : "";
+const attr = (name, v) => v ? html` ${raw(name)}="${v}"` : "";
 const Badge = (b) => b ? html`<span class="tbadge"${attr("style", b.style)}${attr("title", b.title)}>${b.text}</span>` : "";
 const outline = (vm) => vm.selMode && vm.selected ? raw(' style="outline:1px solid var(--accent)"') : "";
 
@@ -68,4 +68,5 @@ export function SessionTitle(vm, { titleLink }) {
 }
 
 /** RM2894 : en-tête du panneau de droite. */
-export function RTitle(vm) { return raw(rTitleHtml(vm.attached, vm.s, vm.r, esc)); }
+const escFn = (s) => String(html`${s}`);   // RM3001 : l'échappement vient du gabarit, pas d'un esc() appelé par la vue
+export function RTitle(vm) { return raw(rTitleHtml(vm.attached, vm.s, vm.r, escFn)); }

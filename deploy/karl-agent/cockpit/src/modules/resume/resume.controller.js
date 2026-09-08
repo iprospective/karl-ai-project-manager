@@ -3,7 +3,7 @@
 // Hôte : la carte #rescard (champ de recherche, case transcript, sélecteurs client/projet/statut/moteur, ⟳, liste).
 // Le monolithe prête les projets connus (/projects), le contexte client, le lanceur (RM), l'attache, les toasts,
 // la pastille de marque, et ce qu'il refait après une reprise (sessions, santé, alerte de jeu plein).
-import { mount } from "../../core/dom.js";
+import { mount, paint } from "../../core/dom.js";
 import { html } from "../../core/html.js";
 import { ResumeService } from "./resume.service.js";
 import { ResumeListViewModel, ResumeFiltersViewModel } from "./ResumeViewModel.js";
@@ -35,11 +35,11 @@ export function mountResume(card, ctx = {}) {
   function fillProjects() {
     const ps = q("#rs-project"); if (!ps) return "";
     const vm = new ResumeFiltersViewModel({ projects: projects(), client: val("#rs-client"), project: ps.value });
-    const r = vm.projects; ps.innerHTML = String(SelectOptions(r.options, r.value, "tous")); ps.value = r.value; return r.value;
+    const r = vm.projects; paint(ps, SelectOptions(r.options, r.value, "tous")); ps.value = r.value; return r.value;
   }
   /** Les projets connus arrivent (ou changent) : le sélecteur client se peuple, le projet suit. */
   function setProjects() {
-    const cs = q("#rs-client"); if (cs) { const cur = cs.value; cs.innerHTML = String(SelectOptions(new ResumeFiltersViewModel({ projects: projects() }).clients, cur, "tous")); cs.value = cur; }
+    const cs = q("#rs-client"); if (cs) { const cur = cs.value; paint(cs, SelectOptions(new ResumeFiltersViewModel({ projects: projects() }).clients, cur, "tous")); cs.value = cur; }
     fillProjects(); state.projectsSet = true;
   }
   /** RM2639/RM2834 : le contexte client pré-sélectionne le client, donc les projets, puis le projet du contexte s'il en fait partie — sans figer. */
@@ -51,7 +51,7 @@ export function mountResume(card, ctx = {}) {
   /** RM2539 : les moteurs reprenables viennent de la conf serveur. */
   function setEngines(engines) {
     state.engines = engines || []; const sel = q("#rs-engine"); if (!sel) return;
-    const prev = sel.value; sel.innerHTML = String(SelectOptions(state.engines, prev, "tous")); if (state.engines.includes(prev)) sel.value = prev;
+    const prev = sel.value; paint(sel, SelectOptions(state.engines, prev, "tous")); if (state.engines.includes(prev)) sel.value = prev;
   }
   const sessionById = (sid) => (svc.last.resumable || []).find(s => String(s.session_id) === String(sid)) || null;
   async function resume(s) {

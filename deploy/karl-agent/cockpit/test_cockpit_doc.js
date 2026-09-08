@@ -58,6 +58,23 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   await ctr.openHelp(); assert(title.textContent === "❓ Aide" && toCenter.style.display === "none" && ctr.current() === null && /data-topic="index"/.test(content.innerHTML) && /<h1>index<\/h1>/.test(content.innerHTML), "aide : première page, plus de bouton « au centre »");
   await el.fire("click", { closest: (s) => s === "[data-action]" ? { dataset: { action: "help", topic: "tickets" } } : null }); await settle(); assert(/<h1>tickets<\/h1>/.test(content.innerHTML) && /class="chip on" data-action="help" data-topic="tickets"/.test(content.innerHTML), "le sommaire navigue");
   await el.fire("click", { closest: (s) => s === ".helpbody a[href]" ? { getAttribute: () => "index" } : null }); await settle(); assert(/<h1>index<\/h1>/.test(content.innerHTML), "un lien interne (href = id de sujet) navigue dans l'aide");
+  // — RM3043 : menu CDC — un seul CDC s'ouvre directement, plusieurs se choisissent, les liens relatifs entre chapitres restent dans la modale
+  const one = [{ client: "c", project: "p", prefix: "pm", path: "projects/clients/c/projects/p/docs/cdc-pm-00-sommaire.md", title: "CDC p", chapters: [{ file: "cdc-pm-00-sommaire.md" }, { file: "cdc-pm-90-decisions.md" }] }];
+  const svc2 = { cdcs: async () => one, doc: async (pth) => "# Doc " + pth + "\n\n[décisions](cdc-pm-90-decisions.md) [ext](https://ex.te/x)", page: svc.page.bind(svc), topics: svc.topics.bind(svc) };
+  const el2 = fakeElement("docmodal"), title2 = fakeElement("doctitle"), content2 = fakeElement("doccontent"), toCenter2 = fakeElement("doc2center");
+  Object.assign(el2.kids, { "#doctitle": title2, "#doccontent": content2, "#doc2center": toCenter2 });
+  const c2 = mountDocModal(el2, { service: svc2, root: fakeElement("document"), openCenterFile: () => {} });
+  await c2.openCdc(); assert(title2.textContent === "CDC p" && c2.current().path === one[0].path && toCenter2.style.display === "", "un seul CDC : ouvert directement sur son sommaire");
+  assert(c2.followDocLink("cdc-pm-90-decisions.md") === true && c2.current().path === "projects/clients/c/projects/p/docs/cdc-pm-90-decisions.md" && title2.textContent === "cdc-pm-90-decisions.md", "lien relatif : chapitre du même dossier ouvert dans la modale");
+  assert(c2.followDocLink("../project/overview.md") === true && c2.current().path === "projects/clients/c/projects/p/project/overview.md", "lien relatif avec .. résolu");
+  assert(c2.followDocLink("https://ex.te/x") === false && c2.followDocLink("#ancre") === false && c2.followDocLink("/abs.md") === false && c2.followDocLink("image.png") === false, "liens externes, ancres, absolus, non-.md : laissés au navigateur");
+  await el2.fire("click", { closest: (s) => s === "#doccontent a[href]" ? { getAttribute: () => "cdc-pm-00-sommaire.md" } : null }); await settle(); assert(c2.current().path.endsWith("/project/cdc-pm-00-sommaire.md") || c2.current().path.endsWith("cdc-pm-00-sommaire.md"), "clic sur un lien relatif du document rendu → navigation dans la modale");
+  svc2.cdcs = async () => [...one, { client: "c", project: "q", prefix: "q", path: "projects/clients/c/projects/q/docs/cdc-q-00-sommaire.md", title: "CDC q", chapters: [] }];
+  await c2.openCdc(); assert(title2.textContent === "📋 CDC vivant" && c2.current() === null && /data-action="cdc-open"/.test(content2.innerHTML) && /c\/q/.test(content2.innerHTML) && !/onclick=/.test(content2.innerHTML), "plusieurs CDC : liste à choisir, gestes en data-*");
+  await el2.fire("click", { closest: (s) => s === "[data-action]" ? { dataset: { action: "cdc-open", path: "projects/clients/c/projects/q/docs/cdc-q-00-sommaire.md", name: "CDC q" } } : null }); await settle(); assert(title2.textContent === "CDC q" && c2.current().path.endsWith("cdc-q-00-sommaire.md"), "choisir un CDC l'ouvre");
+  svc2.cdcs = async () => []; await c2.openCdc(); assert(/Aucun CDC vivant/.test(content2.innerHTML), "aucun CDC : le texte dit comment en créer un");
+  assert(typeof V.CdcList === "function" && String(V.CdcList([])).includes("Aucun CDC"), "vue CdcList exportée");
+  console.log("✓ CDC vivant (RM3043) : ouverture directe / liste / vide, liens relatifs entre chapitres dans la modale");
   ctr.openGlossary("worktrees"); assert(title.textContent === "📖 Glossaire du jargon" && /id="glosssearch"/.test(content.innerHTML), "le glossaire prend la modale"); assert.strictEqual(ctr.mode(), "glossary");
   const list = fakeElement("glosslist"), cnt = fakeElement("glosscount"); Object.assign(el.kids, { "#glosslist": list, "#glosscount": cnt }); const vmF = ctr.renderGlossary("", "worktrees"); assert(/glosshi" data-k="worktree"/.test(list.innerHTML) && /^\d+ \/ \d+$/.test(cnt.textContent) && vmF.rows.length === GLOSSARY.length, "ouvert sur un terme : liste complète, le terme surligné");
   await el.fire("input", { id: "glosssearch", value: "zzznope" }); assert(/Aucun terme ne correspond/.test(list.innerHTML) && /^0 \//.test(cnt.textContent), "la recherche filtre en place");
@@ -67,4 +84,4 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   ctr.unmount(); assert.strictEqual(el.listenerCount + root.listenerCount, 0);
   console.log("✓ modale doc : document → markdown → centre, aide naviguée (sommaire, liens internes), glossaire cherchable et ouvert sur un terme, voile");
   console.log("\nTous les tests markdown / glossaire / aide / modale passent.");
-})().catch(e => { console.error("✗", e.message); process.exit(1); });
+})().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

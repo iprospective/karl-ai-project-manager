@@ -2,6 +2,7 @@
 // bandeau « à traiter », compteurs, titre de la session attachée. Inerte : ni réseau ni DOM. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
 import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible } from "./sessions.js";
+import { bindEntity } from "../../core/entities.js";
 
 /** RM2793 : silence de la session — déplacé d'index.html (même signature) ; la tuile en rend l'équivalent depuis `quiet`. */
 export function quietHtml(s, escFn) {
@@ -12,6 +13,13 @@ export function quietHtml(s, escFn) {
 /** ctx : { resolved, attached, stale (Set), selMode, selected (Set), set: { sets, current, view }, writable(sets, name, view), setLabel(name), now } */
 export class SessionTileViewModel extends EntityViewModel {
   constructor(session, ctx = {}) { super(Object.assign({ id: String(session.rm_id), type: "session" }, session), ctx); this.s = session; }
+  // RM3002 : les quatre niveaux (core/entities) se composent d'ici — la tuile historique reste la vue de la liste « en cours »
+  get subtitle() { return this.s.client && this.s.project ? this.s.client + "/" + this.s.project : ""; }
+  get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); return out; }
+  sections() {
+    return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["depuis", this.age]].filter(([, v]) => v) },
+            { id: "ticket", title: "ticket", body: () => (this.r && this.r.found ? [["statut", this.r.status || ""], ["client", this.r.client || ""], ["projet", this.r.project || ""]].filter(([, v]) => v) : null), empty: "pas de fiche de ticket" }];
+  }
   get r() { return this.ctx.resolved; }
   get key() { return "s:" + this.s.rm_id; }
   get idLabel() { return displayId(this.s); }
@@ -124,3 +132,4 @@ export class SessionTitleViewModel {
   get autoYesLabel() { return this.s.auto_yes_until ? "⏱✔ " + autoYesLeft(this.s.auto_yes_until) : "⏱ auto-oui…"; }
   get autoYesArmed() { return !!this.s.auto_yes_until; }
 }
+bindEntity("session", SessionTileViewModel);   // RM3002

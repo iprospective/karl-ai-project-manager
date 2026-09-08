@@ -80,7 +80,7 @@ def _queued_tickets(cfg, project_dir):
     out = []
     for md_path in sorted(tasks.glob("RM*.md")):
         text = md_path.read_text(encoding="utf-8")
-        fm, body = pmd.split_frontmatter(text)
+        fm, body, _ = pmd.split_frontmatter(text)   # split_frontmatter -> (fm, body, end)
         fm = fm or {}
         if not pcn.is_pending(fm):
             continue

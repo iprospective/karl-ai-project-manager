@@ -103,17 +103,27 @@ def _queued_tickets(cfg, project_dir):
     return out
 
 
-def _mark_all_sent(tickets, now):
+def _stamp(tickets, fn):
+    """Applique `fn(fm)` au frontmatter de chaque ticket et réécrit (atomique)."""
     for t in tickets:
         md_path = t["path"]
         text = md_path.read_text(encoding="utf-8")
         m = re.match(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", text, re.DOTALL)
         if not m:
             continue
-        fm = yaml.safe_load(m.group(2)) or {}
-        fm = pcn.mark_sent(fm, now)
+        fm = fn(yaml.safe_load(m.group(2)) or {})
         new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
         atomic_write(md_path, f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}")
+
+
+def _mark_all_sent(tickets, now, emails=None):
+    """RM3052 : consigne aussi `sent_to` (à QUI le client a été notifié)."""
+    _stamp(tickets, lambda fm: pcn.mark_sent(fm, now, emails))
+
+
+def _mark_all_dismissed(tickets, now):
+    """RM3052 : sort les tickets de la file SANS notifier (pas d'email)."""
+    _stamp(tickets, lambda fm: pcn.mark_dismissed(fm, now))
 
 
 # ── option projet (écriture du bloc notif_client_mep) ────────────────────────
@@ -233,11 +243,36 @@ def cmd_send(cfg, args):
     if r.returncode != 0:
         raise SystemExit(f"pm-client-notify: envoi échoué (exit {r.returncode})")
     if not args.dry_run:
-        _mark_all_sent(tickets, datetime.now().strftime("%Y-%m-%dT%H:%M"))
+        _mark_all_sent(tickets, datetime.now().strftime("%Y-%m-%dT%H:%M"), emails)   # RM3052 : + sent_to
         pm_git.autocommit([t["path"] for t in tickets],
                           f"pm(notif): {entity}/{project} {len(tickets)} ticket(s) notifiés client (RM3026)")
     print(f"✓ email récap {'(dry-run) ' if args.dry_run else ''}envoyé à {', '.join(emails)} "
           f"— {len(tickets)} ticket(s){'' if args.dry_run else ' (file vidée)'}")
+
+
+def cmd_dismiss(cfg, args):
+    """RM3052 — retire des tickets de la file SANS notifier le client (pas d'email) :
+    tout n'a pas à être annoncé. Sans --rm, vise toute la file du projet."""
+    from datetime import datetime
+    entity, project = _split_ref(args.ref)
+    tickets = _queued_tickets(cfg, _project_dir(cfg, entity, project))
+    want = {str(x) for x in (args.rm or [])}
+    if want:
+        tickets = [t for t in tickets if str(t["id"]) in want]
+    if not tickets:
+        print(f"  {entity}/{project} : aucun ticket en file à écarter"
+              + (f" (rm : {', '.join(sorted(want))})" if want else ""))
+        return
+    if not args.yes:
+        print("À écarter de la notification client (AUCUN email ne partira) :")
+        for t in tickets:
+            print(f"    RM{t['id']}  {t['title']}")
+        print("→ relance avec --yes pour confirmer.")
+        return
+    _mark_all_dismissed(tickets, datetime.now().strftime("%Y-%m-%dT%H:%M"))
+    pm_git.autocommit([t["path"] for t in tickets],
+                      f"pm(notif): {entity}/{project} {len(tickets)} ticket(s) écartés de la notif client (RM3052)")
+    print(f"✓ {len(tickets)} ticket(s) écarté(s) de la file — aucun email envoyé")
 
 
 def main():
@@ -251,16 +286,21 @@ def main():
     p.add_argument("--remove-contact", action="append", metavar="REF", help="retirer une ref (répétable)")
 
     for name, help_ in (("list", "lister la file"), ("preview", "aperçu de l'email"),
-                        ("send", "envoyer l'email récap")):
+                        ("send", "envoyer l'email récap"),
+                        ("dismiss", "écarter des tickets SANS notifier (RM3052)")):
         q = sub.add_parser(name, help=help_)
         q.add_argument("ref", help="entity/project")
         if name == "send":
             q.add_argument("--yes", action="store_true", help="confirmer l'envoi réel")
             q.add_argument("--dry-run", action="store_true", help="passe --dry-run à karl-mail-send (n'envoie pas, ne vide pas)")
+        if name == "dismiss":
+            q.add_argument("--rm", action="append", metavar="ID", help="ticket à écarter (répétable ; défaut : toute la file)")
+            q.add_argument("--yes", action="store_true", help="confirmer (sans quoi : aperçu de ce qui serait écarté)")
 
     args = ap.parse_args()
     cfg = PMConfig.load()
-    {"config": cmd_config, "list": cmd_list, "preview": cmd_preview, "send": cmd_send}[args.cmd](cfg, args)
+    {"config": cmd_config, "list": cmd_list, "preview": cmd_preview,
+     "send": cmd_send, "dismiss": cmd_dismiss}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

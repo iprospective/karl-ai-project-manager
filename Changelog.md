@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Notif client : `sent_to`, `dismiss`** (RM3052, socle du panneau compte-rendu) : à l'envoi,
+  `client_notify.sent_to` consigne **à qui** le client a été notifié (pas seulement quand) ;
+  nouveau verbe `mmi-pm client-notify dismiss <projet> [--rm ID]` pour **écarter** des tickets
+  de la file **sans** email (tout n'a pas à être annoncé) — `dismissed_at` posé, `is_pending`
+  l'exclut, et un redéploiement les remet en file proprement.
+
 - **Menu CDC en haut = le seul CDC de PM** (RM3049) : le menu CDC en haut du cockpit affiche
   **uniquement** le CDC du projet propre de l'instance (`pm-ai-agents`) — plus de liste ni de
   sélecteur multi-projets (AtomBox et les autres n'y apparaissent plus). `op_cdc_list` ne

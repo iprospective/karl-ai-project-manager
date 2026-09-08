@@ -66,10 +66,11 @@ def _annuaire(cfg):
 
 # ── file : tickets en attente ────────────────────────────────────────────────
 def _clean_criteria(body):
-    """Critères d'acceptation en texte propre (checkbox retirée), pour l'email client."""
+    """Critères d'acceptation en texte propre (checkbox retirée), pour l'email client.
+    real_checklist_lines -> [(index, match)] ; CHECK_LINE_RE group(3) = "]<texte>"."""
     out = []
-    for ln in pmd.real_checklist_lines(body):
-        out.append(re.sub(r"^\s*[-*]\s*\[[ xX]\]\s*", "", ln).strip())
+    for _i, m in pmd.real_checklist_lines(body):
+        out.append(m.group(3)[1:].strip())
     return [c for c in out if c]
 
 

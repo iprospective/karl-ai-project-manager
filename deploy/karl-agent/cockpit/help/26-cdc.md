@@ -1,13 +1,21 @@
 # CDC vivant
 
-Le bouton **📋 CDC** du menu du haut ouvre le **cahier des charges vivant** du projet : la
-liste des **fonctionnalités** (une ligne par ticket, livré / en cours / prévu), le **registre
-des décisions**, les **questions ouvertes** et le **vrac** (remarques verbatim à trier).
+Le menu du haut reprend la barre du POC AtomBox : **📋 fonctionnalités · 📘 CDC · 🗺 feuille de route**
+(l'aide reste ❓). Les trois pages s'ouvrent au centre, en onglet épinglable, sur le **CDC du projet en
+contexte** : celui de la session attachée, sinon le dernier choisi, sinon le premier. Un projet peut porter
+plusieurs CDC (le projet PM : « pm » et « karl ») — des puces en tête de page permettent d'en changer.
 
-- Un seul projet porte un CDC → il s'ouvre directement sur son sommaire ; plusieurs → on choisit.
-- Les liens entre chapitres naviguent dans la fenêtre ; **⇥ au centre** envoie le chapitre en onglet.
-- Un projet porte un CDC dès qu'il a un `docs/cdc-<prefix>-00-sommaire.md` (modèle AtomBox) ;
-  le chapitre des fonctionnalités est généré depuis ses tickets par `pm-cdc-features`.
+- **Fonctionnalités** : une ligne par ticket (ou par capacité, pour un registre curé) — clic sur un en-tête
+  pour trier, second clic pour inverser ; filtre texte (libellé, domaine, état, `RM…`) ; un ticket ouvre sa fiche.
+- **CDC** : les chapitres en sous-onglets (sommaire, décisions, vrac, questions…) ; les liens entre chapitres et
+  les ancres `D012` / `Q003` naviguent dans la page ; un `RM1234` dans le texte ouvre la fiche.
+- **Feuille de route** : la même donnée, groupée par **jalon** (`jalon` par entrée, `jalons:` en tête du
+  registre) ou, sans jalon, par état : en cours, prévu, en pause, puis les livrées récentes.
 
-Le CDC se tient à jour **au fil de l'eau**, comme NORMS : une décision, une question, une
-fonctionnalité livrée entrent dans le registre dans la même livraison.
+Dans la colonne de droite, l'onglet **📂 projets** liste les projets touchés par la session attachée avec
+leurs raccourcis : fiche, fichiers, et les trois pages de chaque CDC vivant.
+
+Un projet porte un CDC dès qu'il a un `docs/cdc-<prefix>-00-sommaire.md` ; le registre des fonctionnalités
+(`docs/cdc-<prefix>/fonctionnalites.yml`) se crée et se tient avec `pm-cdc-features` (`--init`, `--sync`,
+`--build`, `--check`). Le CDC se tient à jour **au fil de l'eau**, comme NORMS : une décision, une question,
+une fonctionnalité livrée entrent dans le registre dans la même livraison.

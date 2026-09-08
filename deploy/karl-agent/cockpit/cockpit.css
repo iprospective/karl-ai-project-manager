@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 40bac0ae349ca561 (29 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 1b797580ce1571c9 (31 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3690,4 +3690,240 @@ iframe {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.cdc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 0 10px;
+}
+
+.cdc-pages, .cdc-choices, .cdc-chapters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cdc-choices {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.cdc-ctx {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cdc-count {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+.cdc-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cdc-q {
+  flex: 1 1 200px;
+  min-width: 140px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.cdc-counts {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cdc-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.cdc-tablewrap {
+  overflow-x: auto;
+}
+
+.cdc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cdc-table th {
+  text-align: left;
+  cursor: pointer;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cdc-table th.on, .cdc-table th:hover {
+  color: var(--accent);
+}
+
+.cdc-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.cdc-dom, .cdc-date {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cdc-sub {
+  color: var(--muted);
+}
+
+.cdcrm {
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cdcrm:hover {
+  text-decoration: underline;
+}
+
+.cdc-group {
+  margin-bottom: 14px;
+}
+
+.cdc-group h3 {
+  font-size: 13px;
+  margin: 8px 0 4px;
+}
+
+.cdc-note, .cdc-adv {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.cdc-chapters {
+  margin-bottom: 8px;
+}
+
+.cdc-body {
+  line-height: 1.5;
+}
+
+.cdc-body [id^=sec-] {
+  scroll-margin-top: 12px;
+}
+
+.cdc-body [id^=sec-]:target, .cdc-body .cdc-hit {
+  background: var(--accent-soft, rgba(255, 200, 0, 0.15));
+}
+
+.st {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.st.ok {
+  color: var(--ok, #2a9d4a);
+  border-color: currentColor;
+}
+
+.st.wait {
+  color: var(--warn);
+  border-color: currentColor;
+}
+
+.st.due {
+  color: var(--danger);
+  border-color: currentColor;
+}
+
+.st.pause, .st.off {
+  color: var(--muted);
+}
+
+.sp-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--panel2);
+}
+
+.sp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.sp-name {
+  font-weight: 600;
+}
+
+.sp-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sp-branch {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.sp-branch i {
+  color: var(--warn);
+  font-style: normal;
+}
+
+.sp-root {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 2px 0 6px;
+}
+
+.sp-actions, .sp-cdc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+
+.sp-cdct {
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.sp-nocdc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
 }

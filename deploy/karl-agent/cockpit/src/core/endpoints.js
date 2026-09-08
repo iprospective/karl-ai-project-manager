@@ -19,6 +19,7 @@ export const ROUTES = {
   "dashboard.overview": { current: "/overview", target: "/api/dashboard/overview", lot: "L4", callers: 2 },
   "dashboard.snooze": { current: "/alerts/snooze", target: "/api/dashboard/snooze", lot: "L4", callers: 1 },
   "doc.cdc": { current: "/cdc", target: "/api/doc/cdc", lot: "L5", callers: 1 },
+  "doc.cdc_features": { current: "/cdc-features", target: "/api/doc/cdc-features", lot: "L5", callers: 1 },
   "env.env_check": { current: "/env-check", target: "/api/env/env-check", lot: "L5", callers: 1 },
   "env.env_status": { current: "/env-status", target: "/api/env/env-status", lot: "L5", callers: 1 },
   "env.ssh_add": { current: "/vault/ssh-add", target: "/api/env/ssh-add", lot: "L2", callers: 1 },

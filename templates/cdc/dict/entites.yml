@@ -1,0 +1,7 @@
+# ENTITÉS — ce qui existe dans le modèle, et pourquoi.
+# Le dictionnaire fait autorité sur QUOI existe ; le registre des décisions (90) sur POURQUOI.
+# etat : ✅ décidée | 🟡 proposée | ⏸ en réserve | 🕐 en attente
+# domaine : communication | stockage | identite | portee | classement | emission | analyse | interne | exploitation
+# Types logiques des champs (voir champs.yml) — JAMAIS de types SQL : le SGBD n'est pas définitivement statué.
+
+[]

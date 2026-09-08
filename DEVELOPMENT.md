@@ -115,6 +115,13 @@ pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   RM3030 : la LICENCE fait partie de la naissance — `--license <SPDX>` (sinon la question en
 #   terminal, défaut GPL-3.0 ; sinon proprietary) ; `--push-from` écrit et committe LICENSE si absent.
 #   pm-project-new pose la même question et la consigne dans .mmi-pm/meta.yml (`license:`).
+pm-cdc.py init --prefix rm<id> --projet "<nom>"   # 0 ter : un PROJET NEUF qui commence par un CDC
+#   RM2967 : gabarits templates/cdc/ → docs/ ; puis `dict` (chapitre généré), `index` (pour le POC),
+#   `check` (le harnais du CDC : références, cycles, jalon ultérieur, cascade, anonymat).
+#   Quelle méthode pour quel travail : norms/src/modules/methodes-travail.md
+pm-repo-new.py --forge github --path <owner>/<nom> [--branches main,dev] [--remote github]
+#   RM3016 : owner résolu (organisation OU utilisateur), branche par défaut fixée APRÈS le push,
+#   protection selon le plan (avertissement si le plan ne l'a pas), jeton GITHUB__<OWNER>__TOKEN.
 ```
 
 **La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`

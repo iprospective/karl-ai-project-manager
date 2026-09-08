@@ -17,6 +17,19 @@
 removed: []
 
 rewritten:
+  - reason: "RM2967 (v2.25.0), rattrapage du journal : ces dix lignes ont été RÉÉCRITES par RM2893 (refonte du flux de statuts — `en_mep` redéfini « en prod, dernière vérif avant fermeture », préprod devenue optionnelle) et par les reflows de paragraphe de l'extraction en modules (RM1922), sans qu'aucune entrée ne soit posée ici — d'où un doctor rouge depuis. Vérifié une à une : l'ancien diagramme et les lignes de transition `a_mep`/`en_mep` sont remplacés par leurs équivalents dans `status-workflow.md` (§ « Passage en `en_mep` (RM2893…) ») et `status-workflow-pratique.md` ; les deux lignes de prose (`pm_session_hook.py` ; l'étape 3 du workflow MEP) survivent dans `session-tooling.md` et `status-workflow.md`, fondues dans un paragraphe réécrit. Aucune RÈGLE retirée : seule la formulation d'origine a disparu."
+    old: |
+      - Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
+      [a_mep] │
+      [a_tester_demandeur] ── rejet ─────────────────────┤
+      [en_mep] ──── régression preprod ──────────────┘
+      `pm_session_hook.py`) ; cf. RM1875.
+      en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
+      | `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
+      | `en_mep` | MEP/Tester en preprod | 20 |
+      | `en_mep` | `a_corriger` | régression preprod (note dans journal) |
+      │ validé (MR branche→dev, CF GIT PR, merge)
+
   - reason: "RM2563 (v2.9.0) : l'étape « merge de la MR ⇒ le ticket passe a_mep » est complétée pour router vers la § « Actions au déploiement » — le passage en a_mep affiche désormais la procédure de MEP propre au ticket. Rien n'est retiré : la phrase d'origine est reprise puis prolongée."
     old: |
       the workflow MEP.

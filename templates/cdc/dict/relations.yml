@@ -1,0 +1,5 @@
+# RELATIONS — de → vers, cardinalité, rôle, et si le lien est DATÉ.
+# cardinalite : 1-1 | 1-n | n-n | 1-0..1
+# datee : oui = le lien porte une période (début/fin) et ne s'écrase jamais
+
+[]

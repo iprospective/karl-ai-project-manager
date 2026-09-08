@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
-<meta name="karl-cockpit-version" content="3.6.0">
+<meta name="karl-cockpit-version" content="3.7.0">
 <!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
      cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
      terminal doit être prêt avant le premier attach. -->
@@ -124,8 +124,10 @@ if (window.matchMedia) {
   <button class="mini" id="journalbtn" data-cmd="panel" data-arg="journal" title="Journal : ce que le serveur et le navigateur ont consigné (sévérité, catégories, recherche)">📜 journal<span class="nbadge att" id="ln-journal" style="display:none"></span></button>
   <!-- RM2593 : aide intégrée du cockpit -->
   <button class="mini" id="helpbtn" data-cmd="help" title="Aide du cockpit">❓ aide</button>
-  <!-- RM3043 : CDC vivant du projet (fonctionnalités, décisions, questions, vrac) -->
-  <button class="mini" id="cdcbtn" data-cmd="cdc" title="CDC vivant : fonctionnalités livrées, décisions, questions ouvertes, vrac — tenu à jour au fil de l'eau">📋 CDC</button>
+  <!-- RM3043/RM3044 : le CDC vivant du projet en contexte, comme la barre du POC AtomBox — Fonctionnalités · CDC · Feuille de route (onglets centraux) -->
+  <button class="mini" id="cdcfeatbtn" data-cmd="panel" data-arg="cdc-features" title="Fonctionnalités du CDC vivant : une ligne par ticket ou capacité, table triable et filtrable">📋 fonctionnalités</button>
+  <button class="mini" id="cdcbtn" data-cmd="panel" data-arg="cdc" title="CDC vivant : sommaire, décisions, questions ouvertes, vrac — tenu à jour au fil de l'eau">📘 CDC</button>
+  <button class="mini" id="cdcroadbtn" data-cmd="panel" data-arg="cdc-roadmap" title="Feuille de route : ce qui est en cours et prévu, par jalon quand le registre en porte">🗺 feuille de route</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
   <button class="mini" id="glossbtn" data-cmd="glossary" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
@@ -506,6 +508,16 @@ if (window.matchMedia) {
             <!-- RM3011 journal — rendu par src/modules/journal/ -->
             <div class="card" id="journalcard"></div>
           </div>
+          <div class="cpanel" id="cp-cdc-features" style="display:none">
+            <!-- RM3044 fonctionnalités du CDC vivant — rendu par src/modules/cdc/ -->
+            <div class="card" id="cdcfeat"></div>
+          </div>
+          <div class="cpanel" id="cp-cdc" style="display:none">
+            <div class="card" id="cdcchap"></div>
+          </div>
+          <div class="cpanel" id="cp-cdc-roadmap" style="display:none">
+            <div class="card" id="cdcroad"></div>
+          </div>
           <div class="cpanel" id="cp-memory" style="display:none">
             <!-- RM3007 sonde mémoire par module — rendu par src/modules/memory/ -->
             <div class="card" id="memorycard"></div>
@@ -613,11 +625,15 @@ if (window.matchMedia) {
             title="Fichiers : parcourir les worktrees de la session, git status/commits, ouvrir un fichier (RM2586)">📁 fichiers</button>
           <button data-rpanel="git"
             title="Commits et diffs du ticket — y compris ce qui n'est pas encore poussé (RM2602)">🔀 git</button>
+          <button data-rpanel="projects"
+            title="Projets touchés par la session (cwd + worktrees) : fiche, fichiers, et leurs CDC vivants — fonctionnalités, CDC, feuille de route (RM3045)">📂 projets</button>
           <button data-rpanel="outline"
             title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
         <div class="rbody">
           <!-- RM2581 : worklog de CETTE session (statut résolu live, garde 60 s) -->
+          <!-- RM3045 : projets de la session et raccourcis CDC — rendu par src/modules/sessproj/ -->
+          <div class="rp" id="rp-projects"></div>
           <div class="rp" id="rp-state">
             <div class="outnav">
               <button class="mini" data-action="reload" title="Rafraîchir le worklog">⟳</button>

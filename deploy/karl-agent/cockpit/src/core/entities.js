@@ -65,6 +65,10 @@ defineEntity("pm",        { icon: "⚙", label: "commandes pm", panel: true, too
 defineEntity("settings",  { icon: "🔧", label: "réglages", panel: true, tooltip: () => "réglages du cockpit", open: (api) => api.openPanel("settings") });
 defineEntity("journal",   { icon: "📜", label: "journal", panel: true, tooltip: () => "journal (serveur + navigateur)", open: (api) => api.openPanel("journal") });
 defineEntity("memory",    { icon: "🧠", label: "mémoire", panel: true, tooltip: () => "mémoire par module (sonde)", open: (api) => api.openPanel("memory") });
+// RM3044 : les trois pages du CDC vivant (modèle POC AtomBox : Fonctionnalités · CDC · Feuille de route)
+defineEntity("cdc-features", { icon: "📋", label: "fonctionnalités", panel: true, tooltip: () => "fonctionnalités du CDC vivant (table triable)", open: (api) => api.openPanel("cdc-features") });
+defineEntity("cdc",       { icon: "📘", label: "CDC", panel: true, tooltip: () => "chapitres du CDC vivant", open: (api) => api.openPanel("cdc") });
+defineEntity("cdc-roadmap", { icon: "🗺", label: "feuille de route", panel: true, tooltip: () => "feuille de route du CDC vivant", open: (api) => api.openPanel("cdc-roadmap") });
 
 /** Les références cliquables `data-link` (RM2585/2596) : ce que chaque sorte déclenche, avec ce que le contexte prête. */
 export const LINKS = {

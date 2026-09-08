@@ -55,5 +55,19 @@ with tempfile.TemporaryDirectory() as tmp:
     check("sync : état avancé, nouveau trié ajouté avec l'id suivant, ids existants stables", ids2[12]["etat"] == "livré" and ids2[12]["date"] == "2026-08-05" and ids2[13]["id"] == "F006" and ids2[10]["id"] == "F001")
     check("manuel: true : libellé et domaine conservés", ids2[10]["libelle"] == "Onglet journal (libellé retouché)" and ids2[10]["domaine"] == "Docs, wiki & knowledge")
     check("check vert après sync+build", run("--check").returncode == 0)
+    # RM3044 : registre curé (--no-sync), tickets multiples couverts, jalon rendu
+    docs2 = pathlib.Path(tmp) / "docs2"; docs2.mkdir()
+    base2 = [sys.executable, str(HERE / "pm-cdc-features.py"), "--docs-dir", str(docs2), "--tasks-dir", str(tasks), "--project", "t/p"]
+    run2 = lambda *a: subprocess.run(base2 + list(a), capture_output=True, text=True)
+    r = run2("--init", "--prefix", "k", "--no-sync"); reg3 = M.yaml.safe_load((docs2 / "cdc-k/fonctionnalites.yml").read_text())
+    check("init --no-sync : registre vide, jalons présents", r.returncode == 0 and reg3["entrees"] == [] and reg3.get("jalons") == [])
+    reg3["jalons"] = [{"id": "V1", "titre": "pilote"}]
+    reg3["entrees"] = [{"id": "F001", "libelle": "Capacité A (tickets 10 et 11)", "domaine": "Cockpit", "type": "feature", "etat": "livré", "date": "2026-08-02", "tickets": [10, 11], "jalon": 1, "manuel": True}]
+    (docs2 / "cdc-k/fonctionnalites.yml").write_text(M.dump(reg3))
+    r = run2("--sync", "--build"); reg4 = M.yaml.safe_load((docs2 / "cdc-k/fonctionnalites.yml").read_text()); rms = sorted(e.get("rm") for e in reg4["entrees"] if e.get("rm"))
+    check("sync : les tickets couverts par une entrée curée ne sont pas rajoutés, les autres si", 10 not in rms and 11 not in rms and 12 in rms and reg4["entrees"][0]["id"] == "F001")
+    chap2 = (docs2 / "cdc-k-10-fonctionnalites.md").read_text()
+    check("chapitre : tickets multiples et colonne jalon", "| F001 | Capacité A (tickets 10 et 11) | RM10, RM11 | feature | V1 | livré |" in chap2 and "| Jalon |" in chap2)
+    check("check vert sur un registre curé", run2("--check").returncode == 0)
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — pm-cdc-features"))
 sys.exit(1 if fails else 0)

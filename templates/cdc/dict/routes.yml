@@ -1,0 +1,6 @@
+# ROUTES — la surface d'API. HYPOTHÈSE REST (Q007 non tranchée) : ce fichier décrit les opérations et leur portée,
+# pas un style définitif. Le POC trace les trois premières ; les autres découlent des décisions.
+# portee : ce que le jeton doit autoriser — hors portée = 404, jamais 403 (D108)
+# etat : maquettée (tracée par le POC) | décidée | hypothèse
+
+[]

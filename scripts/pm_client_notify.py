@@ -19,15 +19,21 @@ QUEUE_KEY = "client_notify"        # bloc du frontmatter TICKET : {queued_at, se
 
 # ── Option projet ────────────────────────────────────────────────────────────
 def parse_option(project_meta):
-    """{actif: bool, contacts: [ref, ...]} depuis le meta projet (tolérant :
-    bloc absent, `contacts` scalaire ou None)."""
+    """{actif: bool, contacts: [ref, ...], protocole: bool} depuis le meta projet (tolérant :
+    bloc absent, `contacts` scalaire ou None).
+
+    `protocole` (RM3052) : inclure le PROTOCOLE DE TEST de chaque ticket dans l'email client.
+    Défaut **True** — c'est le comportement demandé ; un projet dont le protocole est trop
+    interne peut le couper (`protocole: false`)."""
     opt = (project_meta or {}).get(OPTION_KEY) or {}
     contacts = opt.get("contacts")
     if contacts is None:
         contacts = []
     elif isinstance(contacts, str):
         contacts = [contacts]
-    return {"actif": bool(opt.get("actif")), "contacts": [str(c) for c in contacts]}
+    proto = opt.get("protocole")
+    return {"actif": bool(opt.get("actif")), "contacts": [str(c) for c in contacts],
+            "protocole": True if proto is None else bool(proto)}
 
 
 def is_option_active(project_meta):

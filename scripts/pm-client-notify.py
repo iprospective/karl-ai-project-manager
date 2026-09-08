@@ -74,8 +74,9 @@ def _clean_criteria(body):
     return [c for c in out if c]
 
 
-def _queued_tickets(cfg, project_dir):
-    """[{path, id, title, url, criteria, protocol}] des tickets en file (pending)."""
+def _queued_tickets(cfg, project_dir, with_protocol=True):
+    """[{path, id, title, url, criteria, protocol}] des tickets en file (pending).
+    `with_protocol` (RM3052) : inclure ou non le protocole de test dans l'email client."""
     tasks = project_dir / "tasks"
     base = (os.environ.get("REDMINE_URL") or "").rstrip("/")
     out = []
@@ -95,9 +96,10 @@ def _queued_tickets(cfg, project_dir):
             "title": fm.get("title") or "",
             "url": f"{base}/issues/{rid}" if base and rid else "",
             "criteria": _clean_criteria(body),
-            # RM3026 : PAS le test_protocol interne (jargon recette : Dolibarr, ids produits…)
-            # dans un email CLIENT. Le « quoi » (critères) suffit ; le détail est sur le ticket.
-            "protocol": "",
+            # RM3052 : le protocole de test est inclus si l'option projet `protocole` est
+            # active (défaut oui) — « comment le vérifier » côté client. Coupable par projet
+            # quand le protocole est trop interne.
+            "protocol": (fm.get("test_protocol") or "") if with_protocol else "",
             "queued_at": pcn.queue_state(fm)[0],
         })
     return out
@@ -127,16 +129,17 @@ def _mark_all_dismissed(tickets, now):
 
 
 # ── option projet (écriture du bloc notif_client_mep) ────────────────────────
-def _set_notify_block(text, actif, contacts):
-    """Remplace (ou ajoute) le bloc top-level `notif_client_mep:` — actif + contacts —
-    en préservant le reste du fichier (commentaires inclus)."""
+def _set_notify_block(text, actif, contacts, protocole=True):
+    """Remplace (ou ajoute) le bloc top-level `notif_client_mep:` — actif + contacts +
+    protocole (RM3052) — en préservant le reste du fichier (commentaires inclus)."""
     lines = text.splitlines()
     start = None
     for i, ln in enumerate(lines):
         if re.match(r"notif_client_mep:\s*$", ln):
             start = i
             break
-    block = ["notif_client_mep:", f"  actif: {'true' if actif else 'false'}"]
+    block = ["notif_client_mep:", f"  actif: {'true' if actif else 'false'}",
+             f"  protocole: {'true' if protocole else 'false'}"]
     if contacts:
         block.append("  contacts:")
         block.extend(f"  - {c}" for c in contacts)
@@ -163,17 +166,20 @@ def cmd_config(cfg, args):
     opt = pcn.parse_option(pmeta)
     actif = opt["actif"]
     contacts = list(opt["contacts"])
+    protocole = opt["protocole"]
     if args.actif is not None:
         actif = args.actif.lower() in ("1", "true", "oui", "on", "yes")
+    if getattr(args, "protocole", None) is not None:
+        protocole = args.protocole.lower() in ("1", "true", "oui", "on", "yes")
     for c in args.add_contact or []:
         if c not in contacts:
             contacts.append(c)
     for c in args.remove_contact or []:
         contacts = [x for x in contacts if x != c]
-    new = _set_notify_block(meta_path.read_text(encoding="utf-8"), actif, contacts)
+    new = _set_notify_block(meta_path.read_text(encoding="utf-8"), actif, contacts, protocole)
     meta_path.write_text(new, encoding="utf-8")
     pm_git.autocommit([meta_path], f"pm(conf): {entity}/{project} notif_client_mep (RM3026)")
-    print(f"✓ notif_client_mep {entity}/{project} : actif={actif} contacts={contacts or '[]'}")
+    print(f"✓ notif_client_mep {entity}/{project} : actif={actif} protocole={protocole} contacts={contacts or '[]'}")
 
 
 def cmd_list(cfg, args):
@@ -201,17 +207,30 @@ def _recipients(cfg, entity, project):
     return recs, emails
 
 
-def _render(cfg, entity, project):
-    tickets = _queued_tickets(cfg, _project_dir(cfg, entity, project))
+def _proto_override(args):
+    """RM3052 — override ponctuel du protocole pour CET envoi : None = suivre l'option projet."""
+    if getattr(args, "sans_protocole", False):
+        return False
+    if getattr(args, "avec_protocole", False):
+        return True
+    return None
+
+
+def _render(cfg, entity, project, with_protocol=None):
+    """`with_protocol=None` → suit l'option projet `notif_client_mep.protocole` (défaut OUI) ;
+    True/False la force pour cet envoi (RM3052)."""
+    meta = cfg.project_meta(entity, project) or {}
+    wp = pcn.parse_option(meta)["protocole"] if with_protocol is None else bool(with_protocol)
+    tickets = _queued_tickets(cfg, _project_dir(cfg, entity, project), wp)
     # nom LISIBLE du projet (meta.name), pas le slug technique, pour l'email client
-    name = (cfg.project_meta(entity, project) or {}).get("name") or project
+    name = meta.get("name") or project
     subject, body = pcn.compose_email(name, tickets)
     return tickets, subject, body
 
 
 def cmd_preview(cfg, args):
     entity, project = _split_ref(args.ref)
-    tickets, subject, body = _render(cfg, entity, project)
+    tickets, subject, body = _render(cfg, entity, project, _proto_override(args))
     if not tickets:
         print(f"  {entity}/{project} : file vide — rien à envoyer.")
         return
@@ -225,7 +244,7 @@ def cmd_preview(cfg, args):
 def cmd_send(cfg, args):
     from datetime import datetime
     entity, project = _split_ref(args.ref)
-    tickets, subject, body = _render(cfg, entity, project)
+    tickets, subject, body = _render(cfg, entity, project, _proto_override(args))
     if not tickets:
         print(f"  {entity}/{project} : file vide — rien à envoyer.")
         return
@@ -282,6 +301,7 @@ def main():
     p = sub.add_parser("config", help="administrer l'option notif_client_mep du projet")
     p.add_argument("ref", help="entity/project")
     p.add_argument("--actif", help="true|false")
+    p.add_argument("--protocole", help="true|false — inclure le protocole de test de chaque ticket dans l'email client (défaut : true)")
     p.add_argument("--add-contact", action="append", metavar="REF", help="ref d'annuaire à notifier (répétable)")
     p.add_argument("--remove-contact", action="append", metavar="REF", help="retirer une ref (répétable)")
 
@@ -296,6 +316,9 @@ def main():
         if name == "dismiss":
             q.add_argument("--rm", action="append", metavar="ID", help="ticket à écarter (répétable ; défaut : toute la file)")
             q.add_argument("--yes", action="store_true", help="confirmer (sans quoi : aperçu de ce qui serait écarté)")
+        if name in ("preview", "send"):   # RM3052 : override ponctuel de l'option projet
+            q.add_argument("--avec-protocole", action="store_true", help="forcer l'INCLUSION du protocole de test")
+            q.add_argument("--sans-protocole", action="store_true", help="forcer l'EXCLUSION du protocole de test")
 
     args = ap.parse_args()
     cfg = PMConfig.load()

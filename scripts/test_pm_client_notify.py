@@ -33,10 +33,10 @@ def check(name, cond):
 
 # ── 1. option projet ─────────────────────────────────────────────────────────
 check("option absente => inactif, sans contact",
-      cn.parse_option({}) == {"actif": False, "contacts": []})
+      cn.parse_option({}) == {"actif": False, "contacts": [], "protocole": True})
 check("contacts scalaire normalisé en liste",
       cn.parse_option({"notif_client_mep": {"actif": True, "contacts": "sandrine"}})
-      == {"actif": True, "contacts": ["sandrine"]})
+      == {"actif": True, "contacts": ["sandrine"], "protocole": True})
 check("contacts None toléré",
       cn.parse_option({"notif_client_mep": {"actif": True, "contacts": None}})["contacts"] == [])
 check("active ssi actif ET au moins un contact",
@@ -45,6 +45,15 @@ check("actif mais sans contact => inactif",
       not cn.is_option_active({"notif_client_mep": {"actif": True, "contacts": []}}))
 check("contacts mais actif=false => inactif",
       not cn.is_option_active({"notif_client_mep": {"actif": False, "contacts": ["sandrine"]}}))
+# RM3052 — protocole de test dans l'email client : OPTIONNEL, activé par défaut
+check("protocole absent du meta => True (défaut : on l'inclut)",
+      cn.parse_option({"notif_client_mep": {"actif": True, "contacts": ["s"]}})["protocole"] is True)
+check("protocole: false => on ne l'inclut pas",
+      cn.parse_option({"notif_client_mep": {"actif": True, "contacts": ["s"], "protocole": False}})["protocole"] is False)
+check("protocole: true => explicite, inclus",
+      cn.parse_option({"notif_client_mep": {"actif": True, "contacts": ["s"], "protocole": True}})["protocole"] is True)
+check("bloc absent => protocole True (défaut) sans planter",
+      cn.parse_option({})["protocole"] is True)
 
 # ── 2. file (frontmatter ticket) — idempotence ───────────────────────────────
 check("frontmatter vierge => pas en file",

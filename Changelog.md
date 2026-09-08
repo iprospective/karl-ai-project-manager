@@ -26,6 +26,35 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 - Tests : `test_karl_agent_fs.py` (alias, identifiants, gardes, portées session/projet, symlink), `test_cockpit_files.js` (routes distinctes, identifiant → portée, infobulle et URL sans chemin).
 
 ### Outillage PM
+- **Par quel bout prendre un travail, et comment mener un CDC complet** (RM2967). Le système
+  savait traiter un ticket dans le moindre détail, et ne disait **nulle part** comment attaquer
+  un projet neuf, une reprise d'existant ou une migration — chacun repartait de sa mémoire, et
+  la faute la plus chère n'est pas de mal coder mais de traiter en ticket ce qui demandait un
+  CDC, ou l'inverse. Deux modules de normes le posent. `methodes-travail` reconnaît **quatre
+  natures** et leur protocole d'entrée, et distingue le **CDC de ticket** — la proposition
+  d'implémentation, forme la plus employée du parc — du **CDC de projet**. `cdc` normalise la
+  méthode éprouvée sur un CDC réel (140 décisions, 124 fonctionnalités, un POC qui lit le CDC),
+  corrigée par la relecture de sept CDC du parc : trois livrables qui avancent ensemble
+  (chapitres numérotés + POC + dictionnaire en YAML), les identifiants stables à trois chiffres,
+  les sept temps, la grille 360° et les cinq postures, et le principe qui commande le reste —
+  *quand le langage et le SGBD sont statués, coder doit être une formalité*. La relecture a
+  ajouté au cas fondateur ce qui lui manquait : la **provenance** en section propre (ce qui vient
+  du demandeur, ce que le document infère), le hors-périmètre motivé, **ce qu'on voudra
+  observer** décidé avant de construire, les mesures **datées**, le chiffrage, et des critères
+  d'acceptation du CDC lui-même. La part mécanique est outillée par `pm-cdc.py` (`init` copie les
+  gabarits de `templates/cdc/`, `dict` génère le chapitre dictionnaire depuis les YAML, `index`
+  en extrait le registre pour le POC) et surtout par `check`, **le harnais qui teste le CDC** :
+  il casse sur une décision citée qui n'existe pas, une décision rédigée mais absente du tableau
+  de synthèse (donc invisible de tout ce qui lit l'index — c'est ce contrôle qui a trouvé la
+  première), un cycle de dépendances, une fonctionnalité qui dépend d'un **jalon ultérieur**
+  (déplacer une fonctionnalité fait alors apparaître tout ce qui doit bouger avec elle), une
+  fonctionnalité écartée dont une autre dépend encore — écarter est une **suppression en
+  cascade**, portée par le test plutôt que par un dialogue qu'on cliquerait sans lire —, un
+  jalon vide, un état hors de l'échelle, un **domaine réel** dans un CDC. Rejoué sur le CDC
+  fondateur, il reproduit son chapitre dictionnaire à l'identique depuis les mêmes YAML (la
+  preuve qu'il est générique) et trouve trois fuites de domaines réels. Les avertissements d'une
+  même famille tiennent sur **une ligne** : crier soixante fois, c'est ne plus être lu. Les deux
+  modules sont hors précharge — +113 tokens au KERNEL, rien de plus.
 - **Le PM sait faire naître un dépôt sur GitHub, pas seulement sur GitLab** (RM3016). Le registre
   `providers` déclarait GitHub depuis longtemps et `pm_forge` savait y ouvrir des PR, mais
   `pm-repo-new` ne savait créer que des projets GitLab : miroiter un dépôt sur GitHub restait un

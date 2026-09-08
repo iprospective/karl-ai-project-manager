@@ -1,0 +1,7 @@
+# COMPOSANTS RÉUTILISABLES — trois familles :
+#   noyau     : les briques techniques du POC qui deviendront celles du produit (rôle, contrat)
+#   capacite  : ce qui est ENFICHABLE (D094) — natif, connecteur, ou absent
+#   embarquable : les composants d'interface insérables dans une application tierce (D108)
+
+# (structure : dictionnaire — clé = entité / énumération / famille)
+{}

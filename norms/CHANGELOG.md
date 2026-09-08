@@ -1,5 +1,25 @@
 # Changelog des normes
 
+## [2.25.0] - 2026-09-08
+
+### Ajouté
+- **Modules `methodes-travail` et `cdc` + deux déclencheurs KERNEL** (RM2967). Le système
+  savait traiter un ticket ; il ne disait nulle part **par quel bout** prendre un projet neuf,
+  une reprise d'existant ou une migration. `methodes-travail` pose quatre natures et leur
+  protocole d'entrée (projet neuf → CDC · ticket ordinaire → protocole worker · audit →
+  `modules/audits` · reprise → inventaire mesuré, matrice de compatibilité, plan par lots
+  vérifiables, chiffrage par lot), et distingue le **CDC de ticket** (proposition
+  d'implémentation, la forme la plus employée du parc) du **CDC de projet**. `cdc` normalise
+  la méthode du CDC complet éprouvée sur AtomBox (RM2881/RM2937) et corrigée par la relecture
+  de sept CDC du parc : trois livrables qui avancent ensemble (chapitres + POC + dictionnaire),
+  les états et les identifiants à trois chiffres, les sept temps, la grille 360° et les cinq
+  postures, le cycle d'un lot, le harnais qui teste le CDC lui-même, le critère de fin, et le
+  fait qu'un CDC finit en **tickets estimés**. Ce que la relecture a ajouté au cas fondateur :
+  provenance en section propre, hors-périmètre motivé, **ce qu'on voudra observer** avant de
+  construire, mesures datées, chiffrage, critères d'acceptation du CDC. Outil : `pm-cdc.py`
+  (init · dict · index · check) et gabarits `templates/cdc/`. Les deux modules sont **hors
+  précharge** (ouverts sur déclencheur) : +113 tokens au KERNEL, rien de plus.
+
 ## [2.24.0] - 2026-09-08
 
 ### Ajouté

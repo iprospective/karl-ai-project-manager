@@ -1,0 +1,13 @@
+# CHAMPS — par entité. Types LOGIQUES, jamais SQL (le SGBD n'est pas définitivement statué).
+#   id          identifiant technique            ref        référence vers une autre entité
+#   court       texte court (une ligne)          long       texte long
+#   horodatage  date et heure                    date       date seule
+#   enum        valeur d'une énumération         bool       vrai/faux
+#   entier      nombre entier                    decimal    nombre décimal
+#   empreinte   hachage de contenu               jeton      secret opaque
+#   json        structure libre                  binaire    octets
+# nature : fait (immuable une fois posé) | figé (calculé à l'ingestion, jamais recalculé) | recalculable | dérivé (cache)
+# obligatoire : oui | non | condition
+
+# (structure : dictionnaire — clé = entité / énumération / famille)
+{}

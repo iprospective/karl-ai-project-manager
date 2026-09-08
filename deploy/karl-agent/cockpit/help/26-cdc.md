@@ -1,9 +1,10 @@
 # CDC vivant
 
-Le menu du haut reprend la barre du POC AtomBox : **📋 fonctionnalités · 📘 CDC · 🗺 feuille de route**
-(l'aide reste ❓). Les trois pages s'ouvrent au centre, en onglet épinglable, sur le **CDC du projet en
-contexte** : celui de la session attachée, sinon le dernier choisi, sinon le premier. Un projet peut porter
-plusieurs CDC (le projet PM : « pm » et « karl ») — des puces en tête de page permettent d'en changer.
+Le bouton **📋 CDC** du menu du haut ouvre au centre, en onglet épinglable, le **CDC du projet en
+contexte** — celui de la session attachée, sinon le dernier choisi, sinon le premier — avec, en tête de page,
+les onglets du POC AtomBox : **📋 Fonctionnalités · 📘 CDC · 🗺 Feuille de route** (l'aide reste ❓). L'onglet
+courant est mémorisé. Un projet peut porter plusieurs CDC (le projet PM : « pm » et « karl ») — des puces
+permettent d'en changer.
 
 - **Fonctionnalités** : une ligne par ticket (ou par capacité, pour un registre curé) — clic sur un en-tête
   pour trier, second clic pour inverser ; filtre texte (libellé, domaine, état, `RM…`) ; un ticket ouvre sa fiche.

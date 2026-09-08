@@ -2,7 +2,7 @@
 import { html, raw } from "../../core/html.js";
 
 export function CdcHeader(vm) {
-  return html`<div class="cdc-head"><div class="cdc-pages">${vm.pages.map(p => html`<button class="chip${p.on ? " on" : ""}" data-action="page" data-page="${p.key}">${p.label}</button>`)}</div>
+  return html`<div class="cdc-head"><div class="cdc-pages" role="tablist">${vm.pages.map(p => html`<button class="chip${p.on ? " on" : ""}" data-action="page" data-page="${p.key}">${p.label}</button>`)}</div>
     ${vm.choices.length ? html`<div class="cdc-choices">${vm.choices.map(c => html`<button class="chip${c.on ? " on" : ""}" data-action="select" data-key="${c.key}" title="Changer de CDC">${c.label}</button>`)}</div>` : ""}
     <div class="cdc-ctx">${vm.context}</div></div>`;
 }

@@ -10,7 +10,7 @@ Usage :
     cockpit-view-cost.py                 # tableau texte, trié par coût décroissant
     cockpit-view-cost.py --md            # tableau markdown (à coller dans cockpit/README.md)
     cockpit-view-cost.py --json          # brut, pour un outil
-    cockpit-view-cost.py --check 15000   # sortie 1 si un domaine dépasse (garde de test)
+    cockpit-view-cost.py --check 15000   # sortie 1 si la VUE d'un domaine coûte plus (garde de test)
     cockpit-view-cost.py --domain sets   # un seul domaine, fichier par fichier
 """
 import argparse
@@ -22,8 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 COCKPIT = ROOT / "deploy" / "karl-agent" / "cockpit"
 CHARS_PER_TOKEN = 4
 LAYERS = ("model", "repository", "service", "viewmodel", "view", "controller", "style", "test")
-# ce qu'un agent lit pour modifier UNE VUE : la vue, son ViewModel, le contrôleur qui la monte, le test
+# ce qu'un agent lit pour modifier UNE VUE : la vue, son ViewModel, le contrôleur qui la monte — et les tests de ces couches.
+# RM3017+ : un test scindé par couche (`test_cockpit_<d>.model.js`) reste dans le total du domaine mais SORT du coût « vue ».
 VIEW_SET = ("viewmodel", "view", "controller", "test")
+TEST_MODEL_SUFFIX = ".model.js"
 
 
 def layer_of(name: str) -> str:
@@ -52,14 +54,13 @@ def measure_domain(d: Path, cockpit: Path = COCKPIT) -> dict:
     for f in sorted(d.iterdir()):
         if f.is_file() and (f.suffix in (".js", ".scss")):
             files.append({"file": f.name, "layer": layer_of(f.name), "chars": f.stat().st_size})
-    t = cockpit / f"test_cockpit_{d.name}.js"
-    if t.is_file():
-        files.append({"file": t.name, "layer": "test", "chars": t.stat().st_size})
+    for t in sorted(cockpit.glob(f"test_cockpit_{d.name}.js")) + sorted(cockpit.glob(f"test_cockpit_{d.name}.*.js")):
+        files.append({"file": t.name, "layer": "test", "chars": t.stat().st_size, "model_only": t.name.endswith(TEST_MODEL_SUFFIX)})
     by = {k: 0 for k in LAYERS}
     for f in files:
         by[f["layer"]] += f["chars"]
     total = sum(by.values())
-    view = sum(by[k] for k in VIEW_SET)
+    view = sum(by[k] for k in VIEW_SET if k != "test") + sum(f["chars"] for f in files if f["layer"] == "test" and not f.get("model_only"))
     return {"domain": d.name, "files": files, "chars": total, "tokens": tokens(total),
             "view_tokens": tokens(view), "layers": {k: tokens(v) for k, v in by.items()}}
 
@@ -84,7 +85,7 @@ def table(rows: list[dict], md: bool, limit: int | None) -> str:
     else:
         lines.append(f"{'domaine':<11}" + "".join(f"{h:>7}" for h in head[1:]))
     for r in rows:
-        mark = " ⚠" if limit and r["tokens"] > limit else ""
+        mark = " ⚠" if limit and r["view_tokens"] > limit and r["domain"] != "core" else ""
         cells = [r["domain"] + mark, r["tokens"], r["view_tokens"], *(r["layers"][k] for k in LAYERS)]
         if md:
             lines.append("| " + " | ".join(str(c) for c in cells) + " |")
@@ -92,7 +93,7 @@ def table(rows: list[dict], md: bool, limit: int | None) -> str:
             lines.append(f"{cells[0]:<11}" + "".join(f"{c:>7}" for c in cells[1:]))
     tot = sum(r["tokens"] for r in rows)
     lines.append(("" if md else "") + f"\n{len(rows)} domaine(s), {tot} tokens au total (≈ {CHARS_PER_TOKEN} car./token) ; "
-                 "« vue » = ViewModel + vue + contrôleur + test, ce qu'un agent lit pour modifier une vue.")
+                 "« vue » = ViewModel + vue + contrôleur + leurs tests (les tests de modèle scindés, `*.model.js`, n'y comptent pas) — ce qu'un agent lit pour modifier une vue ; c'est ce que --check borne.")
     return "\n".join(lines)
 
 
@@ -118,12 +119,13 @@ def main() -> int:
         print(json.dumps(rows, ensure_ascii=False, indent=1)); return 0
     print(table(rows, a.md, a.check))
     if a.check:
-        # `core` est le socle, pas un domaine : un agent qui modifie une vue ne le relit pas — il figure dans le tableau, pas dans la garde
-        over = [r for r in rows if r["tokens"] > a.check and r["domain"] != "core"]
+        # La garde porte sur le coût « vue » (ce qu'un agent lit pour modifier une vue : ViewModel + vue + contrôleur + leurs tests),
+        # c'est l'objectif de RM2889. `core` est le socle, pas un domaine : il figure dans le tableau, pas dans la garde.
+        over = [r for r in rows if r["view_tokens"] > a.check and r["domain"] != "core"]
         if over:
-            print(f"\n✗ {len(over)} domaine(s) au-dessus de {a.check} tokens : " + ", ".join(f"{r['domain']} ({r['tokens']})" for r in over), file=sys.stderr)
+            print(f"\n✗ {len(over)} domaine(s) dont la vue coûte plus de {a.check} tokens : " + ", ".join(f"{r['domain']} (vue {r['view_tokens']}, total {r['tokens']})" for r in over), file=sys.stderr)
             return 1
-        print(f"\n✓ aucun domaine au-dessus de {a.check} tokens")
+        print(f"\n✓ aucune vue au-dessus de {a.check} tokens (coût ViewModel + vue + contrôleur + leurs tests)")
     return 0
 
 

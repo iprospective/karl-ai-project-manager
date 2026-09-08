@@ -78,6 +78,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   vendors complétée (xterm.js MIT, compatible), norme de gouvernance : toute contribution est
   faite sous cette licence, toute dépendance doit lui être compatible. Les données de projets
   (dépôt privé) ne sont pas couvertes.
+- **Cinq domaines du cockpit repassent sous 15 000 tokens à lire pour modifier une vue**
+  (RM3017 sets, RM3018 sessions, RM3019 worklog, RM3020 center, RM3021 meta). La mesure de RM3008
+  montrait que le premier poste était le fichier de test, monolithique par domaine. Chacun est
+  scindé par couche — helpers (faux DOM et fixtures partagés), modèle et service, ViewModels et
+  vues, contrôleur — et chaque fichier s'exécute seul. La garde de `cockpit-view-cost.py` porte
+  désormais sur le coût « vue » (ViewModel + vue + contrôleur + leurs tests), l'objectif réel de
+  RM2889, et compte les tests scindés ; les cinq domaines sont sous le seuil.
 - **Les chemins historiques de karl-agent sont comptés avant d'être retirés** (RM3004, étape 1).
   Le front parle `/api/<type>/<action>` depuis la 3.0.0 ; les chemins historiques restent servis
   par un alias généré pour les autres clients. Chaque appel direct d'un chemin historique est

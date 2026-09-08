@@ -1,0 +1,12 @@
+// test_cockpit_meta.helpers — faux DOM et fixtures partagés par les suites de l'encart ℹ (RM3021 : test scindé par couche — un agent qui modifie
+// une vue lit test_cockpit_meta.view.js / .controller.js, pas le modèle). CommonJS.
+"use strict";
+const settle = () => new Promise(r => setTimeout(r, 10));
+function fakeElement() { const L = []; let inner = ""; return { get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, contains: () => true,
+  addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
+  async click(action, data) { const n = { dataset: { action, ...(data || {}) } }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => (s === "[data-action]" ? n : null) }, stopPropagation() {} }); return n; } }; }
+  const JOURNAL = ["## 2026-08-22T20:04 — report → Redmine", "note (commit 55ca4bda)", "", "## 2026-08-22T20:08 — Protocole de test remplacé", "Tokens : 0 | Durée : 0 min", "détail sur deux lignes"].join("\n");
+  const S = { title: "titre transcript", registry: { seq: 7, machine: 2, created: "2026-09-05T10:00", branches: ["2726-x"], worktrees: ["/w/x-rm2726"] }, registry_conflicts: [{ rm_id: "2726", seqs: [3, 5] }] };
+  const U = { usage: { turns: 12, total: 600000, input: 100000, output: 50000, cache_read: 4000000, cache_creation: 30000, context_last: 100000 }, meta: { engine: "claude", model: "claude-opus-4-8", cost_usd: 3, rates: { input_per_mtok_usd: 15, output_per_mtok_usd: 75, cache_read_per_mtok_usd: 1.5 }, updated: 1757000000 } };
+  const R = { found: true, title: "Titre", client: "acme", project: "shop", status: "ferme", priority: "high", type: "feature", completion_pct: 40, updated: "2026-09-05T10:00", redmine_url: "https://r/1", description: "# desc", log_tail: JOURNAL, active_env: { name: "prod", url: "https://p" }, test_url: "https://t", environments: [{ name: "prod", url: "https://p" }, { name: "preprod", url: "https://pp" }], git: { branch: "42-x", mr_url: "https://mr" }, parent_task: "7", depends_on: ["8", "9"], blocks: [], relates: ["10"], sub_tasks: [], metrics: { tokens_total: 5000, tokens_breakdown: { input: 1000, output: 500, cache_read: 30000, cache_creation: 100 }, cost_total_usd: 1.234, ai_time_total_minutes: 75, human_time_total_minutes: 5, updated: "2026-09-05" } };
+module.exports = { settle, fakeElement, JOURNAL, S, U, R };

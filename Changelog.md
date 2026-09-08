@@ -13,9 +13,9 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
-- **Menus Fonctionnalités · CDC · Feuille de route et onglet projets** (RM3044, RM3045,
-  cockpit 3.7.0) : la barre du POC AtomBox reprise en haut du cockpit — trois pages
-  centrales sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :
+- **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.1) : un seul
+  bouton 📋 CDC en haut ouvre un panneau central dont les onglets reprennent la barre
+  du POC AtomBox — Fonctionnalités · CDC · Feuille de route — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :
   table des fonctionnalités triable/filtrable (`/api/doc/cdc-features`, registre yml →
   JSON), chapitres du CDC en sous-onglets avec ancres `D012`/`Q003` et `RM` cliquables,
   feuille de route par jalon (`jalon`, `jalons:` du registre) ou par état ; sélecteur

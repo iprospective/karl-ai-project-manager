@@ -9,7 +9,10 @@ sauf en `--dry-run`, qui prévisualise sans privilège. Enchaînement (inchangé
   3. re-verrou par `scripts/core-lock lock` (SOURCE UNIQUE de la politique 3 couches) ;
   4. hooks PM du core lui-même (post-commit, pre-push, pre-commit — .git/hooks root-owned, RM2240) ;
   5. si `scripts/karl-agent.py` a changé : redémarrage du service USER karl-agent (RM2308 — KillMode=process, tmux intacts) ;
-  6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent.
+  6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent ;
+  7. provisioning UTILISATEUR de l'instance (RM3054, user `KARL_USER` du .env) : hooks Claude Code manquants posés par
+     `pm-claude-hooks-sync` (ajout seulement) et symlinks `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills
+     du core — un lien vers ailleurs ou un vrai dossier n'est jamais écrasé (⚠ manuel).
 NB : ce verbe s'exécute depuis l'ANCIEN code — une évolution de ce fichier ne prend effet qu'au run suivant. Le re-exec sudo
 passe par `<core>/bin/mmi-pm core update` : c'est le chemin que la règle sudoers autorise en root (deploy/mmi-pm.sudoers.example).
 Usage : mmi-pm core-update [--dry-run]     (alias : mmi-pm core update, mmi-core update)
@@ -143,6 +146,82 @@ def with_ssh_session(core_dir: Path, work):
             run(["ssh-agent", "-k"], env=env)
 
 
+# ── RM3054 : provisioning utilisateur (hooks Claude, skills) ─────────────────
+def instance_user(core_dir: Path):
+    """(login, uid, gid, home) de l'utilisateur de l'instance (`KARL_USER`), ou None."""
+    ku = read_env(core_dir / ".env").get("KARL_USER") or ""
+    if not ku:
+        return None
+    try:
+        import pwd
+        pw = pwd.getpwnam(ku)
+    except KeyError:
+        return None
+    return ku, pw.pw_uid, pw.pw_gid, Path(pw.pw_dir)
+
+
+def skills_plan(core_dir: Path, home: Path):
+    """[(lien, cible, action)] — action : link (à poser) / ok (déjà le bon lien) / manual (occupé par autre chose)."""
+    out = []
+    sdir = core_dir / "skills"
+    if not sdir.is_dir():
+        return out
+    for d in sorted(x for x in sdir.iterdir() if x.is_dir() and (x / "SKILL.md").is_file()):
+        link = home / ".claude" / "skills" / d.name
+        if link.is_symlink():
+            try:
+                same = link.resolve() == d.resolve()
+            except OSError:
+                same = False
+            out.append((link, d, "ok" if same else "manual"))
+        elif link.exists():
+            out.append((link, d, "manual"))
+        else:
+            out.append((link, d, "link"))
+    return out
+
+
+def claude_hooks_missing(core_dir: Path, home: Path) -> bool:
+    """Vrai si `pm-claude-hooks-sync --check` dit qu'un hook PM manque dans le settings.json de cet utilisateur."""
+    r = run([sys.executable, str(core_dir / "scripts" / "pm-claude-hooks-sync.py"), "--check",
+             "--settings", str(home / ".claude" / "settings.json"), "--pm-root", str(core_dir)])
+    return r.returncode != 0
+
+
+def sync_user_provisioning(core_dir: Path):
+    """Étape 7 : hooks Claude + skills pour l'utilisateur de l'instance. Best-effort, journalisé, jamais bloquant."""
+    who = instance_user(core_dir)
+    if not who:
+        log("⚠ provisioning utilisateur ignoré — KARL_USER inconnu dans .env (hooks Claude / skills à poser à la main : pm-claude-hooks-sync)"); return
+    ku, uid, gid, home = who
+    if claude_hooks_missing(core_dir, home):
+        r = run(["runuser", "-u", ku, "--", "env", f"HOME={home}", "PATH=/usr/local/bin:/usr/bin:/bin",
+                 sys.executable, str(core_dir / "scripts" / "pm-claude-hooks-sync.py"), "--pm-root", str(core_dir)])
+        if r.returncode == 0:
+            log(f"hooks Claude Code de {ku} synchronisés (pm-claude-hooks-sync, ajout seulement)")
+        else:
+            log(f"⚠ pm-claude-hooks-sync a échoué pour {ku} : {(r.stdout or r.stderr).strip()[-200:]} — relancer à la main")
+    else:
+        log(f"hooks Claude Code de {ku} : déjà complets")
+    posed, manual = [], []
+    for link, target, action in skills_plan(core_dir, home):
+        if action == "link":
+            try:
+                link.parent.mkdir(parents=True, exist_ok=True)
+                for d in (link.parent, link.parent.parent):
+                    if d.stat().st_uid != uid:
+                        os.chown(d, uid, gid)
+                link.symlink_to(target); os.lchown(link, uid, gid); posed.append(link.name)
+            except OSError as e:
+                manual.append(f"{link.name} ({e})")
+        elif action == "manual":
+            manual.append(link.name)
+    if posed:
+        log(f"skills liés dans {home}/.claude/skills : " + ", ".join(posed))
+    if manual:
+        log("⚠ skills NON liés (occupés par un dossier ou un autre lien) : " + ", ".join(manual))
+
+
 def restart_karl_agent(core_dir: Path):
     ku = read_env(core_dir / ".env").get("KARL_USER") or ""
     uid = run(["id", "-u", ku]).stdout.strip() if ku else ""
@@ -171,6 +250,15 @@ def update(core_dir: Path, dry: bool) -> int:
             log(f"[dry] {dst} : {'à installer' if todo else 'à jour'} ({ref})")
         for link, target, action in alias_plan(core_dir):
             log(f"[dry] alias {link.name} : {action}" + (f" → {target}" if target else ""))
+        who = instance_user(core_dir)
+        if who:
+            ku, _, _, home = who
+            log(f"[dry] hooks Claude de {ku} : {'à compléter (pm-claude-hooks-sync)' if claude_hooks_missing(core_dir, home) else 'complets'}")
+            for link, target, action in skills_plan(core_dir, home):
+                if action != "ok":
+                    log(f"[dry] skill {link.name} : {action}")
+        else:
+            log("[dry] provisioning utilisateur : KARL_USER inconnu dans .env — ignoré")
         return 0
     if os.geteuid() != 0:
         die("doit tourner en root (sudo) — le code de l'instance est root-owned")
@@ -212,6 +300,10 @@ def update(core_dir: Path, dry: bool) -> int:
             log(f"⚠ {link} existe et n'est pas un lien — alias non posé")
     if posed:
         log("alias posés dans /usr/local/bin : " + ", ".join(posed) + " (mmi-<domaine> <verbe> ≡ mmi-pm <domaine>-<verbe>)")
+    try:
+        sync_user_provisioning(core_dir)           # RM3054 : jamais bloquant
+    except Exception as e:                         # noqa: BLE001
+        log(f"⚠ provisioning utilisateur (hooks Claude / skills) en échec : {e}")
     log(f"outil {old} -> {new} ({branch}) ; re-verrouillé via core-lock (politique 3 couches)")
     log("NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé).")
     return 0

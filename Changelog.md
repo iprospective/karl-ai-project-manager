@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **`pm-core-update` provisionne aussi l'utilisateur de l'instance** (RM3054) : étape 7 — hooks
+  Claude Code manquants posés par `pm-claude-hooks-sync` (ajout seulement) et symlinks
+  `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement
+  d'un dossier réel ou d'un lien vers ailleurs) ; `--dry-run` montre les deux plans. Un hook ou
+  un skill ajouté par un ticket est actif dès le core update suivant.
 - **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
   **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
   `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné

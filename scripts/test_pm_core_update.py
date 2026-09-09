@@ -62,6 +62,29 @@ with tempfile.TemporaryDirectory() as td:
     r = subprocess.run([sys.executable, str(HERE / "pm-core-update.py"), "--dry-run", "--core-dir", str(core)], capture_output=True, text=True)
     check("CLI --dry-run : sans sudo, code 0", r.returncode == 0 and "[dry]" in r.stdout and "re-exec sudo" not in r.stdout, r.stdout + r.stderr)
 
+# ── RM3054 : provisioning utilisateur (hooks Claude, skills) — plans purs sur un faux core + faux home
+with tempfile.TemporaryDirectory() as td:
+    core = pathlib.Path(td) / "core"; home = pathlib.Path(td) / "home"
+    (core / "scripts").mkdir(parents=True); (core / "skills" / "mmi-a").mkdir(parents=True); (core / "skills" / "mmi-b").mkdir()
+    (core / "skills" / "mmi-a" / "SKILL.md").write_text("---\nname: mmi-a\n---\n"); (core / "skills" / "mmi-b" / "SKILL.md").write_text("x")
+    (core / "skills" / "pas-un-skill").mkdir()
+    (home / ".claude" / "skills").mkdir(parents=True)
+    (home / ".claude" / "skills" / "mmi-a").symlink_to(core / "skills" / "mmi-a")          # déjà le bon lien
+    (home / ".claude" / "skills" / "mmi-b").mkdir()                                          # occupé par un vrai dossier
+    plan = {l.name: a for l, _, a in C.skills_plan(core, home)}
+    check("skills_plan : ok / manual (dossier réel) / seuls les dossiers avec SKILL.md", plan == {"mmi-a": "ok", "mmi-b": "manual"}, str(plan))
+    (core / "skills" / "mmi-c").mkdir(); (core / "skills" / "mmi-c" / "SKILL.md").write_text("x")
+    plan = {l.name: a for l, _, a in C.skills_plan(core, home)}
+    check("skills_plan : un skill nouveau → link", plan.get("mmi-c") == "link", str(plan))
+    import shutil as _sh
+    _sh.copy(HERE / "pm-claude-hooks-sync.py", core / "scripts" / "pm-claude-hooks-sync.py")
+    for s in ("pm-turn-start.py", "pm-turn-wait.py", "pm-task-tick.py", "pm-task-report.py", "pm-session-status.py", "pm-think-harvest.py"):
+        (core / "scripts" / s).write_text("#")
+    (home / ".claude" / "settings.json").write_text("{}")
+    check("claude_hooks_missing : settings vide → hooks manquants", C.claude_hooks_missing(core, home) is True)
+    (core / ".env").write_text("KARL_USER=utilisateur-inexistant-xyz\n")
+    check("instance_user : user inconnu → None (provisioning ignoré, jamais bloquant)", C.instance_user(core) is None)
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails)); sys.exit(1)

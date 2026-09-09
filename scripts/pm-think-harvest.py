@@ -6,6 +6,7 @@ transcript de la session et consigne, sans geste de l'agent :
   - les QUESTIONS posées à l'utilisateur (AskUserQuestion / ExitPlanMode, typage RM2549) :
       répondues  → une décision D « question → réponse » (✅, auteur M) ; la Q ouverte homonyme passe ✅ ;
       sans réponse → une question Q (🕐) ;
+  - les PROPOSITIONS et réflexions pertinentes de l'IA (non posées en question outillée) → notes N signées du modèle ;
   - les REMARQUES de l'utilisateur qui passent le critère de la note (RM3062 : réflexion, constat, idée —
     jamais une demande immédiate, un accord, un accusé ; `pm_think.note_pertinente`) → notes N verbatim.
 Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus. Le ticket courant est résolu comme
@@ -58,6 +59,12 @@ def harvest_items(lines) -> list:
             q = " / ".join(l.strip() for l in str(it.get("full") or "").splitlines()
                            if l.strip() and not l.startswith("  - ")) or it.get("text", "")
             item = ("decision", f"{q} → {it['answer']}", {"question": q}) if it.get("answer") else ("question", q, {})
+        elif k == "assistant":
+            # RM3062 lot 3 : les propositions / réflexions pertinentes de l'IA, non posées en question outillée → note signée du modèle
+            ok, extrait = pm_think.proposition_pertinente(it.get("full") or it.get("text") or "")
+            if not ok:
+                continue
+            item = ("note", extrait, {"by": "A"})
         elif k == "user":
             t = " ".join(str(it.get("full") or it.get("text") or "").split())
             # ni commandes, ni enveloppes techniques, ni marqueurs d'interruption
@@ -118,25 +125,34 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
             rid = pm_think.append(think, "question", text, rm_id=rm_id, title=title, by="A", state="attente", sid=sid,
                                   urgence="moyenne")
         else:
-            rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by="M", state="attente", sid=sid)
+            rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by=extra.get("by", "M"), state="attente", sid=sid)
         added.append(rid)
         parsed = pm_think.load(think)
     return added
 
 
-def prune(think: Path, dry=False) -> list:
-    """Élague les notes en attente qui ne passent pas le critère (❌, dest « élaguée (RM3062) : <motif> »). Retourne les ids."""
+def prune(think: Path, dry=False, delete=False) -> list:
+    """Élague les notes en attente qui ne passent pas le critère : ❌ « élaguée (RM3062) : <motif> », ou SUPPRIMÉES
+    (`delete`, décision Mathieu 2026-09-09 : « les notes pourries, tu peux les supprimer vraiment ») — les lignes déjà
+    marquées élaguées partent aussi. Retourne les ids."""
     parsed = pm_think.load(think)
     out = []
     for r in parsed.get("note", {}).get("rows", []):
-        if r["closed"] or r["state"] in ("valide", "invalide") or len(r["cells"]) < 3:
+        if len(r["cells"]) < 3:
+            continue
+        deja = "élaguée (RM3062)" in (r["cells"][4] if len(r["cells"]) > 4 else "")
+        if deja and delete:
+            out.append(r["id"]); continue
+        if r["closed"] or r["state"] in ("valide", "invalide"):
             continue
         ok, motif = pm_think.note_pertinente(r["cells"][2])
         if ok:
             continue
         out.append(r["id"])
-        if not dry:
+        if not dry and not delete:
             pm_think.set_state(think, r["id"], "invalide", dest=f"élaguée (RM3062) : {motif}")
+    if delete and not dry and out:
+        pm_think.remove_rows(think, out)
     return out
 
 
@@ -192,6 +208,7 @@ def main():
     ap.add_argument("--transcript"); ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--no-commit", action="store_true")
     ap.add_argument("--prune", action="store_true", help="élaguer les notes en attente qui ne passent pas le critère (RM3062)")
     ap.add_argument("--all", action="store_true", help="avec --prune : tous les think du projet courant")
+    ap.add_argument("--delete", action="store_true", help="avec --prune : supprimer les lignes (et celles déjà marquées élaguées) au lieu de les marquer ❌")
     ap.add_argument("--tasks-dir", help="avec --prune : dossier des fiches (tests)")
     a = ap.parse_args()
     if a.prune:
@@ -214,9 +231,9 @@ def main():
         for th in thinks:
             if not th.is_file():
                 continue
-            ids = prune(th, dry=a.dry_run); total += len(ids)
+            ids = prune(th, dry=a.dry_run, delete=a.delete); total += len(ids)
             if ids:
-                print(f"{'(dry) ' if a.dry_run else ''}{th.name} : {len(ids)} note(s) élaguée(s) — {', '.join(ids[:10])}{'…' if len(ids) > 10 else ''}")
+                print(f"{'(dry) ' if a.dry_run else ''}{th.name} : {len(ids)} note(s) {'supprimée(s)' if a.delete else 'élaguée(s)'} — {', '.join(ids[:10])}{'…' if len(ids) > 10 else ''}")
                 if not a.dry_run and not a.no_commit:
                     pm_git.autocommit([th], f"pm(think): {pm_think.rm_id_of(th) and 'RM' + str(pm_think.rm_id_of(th)) or th.name} élagage de {len(ids)} note(s) (RM3062)", cwd=th.parent)
         print(f"{'(dry) ' if a.dry_run else ''}élagage : {total} note(s) sur {len(thinks)} think")

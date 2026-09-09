@@ -1,5 +1,13 @@
 # Changelog des normes
 
+## [2.28.0] - 2026-09-09
+
+### Ajouté
+- **Signature nominative et propositions de l'IA** (`session-tooling` § « Les quatre
+  rubriques », RM3062 lot 3) : chaque N/Q/D/F est signée par son auteur nommé (personne ou
+  modèle), jamais un code ; les propositions pertinentes de l'IA entrent au vrac signées du
+  modèle ; légende des rubriques en tête des think et des registres. Ajout seul, pas de ledger.
+
 ## [2.27.0] - 2026-09-09
 
 ### Ajouté

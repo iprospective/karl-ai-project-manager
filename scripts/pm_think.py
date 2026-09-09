@@ -22,6 +22,7 @@ d'un glob n'est pas trié. `is_task_sheet()` est le seul test légitime — tout
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,13 @@ THINK_RE = re.compile(r"^RM(\d+)_[^./]+\.think\.md$")
 
 STATES = {"✅": "valide", "❌": "invalide", "🟡": "propose", "🕐": "attente", "⏸": "reserve"}
 STATE_ICON = {v: k for k, v in STATES.items()}
+#: RM3062 : ce que chaque rubrique est — et n'est pas (NORMS `session-tooling` § « Les quatre rubriques »)
+LEGEND = {
+    "note":     "N note — une information utile plus tard, verbatim (constat, idée, réserve, contrainte ; proposition pertinente de l'IA) ; jamais une demande immédiate, un accord, un accusé.",
+    "question": "Q question — ce qui n'est pas tranché, ce que ça bloque, l'urgence, l'avis.",
+    "decision": "D décision — ce que le demandeur demande de faire, pose ou tranche (réponse à une question ou non, ticketé ou non) ; C conseil — l'avis de l'agent, 🟡 jusqu'à l'arbitrage.",
+    "feature":  "F fonctionnalité — une feature atomique qui donne lieu à un ticket, le complète, ou reste à faire.",
+}
 #: kind → (préfixe d'id, titre de section, en-tête de table)
 KINDS = {
     "note":     ("N", "Notes — vrac verbatim, jamais reformulé",
@@ -199,6 +207,97 @@ def counters(parsed: dict) -> dict:
     }
 
 
+# ── signatures nominatives (RM3062, lot 3) ───────────────────────────────────
+# Chaque N/Q/D/F est signée par son auteur NOMMÉ — une personne (Mathieu, Paul…) ou un modèle (Claude Opus 5,
+# Qwen 3.8 27b…) — jamais un code. « M » / « A » restent acceptés en entrée et sont résolus à l'écriture.
+_MODEL_NAMES = [(r"^claude-fable-(\d+)-(\d+)", "Claude Fable {0}.{1}"), (r"^claude-opus-(\d+)(?:-(\d+))?", "Claude Opus {0}.{1}"),
+                (r"^claude-sonnet-(\d+)(?:-(\d+))?", "Claude Sonnet {0}.{1}"), (r"^claude-haiku-(\d+)-(\d+)", "Claude Haiku {0}.{1}")]
+
+
+def model_label(model_id: str) -> str:
+    """`claude-opus-5` → « Claude Opus 5 », `claude-fable-5-1` → « Claude Fable 5.1 », `qwen3.8:27b` → « Qwen3.8 27b »."""
+    m = str(model_id or "").strip()
+    if not m:
+        return ""
+    for rx, fmt in _MODEL_NAMES:
+        h = re.match(rx, m)
+        if h:
+            maj, mi = h.group(1), (h.group(2) if h.lastindex and h.lastindex >= 2 else None)
+            return fmt.format(maj, mi).rstrip(".None").replace(".None", "")
+    return " ".join(w[:1].upper() + w[1:] for w in re.split(r"[\s:/_-]+", m.split("@")[0]) if w)
+
+
+def _transcript_model(sid: str):
+    stores = [Path(x).expanduser() for x in os.environ.get("PM_CLAUDE_STORES", str(Path.home() / ".claude" / "projects")).split(":") if x.strip()]
+    tp = next((p for root in stores for p in root.glob(f"*/{sid}.jsonl")), None) if sid else None
+    if not tp:
+        return None
+    try:
+        with open(tp, "rb") as fh:
+            fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - 512 * 1024)); tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        if '"type":"assistant"' in line and '"model"' in line:
+            m = re.search(r'"model":"([^"]+)"', line)
+            if m:
+                return m.group(1)
+    return None
+
+
+def agent_signature(sid=None) -> str:
+    """Le nom du modèle qui écrit : `PM_THINK_AUTHOR`, sinon le modèle du transcript de la session, sinon « Agent »."""
+    env = os.environ.get("PM_THINK_AUTHOR")
+    if env:
+        return env
+    return model_label(_transcript_model(sid or os.environ.get("CLAUDE_CODE_SESSION_ID") or "")) or "Agent"
+
+
+def human_signature() -> str:
+    """Le nom du demandeur : `PM_THINK_HUMAN`, sinon `PM_USER_NAME` du .env perso, sinon le manager IA de pm.config.yml, sinon « Demandeur »."""
+    for var in ("PM_THINK_HUMAN", "PM_USER_NAME"):
+        if os.environ.get(var):
+            return os.environ[var]
+    try:
+        import yaml
+        from pm_paths import PMConfig
+        cfg = PMConfig.load()
+        data = yaml.safe_load((Path(cfg.pm_dir) / "pm.config.yml").read_text(encoding="utf-8")) or {}
+        name = ((data.get("ia") or {}).get("default_manager") or {}).get("name")
+        if name:
+            return str(name).split(" ")[0]
+    except Exception:
+        pass
+    return "Demandeur"
+
+
+def signature(by, sid=None) -> str:
+    """Résout un code d'auteur : M → demandeur nommé, A → modèle nommé ; un nom déjà explicite passe tel quel."""
+    if by in (None, "", "A", "agent"):
+        return agent_signature(sid)
+    if by in ("M", "demandeur"):
+        return human_signature()
+    return str(by)
+
+
+# ── propositions pertinentes de l'IA (RM3062, lot 3) ─────────────────────────
+_PROPOSITION = re.compile(r"\b(je propose|je recommande|je suggère|ma préférence|je penche|à mon avis|il faudrait|on pourrait|on devrait|"
+                          r"piste|recommandation|deux options|trois options|option [AB1-3]|le mieux serait|je conseille|attention :|à noter :|"
+                          r"ce qui manque|risque)\b", re.I)
+
+
+def proposition_pertinente(text: str):
+    """(pertinente, extrait) pour un tour de l'IA : une proposition ou réflexion non posée en question outillée.
+    Garde la phrase porteuse (jusqu'à 400 caractères), ignore le compte-rendu d'exécution."""
+    s = " ".join(str(text or "").split())
+    if len(s) < 60 or not _PROPOSITION.search(s):
+        return False, ""
+    phrases = re.split(r"(?<=[.!?])\s+", s)
+    hit = next((i for i, ph in enumerate(phrases) if _PROPOSITION.search(ph)), 0)
+    extrait = " ".join(phrases[hit:hit + 2])[:400]
+    return True, extrait
+
+
 # ── pertinence d'une note (RM3062) ──────────────────────────────────────────
 # Une note n'entre au vrac que si elle peut CHANGER quelque chose plus tard (constat, idée, réserve,
 # contrainte) ; jamais une demande immédiate d'exécution, un accord, un accusé, un collage. La règle
@@ -224,6 +323,8 @@ def note_pertinente(text: str):
         return False, "vide"
     if _EXPLICITE.search(s):
         return True, "explicite"
+    if _PROPOSITION.search(s) and not _COMMANDE.match(s):
+        return True, "proposition"           # une proposition (de l'IA ou du demandeur) est pertinente par construction
     if _OPERATION.search(s):
         return False, "opération sur un ticket"
     ordre = bool(_COMMANDE.match(s))
@@ -266,10 +367,11 @@ def gabarit(rm_id: int, title: str = "") -> str:
          "> La fiche `.md` est le contrat, le `.log.md` le journal d'événements ; ce fichier est le **pourquoi**.",
          "> États : ✅ validé · ❌ invalidé (motif) · 🟡 proposé (à arbitrer) · 🕐 en attente · ⏸ en réserve.",
          "> Ids locaux au ticket, trois chiffres, jamais réattribués ; préfixés `RM<id>-` à la fusion (`pm-think-merge`).",
+         "> Chaque ligne est **signée** par son auteur nommé — une personne ou un modèle (RM3062).",
          ""]
     for kind in ("note", "question", "decision", "feature"):
         _, titre, hdr = KINDS[kind]
-        L += [f"## {titre}", "", "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr), ""]
+        L += [f"## {titre}", "", f"> {LEGEND[kind]}", "", "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr), ""]
     return "\n".join(L)
 
 
@@ -291,6 +393,7 @@ def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, 
     """Les cellules d'une ligne selon la grammaire de sa section."""
     when = when or datetime.now().strftime("%Y-%m-%d")
     icon = STATE_ICON.get(state, state) if state else ("🕐" if kind != "decision" else "🟡")
+    by = signature(by, sid)                       # RM3062 : auteur nommé, jamais un code
     who = f"{when} · {by}" + (f" · s:{str(sid)[:8]}" if sid else "")
     if kind == "note":
         return [rid, who, _clean(text), icon, _clean(dest)]
@@ -326,6 +429,18 @@ def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **f
     lines.insert(sec["line_end"], "| " + " | ".join(cells) + " |")
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return rid
+
+
+def remove_rows(path, ids) -> int:
+    """Supprime des lignes pour de bon (RM3062 : « les notes pourries, tu peux les supprimer vraiment »). Retourne le nombre retiré."""
+    p = Path(path)
+    parsed = load(p)
+    kill = {r["line"] for sec in parsed.values() for r in sec["rows"] if r["id"] in set(ids)}
+    if not kill:
+        return 0
+    lines = p.read_text(encoding="utf-8").splitlines()
+    p.write_text("\n".join(l for i, l in enumerate(lines) if i not in kill) + "\n", encoding="utf-8")
+    return len(kill)
 
 
 def set_state(path, rid: str, state: str, dest: str = "") -> bool:
@@ -407,7 +522,7 @@ def render_merged(kind: str, thinks: dict) -> str:
     """Le bloc fusionné d'une rubrique : une table, ids `RM<id>-Xnnn`, colonne Ticket."""
     _, _, hdr = KINDS[kind]
     cols = [hdr[0], "Ticket"] + hdr[1:]
-    L = [MERGE_BEGIN, "",
+    L = [MERGE_BEGIN, "", f"> {LEGEND.get(kind, '')}", "",
          "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     n_open = n_total = 0
     for rid, parsed in thinks.items():

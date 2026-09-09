@@ -27,6 +27,9 @@ Règle NORMS : `session-tooling` § « Consignation par ticket — le `.think.md
 - **F fonctionnalité** : une feature **atomique** qui donne lieu à un ticket, le complète, ou
   reste à faire plus tard.
 - **Q question** : ce qui n'est pas tranché, ce que ça bloque, l'urgence, l'avis.
+- **Signature** : `--by M` = le demandeur nommé (`PM_THINK_HUMAN`, sinon le manager IA de la conf), `--by A` (défaut) = le
+  modèle de la session (`PM_THINK_AUTHOR`, sinon le transcript), ou un nom explicite (`--by Paul`). Les propositions de
+  l'IA sont moissonnées en notes signées du modèle. Élagage : `pm-think-harvest --prune --all [--delete]`.
 
 ## Ce que les scripts font déjà (ne pas doublonner)
 

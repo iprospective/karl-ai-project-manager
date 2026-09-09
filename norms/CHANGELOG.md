@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.27.0] - 2026-09-09
+
+### Ajouté
+- **Les quatre rubriques de la consignation, définies une fois** (`session-tooling`
+  § « Consignation par ticket », RM3062) : ce qui se range dans N, Q, D/C, F — et ce qui ne
+  s'y range pas. Critère d'une **note** : elle doit pouvoir changer quelque chose plus tard
+  (constat, idée, réserve, contrainte) ; jamais une demande immédiate, un accord, un accusé.
+  Une **décision** est ce que le demandeur demande, pose ou tranche — réponse à une question
+  ou non, ticketé ou non. Une **fonctionnalité** est une feature atomique qui donne lieu à un
+  ticket, le complète, ou reste à faire. La moisson `pm-think-harvest` applique le critère de
+  la note. `cdc` § identifiants renvoie à cette définition. Ajout seul, pas de ledger.
+
 ## [2.25.0] - 2026-09-08
 
 ### Ajouté

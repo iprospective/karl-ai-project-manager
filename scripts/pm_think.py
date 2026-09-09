@@ -199,6 +199,42 @@ def counters(parsed: dict) -> dict:
     }
 
 
+# ── pertinence d'une note (RM3062) ──────────────────────────────────────────
+# Une note n'entre au vrac que si elle peut CHANGER quelque chose plus tard (constat, idée, réserve,
+# contrainte) ; jamais une demande immédiate d'exécution, un accord, un accusé, un collage. La règle
+# vit dans NORMS `session-tooling` § « Les quatre rubriques » ; ceci en est l'approximation mécanique.
+_EXPLICITE = re.compile(r"\b(notes? que|consigne[sz]?\b|à noter|pense-bête|retien[st]|à retenir)", re.I)
+_REFLEXION = re.compile(r"\b(il faudra(it)?|on pourrait|on devrait|on va devoir|idée|réfléch|penser à|je pense|j'ai l'impression|tu en penses|"
+                        r"à terme|plus tard|attention|important|jamais|toujours|en fait|plutôt|au lieu|hypothèse|contrainte|risque|proposition|"
+                        r"pourquoi|comment|est-ce|faut-il|ne (?:veux|voulais|souhaite) pas|je (?:veux|voudrais|souhaite)|l'idéal|normalement|"
+                        r"principe|règle|généraliser|dans l'idéal|cadrage|compl[èe]te|préci[sz]|doit|devra|devrait|figé|à compléter|il manque|"
+                        r"manque|reste à|soucis|problème|bug|cas de figure|raison pour laquelle|pas (?:encore|toujours)|ne vois pas|je ne comprends)", re.I)
+_COMMANDE = re.compile(r"^\W*(ok|oui|non|nickel|parfait|merci|super|top|go|vas-y|fais|prends|étudie|lance|merge|ferme|passe|continue|core update|"
+                       r"reprends|corrige|teste|regarde|montre|liste|crée|ajoute|mets|pousse|push|commit|déploie|relance|attends|c'est bon|"
+                       r"traite|chiffre|livre|répond|donne|envoie|supprime|j'ai fait|je viens de)\b", re.I)
+_OPERATION = re.compile(r"\b(traite|étudie|chiffre|review|continue) (?:et \w+ )?la tâche RM\d+|\bRM\d+\b.{0,20}\b(en_cours|a_faire|ferme|a_tester)\b|core update (?:fait|ok)", re.I)
+
+
+def note_pertinente(text: str):
+    """(pertinente, motif). Explicite (« note que », « consigne ») ⇒ oui. Sinon : une marque de réflexion
+    hors demande d'exécution ⇒ oui ; une longue prose sans ordre en tête ⇒ oui ; le reste (ordre, accord,
+    accusé, opération sur un ticket) ⇒ non. Pure — testée."""
+    s = " ".join(str(text or "").split())
+    if not s:
+        return False, "vide"
+    if _EXPLICITE.search(s):
+        return True, "explicite"
+    if _OPERATION.search(s):
+        return False, "opération sur un ticket"
+    ordre = bool(_COMMANDE.match(s))
+    reflexion = bool(_REFLEXION.search(s))          # un « ? » seul ne suffit pas : la plupart sont des questions d'exécution à l'agent
+    if reflexion and not (ordre and len(s) < 80):
+        return True, "réflexion"
+    if not ordre and len(s) >= 300:
+        return True, "prose"
+    return False, "demande immédiate / accord" if ordre else "sans portée"
+
+
 def _norm(s: str) -> str:
     s = " ".join(str(s or "").lower().split())
     return s.strip(" «»\"'“”‘’").strip()[:200]

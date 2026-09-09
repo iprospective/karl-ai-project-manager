@@ -31,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_tags
 from pm_paths import PMConfig
 
@@ -82,7 +83,7 @@ def usages(cfg):
         if not tasks.is_dir():
             continue
         for f in tasks.glob("RM*_*.md"):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             try:
                 m = fm_re.match(f.read_text(encoding="utf-8"))

@@ -48,6 +48,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 import pm_cf_mirror
 import pm_git
@@ -109,7 +110,7 @@ def main():
             d = cfg.path("tasks_dir", entity=ent, project=proj)
             if d.is_dir():
                 paths += [f for f in sorted(d.glob("RM*.md"))
-                          if not f.name.endswith(".log.md")]
+                          if is_task_sheet(f)]
 
     # Pré-chargement en masse : un GET par ticket ferait ~1200 appels pour un
     # balayage complet. La liste paginée renvoie déjà les custom_fields.

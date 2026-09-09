@@ -82,6 +82,27 @@ use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprime
 elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
 ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
 
+## Consignation par ticket — le `.think.md` (RM3015, RM3053)
+
+**Tout ce qui se réfléchit ou se décide appartient à un ticket, pas à la session.** Chaque
+fiche a un frère `RM<id>_<slug>.think.md` à quatre rubriques — notes verbatim (N), questions
+(Q), décisions et conseils (D/C), fonctionnalités (F) — aux états ✅ ❌ 🟡 🕐 ⏸. Le `.log.md`
+garde les événements, le think garde le **pourquoi** ; la fiche ne porte que des compteurs
+(`think:`). Règles :
+
+1. **Les scripts d'abord, l'agent ensuite** : le hook `pm-think-harvest` consigne à chaque tour
+   les questions posées, les réponses retenues et les demandes verbatim ; `request`/`notify`
+   rattachés à un ticket y descendent. L'agent n'écrit à la main que le conseil et l'arbitrage :
+   `pm-task-think <id> --advise|--decide|--question|--feature "…"`, **dans le même tour** que la
+   discussion qui les a fait naître — un arbitrage non consigné est un arbitrage qu'on croira consigné.
+2. **Un ticket ne se ferme pas avec une Q ouverte ou une N à trier** (garde de `pm-task-status-update`) :
+   tranche (`--set Qnnn --state valide|invalide`) avant de livrer.
+3. **Le projet agrège, jamais à la main** : `pm-think-merge` régénère `docs/cdc-questions.md`,
+   `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md` (ids `RM<id>-Xnnn`) ; `cdc.md`,
+   `cdc-roadmap.md` (un rôle par version, sur demande) et `cdc-help.md` (complétée par le LLM)
+   restent manuels. `--check` à la livraison. Une idée sans ticket attend dans `cdc-notes.md`,
+   au-dessus des marqueurs. Mode d'emploi : skill `mmi-pm-think`.
+
 ## Registre des demandes (RM2621)
 
 Une demande formulée en séance n'existe que dans le fil : non ticketée

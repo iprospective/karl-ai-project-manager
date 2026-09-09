@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 
 try:
@@ -117,7 +118,7 @@ def check_partner_links(cfg, ovs, errors, warns):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = FM_RE.match(f.read_text(encoding="utf-8"))
             if not m:
@@ -171,7 +172,7 @@ def check_state_mirror(cfg, ovs, errors, warns):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = FM_RE.match(f.read_text(encoding="utf-8"))
             if not m:

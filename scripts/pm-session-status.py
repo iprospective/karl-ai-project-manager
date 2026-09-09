@@ -914,6 +914,29 @@ def cmd_request(data, args):
     data["requests"] = reqs
     save(data)
     pmout.op("worklog", extra="demande #%d enregistrée" % len(reqs))
+    _think_note(args.ticket, str(args.text), data["session_id"])
+
+
+def _think_note(ref, text, sid):
+    """RM3015-D004/D005 (RM3053) : ce qui est rattaché à un ticket descend dans son `.think.md`
+    (note verbatim, dédoublonnée) — le worklog n'est plus le contenant durable. Best-effort."""
+    m = re.search(r"(\d+)", str(ref or ""))
+    if not m:
+        return
+    try:
+        import pm_think
+        from pm_paths import PMConfig
+        sheet = PMConfig.load().find_task(int(m.group(1)))
+        if not sheet:
+            return
+        think = pm_think.think_path(sheet)
+        if pm_think.has_text(pm_think.load(think), "note", text):
+            return
+        rid = pm_think.append(think, "note", text, rm_id=int(m.group(1)), by="M", state="attente", sid=sid)
+        pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        pm_git.autocommit([think, sheet], f"pm(think): RM{m.group(1)} +{rid} (session)")
+    except Exception as e:                       # noqa: BLE001 — jamais bloquer l'enregistrement
+        pmout.warn("think non mis à jour : %s" % e)
 
 
 def cmd_notify(data, args):
@@ -967,6 +990,7 @@ def cmd_notify(data, args):
     save(data)
     pmout.op("worklog", extra="notification %s [%s] %s" % (
         NOTIFY_ICON.get(note["level"], "•"), note["level"], args.message[:60]))
+    _think_note(args.ref, "[notification %s/%s] %s" % (note["level"], kind, args.message), data["session_id"])
     pmout.info("  · %s" % paths(data["session_id"])[1])
 
 

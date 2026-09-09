@@ -520,6 +520,11 @@ def main():
         }
         reprise["prompts"], reprise["prompts_total"] = pr, tot
     unread = unread_redmine(fm, args.rm_id, args.redmine)
+    # RM3053 : la réflexion du ticket (questions ouvertes, décisions) — ce qui manquait le plus à une reprise
+    import pm_think
+    _tp = pm_think.think_path(md_path)
+    _tparsed = pm_think.load(_tp) if _tp.is_file() else None
+    think = {"file": str(_tp), **pm_think.counters(_tparsed)} if _tparsed else None
 
     data = {
         "rm_id": args.rm_id, "title": fm.get("title"), "type": fm.get("type"),
@@ -542,6 +547,7 @@ def main():
         "redmine_unread": unread,
         "task_file": str(md_path),
         "tags": tags,
+        "think": think,
         "role_hint": {"role": role, "why": role_why} if role else None,
     }
     if reprise:
@@ -576,6 +582,8 @@ def main():
     if crit:
         nxt = " ; ".join(t[:60] for t in data["criteria"]["next"][:3])
         L.append(f"critères ({n_done}/{len(crit)})" + (f" : → {nxt}" if nxt else " : tous cochés"))
+    if think:
+        L += pm_think.summary(_tparsed, limit=3)[:4]
     if entries:
         L.append(f"log ({len(entries)} dernières) :")
         for e in entries:
@@ -588,6 +596,9 @@ def main():
     print("\n".join(L[:30]))
     if reprise:
         print("\n".join(reprise_lines(data)))
+        if _tparsed:
+            print("\n── réflexion du ticket (" + _tp.name + ") ──")
+            print("\n".join(pm_think.summary(_tparsed, limit=12)))
 
 
 if __name__ == "__main__":

@@ -33,18 +33,22 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## CDC vivant du projet — à tenir au fil de l'eau (RM3043)
 
-Le projet `pm-ai-agents` a un **cahier des charges vivant** dans `{docs_dir}` (`cdc-pm-*.md`, bouton
-**📋 CDC** du cockpit), sur le modèle AtomBox. Comme pour NORMS et la doc vivante (`governance`
-§ Développement du PM), il se met à jour **dans la même livraison**, jamais en rattrapage :
+Le projet `pm-ai-agents` a un **cahier des charges vivant** dans `{docs_dir}` (`cdc.md` et
+`cdc-<donnée>.md`, bouton **📋 CDC** du cockpit), sur le modèle AtomBox. Comme pour NORMS et la doc
+vivante (`governance` § Développement du PM), il se met à jour **dans la même livraison**, jamais en
+rattrapage — et depuis RM3015/RM3053 la consignation se fait **au niveau du ticket**, le projet
+n'étant qu'une fusion :
 
-- une **décision / un arbitrage** de Mathieu en séance → ligne `Dnnn` dans `cdc-pm-90-decisions.md` (conseil rendu en `Cnnn`) ;
-- une **question** laissée ouverte → `Qnnn` dans `cdc-pm-99-questions-ouvertes.md` ; tranchée → barrée + renvoi vers sa `D` ;
-- une **remarque** jetée en passant → verbatim `Nnnn` dans `cdc-pm-91-vrac.md`, puis triée ;
-- une **fonctionnalité** livrée / prise / planifiée → `pm-cdc-features --sync --build` (registre `cdc-pm/fonctionnalites.yml`,
-  chapitre 10 généré, jamais édité à la main) ; `--check` doit être vert à la livraison.
+- tout se consigne dans le **`RM<id>_<slug>.think.md`** du ticket concerné : `pm-task-think <id>
+  --advise|--decide|--question|--feature "…"` (le hook `pm-think-harvest` y met déjà, tout seul, les
+  questions posées, les réponses retenues et les demandes verbatim) ;
+- `pm-think-merge` régénère `cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`
+  (ids `RM<id>-Dnnn`) ; **`pm-think-merge --check` et `pm-cdc-features --check` doivent être verts à la livraison** ;
+- `cdc.md`, `cdc-roadmap.md` (un rôle par version) et `cdc-help.md` (que le LLM complète quand il le peut)
+  restent manuels ; une idée sans ticket attend dans `cdc-notes.md` au-dessus des marqueurs.
 
 Identifiants à trois chiffres, stables, jamais réattribués. Version alpha en plein développement : c'est le
-moment où c'est le plus facile — on ne reconstitue pas un registre après coup.
+moment où c'est le plus facile — on ne reconstitue pas un registre après coup. Skill : `mmi-pm-think`.
 
 ## Rappels critiques
 

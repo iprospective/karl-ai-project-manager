@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""pm-think-harvest — moisson automatique du transcript vers le `.think.md` du ticket courant. RM3015 D005, RM3053.
+
+« Scripts et automatisations au maximum » : ce hook (Claude Code `Stop` / `SessionEnd`) relit le
+transcript de la session et consigne, sans geste de l'agent :
+  - les QUESTIONS posées à l'utilisateur (AskUserQuestion / ExitPlanMode, typage RM2549) :
+      répondues  → une décision D « question → réponse » (✅, auteur M) ; la Q ouverte homonyme passe ✅ ;
+      sans réponse → une question Q (🕐) ;
+  - les DEMANDES de l'utilisateur (messages humains ≥ 20 caractères, hors commandes `/…`) → notes N verbatim.
+Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus. Le ticket courant est résolu comme
+pour le tick de conso (`pm-task-tick.resolve_current_rm_id` : mutation PM du tour, fiche éditée, mention,
+sinon sentinel `CURRENT_TASK`). Sans ticket résolu : rien, silencieusement (RM2440).
+
+  hook   : payload JSON sur stdin ({session_id, transcript_path, cwd}) — jamais d'échec bloquant
+  CLI    : pm-think-harvest --rm <id> [--session <sid>] [--transcript <jsonl>] [--dry-run]
+"""
+import argparse
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_git                                   # noqa: E402
+import pm_think                                 # noqa: E402
+from pm_paths import PMConfig                   # noqa: E402
+from pm_transcript import transcript_outline    # noqa: E402
+
+MIN_NOTE = 20
+MAX_NOTE = 400
+#: en mode hook, on ne relit que la fin du transcript (depuis le dernier tour moissonné, avec
+#: un recul pour retrouver la question d'un tour précédent à laquelle ce tour répond)
+LOOKBACK = 80
+CLAUDE_STORES = [Path(p).expanduser() for p in
+                 os.environ.get("PM_CLAUDE_STORES", str(Path.home() / ".claude" / "projects")).split(":") if p.strip()]
+
+
+def _tick_module():
+    spec = importlib.util.spec_from_file_location("pm_task_tick", Path(__file__).resolve().parent / "pm-task-tick.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+
+def transcript_of(sid):
+    return next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None) if sid else None
+
+
+def harvest_items(lines) -> list:
+    """[(kind, text, extra)] à consigner, dans l'ordre du fil, sans doublon. Pure — c'est elle qui est testée."""
+    out, seen = [], set()
+    for it in transcript_outline(lines, max_items=1000000):
+        k = it.get("kind")
+        if k == "question":
+            q = " / ".join(l.strip() for l in str(it.get("full") or "").splitlines()
+                           if l.strip() and not l.startswith("  - ")) or it.get("text", "")
+            item = ("decision", f"{q} → {it['answer']}", {"question": q}) if it.get("answer") else ("question", q, {})
+        elif k == "user":
+            t = " ".join(str(it.get("full") or it.get("text") or "").split())
+            # ni commandes, ni enveloppes techniques, ni marqueurs d'interruption
+            if len(t) < MIN_NOTE or t.startswith(("/", "<", "[")):
+                continue
+            item = ("note", t[:MAX_NOTE] + ("…" if len(t) > MAX_NOTE else ""), {})
+        else:
+            continue
+        key = (item[0], pm_think._norm(item[1]))
+        if key in seen:
+            continue
+        seen.add(key); out.append(item)
+    return out
+
+
+def _cursor_path(cfg, sid):
+    return Path(cfg.state_dir) / "think-harvest" / f"{sid}.json"
+
+
+def _window(cfg, sid, lines: list) -> list:
+    """En mode hook : les lignes depuis le dernier tour moissonné (moins LOOKBACK), et le curseur avance."""
+    cp = _cursor_path(cfg, sid) if sid else None
+    start = 0
+    if cp and cp.is_file():
+        try:
+            start = max(0, int(json.loads(cp.read_text()).get("line", 0)) - LOOKBACK)
+        except (ValueError, OSError):
+            start = 0
+    if cp:
+        try:
+            cp.parent.mkdir(parents=True, exist_ok=True)
+            cp.write_text(json.dumps({"line": len(lines)}))
+        except OSError:
+            pass
+    return lines[start:]
+
+
+def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False) -> list:
+    """Écrit ce qui manque ; retourne les ids ajoutés."""
+    added = []
+    parsed = pm_think.load(think)
+    for kind, text, extra in items:
+        if pm_think.has_text(parsed, kind, text):
+            continue
+        if dry:
+            added.append(f"{kind}:{text[:60]}"); continue
+        if kind == "decision":
+            rid = pm_think.append(think, "decision", text, rm_id=rm_id, title=title, by="M", state="valide", sid=sid)
+            # la question homonyme laissée ouverte par une moisson précédente est tranchée
+            for r in parsed.get("question", {}).get("rows", []):
+                if not r["closed"] and r["state"] not in ("valide", "invalide") and len(r["cells"]) > 1 \
+                        and pm_think._norm(r["cells"][1]) == pm_think._norm(extra.get("question")):
+                    pm_think.set_state(think, r["id"], "valide", dest=rid)
+        elif kind == "question":
+            rid = pm_think.append(think, "question", text, rm_id=rm_id, title=title, by="A", state="attente", sid=sid,
+                                  urgence="moyenne")
+        else:
+            rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by="M", state="attente", sid=sid)
+        added.append(rid)
+        parsed = pm_think.load(think)
+    return added
+
+
+def run(rm_id, sid, transcript, dry=False, commit=True, incremental=False) -> list:
+    cfg = PMConfig.load()
+    sheet = cfg.find_task(int(rm_id))
+    if not sheet:
+        return []
+    with open(transcript, encoding="utf-8", errors="replace") as fh:
+        lines = fh.readlines()
+    if incremental:
+        lines = _window(cfg, sid, lines)
+    items = harvest_items(lines)
+    if not items:
+        return []
+    think = pm_think.think_path(sheet)
+    added = apply(think, int(rm_id), items, sid=sid, dry=dry)
+    if added and not dry:
+        pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        if commit:
+            pm_git.autocommit([think, sheet], f"pm(think): RM{rm_id} moisson {len(added)} entrée(s)")
+    return added
+
+
+def hook_mode() -> int:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        payload = {}
+    sid = payload.get("session_id") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+    tp = payload.get("transcript_path") or (transcript_of(sid) if sid else None)
+    if not tp or not Path(tp).is_file():
+        return 0
+    try:
+        rid, _why = _tick_module().resolve_current_rm_id(payload.get("cwd") or os.getcwd(), str(tp))
+        if rid is None:
+            return 0
+        run(rid, sid, tp, incremental=True)
+    except SystemExit:
+        pass
+    except Exception as e:                       # jamais bloquer un tour pour une moisson
+        try:
+            from pm_log import log as _jlog
+            _jlog("worklog", "warn", f"think-harvest: {e}", sid=sid)
+        except Exception:
+            pass
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("--rm", type=int); ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    ap.add_argument("--transcript"); ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--no-commit", action="store_true")
+    a = ap.parse_args()
+    if a.rm is None:
+        sys.exit(hook_mode())
+    tp = a.transcript or transcript_of(a.session)
+    if not tp:
+        sys.exit(f"ERREUR : transcript introuvable (session {a.session})")
+    added = run(a.rm, a.session, tp, dry=a.dry_run, commit=not a.no_commit)
+    print(f"{'(dry) ' if a.dry_run else ''}RM{a.rm} : {len(added)} entrée(s) {'à ajouter' if a.dry_run else 'ajoutée(s)'}"
+          + (" — " + ", ".join(added[:12]) if added else ""))
+
+
+if __name__ == "__main__":
+    main()

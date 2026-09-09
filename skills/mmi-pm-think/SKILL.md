@@ -1,0 +1,51 @@
+---
+name: mmi-pm-think
+description: Consigne la réflexion d'un ticket dans son fichier frère `RM<id>_<slug>.think.md` (notes verbatim N, questions Q, décisions/conseils D/C, fonctionnalités F, états ✅ ❌ 🟡 🕐 ⏸) et la fusionne vers les fichiers du projet (`docs/cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`). Usage : "/mmi-pm-think 3015 --decide '…'", ou langage naturel "consigne la décision sur RM3015", "note cette question dans le ticket", "qu'est-ce qui reste ouvert sur RM3015 ?", "fusionne les think du projet".
+allowed-tools: Bash, Read
+---
+
+# Skill : mmi-pm-think
+
+Wrapper contextuel autour de `scripts/pm-task-think.py` et `scripts/pm-think-merge.py` (RM3015, RM3053).
+Règle NORMS : `session-tooling` § « Consignation par ticket — le `.think.md` ».
+
+## Quand déclencher
+
+- Un **conseil** rendu, un **arbitrage** du demandeur, une **question** laissée ouverte, une
+  **fonctionnalité** qui prend forme → **dans le même tour** que la discussion.
+- « qu'est-ce qui reste ouvert / décidé sur RM<id> ? » → `--show`.
+- Avant de livrer ou de fermer : `pm-think-merge --check` (et la garde de clôture refuse les Q ouvertes).
+- `/mmi-pm-think <id> --note|--question|--decide|--advise|--feature "…"`.
+
+## Ce que les scripts font déjà (ne pas doublonner)
+
+- Le hook `pm-think-harvest` (Stop / SessionEnd) consigne **tout seul** les questions posées
+  (`AskUserQuestion`, `ExitPlanMode`), les réponses retenues (→ D ✅) et les demandes verbatim
+  du demandeur (→ N). `pm-session-status request --ticket RM<id>` et `notify --ref RM<id>`
+  descendent aussi dans le think.
+- L'agent n'écrit donc à la main que ce qu'aucun script ne peut inférer : le **conseil**
+  (options, pour/contre, motif) et l'**arbitrage** quand il n'est pas passé par une question outillée.
+
+## Invocation
+
+```bash
+scripts/pm-task-think.py <id> --advise "…"                      # C, 🟡 (conseil de l'agent)
+scripts/pm-task-think.py <id> --decide "…" --state valide --by M # D ✅ (arbitrage du demandeur)
+scripts/pm-task-think.py <id> --question "…" --bloque L1 --urgence haute
+scripts/pm-task-think.py <id> --feature "…" --domaine consignation --version V1 --lot L1
+scripts/pm-task-think.py <id> --note "verbatim" --by M          # rarement à la main (le hook le fait)
+scripts/pm-task-think.py <id> --set Q003 --state valide --dest D004   # trancher / trier
+scripts/pm-task-think.py <id> --show                            # Q ouvertes, D récentes, compteurs
+scripts/pm-think-merge.py [--project <client>/<projet>] [--check]   # fusion vers docs/cdc-*.md
+scripts/pm-think-merge.py --rename-legacy                       # anciens cdc-<prefix>-NN-*.md → noms génériques
+```
+
+`--state` : `valide` ✅ · `invalide` ❌ · `propose` 🟡 · `attente` 🕐 · `reserve` ⏸.
+Chaque ligne porte date, auteur (M = Mathieu / demandeur, A = agent) et session ; les ids sont
+locaux au ticket (D001…) et préfixés `RM<id>-` à la fusion. Un texte contenant `|` est neutralisé.
+
+## Gardes
+
+- **Jamais de réflexion dans le `.log.md`** (événements) ni de prose dans le frontmatter (compteurs seuls).
+- Une décision qui engage d'autres tickets est **fusionnée** vers le projet par le script, jamais recopiée à la main.
+- `pm-task-status-update <id> ferme` refuse s'il reste une Q ouverte ou une N à trier (`--ignore-think` pour passer outre, consciemment).

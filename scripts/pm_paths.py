@@ -24,6 +24,8 @@ import os
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # RM3053
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from typing import Iterator, Optional, Tuple
 
 try:
@@ -353,7 +355,7 @@ class PMConfig:
             if not tasks_dir.is_dir():
                 continue
             for f in tasks_dir.glob(f"RM{rm_id}_*.md"):
-                if f.name.endswith(".log.md"):
+                if not is_task_sheet(f):
                     continue
                 return f, ent_slug, proj_slug
         return None, None, None
@@ -366,7 +368,7 @@ class PMConfig:
             if not tasks_dir.is_dir():
                 continue
             for f in tasks_dir.glob(f"RM{rm_id}_*.md"):
-                if f.name.endswith(".log.md"):
+                if not is_task_sheet(f):
                     continue
                 return f
         return None

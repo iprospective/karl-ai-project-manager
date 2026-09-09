@@ -6,13 +6,16 @@ transcript de la session et consigne, sans geste de l'agent :
   - les QUESTIONS posées à l'utilisateur (AskUserQuestion / ExitPlanMode, typage RM2549) :
       répondues  → une décision D « question → réponse » (✅, auteur M) ; la Q ouverte homonyme passe ✅ ;
       sans réponse → une question Q (🕐) ;
-  - les DEMANDES de l'utilisateur (messages humains ≥ 20 caractères, hors commandes `/…`) → notes N verbatim.
+  - les REMARQUES de l'utilisateur qui passent le critère de la note (RM3062 : réflexion, constat, idée —
+    jamais une demande immédiate, un accord, un accusé ; `pm_think.note_pertinente`) → notes N verbatim.
 Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus. Le ticket courant est résolu comme
 pour le tick de conso (`pm-task-tick.resolve_current_rm_id` : mutation PM du tour, fiche éditée, mention,
 sinon sentinel `CURRENT_TASK`). Sans ticket résolu : rien, silencieusement (RM2440).
 
   hook   : payload JSON sur stdin ({session_id, transcript_path, cwd}) — jamais d'échec bloquant
   CLI    : pm-think-harvest --rm <id> [--session <sid>] [--transcript <jsonl>] [--dry-run]
+  élagage: pm-think-harvest --prune (--rm <id> | --all) [--dry-run] — les notes en attente qui ne passent pas le
+           critère passent ❌ « élaguée (RM3062) », jamais supprimées ; à rejouer après une évolution du critère.
 """
 import argparse
 import importlib.util
@@ -59,6 +62,9 @@ def harvest_items(lines) -> list:
             t = " ".join(str(it.get("full") or it.get("text") or "").split())
             # ni commandes, ni enveloppes techniques, ni marqueurs d'interruption
             if len(t) < MIN_NOTE or t.startswith(("/", "<", "[")):
+                continue
+            ok, _motif = pm_think.note_pertinente(t)          # RM3062 : le critère de la note
+            if not ok:
                 continue
             item = ("note", t[:MAX_NOTE] + ("…" if len(t) > MAX_NOTE else ""), {})
         else:
@@ -118,6 +124,22 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
     return added
 
 
+def prune(think: Path, dry=False) -> list:
+    """Élague les notes en attente qui ne passent pas le critère (❌, dest « élaguée (RM3062) : <motif> »). Retourne les ids."""
+    parsed = pm_think.load(think)
+    out = []
+    for r in parsed.get("note", {}).get("rows", []):
+        if r["closed"] or r["state"] in ("valide", "invalide") or len(r["cells"]) < 3:
+            continue
+        ok, motif = pm_think.note_pertinente(r["cells"][2])
+        if ok:
+            continue
+        out.append(r["id"])
+        if not dry:
+            pm_think.set_state(think, r["id"], "invalide", dest=f"élaguée (RM3062) : {motif}")
+    return out
+
+
 def run(rm_id, sid, transcript, dry=False, commit=True, incremental=False) -> list:
     cfg = PMConfig.load()
     sheet = cfg.find_task(int(rm_id))
@@ -168,7 +190,37 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     ap.add_argument("--rm", type=int); ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
     ap.add_argument("--transcript"); ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--no-commit", action="store_true")
+    ap.add_argument("--prune", action="store_true", help="élaguer les notes en attente qui ne passent pas le critère (RM3062)")
+    ap.add_argument("--all", action="store_true", help="avec --prune : tous les think du projet courant")
+    ap.add_argument("--tasks-dir", help="avec --prune : dossier des fiches (tests)")
     a = ap.parse_args()
+    if a.prune:
+        cfg = None if a.tasks_dir else PMConfig.load()
+        if a.all:
+            tasks = Path(a.tasks_dir) if a.tasks_dir else Path(cfg.find_task(a.rm)).parent if a.rm else None
+            if tasks is None:
+                mm = Path.cwd() / ".mmi-pm"
+                tasks = (mm.resolve() / "tasks") if mm.exists() else None
+            if not tasks or not tasks.is_dir():
+                sys.exit("--prune --all : dossier tasks/ introuvable (--tasks-dir, ou un workspace avec .mmi-pm)")
+            thinks = sorted(tasks.glob("RM*.think.md"))
+        else:
+            if a.rm is None:
+                sys.exit("--prune exige --rm <id> ou --all")
+            sheet = Path(a.tasks_dir).glob(f"RM{a.rm}_*.md") if a.tasks_dir else [cfg.find_task(a.rm)]
+            sheet = next((x for x in sheet if x and pm_think.is_task_sheet(str(x))), None)
+            thinks = [pm_think.think_path(sheet)] if sheet else []
+        total = 0
+        for th in thinks:
+            if not th.is_file():
+                continue
+            ids = prune(th, dry=a.dry_run); total += len(ids)
+            if ids:
+                print(f"{'(dry) ' if a.dry_run else ''}{th.name} : {len(ids)} note(s) élaguée(s) — {', '.join(ids[:10])}{'…' if len(ids) > 10 else ''}")
+                if not a.dry_run and not a.no_commit:
+                    pm_git.autocommit([th], f"pm(think): {pm_think.rm_id_of(th) and 'RM' + str(pm_think.rm_id_of(th)) or th.name} élagage de {len(ids)} note(s) (RM3062)", cwd=th.parent)
+        print(f"{'(dry) ' if a.dry_run else ''}élagage : {total} note(s) sur {len(thinks)} think")
+        return
     if a.rm is None:
         sys.exit(hook_mode())
     tp = a.transcript or transcript_of(a.session)

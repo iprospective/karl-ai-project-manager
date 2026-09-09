@@ -48,7 +48,11 @@ Jamais l'un sans les autres, **à chaque lot** :
 | ⏸ en réserve | **arbitré** et volontairement écarté, avec une **condition de reprise** nommée |
 
 `D` décision · `C` conseil · `Q` question · `N` note du vrac · `U` retour d'utilisateur ·
-`F` fonctionnalité · `S` supposition · `O` mesure à observer. **Toujours trois chiffres**
+`F` fonctionnalité · `S` supposition · `O` mesure à observer. Ce qui se range dans N, Q, D/C
+et F — et ce qui ne s'y range pas — est défini une fois, dans `session-tooling` § « Les quatre
+rubriques » (RM3062) : une note n'entre au vrac que si elle peut **changer quelque chose plus
+tard** ; une D est ce que le demandeur demande, pose ou tranche, ticketé ou non ; une F est une
+feature atomique qui donne lieu à un ticket, le complète, ou reste à faire. **Toujours trois chiffres**
 (`D050`, jamais `D50`) : le tri lexical suit alors le tri numérique. Les identifiants sont
 **stables**, jamais réattribués ; un amendement porte un suffixe (`D009b`), il ne remplace pas.
 

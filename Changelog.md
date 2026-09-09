@@ -100,6 +100,9 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **Logo karl** (RM3065, 3.7.7) : le K filaire qui relie une note, une page web et du code
+  (variante A4) — marque dans l'en-tête et sur l'écran de connexion, favicon SVG dédié,
+  sources dans `deploy/karl-agent/cockpit/logo/`.
 - **Éditer le CDC depuis le cockpit** (RM3064, 3.7.6) : dans les registres fusionnés, chaque
   entrée de think a un sélecteur d'état et un ✕ (confirmé) ; dans la table des fonctionnalités,
   un sélecteur d'état qui fige l'entrée (`--set-etat`, jamais de suppression). Routes

@@ -1,9 +1,9 @@
 ---
-schema_version: "2.27.0"
+schema_version: "2.28.0"
 updated: 2026-09-09
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.27.0
+# Normes de gestion des tâches — v2.28.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -716,6 +716,12 @@ garde les événements, le think garde le **pourquoi** ; la fiche ne porte que d
 | **Q question** | Ce qui n'est **pas tranché** et ce que ça **bloque**, avec l'urgence et l'avis de l'agent. Une supposition non confirmée devient une Q. | Une question de simple exécution qui se règle dans le tour (« quel port ? »). |
 | **D décision** (C conseil) | **Ce que le demandeur demande de faire, pose, ou tranche** — suite à une question **ou non**, ticketé **ou non** : les réponses aux questions en font partie, mais pas seulement. Un arbitrage même bref (« on fusionne », « un seul menu ») est une D ✅. Le **C** est le conseil de l'agent (options, pour/contre, motif), 🟡 tant qu'il n'est pas arbitré. | Le simple choix d'implémentation de l'agent (il vit dans le code et le ticket), un « ok » qui ne pose rien. |
 | **F fonctionnalité** | Une **feature, généralement atomique** : une demande qui **donne lieu à un ticket**, en **complète** un, ou **sera à faire plus tard** — avec son domaine, sa version quand elle est connue, l'état de l'échelle. | Une tâche interne de l'agent, un correctif de son propre code, une étape d'un ticket déjà décrite dans sa description. |
+
+**Chaque ligne est signée par son auteur nommé** — une personne (Mathieu, Paul, Pierre…) ou un modèle
+(Claude Opus 5, Qwen 3.8 27b, Deepseek 4 Flash…), jamais un code : on sait qui a proposé la feature,
+posé la question, laissé la note, tranché. Les **propositions et réflexions pertinentes de l'IA**, même
+non posées en question outillée, entrent au vrac **signées du modèle** (la moisson les repère).
+Chaque fichier (think, registres du projet) porte en tête la **légende** de ses rubriques.
 
 **Le critère d'une note** : « est-ce que ça peut changer quelque chose plus tard ? ». Si non,
 ne rien consigner — un vrac noyé n'est plus lu (« tu peux virer 90 % de ce que tu as mis »).

@@ -32,6 +32,14 @@ export function ClientReport(vm) {
       <button data-action="dismiss"${vm.canDismiss ? "" : " disabled"} title="Sortir ces tickets de la file sans prévenir le client">${vm.dismissLabel}</button>
       ${vm.busy ? html`<span class="cn-busy">…</span>` : ""}<span class="cn-why">${vm.why}</span>
     </div>
+    <div class="cn-test">
+      <label class="cn-testlbl" for="cn-testto">Test d'envoi</label>
+      ${vm.contacts.length ? html`<select class="cn-testsel" data-action="testpick" title="Choisir un contact de l'annuaire">
+        <option value="">— contact —</option>${vm.contacts.map(c => html`<option value="${c.email}"${c.email === vm.testTo ? " selected" : ""}>${c.label}</option>`)}</select>` : ""}
+      <input class="cn-testto" id="cn-testto" type="email" data-action="testto" value="${vm.testTo}" placeholder="adresse@exemple.fr" autocomplete="email">
+      <button data-action="test"${vm.canTest ? "" : " disabled"} title="Envoyer CE compte-rendu à cette adresse, sans rien changer à la file">Envoyer un test</button>
+      <span class="cn-why">${vm.testWhy}</span>
+    </div>
     <h3 class="cn-prevh">Aperçu de l'email</h3>
     ${vm.preview ? html`<div class="cn-prev"><div class="cn-subj"><b>Objet :</b> ${vm.preview.subject}</div>
       ${vm.previewHtml ? html`<iframe class="cn-frame" sandbox="" title="Aperçu de l'email" srcdoc="${vm.previewHtml}"></iframe>`

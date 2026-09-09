@@ -103,6 +103,24 @@ check("send : confirmation explicite (--yes) posée par l'API, pas par le front"
       "--yes" in calls[-1] and "send" in calls[-1])
 check("send : rend ce qui est parti et à qui", sent["sent"] == 2 and sent["to"] == ["a@x.fr"])
 
+# — envoi de TEST : endpoint DISTINCT de send, pour qu'un test ne puisse jamais partir au client —
+FAKE_OUT = '{"ok": true, "test": true, "to": ["moi@ipro.fr"], "subject": "[TEST] S"}'
+t = ka.op_client_notify_test({"client": "calicote", "rm": [3025], "to": ["moi@ipro.fr"]})
+check("test : sous-commande `test`, jamais `send`, et jamais --yes",
+      "test" in calls[-1] and "send" not in calls[-1] and "--yes" not in calls[-1])
+check("test : l'adresse est transmise", "--to" in calls[-1] and "moi@ipro.fr" in calls[-1])
+check("test : rend à qui c'est parti", t["to"] == ["moi@ipro.fr"])
+check("adresse de test invalide refusée",
+      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": ["pasunemail"]}), 400))
+check("adresse vide refusée",
+      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": [""]}), 400))
+check("aucune adresse => refusé (un test sans destinataire n'a pas de sens)",
+      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1]}), 400))
+check("adresse en chaîne simple tolérée (le front n'envoie qu'un champ)",
+      ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": "moi@ipro.fr"})["to"] == ["moi@ipro.fr"])
+check("test : une sélection vide reste refusée",
+      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [], "to": ["a@b.fr"]}), 400))
+
 FAKE_OUT = '{"ok": true, "dismissed": 1, "rm": [3042]}'
 dis = ka.op_client_notify_dismiss({"client": "calicote", "rm": [3042]})
 check("dismiss : écarte la sélection, sans email", dis["dismissed"] == 1 and "send" not in calls[-1])

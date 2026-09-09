@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : b68c85234c6dc19f (32 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : e3ac227aa590b358 (32 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -4061,4 +4061,32 @@ iframe {
   border-radius: 4px;
   background: #fff;
   resize: vertical;
+}
+
+.cn-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+}
+
+.cn-testlbl {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cn-testsel {
+  font-size: 12px;
+  max-width: 260px;
+}
+
+.cn-testto {
+  font-size: 12px;
+  padding: 3px 6px;
+  min-width: 200px;
+  flex: 0 1 260px;
 }

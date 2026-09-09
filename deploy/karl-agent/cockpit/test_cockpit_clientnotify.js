@@ -11,7 +11,7 @@ const settle = () => new Promise(r => setTimeout(r, 5));
 function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}, textContent: "", get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, querySelector() { return null; }, querySelectorAll() { return []; }, contains() { return true; }, appendChild() {}, remove() {}, addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); },
   async fire(type, node) { for (const [t, f] of [...L]) if (t === type) await f({ target: node, preventDefault() {}, stopPropagation() {} }, node); await settle(); },
   async click(action, data) { const n = { tagName: "BUTTON", dataset: Object.assign({ action }, data || {}), closest: () => n }; await self.fire("click", n); },
-  async check(action, data, checked) { const n = { tagName: "INPUT", checked: checked !== false, dataset: Object.assign({ action }, data || {}), closest: () => n }; await self.fire("click", n); await self.fire("change", n); } };
+  async check(action, data, checked, value) { const n = { tagName: value === undefined ? "INPUT" : "SELECT", value: value === undefined ? "" : value, checked: checked !== false, dataset: Object.assign({ action }, data || {}), closest: () => n }; await self.fire("click", n); await self.fire("change", n); } };
   return self; }
 
 (async () => {
@@ -84,6 +84,25 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/data-action="client" data-client="calicote"/.test(String(V.ClientMenu(m = new VM.ClientMenuViewModel({ clients: DATA().clients, total: 4 })))), "chaque client est un geste");
   console.log("✓ compte-rendu client : menu compté, groupes par projet, sélection inter-projets, gardes d'envoi, vues sans on*");
 
+  // — envoi de TEST (RM3052) : se relire dans une vraie boîte avant d'écrire au client —
+  const vmT = new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]),
+    contacts: [{ label: "Mathieu Moulin", email: "m@ipro.fr" }, { label: "Mathieu Moulin", email: "contact@ipro.fr" }],
+    testTo: "m@ipro.fr" });
+  assert.deepStrictEqual(vmT.contacts.map(c => c.email), ["m@ipro.fr", "contact@ipro.fr", "s@calicote.com"],
+    "l'annuaire d'abord, puis les destinataires du client, sans doublon");
+  assert(vmT.testValid && vmT.canTest, "adresse valide + sélection : le test est ouvert");
+  assert(!new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), testTo: "pasunemail" }).testValid,
+    "adresse invalide reconnue");
+  assert(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), testTo: "pasunemail" }).canTest,
+    "…mais le bouton reste CLIQUABLE : désactivé, il avalerait le premier clic après la frappe");
+  assert(!new VM.ClientReportViewModel({ client: cal, sel: new Set(), testTo: "m@ipro.fr" }).canTest,
+    "rien de coché : rien à tester non plus");
+  const fragT = String(V.ClientReport(vmT));
+  assert(/data-action="testpick"/.test(fragT) && /data-action="testto"/.test(fragT) && /data-action="test"/.test(fragT),
+    "le bloc de test porte ses trois gestes : choisir, saisir, envoyer");
+  assert(/<option value="m@ipro.fr" selected>/.test(fragT), "le contact courant est présélectionné");
+  assert(/value="m@ipro.fr"/.test(fragT), "l'adresse saisie est conservée au repeint");
+
   // — contrôleur —
   const calls = []; let sendRes = { ok: true, sent: 2, to: ["s@calicote.com"] };
   let queue = DATA();
@@ -148,6 +167,27 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await el.click("send"); await el.click("send");
   assert(toasts.some(t => /envoi refusé : aucun destinataire résolu/.test(t)), "échec d'envoi : dit, jamais silencieux");
   assert(!ctl.state.busy, "…et le panneau redevient utilisable");
+
+  // le test : il part où on l'envoie, et il ne touche à RIEN
+  queue = DATA(); repo.send = async (b) => { calls.push("send:" + b.rm.join(",")); return sendRes; };
+  await ctl.refresh(); await ctl.open("calicote");
+  repo.test = async (b) => { calls.push("test:" + b.to.join(",") + ":" + b.rm.join(",")); return { ok: true, test: true, to: b.to }; };
+  await el.click("test");
+  assert(!calls.some(c => c.startsWith("test:")), "sans adresse : rien n'est envoyé");
+  assert(toasts.some(t => /aucune adresse de test/.test(t)), "…et on dit pourquoi");
+  await el.check("testto", {}, true, "pasunemail");
+  await el.click("test");
+  assert(!calls.some(c => c.startsWith("test:")) && toasts.some(t => /adresse de test invalide/.test(t)),
+    "adresse invalide : refusée au clic, avec le texte fautif");
+  await el.check("testto", {}, true, "moi@ipro.fr");
+  const qBefore = calls.filter(c => c === "pending").length;
+  await el.click("test");
+  assert(calls.some(c => c === "test:moi@ipro.fr:3025,2948,3042"), "le test part à l'adresse saisie, avec la sélection exacte");
+  assert(toasts.some(t => /test envoyé à moi@ipro.fr/.test(t)), "retour d'envoi de test");
+  assert(calls.filter(c => c === "pending").length === qBefore, "un test NE relit pas la file : elle n'a pas bougé");
+  assert(store.m.karlCnTestTo === "moi@ipro.fr", "l'adresse de test est mémorisée pour la prochaine fois");
+  await el.check("testpick", {}, true, "s@calicote.com");
+  assert(ctl.svc.testTo === "s@calicote.com", "choisir un contact remplit le champ");
 
   // la file injoignable : panneau vide mais honnête
   repo.pending = async () => { throw new Error("agent injoignable"); };

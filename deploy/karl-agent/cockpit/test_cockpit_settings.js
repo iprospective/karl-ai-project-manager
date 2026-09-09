@@ -80,6 +80,10 @@ function fakeElement() {
   await el2.fire("change", "[data-setting]", { dataset: { setting: "enum" }, value: "light", closest: () => row });
   assert.deepStrictEqual(saved.pop(), ["conf:ui.theme", "light"]); assert.strictEqual(mem.karlThemeServer, "light", "le thème serveur s'applique immédiatement (RM2386)"); assert(ev2.includes("applyTheme"));
   await th.fire("change", "[data-theme-local]", { value: "auto" }); assert.strictEqual(mem.karlThemeLocal, "auto"); assert(/<option value="auto" selected>/.test(th.innerHTML));
+  // RM3063 : le filtre « Clients » de l'en-tête, masqué par défaut, réaffiché par l'option locale
+  assert(/data-show-clientctx(?! checked)/.test(th.innerHTML), "case décochée par défaut");
+  await th.fire("change", "[data-show-clientctx]", { checked: true }); assert.strictEqual(mem.karlShowClientCtx, "1"); assert(/data-show-clientctx checked/.test(th.innerHTML), "réglage persisté et case cochée");
+  await th.fire("change", "[data-show-clientctx]", { checked: false }); assert.strictEqual(mem.karlShowClientCtx, "0");
   s2.unmountAll(); assert.strictEqual(el2.listenerCount + th.listenerCount, 0);
   console.log("✓ réglages et thème (RM2213/RM2386) : groupes, figés, sauvegarde confirmée, thème immédiat");
   console.log("\nTous les tests réglages / commandes PM passent.");

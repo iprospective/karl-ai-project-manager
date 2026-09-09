@@ -94,7 +94,7 @@ garde les événements, le think garde le **pourquoi** ; la fiche ne porte que d
 
 | Rubrique | Ce que c'est | Ce que ce n'est pas |
 |---|---|---|
-| **N note** | Une information **utile plus tard**, consignée **verbatim** : un constat, une idée, une réserve, une contrainte, une intuition à moitié finie — ce qui peut **devenir** une question, une décision, une fonctionnalité ou un changement. Explicite (« note que… », « consigne… ») ⇒ toujours. | Une **demande immédiate d'exécution** (« étudie et chiffre RM3058 », « prends le ticket »), un **accord** ou un **accusé** (« ok pour /opt », « j'ai fait le ssh-add »), un collage, une sortie de commande, un résumé de compaction. Ce sont des demandes ou des événements : registre des demandes, `.log.md`, ou rien. |
+| **N note** | **Ce qui n'a PAS été traité** et pourra servir : un report explicite (« pour l'instant… on verra plus tard »), un manque, une intention différée. Trois conditions **cumulatives** (RM3066) : (1) un **reste à faire** ; (2) **auto-suffisante** — on comprend QUOI reste à faire en lisant la note seule, hors du fil, dans six mois ; (3) **pas déjà traitée**. Explicite (« note que… ») ⇒ toujours. | Une **demande d'exécution** (« étudie RM3058 », « consigne tout ça maintenant ») — même longue, même si elle contient « il faudra » ; une **réponse à une question** (« Q23 : … ») — c'est une décision ; une **contrainte** (« doit être figé ») — c'est une décision aussi ; un **bug** — c'est un ticket ; un accord, un accusé, un collage de console, un résumé de compaction. |
 | **Q question** | Ce qui n'est **pas tranché** et ce que ça **bloque**, avec l'urgence et l'avis de l'agent. Une supposition non confirmée devient une Q. | Une question de simple exécution qui se règle dans le tour (« quel port ? »). |
 | **D décision** (C conseil) | **Ce que le demandeur demande de faire, pose, ou tranche** — suite à une question **ou non**, ticketé **ou non** : les réponses aux questions en font partie, mais pas seulement. Un arbitrage même bref (« on fusionne », « un seul menu ») est une D ✅. Le **C** est le conseil de l'agent (options, pour/contre, motif), 🟡 tant qu'il n'est pas arbitré. | Le simple choix d'implémentation de l'agent (il vit dans le code et le ticket), un « ok » qui ne pose rien. |
 | **F fonctionnalité** | Une **feature, généralement atomique** : une demande qui **donne lieu à un ticket**, en **complète** un, ou **sera à faire plus tard** — avec son domaine, sa version quand elle est connue, l'état de l'échelle. | Une tâche interne de l'agent, un correctif de son propre code, une étape d'un ticket déjà décrite dans sa description. |
@@ -105,11 +105,18 @@ posé la question, laissé la note, tranché. Les **propositions et réflexions 
 non posées en question outillée, entrent au vrac **signées du modèle** (la moisson les repère).
 Chaque fichier (think, registres du projet) porte en tête la **légende** de ses rubriques.
 
-**Le critère d'une note** : « est-ce que ça peut changer quelque chose plus tard ? ». Si non,
-ne rien consigner — un vrac noyé n'est plus lu (« tu peux virer 90 % de ce que tu as mis »).
-Le verbatim qui **fonde** une décision se garde comme **source de la D** (la D le cite), pas
-comme note séparée. Une note pertinente a une **destination** : elle migre vers une Q, une D,
-une F ou un chapitre, et le dit.
+**Le critère d'une note** : « qu'est-ce qui, là-dedans, n'a PAS été traité et pourra servir ? ». Si
+la réponse est « rien », ne rien consigner — un vrac noyé n'est jamais lu. Le verbatim qui **fonde**
+une décision se garde comme **source de la D** (la D le cite), pas comme note séparée.
+
+**Le vrac est un SAS, pas une destination.** Une dette retenue ne reste pas une note : elle se
+reformule **dans le même tour** en **question** (ce qu'elle bloque) ou en **fonctionnalité** (ce qui
+reste à faire), sur le ticket qui la porte — c'est là qu'elle devient actionnable et lisible. Une
+note sans destination au bout de quelques jours n'en aura jamais.
+
+**Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
+dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un
+projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient d'AtomBox).
 
 Règles :
 

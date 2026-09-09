@@ -22,6 +22,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -62,7 +63,7 @@ def harvest_items(lines) -> list:
         elif k == "assistant":
             # RM3062 lot 3 : les propositions / réflexions pertinentes de l'IA, non posées en question outillée → note signée du modèle
             ok, extrait = pm_think.proposition_pertinente(it.get("full") or it.get("text") or "")
-            if not ok:
+            if not ok or not pm_think.note_pertinente(extrait)[0]:   # RM3066 : même critère pour l'IA — une proposition sans reste à faire n'est pas une note
                 continue
             item = ("note", extrait, {"by": "A"})
         elif k == "user":
@@ -131,15 +132,32 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
     return added
 
 
+#: statuts où le travail du ticket est FAIT : une note laissée « à trier » n'a plus d'objet (RM3066)
+LIVRES = ("a_tester_dev", "a_tester_demandeur", "a_tester_preprod", "a_mep", "en_mep", "ferme")
+
+
+def ticket_livre(sheet: Path) -> bool:
+    """Le ticket est-il livré ou fermé ? Ses notes en attente sont alors mortes : ce qui devait
+    en sortir est soit fait, soit devenu une question ou une fonctionnalité avant la livraison."""
+    try:
+        m = re.search(r"^status:\s*(\S+)", sheet.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return False
+    return bool(m) and m.group(1).strip().strip("'\"") in LIVRES
+
+
 def prune(think: Path, dry=False, delete=False) -> list:
     """Élague les notes en attente qui ne passent pas le critère : ❌ « élaguée (RM3062) : <motif> », ou SUPPRIMÉES
     (`delete`, décision Mathieu 2026-09-09 : « les notes pourries, tu peux les supprimer vraiment ») — les lignes déjà
     marquées élaguées partent aussi. Retourne les ids."""
     parsed = pm_think.load(think)
+    livre = ticket_livre(pm_think.sheet_of(think))
     out = []
     for r in parsed.get("note", {}).get("rows", []):
         if len(r["cells"]) < 3:
             continue
+        if livre and not (r["closed"] or r["state"] in ("valide", "invalide")):
+            out.append(r["id"]); continue      # ticket livré : la note n'a plus d'objet
         deja = "élaguée (RM3062)" in (r["cells"][4] if len(r["cells"]) > 4 else "")
         if deja and delete:
             out.append(r["id"]); continue
@@ -156,10 +174,32 @@ def prune(think: Path, dry=False, delete=False) -> list:
     return out
 
 
-def run(rm_id, sid, transcript, dry=False, commit=True, incremental=False) -> list:
+def meme_projet(sheet: Path, cwd) -> bool:
+    """RM3066 : la fiche du ticket courant et le cwd de la session désignent-ils le MÊME projet ?
+
+    Sans cette garde, une session qui travaille sur un projet (AtomBox) mais dont le « ticket courant »
+    résolu appartient à un autre (le PM) déverse toute sa conception dans le mauvais think : 36 des 51
+    notes de RM2967 parlaient d'AtomBox. Un doute (cwd hors projet PM-tracké) laisse passer."""
+    try:
+        mm = Path(cwd or "").resolve()
+    except (OSError, ValueError):
+        return True
+    for d in [mm, *mm.parents]:
+        link = d / ".mmi-pm"
+        if link.exists():
+            try:
+                return link.resolve() in sheet.resolve().parents
+            except OSError:
+                return True
+    return True
+
+
+def run(rm_id, sid, transcript, dry=False, commit=True, incremental=False, cwd=None) -> list:
     cfg = PMConfig.load()
     sheet = cfg.find_task(int(rm_id))
     if not sheet:
+        return []
+    if cwd and not meme_projet(sheet, cwd):
         return []
     with open(transcript, encoding="utf-8", errors="replace") as fh:
         lines = fh.readlines()
@@ -190,7 +230,7 @@ def hook_mode() -> int:
         rid, _why = _tick_module().resolve_current_rm_id(payload.get("cwd") or os.getcwd(), str(tp))
         if rid is None:
             return 0
-        run(rid, sid, tp, incremental=True)
+        run(rid, sid, tp, incremental=True, cwd=payload.get("cwd"))
     except SystemExit:
         pass
     except Exception as e:                       # jamais bloquer un tour pour une moisson

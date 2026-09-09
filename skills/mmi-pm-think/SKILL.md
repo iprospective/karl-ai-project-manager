@@ -19,9 +19,11 @@ Règle NORMS : `session-tooling` § « Consignation par ticket — le `.think.md
 
 ## Quoi consigner — et quoi ne PAS consigner (RM3062)
 
-- **N note** : seulement ce qui peut **changer quelque chose plus tard** (constat, idée, réserve,
-  contrainte) ; « note que » / « consigne » ⇒ toujours. **Jamais** une demande immédiate
-  (« étudie RM3058 »), un accord (« ok pour /opt »), un accusé, un collage.
+- **N note** : seulement **ce qui n'a pas été traité** et pourra servir — un report (« pour l'instant…
+  on verra plus tard »), un manque, une intention différée ; il faut qu'on comprenne QUOI reste à faire
+  en lisant la note seule. **Jamais** une demande d'exécution (même longue), une réponse à une question
+  (c'est une D), une contrainte (c'est une D), un bug (c'est un ticket), un accord, un collage.
+  Une dette retenue se **reformule aussitôt** en Q ou F : le vrac est un sas.
 - **D décision** : ce que le demandeur **demande de faire, pose ou tranche** — réponse à une
   question ou non, ticketé ou non. **C** : le conseil de l'agent, 🟡 jusqu'à l'arbitrage.
 - **F fonctionnalité** : une feature **atomique** qui donne lieu à un ticket, le complète, ou

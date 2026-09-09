@@ -15,6 +15,7 @@ Aucun réseau, aucun git : tout en répertoire temporaire, `--no-commit`.
 import json
 import re
 import subprocess
+import pathlib
 import sys
 import tempfile
 from pathlib import Path
@@ -225,12 +226,39 @@ check("hooks : moisson câblée sur Stop et SessionEnd", (SCRIPTS / "pm-claude-h
 
 print()
 
-# ── RM3062 : le critère de la note, la moisson filtrée, l'élagage ─────────────────────────────
-print("\n[RM3062] critère de pertinence d'une note")
+# ── RM3062/RM3066 : le critère de la note, la moisson filtrée, l'élagage ─────────────────────
+print("\n[RM3066] critère sémantique de la note — jeu tiré du corpus réel")
+for txt, exp in [
+        # dettes réelles : un reste à faire, auto-suffisant
+        ("Tu deploies pour l'instant en ssh -A, on verra plus tard pour faire plus propre.", True),
+        ("du coup, ticket pour plus tard : permettre de specifier/surcharger pour chaque projet le task manager", True),
+        ("go. Juste la modif de champs dans le redmine matnat, on verra plus tard... je dois le valider en equipe.", True),
+        ("Il manque aussi le dictionnaire des données dans le projet.", True),
+        ("note que le vault age ne se verrouille pas", True),
+        # contrainte sans reste à faire, et pas auto-suffisante
+        ("le choix des lots doit être figé dans prestashop.", False),
+        # ordres à l'agent, même longs, même avec « consigne »
+        ("Consigne tout ça dans le ticket maintenant", False),
+        ("merge les 6 propres (et consignes le des fois que ce ne soit pas si propre qu'on l'imaginait)", False),
+        ("Fais un ticket PM pour analyser si on peut adapter le PM iprospective au même résultat", False),
+        # réponse à une question outillée : c'est une décision
+        ("Q23 : on administre domaines, boites, alias. Mais pas besoin pour le pilote.", False),
+        ("D114 : quelle alternative pour que ca se passe mieux ? Q45 : oui metadonnees", False),
+        # collages
+        ("root@dev:~# grep -A2 'GC des verrous' /zfs/workspaces/.mmi-pm-core/scripts/cron.example.sh", False),
+        ("This session is being continued from a previous conversation that ran out of context.", False),
+        # report trop court pour qu'on sache de quoi il s'agit
+        ("je stoppe on reprend plus tard", False),
+        ("je m'occuperai de la clé API plus tard", False),
+]:
+    ok, motif = pm_think.note_pertinente(txt)
+    check(f"{'garde' if exp else 'écarte'} « {txt[:46]}… » ({motif})", ok == exp)
+
+print("\n[RM3062] signatures, moisson, élagage")
 for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
                  ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),
                  ("note que le vault age ne se verrouille pas", True), ("il faudra faire un point sur les parties du kernel les plus utilisées", True),
-                 ("le choix des lots doit être figé dans prestashop.", True), ("On pourrait réfléchir à découper encore plus fin en modules ?", True),
+                 ("le choix des lots doit être figé dans prestashop.", False), ("On pourrait réfléchir à découper encore plus fin en modules, avec des renvois vers des fichiers détaillés ?", True),
                  ("Les notes en vrac : je ne veux que ce qui est suffisamment pertinent pour apporter une information utile plus tard", True)]:
     ok, motif = pm_think.note_pertinente(txt)
     check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
@@ -238,7 +266,7 @@ with tempfile.TemporaryDirectory() as tmp:
     tasks = Path(tmp); sheet = tasks / "RM77_slug.md"; sheet.write_text("---\nredmine_id: 77\ntitle: t\n---\n")
     th = pm_think.think_path(sheet)
     n1 = pm_think.append(th, "note", "ok pour /opt. J'ai fait un ssh-add", rm_id=77, by="M", state="attente")
-    n2 = pm_think.append(th, "note", "il faudra revoir la précharge des modules", rm_id=77, by="M", state="attente")
+    n2 = pm_think.append(th, "note", "il faudra revoir la précharge des modules NORMS, elle est trop grosse", rm_id=77, by="M", state="attente")
     n3 = pm_think.append(th, "note", "prends le ticket", rm_id=77, by="M", state="valide")
     r = subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--dry-run"], capture_output=True, text=True)
     check("prune --dry-run liste la note sans portée, pas la pertinente ni la déjà traitée", n1 in r.stdout and n2 not in r.stdout and n3 not in r.stdout, r.stdout + r.stderr)
@@ -246,11 +274,11 @@ with tempfile.TemporaryDirectory() as tmp:
     parsed = pm_think.load(th); rows = {x["id"]: x for x in parsed["note"]["rows"]}
     check("prune : la note élaguée passe ❌ avec son motif, l'autre reste 🕐", rows[n1]["state"] == "invalide" and "élaguée (RM3062)" in rows[n1]["cells"][4] and rows[n2]["state"] == "attente", r.stdout + r.stderr)
     check("prune : rejouer n'élague rien de plus", subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--dry-run"], capture_output=True, text=True).stdout.strip().endswith("0 note(s) sur 1 think"))
-    lines = [json.dumps({"type": "user", "message": {"role": "user", "content": "ok pour /opt. J'ai fait un ssh-add sur la machine"}}), json.dumps({"type": "user", "message": {"role": "user", "content": "il faudra revoir la précharge des modules NORMS"}})]
+    lines = [json.dumps({"type": "user", "message": {"role": "user", "content": "ok pour /opt. J'ai fait un ssh-add sur la machine"}}), json.dumps({"type": "user", "message": {"role": "user", "content": "il faudra revoir la précharge des modules NORMS, elle est trop grosse"}})]
     import importlib.util
     spec = importlib.util.spec_from_file_location("harv", SCRIPTS / "pm-think-harvest.py"); harv = importlib.util.module_from_spec(spec); spec.loader.exec_module(harv)
     items = harv.harvest_items(lines)
-    check("moisson : seule la remarque pertinente devient une note", [i[1] for i in items] == ["il faudra revoir la précharge des modules NORMS"], str(items))
+    check("moisson : seule la remarque pertinente devient une note", [i[1] for i in items] == ["il faudra revoir la précharge des modules NORMS, elle est trop grosse"], str(items))
     # lot 3 : signatures nominatives, propositions de l'IA, légende, suppression
     import os
     os.environ["PM_THINK_AUTHOR"] = "Claude Opus 5"; os.environ["PM_THINK_HUMAN"] = "Mathieu"
@@ -261,16 +289,29 @@ with tempfile.TemporaryDirectory() as tmp:
     txt2 = th2.read_text()
     check("lignes signées par un nom, jamais un code", "· Mathieu" in txt2 and "· Claude Opus 5" in txt2 and " · M)" not in txt2 and " · A)" not in txt2, txt2[-300:])
     check("légende N/Q/D/F dans le gabarit du think", all(pm_think.LEGEND[k].split(" — ")[0] in txt2 for k in pm_think.LEGEND))
-    lines_ia = [json.dumps({"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Je lis le fichier. Je propose de fermer RM3044 en doublon et de reporter son protocole dans RM3043, à trancher par Mathieu. Ensuite je lance les tests."}]}}),
+    lines_ia = [json.dumps({"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Je lis le fichier. Je propose de garder le repli en dur pour l'instant : il faudra le remplacer par une config quand le multi-instance arrivera. Ensuite je lance les tests."}]}}),
                 json.dumps({"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Les tests passent, je committe et je pousse la branche."}]}})]
     it2 = harv.harvest_items(lines_ia)
-    check("moisson : une proposition de l'IA devient une note (extrait porteur), pas le compte-rendu d'exécution", len(it2) == 1 and it2[0][0] == "note" and it2[0][1].startswith("Je propose de fermer RM3044") and it2[0][2].get("by") == "A", str(it2))
-    harv.apply(th2, 78, it2, sid="s9"); check("note de l'IA signée du modèle", "Je propose de fermer RM3044" in th2.read_text() and "· Claude Opus 5 · s:s9" in th2.read_text())
+    check("moisson : une proposition de l'IA devient une note (extrait porteur), pas le compte-rendu d'exécution", len(it2) == 1 and it2[0][0] == "note" and it2[0][1].startswith("Je propose de garder le repli en dur") and it2[0][2].get("by") == "A", str(it2))
+    harv.apply(th2, 78, it2, sid="s9"); check("note de l'IA signée du modèle", "Je propose de garder le repli en dur" in th2.read_text() and "· Claude Opus 5 · s:s9" in th2.read_text())
     merged = pm_think.render_merged("note", {78: pm_think.load(th2)}); check("légende dans le bloc fusionné", "N note —" in merged)
     n4 = pm_think.append(th2, "note", "ok pour /opt", rm_id=78, by="M", state="attente")
     r = subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--delete", "--no-commit"], capture_output=True, text=True)
     left = pm_think.load(th2)["note"]["rows"]; left77 = pm_think.load(th)["note"]["rows"]
     check("prune --delete : la note pourrie disparaît, la pertinente reste ; la déjà-élaguée (❌ RM3062) part aussi", all(x["id"] != n4 for x in left) and any("Je propose" in x["cells"][2] for x in left) and all(x["id"] != n1 for x in left77) and any(x["id"] == n2 for x in left77), r.stdout + r.stderr)
+    # RM3066 : un ticket livré n'a plus de note « à trier »
+    (tasks / "RM79_livre.md").write_text("---\nredmine_id: 79\nstatus: a_tester_demandeur\n---\n")
+    th3 = pm_think.think_path(tasks / "RM79_livre.md")
+    pm_think.append(th3, "note", "il faudra revoir le vhost de test plus tard, il pointe encore l'ancien env", rm_id=79, by="M", state="attente")
+    check("ticket_livre : a_tester_demandeur = livré, en_cours = non", harv.ticket_livre(tasks / "RM79_livre.md") is True and harv.ticket_livre(tasks / "RM77_slug.md") is False)
+    ids = harv.prune(th3, dry=True)
+    check("prune : sur un ticket livré, même une vraie dette tombe (elle devait devenir Q ou F avant la livraison)", len(ids) == 1, str(ids))
+    # RM3066 : la garde de rattachement — une session d'un projet ne consigne pas dans le ticket d'un autre
+    proj = pathlib.Path(tmp) / "wsA"; (proj / ".mmi-pm").mkdir(parents=True); autre = pathlib.Path(tmp) / "wsB"; (autre / ".mmi-pm").mkdir(parents=True)
+    fiche = proj / ".mmi-pm" / "tasks" / "RM90_x.md"; fiche.parent.mkdir(); fiche.write_text("---\nredmine_id: 90\n---\n")
+    check("même projet : le cwd du workspace porteur passe", harv.meme_projet(fiche, str(proj)) is True)
+    check("autre projet : la consignation est refusée", harv.meme_projet(fiche, str(autre)) is False)
+    check("cwd hors projet PM-tracké : le doute laisse passer", harv.meme_projet(fiche, tmp) is True)
     del os.environ["PM_THINK_AUTHOR"]; del os.environ["PM_THINK_HUMAN"]
 
 if FAIL:

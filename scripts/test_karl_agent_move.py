@@ -89,6 +89,21 @@ seed_store(SID, old)  # store repointe l'ancien projet (bug RM2391)
 check("_resume_cwd préfère l'emplacement réel du transcript",
       ka._resume_cwd(new_jf, "claude", SID) == new)
 
+# — RM3057 : session qui a fait `cd` — store ET queue pointent un sous-dossier, seul le PREMIER cwd du
+# transcript a le slug du dossier réel → on le retient, et le store est réparé (cause racine : figé au spawn) —
+sub = new + "/envs/x-dev/poc"
+cd_jf = new_jf.parent / "cdcdcdcd-0000-4000-8000-000000000001.jsonl"
+cd_jf.write_text("\n".join([json.dumps({"type": "summary", "cwd": new})] + [json.dumps({"type": "user", "cwd": sub, "i": i}) for i in range(50)]) + "\n")
+cd_sid = "cdcdcdcd-0000-4000-8000-000000000001"
+cd_store = seed_store(cd_sid, sub)
+got = ka._resume_cwd(cd_jf, "claude", cd_sid)
+check("RM3057 : store et queue divergents → le cwd de départ (slug du dossier) est retenu", got == new)
+fixed = json.loads(cd_store.read_text())
+check("RM3057 : le store est réparé (cwd réaligné, ancien gardé)", fixed["cwd"] == new and fixed["cwd_before_fix"] == sub)
+check("RM3057 : _transcript_cwds dans l'ordre, sans doublon", ka._transcript_cwds(cd_jf) == [new, sub])
+cd_jf.write_text(json.dumps({"type": "user", "cwd": sub}) + "\n"); seed_store(cd_sid, sub)
+check("RM3057 : aucun cwd ne colle → repli historique (store)", ka._resume_cwd(cd_jf, "claude", cd_sid) == sub)
+
 # — garde session vivante → 409 —
 ka._session_live = lambda sid, eng="claude": True
 try:

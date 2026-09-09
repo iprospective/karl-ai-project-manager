@@ -4028,23 +4028,73 @@ def op_resumable(qs: dict) -> list:
     return out[:limit]
 
 
+def _transcript_cwds(path: Path, max_bytes: int = 4 * 1024 * 1024) -> list:
+    """RM3057 : les `cwd` d'un transcript claude, dans l'ordre d'apparition et sans
+    doublon — lecture BORNÉE depuis le DÉBUT (le premier cwd est celui de la
+    création, donc celui dont le slug nomme le dossier du .jsonl), puis la queue
+    si le fichier est plus gros que la fenêtre."""
+    out, seen = [], set()
+
+    def scan(data: bytes):
+        for line in data.decode("utf-8", "replace").splitlines():
+            if '"cwd"' not in line:
+                continue
+            try:
+                c = json.loads(line).get("cwd")
+            except ValueError:
+                continue
+            if c and c not in seen:
+                seen.add(c); out.append(c)
+    try:
+        st = path.stat()
+        with path.open("rb") as fh:
+            scan(fh.read(max_bytes))
+            if st.st_size > 2 * max_bytes:
+                fh.seek(st.st_size - max_bytes); fh.readline(); scan(fh.read())
+    except OSError:
+        pass
+    return out
+
+
 def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
     """cwd de relance pour `claude --resume` (RM2418). Le store per-session
     (figé au spawn) pouvait pointer un ANCIEN projet après un déplacement manuel
     du transcript → relance au mauvais cwd et « No conversation found ».
     Correctif : on retient le premier candidat — store per-session, puis cwd
     interne du transcript — dont le slug == dossier où vit RÉELLEMENT le .jsonl.
-    Aucun ne colle → comportement historique (store, sinon transcript)."""
-    smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
+
+    RM3057 : une session qui a fait `cd` pendant sa vie (worktree, sous-dossier
+    d'un env) a un store ET une queue qui pointent le sous-dossier, alors que le
+    CLI range le transcript sous le cwd de DÉPART ; ni l'un ni l'autre ne colle
+    et le repli historique relançait dans le sous-dossier → tmux mort aussitôt
+    (session atombox). On parcourt donc aussi les cwd du transcript depuis le
+    début, et le store est RÉPARÉ quand le cwd retenu diffère de ce qu'il porte :
+    la cause racine est son figement au spawn, pas la reprise. Sans candidat :
+    comportement historique (store, sinon queue)."""
+    store = SESS_DIR / engine / f"{session_id}.json"
+    smeta = _read_json_file(store) or {}
     try:
         tail = _jsonl_tail_meta(jf)["cwd"]
     except OSError:
         tail = None
     slug = jf.parent.name
+    chosen = None
     for c in (smeta.get("cwd"), tail):
         if c and _slug_of(c) == slug:
-            return c
-    return smeta.get("cwd") or tail
+            chosen = c; break
+    if chosen is None:
+        chosen = next((c for c in _transcript_cwds(jf) if _slug_of(c) == slug), None)
+    if chosen is None:
+        return smeta.get("cwd") or tail
+    if smeta and smeta.get("cwd") != chosen:
+        smeta["cwd_before_fix"] = smeta.get("cwd"); smeta["cwd"] = chosen
+        try:
+            store.write_text(json.dumps(smeta, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            _jlog("session", "warn", "store de session réparé : cwd de reprise réaligné sur le dossier du transcript",
+                  sid=session_id, cwd=chosen, before=smeta["cwd_before_fix"])
+        except OSError:
+            pass
+    return chosen
 
 
 def _engine_of_session(session_id: str) -> str | None:

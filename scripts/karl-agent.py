@@ -8034,7 +8034,8 @@ def _project_cdcs(client: str, project: str) -> list:
                     for f in sorted(docs.glob(f"cdc-{prefix}-*.md"))]
         out.append({"client": client, "project": project, "prefix": prefix, "key": f"{client}/{project}/{prefix}",
                     "path": rel(som), "title": _help_title(som), "chapters": chapters,
-                    "registry": (docs / f"cdc-{prefix}" / "fonctionnalites.yml").is_file()})
+                    # AtomBox : le dictionnaire `docs/dict/fonctionnalites.yml` (liste F001…) vaut registre
+                    "registry": (docs / f"cdc-{prefix}" / "fonctionnalites.yml").is_file() or (docs / "dict" / "fonctionnalites.yml").is_file()})
     return out
 
 
@@ -8068,12 +8069,21 @@ def op_cdc_features(client: str, project: str, prefix: str) -> dict:
     if not (_PART_RE.match(client or "") and _PART_RE.match(project or "") and _PART_RE.match(prefix or "")):
         raise ApiError(400, "client/projet/préfixe invalides")
     reg_dir = "cdc" if prefix == "cdc" else f"cdc-{prefix}"   # RM3053 : forme générique `docs/cdc/`
-    f = PROJECTS_BASE / client / "projects" / project / "docs" / reg_dir / "fonctionnalites.yml"
-    if not f.is_file():
+    docs = PROJECTS_BASE / client / "projects" / project / "docs"
+    f = docs / reg_dir / "fonctionnalites.yml"
+    dict_f = docs / "dict" / "fonctionnalites.yml"          # AtomBox (RM2881) : dictionnaire = liste F001…, jalons à côté
+    if not f.is_file() and not dict_f.is_file():
         raise ApiError(404, "registre des fonctionnalités introuvable")
     try:
         import yaml as _y2
-        reg = _y2.safe_load(f.read_text(encoding="utf-8")) or {}
+        if f.is_file():
+            reg = _y2.safe_load(f.read_text(encoding="utf-8")) or {}
+        else:
+            ents = _y2.safe_load(dict_f.read_text(encoding="utf-8")) or []
+            jal = docs / "dict" / "jalons.yml"
+            reg = {"projet": f"{client}/{project}", "entrees": ents if isinstance(ents, list) else [],
+                   "domaines": [{"nom": d} for d in dict.fromkeys(e.get("domaine") for e in ents if isinstance(e, dict) and e.get("domaine"))],
+                   "jalons": (_y2.safe_load(jal.read_text(encoding="utf-8")) or []) if jal.is_file() else []}
     except Exception as e:
         raise ApiError(500, f"registre illisible : {e}")
     return {"client": client, "project": project, "prefix": prefix, "projet": reg.get("projet"),

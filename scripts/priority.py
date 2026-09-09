@@ -32,6 +32,7 @@ except ImportError:
     sys.exit(2)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
 
 
@@ -56,7 +57,7 @@ TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 def collect_tasks(root: Path) -> list[tuple[Path, dict]]:
     tasks = []
     for f in root.rglob("*.md"):
-        if f.name.endswith(".log.md"):
+        if not is_task_sheet(f):
             continue
         if not TASK_FILENAME.match(f.name):
             continue

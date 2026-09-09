@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
@@ -79,7 +80,7 @@ def main():
         targets = [p]
     else:
         targets = sorted(cfg.projects_root.glob("clients/*/projects/*/tasks/RM*_*.md"))
-        targets = [p for p in targets if not p.name.endswith(".log.md")]
+        targets = [p for p in targets if is_task_sheet(p)]
 
     stats, written = {}, []
     for p in targets:

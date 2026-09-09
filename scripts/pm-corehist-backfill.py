@@ -24,6 +24,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # RM3053
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 
 AIPROJ = Path("/zfs/workspaces/ai/project-management/projects").resolve()
 WORKSPACES = Path("/zfs/workspaces")
@@ -173,7 +175,7 @@ def backfill_one(t, base_clone, dry):
         return "verify_fail"
     # un fichier témoin DOIT avoir un historique multi-commits (preuve de greffe)
     sample = sorted(Path(core).glob(t["verify_file_glob"]))
-    sample = [s for s in sample if not s.name.endswith(".log.md")]
+    sample = [s for s in sample if is_task_sheet(s)]
     if sample:
         rel = str(sample[0].relative_to(core))
         nh = len(git(core, "log", "--oneline", "--", rel).splitlines())

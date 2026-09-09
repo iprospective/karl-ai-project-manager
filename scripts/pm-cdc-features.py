@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """pm-cdc-features — registre des fonctionnalités d'un projet, dérivé de ses tickets (RM3043).
 
-Le CDC vivant d'un projet (modèle AtomBox, `docs/cdc-<prefix>-*.md`) tient sa liste de
-fonctionnalités dans un REGISTRE `docs/cdc-<prefix>/fonctionnalites.yml` : une entrée par
-ticket (identifiant F001… STABLE, jamais réattribué), avec domaine, état et date. Le chapitre
-`docs/cdc-<prefix>-10-fonctionnalites.md` en est GÉNÉRÉ — deux vues, une donnée.
+Le CDC vivant d'un projet (modèle AtomBox) tient sa liste de fonctionnalités dans un REGISTRE
+`docs/cdc/fonctionnalites.yml` (RM3015-D008 : noms génériques ; l'ancienne forme `docs/cdc-<prefix>/`
+reste lue) : une entrée par ticket (identifiant F001… STABLE, jamais réattribué), avec domaine,
+état et date. Le chapitre `docs/cdc-features.md` en est GÉNÉRÉ (ancienne forme :
+`cdc-<prefix>-10-fonctionnalites.md`) — deux vues, une donnée. Le bloc entre marqueurs
+`think-merge` (détail des fonctionnalités par ticket, `pm-think-merge`) y est conservé tel quel.
 
   --init --prefix <p>   crée le registre (domaines par mots-clés, à ajuster ensuite dans le yml) ; `--no-sync` le laisse vide
                         (registre CURÉ par capacité : entrées manuelles avec `tickets: [RM…]` multiples, ex. cdc-karl)
@@ -27,6 +29,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_think   # noqa: E402  RM3053
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 try:
     import yaml
 except ImportError:
@@ -78,7 +82,7 @@ def date_de(fm):
 def lire_tickets(tasks_dir: Path):
     out = []
     for f in sorted(tasks_dir.glob("RM*.md")):
-        if f.name.endswith(".log.md"):
+        if not is_task_sheet(f):
             continue
         m = FM_RE.match(f.read_text(encoding="utf-8"))
         if not m:
@@ -146,8 +150,27 @@ def dump(reg):
             "# Une entrée par ticket (hors `nouveau`) ; `id` F001… STABLE, jamais réattribué ; `etat` dérivé du statut du ticket\n"
             "# (livré · en cours · prévu · en pause · écarté). `domaine` posé par les mots-clés de `domaines` (premier qui matche) :\n"
             "# pour corriger à la main, éditer `libelle`/`domaine` ET poser `manuel: true`, sinon `--sync` les réécrit.\n"
-            "# Le chapitre `cdc-<prefix>-10-fonctionnalites.md` est GÉNÉRÉ d'ici (`--build`) : ne pas l'éditer.\n")
+            "# Le chapitre `cdc-features.md` est GÉNÉRÉ d'ici (`--build`) : ne pas l'éditer.\n")
     return head + yaml.safe_dump(reg, allow_unicode=True, sort_keys=False, width=160)
+
+
+def reg_dir_name(reg):
+    """`cdc` (générique, D008) ou `cdc-<prefix>` (ancienne forme)."""
+    return "cdc" if reg.get("prefix") in (None, "", "cdc") else f"cdc-{reg['prefix']}"
+
+
+def chapter_name(reg):
+    return "cdc-features.md" if reg_dir_name(reg) == "cdc" else f"cdc-{reg['prefix']}-10-fonctionnalites.md"
+
+
+def compose(reg, chap: Path) -> str:
+    """Le chapitre : partie générée + bloc `think-merge` existant conservé (RM3053)."""
+    block = ""
+    if chap.is_file():
+        old = chap.read_text(encoding="utf-8")
+        if pm_think.MERGE_BEGIN in old and pm_think.MERGE_END in old:
+            block = old[old.index(pm_think.MERGE_BEGIN): old.index(pm_think.MERGE_END) + len(pm_think.MERGE_END)]
+    return build(reg) + ("\n## Détail par ticket (depuis les `.think.md`)\n\n" + block + "\n" if block else "")
 
 
 def build(reg):
@@ -160,8 +183,9 @@ def build(reg):
     cnt = {}
     for e in ents:
         k = "écarté" if e["etat"].startswith("écarté") else e["etat"]; cnt[k] = cnt.get(k, 0) + 1
-    L = [f"# 10 — Fonctionnalités du projet `{reg['projet']}`", "",
-         f"> **Généré** par `pm-cdc-features --build` depuis [`cdc-{reg['prefix']}/fonctionnalites.yml`](cdc-{reg['prefix']}/fonctionnalites.yml) — ne pas éditer ici.",
+    rd = reg_dir_name(reg)
+    L = [f"# Fonctionnalités du projet `{reg['projet']}`", "",
+         f"> **Généré** par `pm-cdc-features --build` depuis [`{rd}/fonctionnalites.yml`]({rd}/fonctionnalites.yml) — ne pas éditer ici.",
          "> Une ligne par ticket ; identifiant `F` stable ; l'état suit le statut du ticket. Corrections (bugfix) à part, par domaine.", "",
          "| État | Nombre |", "|---|---|"]
     for k in ("livré", "en cours", "prévu", "en pause", "écarté"):
@@ -217,23 +241,24 @@ def main():
     ap.add_argument("--no-sync", action="store_true", help="avec --init : registre vide (curé à la main)")
     a = ap.parse_args()
     docs, tasks, projet = resoudre(a)
-    regs = sorted(docs.glob("cdc-*/fonctionnalites.yml"))
+    regs = sorted(docs.glob("cdc/fonctionnalites.yml")) + sorted(docs.glob("cdc-*/fonctionnalites.yml"))
     if a.init:
-        if not a.prefix:
-            sys.exit("--init exige --prefix")
-        reg_path = docs / f"cdc-{a.prefix}" / "fonctionnalites.yml"
+        prefix = a.prefix or "cdc"
+        reg_path = docs / ("cdc" if prefix == "cdc" else f"cdc-{prefix}") / "fonctionnalites.yml"
         if reg_path.exists():
             sys.exit(f"registre déjà présent : {reg_path}")
-        reg = registre_vide(a.prefix, projet)
+        reg = registre_vide(prefix, projet)
     elif regs:
         reg_path = regs[0]; reg = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
         reg.setdefault("entrees", []); reg.setdefault("domaines", [])
     else:
         sys.exit(f"aucun registre docs/cdc-*/fonctionnalites.yml sous {docs} — `--init --prefix <p>`")
-    chap = docs / f"cdc-{reg['prefix']}-10-fonctionnalites.md"
+    if reg_path.parent.name == "cdc":
+        reg["prefix"] = "cdc"
+    chap = docs / chapter_name(reg)
     if a.check:
         avant = dump(reg); sync(reg, lire_tickets(tasks)); apres = dump(reg)   # un registre curé (--no-sync) reste stable : ses tickets sont couverts
-        ok_reg = avant == apres; ok_chap = chap.exists() and chap.read_text(encoding="utf-8") == build(reg)
+        ok_reg = avant == apres; ok_chap = chap.exists() and chap.read_text(encoding="utf-8") == compose(reg, chap)
         print(f"{'✓' if ok_reg else '✗'} registre à jour ({reg_path.name}, {len(reg['entrees'])} entrées)")
         print(f"{'✓' if ok_chap else '✗'} chapitre à jour ({chap.name})")
         if not (ok_reg and ok_chap):
@@ -244,7 +269,7 @@ def main():
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ registre {reg_path.relative_to(docs)} : +{len(ajout)} ajoutée(s), {len(modif)} mise(s) à jour, {len(reg['entrees'])} au total")
     if a.build:
-        chap.write_text(build(reg), encoding="utf-8")
+        chap.write_text(compose(reg, chap), encoding="utf-8")
         print(f"✓ chapitre {chap.name} régénéré ({len(reg['entrees'])} lignes)")
     if not (a.init or a.sync or a.build):
         ap.print_help()

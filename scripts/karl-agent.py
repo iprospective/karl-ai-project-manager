@@ -227,6 +227,7 @@ from karl_api_routes import api_alias   # RM2889 L7 : /api/<type>/<action> → c
 from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 : journal structuré (sévérité, catégories)
                     category_for_path as _jcat, exception_brief as _jexc, CATEGORIES as _JCATS)   # noqa: E402
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
+from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
                            question_parts as _question_parts,
@@ -3682,7 +3683,7 @@ def _task_titles() -> dict:
     if now - _titles_cache["at"] > _TITLES_TTL:
         by_id = {}
         for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-            if tf.name.endswith(".log.md"):
+            if not is_task_sheet(tf):
                 continue
             m = re.match(r"RM(\d+)_", tf.name)
             if m:
@@ -5266,7 +5267,7 @@ def _overview_open_tasks(client=None, project=None) -> list:
     wanted = OVERVIEW_ACTIVE | OVERVIEW_WAITING
     out = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -6443,7 +6444,7 @@ def _closed_ticket_ids() -> frozenset:
     if now - _closed_cache["at"] > _CLOSED_TTL:
         ids = set()
         for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-            if tf.name.endswith(".log.md"):
+            if not is_task_sheet(tf):
                 continue
             m = re.match(r"RM(\d+)_", tf.name)
             if m and _read_task_meta(tf).get("status") == "ferme":
@@ -6455,7 +6456,7 @@ def _closed_ticket_ids() -> frozenset:
 def _find_task_file(rm_id: str):
     # Exclure les .log.md (même préfixe RM<id>_, mais pas de frontmatter).
     matches = sorted(p for p in PROJECTS_BASE.glob(_TASK_GLOB.format(rm_id))
-                     if not p.name.endswith(".log.md"))
+                     if is_task_sheet(p))
     return matches[0] if matches else None
 
 
@@ -6837,7 +6838,7 @@ def op_tags() -> list:
     """GET /tags — inventaire des étiquettes en usage (RM2830)."""
     metas = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         metas.append(_read_task_meta(tf))
     return tags_in_use(metas)
@@ -6849,7 +6850,7 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     q_low = (q or "").lower().strip()
     out = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -7048,7 +7049,7 @@ def op_triage(qs: dict) -> dict:
 
     status_by_id, open_files = {}, []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -7930,9 +7931,24 @@ def _project_cdcs(client: str, project: str) -> list:
         return []
     rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
     out = []
+    # RM3015-D008 (RM3053) : la forme générique — `docs/cdc.md` + `cdc-<donnée>.md` (questions,
+    # decisions, features, notes, roadmap, help), registre `docs/cdc/fonctionnalites.yml`. Les CDC
+    # PAR TICKET (`cdc-rm<id>-*.md`, D006) ne sont pas des chapitres du CDC projet.
+    generic = docs / "cdc.md"
+    if generic.is_file():
+        order = ["cdc.md", "cdc-features.md", "cdc-roadmap.md", "cdc-decisions.md", "cdc-questions.md",
+                 "cdc-notes.md", "cdc-help.md"]
+        files = [docs / n for n in order if (docs / n).is_file()]
+        files += sorted(f for f in docs.glob("cdc-*.md") if f not in files
+                        and not re.match(r"^cdc-rm\d+-", f.name) and not re.match(r"^cdc-.+?-\d\d-", f.name))
+        out.append({"client": client, "project": project, "prefix": "cdc", "key": f"{client}/{project}/cdc",
+                    "path": rel(generic), "title": _help_title(generic),
+                    "chapters": [{"file": f.name, "path": rel(f), "title": _help_title(f)} for f in files],
+                    "registry": (docs / "cdc" / "fonctionnalites.yml").is_file()})
+    # forme historique par préfixe (`cdc-<prefix>-00-*.md`, RM3043) — encore lue
     for som in sorted(docs.glob("cdc-*-00-*.md")):
         m = re.match(r"cdc-(.+?)-00-", som.name)
-        if not m:
+        if not m or re.match(r"^rm\d+$", m.group(1)):
             continue
         prefix = m.group(1)
         chapters = [{"file": f.name, "path": rel(f), "title": _help_title(f)}
@@ -7957,7 +7973,8 @@ def op_cdc_features(client: str, project: str, prefix: str) -> dict:
     feuille de route ; le chapitre 10 markdown reste la vue pour le wiki."""
     if not (_PART_RE.match(client or "") and _PART_RE.match(project or "") and _PART_RE.match(prefix or "")):
         raise ApiError(400, "client/projet/préfixe invalides")
-    f = PROJECTS_BASE / client / "projects" / project / "docs" / f"cdc-{prefix}" / "fonctionnalites.yml"
+    reg_dir = "cdc" if prefix == "cdc" else f"cdc-{prefix}"   # RM3053 : forme générique `docs/cdc/`
+    f = PROJECTS_BASE / client / "projects" / project / "docs" / reg_dir / "fonctionnalites.yml"
     if not f.is_file():
         raise ApiError(404, "registre des fonctionnalités introuvable")
     try:
@@ -8091,7 +8108,7 @@ def op_project(client: str, project: str) -> dict:
     tdir = pdir / "tasks"
     if tdir.is_dir():
         for tf in tdir.glob("RM*_*.md"):
-            if tf.name.endswith(".log.md"):
+            if not is_task_sheet(tf):
                 continue
             m = re.match(r"RM(\d+)_", tf.name)
             if not m:
@@ -9010,7 +9027,7 @@ def _iter_task_files(limit=None):
     out = []
     try:
         for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
-            if p.name.endswith(".log.md"):
+            if not is_task_sheet(p):
                 continue
             out.append(p)
             if limit is not None and len(out) >= limit:

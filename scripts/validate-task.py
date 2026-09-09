@@ -54,6 +54,7 @@ VALID_PISTE_EFFORTS = {"low", "medium", "high"}
 
 FILENAME_PATTERN = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 LOG_FILENAME_PATTERN = re.compile(r"^RM\d+_[a-z0-9-]+\.log\.md$")
+THINK_FILENAME_PATTERN = re.compile(r"^RM\d+_[a-z0-9-]+\.think\.md$")   # RM3053
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
@@ -91,6 +92,10 @@ class Validator:
             if not LOG_FILENAME_PATTERN.match(name):
                 self.err(file_path, f"Nom de log non conforme (attendu : RM{{id}}_{{kebab}}.log.md)")
             return False  # ne pas valider le contenu d'un log
+        if name.endswith(".think.md"):   # RM3053 : fichier de réflexion, frère de la fiche
+            if not THINK_FILENAME_PATTERN.match(name):
+                self.err(file_path, f"Nom de think non conforme (attendu : RM{{id}}_{{kebab}}.think.md)")
+            return False  # registre markdown libre, pas de frontmatter à valider
         if not FILENAME_PATTERN.match(name):
             self.err(file_path, f"Nom de fichier non conforme (attendu : RM{{id}}_{{kebab}}.md)")
         return True

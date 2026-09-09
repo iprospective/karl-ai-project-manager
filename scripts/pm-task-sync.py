@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 import pm_cf_mirror
 import pm_git
@@ -403,7 +404,7 @@ def main():
             if not tasks_dir.is_dir():
                 continue
             for f in tasks_dir.iterdir():
-                if f.name.endswith(".log.md"):
+                if not is_task_sheet(f):
                     continue
                 m = rm_re.match(f.name)
                 if m:

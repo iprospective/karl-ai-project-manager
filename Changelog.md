@@ -77,6 +77,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`--ignore-think`). Sweep `is_task_sheet()` (`pm_think`) sur les 20 scripts qui prenaient un
   frère pour la fiche (leçon RM2362) ; `pm-task-move` déplace le think ; `karl-agent` sert le
   CDC générique (`cdc.md`, registre `docs/cdc/`) en plus de la forme par préfixe. Skill `mmi-pm-think`.
+- **Reprise d'une session qui a changé de cwd** (RM3057) : `_resume_cwd` parcourt aussi
+  les `cwd` du transcript depuis le début (le cwd de création nomme le dossier du
+  `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
+  (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
+  dans le sous-dossier → « No conversation found » → 502 (session atombox).
 - **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.1) : un seul
   bouton 📋 CDC en haut ouvre un panneau central dont les onglets reprennent la barre
   du POC AtomBox — Fonctionnalités · CDC · Feuille de route — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :

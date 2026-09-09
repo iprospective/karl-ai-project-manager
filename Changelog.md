@@ -90,6 +90,9 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **En-tête du cockpit** (RM3063, 3.7.5) : le filtre « Clients » (contexte client) est masqué par
+  défaut et se réaffiche par une option locale des réglages (carte 🎨 Thème & affichage) ; le bouton
+  📋 CDC se place juste à droite du titre.
 - **Dictionnaire des données du projet PM** (RM3061) : `pm-cdc` sait la forme générique
   (`cdc.md` ⇒ dictionnaire dans `docs/dict/`, chapitre `cdc-dict.md`, ids `RM<id>-D…` de
   pm-think-merge) ; `pm-dict-from-pm` dérive du code les tables champs (gabarits),

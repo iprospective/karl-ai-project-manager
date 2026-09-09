@@ -76,3 +76,8 @@ milieu des autres, donc invisible. Si tu as coupé les animations dans ton
 système (« mouvement réduit »), il ne clignote pas mais garde sa couleur.
 C'est **informatif** : l'application reste un geste humain au terminal
 (`mmi-pm core-update`, mot de passe sudo demandé par la commande elle-même).
+
+## Affichage (ce navigateur)
+
+Le filtre **« Clients »** de l'en-tête (contexte client, pré-filtre global) est **masqué par défaut** ; la case
+« Afficher le filtre Clients dans l'en-tête » de la carte 🎨 le réaffiche. Le contexte mémorisé reste appliqué même masqué (RM3063).

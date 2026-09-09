@@ -1,6 +1,6 @@
 # CDC vivant
 
-Le bouton **📋 CDC** du menu du haut ouvre au centre, en onglet épinglable, le **CDC du projet en
+Le bouton **📋 CDC**, juste à droite du titre « Cockpit karl-agent », ouvre au centre, en onglet épinglable, le **CDC du projet en
 contexte** — celui de la session attachée, sinon le dernier choisi, sinon le premier — avec, en tête de page,
 **tous les onglets au même niveau**, dans l'ordre et avec les noms de la norme `cdc` (§ livrables d'un CDC complet) :
 📋 Fonctionnalités · 📘 CDC vivant (le sommaire) · chapitres thématiques · 🗺 Roadmap · 📚 Dictionnaire · ⚖️ Registre des

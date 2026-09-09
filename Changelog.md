@@ -90,6 +90,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **Dictionnaire des données du projet PM** (RM3061) : `pm-cdc` sait la forme générique
+  (`cdc.md` ⇒ dictionnaire dans `docs/dict/`, chapitre `cdc-dict.md`, ids `RM<id>-D…` de
+  pm-think-merge) ; `pm-dict-from-pm` dérive du code les tables champs (gabarits),
+  énumérations et normes (KERNEL), routes (carte), composants (cockpit), actions (scripts),
+  templates ; les tables entités, relations, workflows, protocoles, jalons sont curées.
+  Onglet 📚 Dictionnaire dans le panneau CDC ; onglets nommés et ordonnés selon la norme
+  `cdc` (cockpit 3.7.4).
 - **Menu CDC à onglets et onglet projets** (RM3044, RM3045, RM3060, cockpit 3.7.3) : un seul
   bouton 📋 CDC en haut ouvre un panneau central dont les onglets, tous au même niveau,
   sont Fonctionnalités · CDC vivant puis un par chapitre (roadmap, décisions, questions,

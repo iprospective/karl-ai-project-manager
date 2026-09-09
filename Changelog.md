@@ -90,9 +90,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
-- **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.1) : un seul
-  bouton 📋 CDC en haut ouvre un panneau central dont les onglets reprennent la barre
-  du POC AtomBox — Fonctionnalités · CDC · Feuille de route — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :
+- **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.2) : un seul
+  bouton 📋 CDC en haut ouvre un panneau central dont les onglets, tous au même niveau,
+  sont Fonctionnalités · CDC vivant · Feuille de route puis un par chapitre (décisions, vrac,
+  questions…) — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :
   table des fonctionnalités triable/filtrable (`/api/doc/cdc-features`, registre yml →
   JSON), chapitres du CDC en sous-onglets avec ancres `D012`/`Q003` et `RM` cliquables,
   feuille de route par jalon (`jalon`, `jalons:` du registre) ou par état ; sélecteur

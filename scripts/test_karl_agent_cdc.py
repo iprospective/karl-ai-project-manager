@@ -45,6 +45,14 @@ try:
     ka.op_cdc_features("../x", "site", "site"); check("client invalide → 400", False)
 except ka.ApiError:
     check("client invalide → 400", True)
+# AtomBox : dictionnaire `docs/dict/fonctionnalites.yml` (liste) + jalons.yml → registre équivalent
+d3 = base / "acme" / "projects" / "mail" / "docs"; (d3 / "dict").mkdir(parents=True)
+(d3 / "cdc-rm2881-00-sommaire.md").write_text("# CDC Mail\n")
+(d3 / "dict" / "fonctionnalites.yml").write_text("- id: F001\n  libelle: ingestion\n  domaine: Réception\n  jalon: 0\n  etat: éprouvé\n- id: F002\n  libelle: tags\n  domaine: Tags\n  jalon: 1\n  etat: décidé\n")
+(d3 / "dict" / "jalons.yml").write_text("- id: V0\n  titre: pilote\n")
+r3 = ka.op_cdc_features("acme", "mail", "rm2881")
+check("dictionnaire AtomBox lu comme registre : entrées, domaines déduits, jalons", [e["id"] for e in r3["entrees"]] == ["F001", "F002"] and r3["domaines"] == ["Réception", "Tags"] and r3["jalons"][0]["id"] == "V0")
+check("un sommaire cdc-rm<id>-00 est un CDC PAR TICKET (D015) : pas listé comme CDC projet, mais son dictionnaire reste lisible par op_cdc_features", ka._project_cdcs("acme", "mail") == [])
 cs = ka._project_cdcs("acme", "site")
 check("deux CDC dans un même projet (pm + karl), registre détecté pour le premier", [x["prefix"] for x in cs] == ["karl", "site"] and cs[1]["registry"] is True and cs[0]["registry"] is False)
 

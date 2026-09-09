@@ -9,13 +9,25 @@ const ETAT_CLS = { "livré": "ok", "éprouvé": "ok", "codé": "wait", "en cours
 export const etatClass = (e) => ETAT_CLS[etatKey(e)] || "";
 const ticketsOf = (e) => [].concat(e.rm ? [e.rm] : [], (e.tickets || []).filter(t => t !== e.rm)).map(Number).filter(n => n);
 
+const CHAPTER_ICONS = [[/decision/i, "⚖️ "], [/vrac|notes/i, "🗒 "], [/question/i, "❓ "], [/roadmap|feuille/i, "🗺 "], [/gloss/i, "📖 "], [/help|aide/i, "📖 "]];
+/** Libellé d'onglet d'un chapitre : numéro et « — projet … » retirés, icône selon le sujet. Noms génériques (RM3053) comme numérotés (AtomBox). */
+export function chapterLabel(ch) { const t = String(ch.title || ch.file).replace(/^\d+\s*[—-]\s*/, "").replace(/\s*[—-]\s*(projet|CDC).*$/i, "").replace(/\s*\((RM\d+|`[^`]*`)\)\s*$/, "").trim(); const ic = CHAPTER_ICONS.find(([rx]) => rx.test(ch.file + " " + t)); return (ic ? ic[1] : "") + t; }
+const isSommaire = (ch) => ch.file === "cdc.md" || /-00-/.test(ch.file);
+const isFeaturesChapter = (ch) => ch.file === "cdc-features.md" || /-10-/.test(ch.file);
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get title() { const c = this.e.current; return c ? c.title : "CDC vivant"; }
   get context() { const c = this.e.current; return c ? c.client + "/" + c.project + " · " + c.prefix : ""; }
   get choices() { const cs = this.e.cdcs || []; return cs.length > 1 ? cs.map(c => ({ key: c.key, label: c.project + " · " + c.prefix, on: this.e.current && c.key === this.e.current.key })) : []; }
-  get pages() { return [["cdc-features", "📋 Fonctionnalités"], ["cdc", "📘 CDC"], ["cdc-roadmap", "🗺 Feuille de route"]].map(([k, l]) => ({ key: k, label: l, on: k === this.e.page })); }
+  /** Tous les onglets AU MÊME NIVEAU (retour Mathieu, RM3044) : la table, le sommaire du CDC, la feuille de route, puis chaque chapitre du CDC
+   *  (le chapitre 10 « fonctionnalités », généré, est déjà la table : il n'a pas d'onglet). `chap:<path>` = un chapitre. */
+  get pages() {
+    const c = this.e.current; const chs = c ? (c.chapters || []) : []; const som = chs.find(isSommaire);
+    const fixed = [["cdc-features", "📋 Fonctionnalités"], [som ? "chap:" + som.path : "cdc", "📘 CDC vivant"], ["cdc-roadmap", "🗺 Feuille de route"]];
+    const rest = chs.filter(ch => ch !== som && !isFeaturesChapter(ch)).map(ch => ["chap:" + ch.path, chapterLabel(ch)]);
+    return fixed.concat(rest).map(([k, l]) => ({ key: k, label: l, on: k === this.e.page || (k.startsWith("chap:") && this.e.page === "cdc" && this.e.path === k.slice(5)) }));
+  }
   get empty() { return !(this.e.cdcs || []).length; }
   get error() { return this.e.error || ""; }
 }

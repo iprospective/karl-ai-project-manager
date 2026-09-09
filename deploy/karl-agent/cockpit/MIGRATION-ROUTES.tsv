@@ -100,3 +100,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /log/historical	L8	journal	/api/log/historical	0	(hors cockpit : compteur RM3004)
 /cdc	L5	doc	/api/doc/cdc	1	openCdc
 /cdc-features	L5	doc	/api/doc/cdc-features	1	loadFeatures
+/client-notify/pending	L4	clientnotify	/api/clientnotify/pending	1	loadPending
+/client-notify/preview	L4	clientnotify	/api/clientnotify/preview	1	preview
+/client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
+/client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss

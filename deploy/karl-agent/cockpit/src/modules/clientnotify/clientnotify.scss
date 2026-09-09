@@ -1,0 +1,28 @@
+// modules/clientnotify/clientnotify.scss — le panneau compte-rendu client (RM3052). Compilé dans cockpit.css par `npm run build:css` (tooling/).
+
+.cn-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 4px 0 10px; }
+.cn-to { font-size: 12px; }
+.cn-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.cn-opts label.chip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.cn-warn { color: var(--warn); }
+.cn-note { font-size: 11.5px; color: var(--muted); margin: 6px 0; }
+.cn-group { margin-bottom: 12px; }
+.cn-group h3 { font-size: 13px; margin: 8px 0 4px; }
+
+// une ligne = un ticket cochable ; la ligne entière est la cible du clic (le label porte l'input)
+.cn-t { display: flex; align-items: baseline; gap: 8px; padding: 3px 6px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+.cn-t:hover { background: var(--hover, rgba(127, 127, 127, .08)); }
+.cn-t.on { background: var(--accent-soft, rgba(255, 200, 0, .10)); }
+.cn-rm { font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+.cn-title { flex: 1 1 auto; }
+.cn-since { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.cn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.cn-send { font-weight: 600; }
+.cn-busy { color: var(--muted); }
+.cn-why { font-size: 11.5px; color: var(--muted); }
+
+.cn-prevh { font-size: 13px; margin: 10px 0 4px; }
+.cn-prev { border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+.cn-subj { font-size: 12px; margin-bottom: 6px; }
+.cn-body { font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; margin: 0; max-height: 340px; overflow-y: auto; }

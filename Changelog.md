@@ -18,6 +18,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement
   d'un dossier réel ou d'un lien vers ailleurs) ; `--dry-run` montre les deux plans. Un hook ou
   un skill ajouté par un ticket est actif dès le core update suivant.
+- **Panneau « compte-rendu client » au cockpit** (RM3052) : un menu **✉ compte-rendu** au
+  bandeau, dont le badge compte les évolutions livrées **pas encore annoncées** ; le clic
+  déroule **un client par ligne avec son reste à annoncer** (`Calicote (5)`), et ouvre au
+  centre la page du client — ses tickets **groupés par projet** mais **cochables en travers
+  des projets** (un compte-rendu peut couvrir plusieurs projets), l'**aperçu de l'email**
+  produit par le serveur (ce qu'on relit est ce qui part), puis **Envoyer** ou **Écarter**,
+  chacun **en deux clics**. Côté outillage : `client-notify pending [client] [--json]` (la
+  file groupée par client), périmètre **client** accepté par `preview|send|dismiss`
+  (`calicote` = tous ses projets) et sélection `--rm` qui traverse les projets ; l'email
+  d'un client multi-projets est **un seul** email groupé par projet. Quatre endpoints
+  (`/client-notify/pending|preview|send|dismiss`) qui délèguent au même script que la CLI.
 - **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
   **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
   `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné

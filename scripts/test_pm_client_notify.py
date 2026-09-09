@@ -137,6 +137,37 @@ _, body3 = cn.compose_email("Calicote", [{"id": 9, "title": "Sans détail"}])
 check("ticket sans critère/protocole => pas de sections vides",
       "Ce qui change" not in body3 and "Comment le vérifier" not in body3)
 
+# ── 5. compte-rendu CLIENT (multi-projets) — RM3052 ──────────────────────────
+T = lambda i, ti: {"id": i, "title": ti, "url": "https://redmine/issues/%d" % i}  # noqa: E731
+s_mono, b_mono = cn.compose_client_email("Calicote", [{"project": "Site PrestaShop", "tickets": [T(1, "A"), T(2, "B")]}])
+check("client mono-projet : sujet au nom du CLIENT, compte total",
+      "Calicote — 2 évolutions mises en ligne" == s_mono)
+check("client mono-projet : PAS d'en-tête de projet (rien d'interne dans l'email)",
+      "== Site PrestaShop ==" not in b_mono and "#1" in b_mono and "#2" in b_mono)
+s_multi, b_multi = cn.compose_client_email("Calicote", [
+    {"project": "Site PrestaShop", "tickets": [T(1, "A")]},
+    {"project": "Synchro Dolibarr", "tickets": [T(2, "B"), T(3, "C")]}])
+check("client multi-projets : total tous projets confondus dans le sujet",
+      "Calicote — 3 évolutions mises en ligne" == s_multi)
+check("client multi-projets : un en-tête par projet, dans l'ordre donné",
+      b_multi.index("== Site PrestaShop ==") < b_multi.index("== Synchro Dolibarr =="))
+check("groupe sans ticket ignoré (pas de section vide)",
+      "== Vide ==" not in cn.compose_client_email("C", [{"project": "Vide", "tickets": []},
+                                                        {"project": "P", "tickets": [T(1, "A")]}])[1])
+check("un seul groupe NON vide parmi plusieurs => on retombe en mono (pas d'en-tête)",
+      "==" not in cn.compose_client_email("C", [{"project": "Vide", "tickets": []},
+                                                {"project": "P", "tickets": [T(1, "A")]}])[1])
+check("sujet au singulier pour 1 ticket",
+      cn.compose_client_email("C", [{"project": "P", "tickets": [T(1, "A")]}])[0]
+      == "C — 1 évolution mise en ligne")
+_, b_det = cn.compose_client_email("C", [{"project": "P", "tickets": [
+    {"id": 9, "title": "T", "criteria": ["Le prix s'affiche"], "protocol": "1. Ouvrir"}]}])
+check("critères et protocole rendus comme dans le récap projet (même bloc)",
+      "Ce qui change" in b_det and "Le prix s'affiche" in b_det
+      and "Comment le vérifier" in b_det and "1. Ouvrir" in b_det)
+check("aucune sélection => email vide mais bien formé (0 évolution)",
+      cn.compose_client_email("C", [])[0] == "C — 0 évolution mise en ligne")
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

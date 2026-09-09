@@ -148,6 +148,24 @@ def _plural(n):
     return "s" if n > 1 else ""
 
 
+def _ticket_lines(t):
+    """Le bloc texte d'UN ticket : id + titre, lien, ce qui change, comment le vérifier.
+    Partagé par le récap projet et le compte-rendu client (une seule vérité de rendu)."""
+    L = ["— #{} — {}".format(t.get("id"), t.get("title") or "")]
+    if t.get("url"):
+        L.append("  {}".format(t["url"]))
+    crit = [c.strip() for c in (t.get("criteria") or []) if c and c.strip()]
+    if crit:
+        L.append("  Ce qui change :")
+        L.extend("    • {}".format(c) for c in crit)
+    proto = (t.get("protocol") or "").strip()
+    if proto:
+        L.append("  Comment le vérifier :")
+        L.extend("    {}".format(pl) for pl in proto.splitlines())
+    L.append("")
+    return L
+
+
 def compose_email(project_name, tickets):
     """tickets = [{id, title, url, criteria:[str], protocol:str}]. Renvoie
     (subject, body) texte. Un seul email pour N tickets (pas un par déploiement)."""
@@ -158,17 +176,31 @@ def compose_email(project_name, tickets):
     L.append("Les évolutions suivantes viennent d'être mises en ligne sur {} :".format(project_name))
     L.append("")
     for t in tickets:
-        L.append("— #{} — {}".format(t.get("id"), t.get("title") or ""))
-        if t.get("url"):
-            L.append("  {}".format(t["url"]))
-        crit = [c.strip() for c in (t.get("criteria") or []) if c and c.strip()]
-        if crit:
-            L.append("  Ce qui change :")
-            L.extend("    • {}".format(c) for c in crit)
-        proto = (t.get("protocol") or "").strip()
-        if proto:
-            L.append("  Comment le vérifier :")
-            L.extend("    {}".format(pl) for pl in proto.splitlines())
-        L.append("")
+        L.extend(_ticket_lines(t))
+    L.append("Bien cordialement,")
+    return subject, "\n".join(L)
+
+
+def compose_client_email(client_name, groups):
+    """RM3052 — LE compte-rendu d'un CLIENT, qui peut couvrir PLUSIEURS de ses projets.
+
+    `groups` = [{"project": <nom lisible>, "tickets": [...]}, …] — l'ordre est celui donné.
+    Les groupes vides sont ignorés. **Le nom du projet n'apparaît que s'il y en a plusieurs** :
+    sur un client mono-projet, le client lit exactement le même email qu'avant (pas de
+    ferraille d'organisation interne dans un mail sortant)."""
+    gs = [g for g in (groups or []) if (g or {}).get("tickets")]
+    n = sum(len(g["tickets"]) for g in gs)
+    subject = "{} — {} évolution{} mise{} en ligne".format(
+        client_name, n, _plural(n), _plural(n))
+    L = ["Bonjour,", ""]
+    L.append("Les évolutions suivantes viennent d'être mises en ligne :")
+    L.append("")
+    multi = len(gs) > 1
+    for g in gs:
+        if multi:
+            L.append("== {} ==".format(g.get("project") or ""))
+            L.append("")
+        for t in g["tickets"]:
+            L.extend(_ticket_lines(t))
     L.append("Bien cordialement,")
     return subject, "\n".join(L)

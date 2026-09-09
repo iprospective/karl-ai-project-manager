@@ -184,6 +184,16 @@ def compose_email(project_name, tickets):
     return subject, "\n".join(L)
 
 
+TEST_PREFIX = "[TEST] "
+
+
+def test_subject(subject):
+    """Sujet d'un envoi de test. Préfixé une seule fois : re-tester ne fabrique pas
+    « [TEST] [TEST] … »."""
+    s = str(subject or "")
+    return s if s.startswith(TEST_PREFIX) else TEST_PREFIX + s
+
+
 def compose_client_email(client_name, groups):
     """RM3052 — LE compte-rendu d'un CLIENT, qui peut couvrir PLUSIEURS de ses projets.
 
@@ -261,18 +271,49 @@ def _checkboxes(text):
     return re.sub(r"\[[xX]\]", "✔", text).replace("[ ]", "☐")
 
 
+# Un paragraphe qui ÉNUMÈRE avec des « · » se lit comme un pavé dès qu'il est long — et il
+# l'est souvent : le YAML replie les lignes du frontmatter, si bien qu'un bloc rédigé sur
+# dix lignes revient en une seule. Au-delà de ce seuil, chaque « · » repasse à la ligne.
+_ENUM_MIN = 200
+
+
+def _unpack_enumerations(text):
+    """Rend leur ligne aux éléments d'une longue énumération « a · b · c ».
+    Les lignes courtes, les titres et les lignes de tableau ne sont pas touchés."""
+    out = []
+    for ln in text.split("\n"):
+        if len(ln) > _ENUM_MIN and ln.count(" · ") >= 2 and not ln.lstrip().startswith(("|", "#")):
+            parts = ln.split(" · ")
+            out.append(parts[0])
+            out.extend("· " + p for p in parts[1:])
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
+def esc_md(s):
+    """Échappement pour du markdown qu'on va CONVERTIR : `&` et `<` seulement.
+
+    Ces deux-là suffisent à empêcher toute balise de traverser. Échapper `>` en plus
+    cassait la syntaxe des citations (`> …` devenait `&gt; …`, rendu en texte nu) — un `>`
+    littéral, lui, est parfaitement valide dans du HTML."""
+    return str("" if s is None else s).replace("&", "&amp;").replace("<", "&lt;")
+
+
 def render_markdown(text):
     """Markdown → HTML stylé pour l'email. S'appuie sur python-markdown quand il est
     présent (extension `tables` : c'est tout l'enjeu) ; sinon rend le texte tel quel dans
     un bloc préformaté — dégradé mais lisible, jamais une erreur d'envoi."""
-    src = _checkboxes(esc(text or "").replace("\r\n", "\n"))
+    src = _unpack_enumerations(_checkboxes(esc_md(text or "").replace("\r\n", "\n")))
     if not src.strip():
         return ""
     try:
         import markdown as _md
     except ImportError:
         return '<pre style="{0}">{1}</pre>'.format(_TAG_STYLE["pre"], src)
-    body = _md.markdown(src, extensions=["tables", "sane_lists"])
+    # `nl2br` : dans un protocole, un retour à la ligne est une intention (une étape, une
+    # ligne). Sans lui, markdown recolle les lignes consécutives en un seul paragraphe.
+    body = _md.markdown(src, extensions=["tables", "sane_lists", "nl2br"])
     return _inline_styles(body)
 
 

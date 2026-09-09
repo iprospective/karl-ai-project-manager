@@ -29,3 +29,9 @@
 
 // l'aperçu = l'email lui-même, dans une iframe cloisonnée (ses styles ne fuient pas dans le cockpit)
 .cn-frame { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 4px; background: #fff; resize: vertical; }
+
+// envoi de test : choisir un contact ou saisir une adresse, puis s'envoyer le compte-rendu
+.cn-test { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 4px; }
+.cn-testlbl { font-size: 12px; font-weight: 600; }
+.cn-testsel { font-size: 12px; max-width: 260px; }
+.cn-testto { font-size: 12px; padding: 3px 6px; min-width: 200px; flex: 0 1 260px; }

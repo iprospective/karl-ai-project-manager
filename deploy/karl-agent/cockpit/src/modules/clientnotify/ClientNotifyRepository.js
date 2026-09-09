@@ -7,7 +7,7 @@ export class ClientNotifyRepository extends Repository {
   constructor() {
     super({
       name: "clientnotify", ttl: 15000, max: 10, factory: new Factory({ type: "clientnotify" }),
-      routes: { pending: "clientnotify.pending", preview: "clientnotify.preview", send: "clientnotify.send", dismiss: "clientnotify.dismiss" },
+      routes: { pending: "clientnotify.pending", preview: "clientnotify.preview", send: "clientnotify.send", test: "clientnotify.test", dismiss: "clientnotify.dismiss" },
     });
   }
   /** La file entière, groupée par client (compteurs du menu). Jamais mise en cache : elle bouge à chaque MEP et à chaque envoi. */
@@ -16,6 +16,8 @@ export class ClientNotifyRepository extends Repository {
   async preview(body) { return await post(this.path("preview"), body); }
   /** Envoi RÉEL au client, puis sent_at/sent_to sur les tickets envoyés. */
   async send(body) { return await post(this.path("send"), body); }
+  /** Le MÊME email, à une adresse de test : n'écrit rien, ne vide pas la file. */
+  async test(body) { return await post(this.path("test"), body); }
   /** Sortie de file SANS email : ce que le client n'a pas besoin de savoir. */
   async dismiss(body) { return await post(this.path("dismiss"), body); }
 }

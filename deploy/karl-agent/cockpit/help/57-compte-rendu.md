@@ -43,6 +43,16 @@ envoi ; ton choix est mémorisé dans ce navigateur. Le défaut vient du projet
 Quand la sélection couvre plusieurs projets, le corps est **groupé par projet** ; sur
 un seul projet, aucun intitulé d'organisation interne n'apparaît.
 
+## Se relire avant d'écrire au client
+
+Le bloc **Test d'envoi**, sous les boutons, envoie **le même compte-rendu** à une adresse
+que tu choisis : un contact de l'annuaire dans la liste déroulante, ou une adresse saisie
+à la main (elle est mémorisée pour la prochaine fois). Le sujet est préfixé `[TEST]`.
+
+Un test **n'écrit rien** : pas de `sent_at`, pas de `sent_to`, la file ne bouge pas. Tu
+peux en envoyer autant que tu veux avant le vrai envoi. En ligne de commande :
+`mmi-pm client-notify test calicote --rm 3025 --to moi@exemple.fr`.
+
 ## Quand ça ne part pas
 
 | Ce que tu vois | Pourquoi |

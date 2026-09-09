@@ -18,6 +18,7 @@ export const ROUTES = {
   "clientnotify.pending": { current: "/client-notify/pending", target: "/api/clientnotify/pending", lot: "L4", callers: 1 },
   "clientnotify.preview": { current: "/client-notify/preview", target: "/api/clientnotify/preview", lot: "L4", callers: 1 },
   "clientnotify.send": { current: "/client-notify/send", target: "/api/clientnotify/send", lot: "L4", callers: 1 },
+  "clientnotify.test": { current: "/client-notify/test", target: "/api/clientnotify/test", lot: "L4", callers: 1 },
   "core.update_status": { current: "/core/update-status", target: "/api/core/update-status", lot: "L0", callers: 1 },
   "dashboard.alerts": { current: "/alerts", target: "/api/dashboard/alerts", lot: "L4", callers: 1 },
   "dashboard.overview": { current: "/overview", target: "/api/dashboard/overview", lot: "L4", callers: 2 },

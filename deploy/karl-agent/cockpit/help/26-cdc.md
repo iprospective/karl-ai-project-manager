@@ -2,19 +2,20 @@
 
 Le bouton **📋 CDC** du menu du haut ouvre au centre, en onglet épinglable, le **CDC du projet en
 contexte** — celui de la session attachée, sinon le dernier choisi, sinon le premier — avec, en tête de page,
-**tous les onglets au même niveau** : 📋 Fonctionnalités · 📘 CDC vivant (le sommaire) · 🗺 Feuille de route · puis
-un onglet par chapitre du CDC (⚖️ registre des décisions, 🗒 vrac, ❓ questions ouvertes…). L'onglet courant est mémorisé. Un projet peut porter plusieurs CDC (le projet PM : « pm » et « karl ») — des puces
+**tous les onglets au même niveau** : 📋 Fonctionnalités · 📘 CDC vivant (le sommaire) · puis un onglet par
+chapitre du CDC (🗺 roadmap, ⚖️ registre des décisions, ❓ questions ouvertes, 🗒 notes, 📚 dictionnaire, 📖 aide…).
+L'onglet courant est mémorisé. Un projet peut porter plusieurs CDC (le projet PM : « pm » et « karl ») — des puces
 permettent d'en changer.
 
 - **Fonctionnalités** : une ligne par ticket (ou par capacité, pour un registre curé) — clic sur un en-tête
   pour trier, second clic pour inverser ; filtre texte (libellé, domaine, état, `RM…`) ; un ticket ouvre sa fiche.
 - **CDC vivant et chapitres** : chaque chapitre est un onglet ; les liens entre chapitres et les ancres `D012` /
   `Q003` naviguent dans la page ; un `RM1234` dans le texte ouvre la fiche.
-- **Feuille de route** : la même donnée, groupée par **jalon** (`jalon` par entrée, `jalons:` en tête du
-  registre) ou, sans jalon, par état : en cours, prévu, en pause, puis les livrées récentes.
+- **Roadmap** : le chapitre `cdc-roadmap.md` — une **version = un rôle** (ce qu'elle doit permettre, critère de
+  passage), jamais une copie des fonctionnalités ; la version est une **colonne** de la table (`version` par entrée).
 
 Dans la colonne de droite, l'onglet **📂 projets** liste les projets touchés par la session attachée avec
-leurs raccourcis : fiche, fichiers, et les trois pages de chaque CDC vivant.
+leurs raccourcis : fiche, fichiers, et les mêmes onglets que le panneau pour chaque CDC vivant.
 
 Un projet porte un CDC dès qu'il a un `docs/cdc-<prefix>-00-sommaire.md` ; le registre des fonctionnalités
 (`docs/cdc-<prefix>/fonctionnalites.yml`) se crée et se tient avec `pm-cdc-features` (`--init`, `--sync`,

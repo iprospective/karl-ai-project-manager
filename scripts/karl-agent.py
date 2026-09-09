@@ -5281,6 +5281,11 @@ def _overview_open_tasks(client=None, project=None) -> list:
         entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
                  "status": meta.get("status"), "priority": meta.get("priority") or "",
                  "client": cl, "project": pr}
+        # RM3026 — ticket déployé en attente de notification client (client_notify :
+        # queued_at posé, sent_at vide) : lu par _read_task_meta (notify_queued) et remonté
+        # au cockpit (alerte `client_notify`) pour ne pas oublier d'envoyer le récap.
+        if meta.get("notify_queued"):
+            entry["notify_queued_at"] = meta["notify_queued"]
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:
@@ -6075,6 +6080,15 @@ def build_alerts(projects, thresholds, now_ts, snoozed=None):
                 add("mr", f"m:{m.get('repo')}:{m.get('iid')}", age, "MR ouverte, pas mergée",
                     iid=m.get("iid"), url=m.get("url"), rm_id=str(m.get("ref") or "").replace("RM", ""),
                     client=cl, project=pr, title=str(m.get("ref") or ""))
+        # RM3026 — évolutions déployées en attente de notification client, AGRÉGÉES par
+        # PROJET (une alerte par projet, pas une par ticket) ; âge = la plus ancienne en
+        # file, pour ne pas oublier d'envoyer le récap (`mmi-pm client-notify send`).
+        _nq = [t.get("notify_queued_at") for t in (g.get("tickets") or []) if t.get("notify_queued_at")]
+        if _nq:
+            _age = max((alert_age_days(x, now_ts) or 0.0) for x in _nq)
+            add("client_notify", f"cn:{cl}/{pr}", _age,
+                f"{len(_nq)} évolution(s) en prod à notifier au client",
+                client=cl, project=pr, count=len(_nq))
     # le plus vieux d'abord, et un nombre BORNÉ : une liste d'alertes qu'on ne
     # finit pas de lire se contourne, puis s'ignore
     out.sort(key=lambda a: -a["age_days"])
@@ -6311,7 +6325,7 @@ def _read_task_meta(path: Path) -> dict:
     """
     meta = {"title": "", "status": "", "priority": "", "type": "",
             "test_url": "", "target_env": "", "schema_version": "",
-            "git_branch": "", "tags": []}
+            "git_branch": "", "tags": [], "notify_queued": ""}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -6322,6 +6336,8 @@ def _read_task_meta(path: Path) -> dict:
     fm = text[3:end] if end != -1 else text
     in_tags = False
     in_git = False
+    in_cn = False                 # RM3026 : bloc client_notify (file de notif client)
+    _cn_q = _cn_s = ""
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -6335,8 +6351,19 @@ def _read_task_meta(path: Path) -> dict:
                     meta["git_branch"] = _scalar(line)
                 continue
             in_git = False
+        if in_cn:
+            if line.startswith("  "):
+                s = line.strip()
+                if s.startswith("queued_at:"):
+                    _cn_q = _scalar(line)
+                elif s.startswith("sent_at:"):
+                    _cn_s = _scalar(line)
+                continue
+            in_cn = False
         if line.startswith("schema_version:"):
             meta["schema_version"] = _scalar(line)
+        elif line.startswith("client_notify:"):
+            in_cn = True
         elif line.startswith("git:"):
             in_git = True
         elif line.startswith("title:"):
@@ -6353,6 +6380,8 @@ def _read_task_meta(path: Path) -> dict:
             meta["target_env"] = _scalar(line)
         elif line.startswith("tags:"):
             in_tags = True
+    # RM3026 : « en file de notif client » = queued_at posé ET sent_at vide/null.
+    meta["notify_queued"] = _cn_q if (_cn_q and not _cn_s) else ""
     return meta
 
 
@@ -7959,12 +7988,27 @@ def _project_cdcs(client: str, project: str) -> list:
     return out
 
 
+def _self_project():
+    """Le projet PROPRE de l'instance PM (celui du cockpit lui-même), dérivé du
+    `contacts_dir` de la config — source de vérité déjà posée (ex. iprospective/pm-ai-agents).
+    Repli constant si la config est illisible."""
+    try:
+        from pm_paths import PMConfig
+        parts = PMConfig.load().path("contacts_dir").parts   # …/<client>/projects/<project>/contacts
+        if len(parts) >= 4 and parts[-1] == "contacts" and parts[-3] == "projects":
+            return (parts[-4], parts[-2])
+        return ("iprospective", "pm-ai-agents")
+    except Exception:                                        # noqa: BLE001
+        return ("iprospective", "pm-ai-agents")
+
+
 def op_cdc_list() -> dict:
-    """Tous les CDC vivants de l'instance, projet par projet."""
-    out = []
-    for pdir in sorted(PROJECTS_BASE.glob("*/projects/*")):
-        out.extend(_project_cdcs(pdir.parent.parent.name, pdir.name))
-    return {"cdcs": out}
+    """Le(s) CDC du projet PROPRE de l'instance UNIQUEMENT (le cockpit montre EN HAUT le CDC
+    de PM — `pm-ai-agents` —, PAS une liste multi-projets). RM3049 : un seul CDC en haut ;
+    quand le projet propre n'en porte qu'un, le front l'ouvre directement (pas de sélecteur).
+    Les CDC des AUTRES projets restent accessibles depuis le panneau « projets » (données
+    séparées, par projet), jamais depuis ce menu global."""
+    return {"cdcs": _project_cdcs(*_self_project())}
 
 
 def op_cdc_features(client: str, project: str, prefix: str) -> dict:

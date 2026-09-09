@@ -13,6 +13,35 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
+  **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
+  `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné
+  (`client-notify preview|send --avec-protocole | --sans-protocole`) ; réglable avec
+  `client-notify config <projet> --protocole true|false`.
+
+- **Notif client : `sent_to`, `dismiss`** (RM3052, socle du panneau compte-rendu) : à l'envoi,
+  `client_notify.sent_to` consigne **à qui** le client a été notifié (pas seulement quand) ;
+  nouveau verbe `mmi-pm client-notify dismiss <projet> [--rm ID]` pour **écarter** des tickets
+  de la file **sans** email (tout n'a pas à être annoncé) — `dismissed_at` posé, `is_pending`
+  l'exclut, et un redéploiement les remet en file proprement.
+
+- **Menu CDC en haut = le seul CDC de PM** (RM3049) : le menu CDC en haut du cockpit affiche
+  **uniquement** le CDC du projet propre de l'instance (`pm-ai-agents`) — plus de liste ni de
+  sélecteur multi-projets (AtomBox et les autres n'y apparaissent plus). `op_cdc_list` ne
+  renvoie que le CDC de ce projet (dérivé du `contacts_dir`) ; comme il n'y en a qu'un, le
+  front l'ouvre directement (pas de sélecteur). Les CDC des autres projets restent accessibles
+  depuis le panneau « projets » (par projet), jamais depuis ce menu global.
+
+- **Notification client à la MEP** (RM3026) : quand des tickets passent en `en_mep`, un
+  projet ayant l'option `notif_client_mep` (actif + contacts d'annuaire) met ses tickets
+  en FILE ; `mmi-pm client-notify {config,list,preview,send}` agrège la file en **UN** email
+  récap (par projet, pas un par déploiement) — sujet au nom lisible du projet, « ce qui
+  change » = critères d'acceptation, sans le protocole de test interne — envoyé aux contacts
+  client (via `karl-mail-send`, jamais sans OK humain), puis vide la file (`sent_at`). Un
+  contact à plusieurs emails les notifie tous. Le **cockpit** signale la file par une alerte
+  `client_notify` (✉️) « N évolution(s) en prod à notifier au client », par projet, datée de
+  la plus ancienne en file.
+
 - **Fichier de réflexion par ticket et fusion vers le projet** (RM3015, RM3053, NORMS 2.26.0) :
   chaque fiche a un frère `RM<id>_<slug>.think.md` — notes verbatim (N), questions (Q),
   décisions/conseils (D/C), fonctionnalités (F), états ✅ ❌ 🟡 🕐 ⏸ — matière de travail hors

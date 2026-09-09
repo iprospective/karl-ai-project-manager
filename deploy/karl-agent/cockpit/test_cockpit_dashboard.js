@@ -43,6 +43,8 @@ function fakeElement() {
   assert.strictEqual(sm.rows.length, 5); assert.strictEqual(sm.more, 35); assert.strictEqual(sm.total, 40);
   const AL = { total: 30, hidden: 18, alerts: [{ kind: "verdict", key: "t:4", age_days: 48.2, rm_id: "4", client: "acme", project: "shop", label: "livré, attend ton verdict", title: "un titre" }, { kind: "mr", key: "m:r:9", age_days: 29, iid: "9", url: "https://x/9", client: "acme", project: "shop", label: "MR ouverte, pas mergée" }] };
   assert.deepStrictEqual(mk(null, AL).alerts().map(a => a.age), [48, 29]); assert.strictEqual(mk(null, AL).alertTotal, 30);
+  // RM3026 : nouveau kind d'alerte « évolutions en prod à notifier au client » → icône ✉️
+  assert.strictEqual(mk(null, { alerts: [{ kind: "client_notify", key: "cn:acme/shop", age_days: 3, client: "acme", project: "shop", label: "2 évolution(s) en prod à notifier au client", count: 2 }] }).alerts()[0].icon, "✉️", "RM3026 : alerte notif client → ✉️");
   assert(!mk().hasContent && mk(null, AL).hasContent);
   console.log("✓ ViewModel : filtres, sections plafonnées à 5 avec le reste annoncé, alertes datées");
 

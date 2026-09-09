@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.29.0] - 2026-09-10
+
+### Modifié
+- **Le critère de la note passe du lexical au sémantique** (`session-tooling` § « Les quatre
+  rubriques », RM3066) : une note ne consigne QUE **ce qui n'a pas été traité** et pourra
+  servir — trois conditions cumulatives (un reste à faire · auto-suffisante · pas déjà
+  traitée). Sortent explicitement : les demandes d'exécution même longues, les réponses aux
+  questions (décisions), les contraintes (décisions), les bugs (tickets), les collages.
+  Le **vrac devient un sas** : une dette retenue se reformule dans le même tour en question ou
+  en fonctionnalité. Garde de **rattachement** : une session ne consigne pas dans le ticket d'un
+  autre projet. Resserrement d'une règle existante, pas de ledger.
+
 ## [2.28.0] - 2026-09-09
 
 ### Ajouté

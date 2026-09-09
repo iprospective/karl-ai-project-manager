@@ -12,6 +12,8 @@ Sous-commandes :
     pending [entity] [--json]         la file de TOUS les clients, groupée (panneau du cockpit).
     queue   <ref> --rm ID [--yes]     (re)met des tickets en file — envoi raté, annonce à
                 refaire, recette. Refuse un ticket qui n'est pas en `en_mep` (sauf --force).
+    test    <ref> --to EMAIL          envoie le MÊME email à une adresse de test, sujet
+                préfixé [TEST] — n'écrit rien, ne vide pas la file.
     dismiss <ref> [--rm ID] [--yes]   écarte des tickets de la file SANS email.
 
 La file est portée par le frontmatter des tickets (`client_notify`), alimentée à l'entrée
@@ -214,6 +216,20 @@ def _scan_pending(cfg, entity=None, project=None, rm=None, with_protocol=None):
     return out
 
 
+def _contacts_list(cfg):
+    """[{ref, label, email}] — UNE entrée par email de l'annuaire (une fiche peut en porter
+    plusieurs). Sert à choisir le destinataire d'un envoi de TEST sans le retaper."""
+    out, seen = [], set()
+    for ref, fiche in sorted((_annuaire(cfg) or {}).items()):
+        recs = pcn.resolve_recipients({ref: fiche}, [ref])
+        label = recs[0]["label"] if recs else ref
+        for e in (fiche.get("emails") or []):
+            if e and e not in seen:
+                seen.add(e)
+                out.append({"ref": ref, "label": label, "email": e})
+    return out
+
+
 def _emails_for(cfg, rows):
     """(emails, orphans) — UNION des contacts des projets ACTIFS de la sélection : un
     compte-rendu client couvrant deux projets part à l'union de leurs destinataires,
@@ -278,6 +294,7 @@ def cmd_pending(cfg, args):
             } for r in rs],
         })
     data["total"] = sum(c["count"] for c in data["clients"])
+    data["contacts"] = _contacts_list(cfg)   # destinataires proposés pour un envoi de test
     data["ok"] = True
     if args.json:
         print(json.dumps(data, ensure_ascii=False))
@@ -514,6 +531,54 @@ def cmd_queue(cfg, args):
     print(f"✓ {len(todo)} ticket(s) en file — aucun email envoyé (l'annonce reste un geste humain)")
 
 
+def cmd_test(cfg, args):
+    """Envoi de TEST : le même email, à une adresse qu'on choisit, sans RIEN changer.
+
+    Verbe distinct de `send` — et non un drapeau — précisément pour qu'un oubli d'option ne
+    puisse pas se transformer en envoi au client : ici la file n'est jamais marquée, jamais
+    vidée. Le sujet est préfixé `[TEST]` pour ne pas confondre les deux dans une boîte."""
+    entity, project, label = _scope(args.ref)
+    to = [e.strip() for e in (args.to or []) if e and e.strip()]
+    if not to:
+        return _fail(args, "préciser au moins un destinataire de test (--to)")
+    bad = [e for e in to if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", e)]
+    if bad:
+        return _fail(args, "adresse invalide : " + ", ".join(bad))
+    rows, subject, body, _emails, _orphans, html = _render_selection(
+        cfg, entity, project, getattr(args, "rm", None), _proto_override(args))
+    tickets = [t for r in rows for t in r["tickets"]]
+    if not tickets:
+        return _fail(args, f"{label} : rien à prévisualiser (file vide ou sélection hors file)")
+    subject = pcn.test_subject(subject)
+    cmd = [sys.executable, str(HERE / "karl-mail-send.py"), "--subject", subject, "--body", "-"]
+    for e in to:
+        cmd += ["--to", e]
+    tmp = None
+    if html:
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="pm-client-notify-test-", suffix=".html")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        cmd += ["--html-file", tmp]
+    try:
+        r = subprocess.run(cmd, input=body, text=True, capture_output=bool(getattr(args, "json", False)))
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    if r.returncode != 0:
+        return _fail(args, f"envoi de test échoué (exit {r.returncode}) "
+                           f"{((r.stderr or '')[-300:]) if getattr(args, 'json', False) else ''}".strip())
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "test": True, "to": to, "subject": subject,
+                          "count": len(tickets)}, ensure_ascii=False))
+        return
+    print(f"✓ email de TEST envoyé à {', '.join(to)} — {len(tickets)} ticket(s) "
+          "(la file n'a pas bougé)")
+
+
 def cmd_dismiss(cfg, args):
     """RM3052 — retire des tickets de la file SANS notifier le client (pas d'email) :
     tout n'a pas à être annoncé. Périmètre projet (`entity/project`) ou client (`entity`) ;
@@ -565,6 +630,7 @@ def main():
 
     for name, help_ in (("list", "lister la file"), ("preview", "aperçu de l'email"),
                         ("send", "envoyer l'email récap"),
+                        ("test", "envoyer l'email à une adresse de test (n'écrit rien)"),
                         ("queue", "(re)mettre des tickets en file (RM3052)"),
                         ("dismiss", "écarter des tickets SANS notifier (RM3052)")):
         q = sub.add_parser(name, help=help_)
@@ -576,20 +642,24 @@ def main():
             q.add_argument("--yes", action="store_true", help="confirmer (sans quoi : aperçu de ce qui serait fait)")
         if name == "queue":
             q.add_argument("--force", action="store_true", help="accepter un ticket qui n'est pas en_mep (tracé)")
-        if name in ("preview", "send", "dismiss", "queue"):
+        if name == "test":
+            q.add_argument("--to", action="append", metavar="EMAIL", required=True,
+                           help="destinataire du test (répétable)")
+        if name in ("preview", "send", "dismiss", "queue", "test"):
             # RM3052 : le panneau n'agit QUE sur les cases cochées — la sélection peut couvrir
             # plusieurs projets du même client (périmètre `entity`).
             q.add_argument("--rm", action="append", metavar="ID",
                            help="ticket visé (répétable ; défaut : toute la file du périmètre)")
             q.add_argument("--json", action="store_true", help="sortie machine")
-        if name in ("preview", "send"):   # RM3052 : override ponctuel de l'option projet
+        if name in ("preview", "send", "test"):   # RM3052 : override ponctuel de l'option projet
             q.add_argument("--avec-protocole", action="store_true", help="forcer l'INCLUSION du protocole de test")
             q.add_argument("--sans-protocole", action="store_true", help="forcer l'EXCLUSION du protocole de test")
 
     args = ap.parse_args()
     cfg = PMConfig.load()
     {"config": cmd_config, "list": cmd_list, "pending": cmd_pending, "preview": cmd_preview,
-     "send": cmd_send, "queue": cmd_queue, "dismiss": cmd_dismiss}[args.cmd](cfg, args)
+     "send": cmd_send, "test": cmd_test, "queue": cmd_queue,
+     "dismiss": cmd_dismiss}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

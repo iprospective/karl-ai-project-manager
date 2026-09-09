@@ -187,6 +187,24 @@ check("aucun HTML brut ne traverse (le markdown source est échappé)",
       and "<script>" not in cn.render_markdown("<script>alert(1)</script>"))
 check("protocole vide => rien du tout (pas de bloc fantôme)", cn.render_markdown("   ") == "")
 
+# Lisibilité — les deux défauts constatés sur le premier envoi HTML (2026-09-09) :
+# 1. un `>` échappé cassait les citations ; 2. le YAML replie les lignes du frontmatter, si
+#    bien qu'une énumération rédigée sur dix lignes revenait en un pavé d'un seul tenant.
+check("une citation markdown reste une citation (le `>` n'est plus échappé)",
+      "<blockquote style=" in cn.render_markdown("> Tracé de recette"))
+check("…mais aucune balise ne traverse pour autant",
+      "&lt;script&gt;" in cn.render_markdown("<script>x</script>")
+      and "<script>" not in cn.render_markdown("<script>x</script>"))
+LONG = "Produits testés : " + " · ".join("**A%d** p%d (cas de bande %d)" % (i, 40 + i, i) for i in range(1, 12))
+check("une LONGUE énumération « · » repasse à la ligne (le pavé illisible)",
+      cn.render_markdown(LONG).count("<br") >= 10)
+check("une énumération COURTE est laissée tranquille",
+      "<br" not in cn.render_markdown("A · B"))
+check("les lignes d'un tableau ne sont jamais recoupées",
+      "<br" not in cn.render_markdown("| " + " · ".join(["x" * 40] * 6) + " | y |\n|---|---|\n| a | b |").split("<table")[1][:200])
+check("un retour à la ligne voulu par l'auteur en reste un (nl2br)",
+      cn.render_markdown("étape une\nétape deux").count("<br") == 1)
+
 T_HTML = {"id": 3025, "title": "Paliers & <prix>", "url": "https://r/3025",
           "criteria": ["Prix barré"], "protocol": MD}
 sh, hh = cn.compose_client_email_html("Calicote", [{"project": "Site", "tickets": [T_HTML]}])

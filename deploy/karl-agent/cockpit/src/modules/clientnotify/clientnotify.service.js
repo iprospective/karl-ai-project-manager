@@ -23,10 +23,17 @@ export class ClientNotifyService {
     this.repo = repo; this.storage = storage;
     this.data = null; this.client = null; this.sel = new Set();
     this.protocole = true; this.preview = null; this.error = null;
+    this.testTo = "";           // destinataire du dernier envoi de test (mémorisé)
   }
   /** Le protocole de test dans l'email est un choix qui se garde d'une fois sur l'autre (RM3052). */
   loadProto() { try { return this.storage ? this.storage.getItem("karlCnProto") !== "0" : true; } catch (e) { return true; } }
   saveProto(on) { try { if (this.storage) this.storage.setItem("karlCnProto", on ? "1" : "0"); } catch (e) { /* stockage indisponible */ } }
+  /** On teste presque toujours vers la même adresse : elle survit au rechargement. */
+  loadTestTo() { try { return (this.storage && this.storage.getItem("karlCnTestTo")) || ""; } catch (e) { return ""; } }
+  saveTestTo(v) { try { if (this.storage) this.storage.setItem("karlCnTestTo", v || ""); } catch (e) { /* stockage indisponible */ } }
+  setTestTo(v) { this.testTo = String(v || "").trim(); this.saveTestTo(this.testTo); }
+  /** L'annuaire, une entrée par email — pour choisir sans retaper. */
+  get contacts() { return ((this.data || {}).contacts) || []; }
 
   async load() {
     try { this.data = await this.repo.pending(); this.error = null; } catch (e) { this.data = { clients: [], total: 0 }; this.error = e.message; }
@@ -41,6 +48,7 @@ export class ClientNotifyService {
   open(client) {
     this.client = client;
     this.protocole = this.loadProto();
+    if (!this.testTo) this.testTo = this.loadTestTo();
     this.sel = new Set(idsOf(this.data, client));
     this.preview = null;
     return this.current();
@@ -62,6 +70,10 @@ export class ClientNotifyService {
     const r = await this.repo.send({ client: this.client, rm, protocole: this.protocole });
     await this.load();
     return r;
+  }
+  /** Envoi de TEST : même email, adresse choisie, la file ne bouge pas (donc pas de reload). */
+  async sendTest() {
+    return await this.repo.test({ client: this.client, rm: this.selected(), to: [this.testTo], protocole: this.protocole });
   }
   async dismiss() {
     const rm = this.selected();

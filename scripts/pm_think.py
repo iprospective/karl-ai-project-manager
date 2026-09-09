@@ -298,45 +298,58 @@ def proposition_pertinente(text: str):
     return True, extrait
 
 
-# ── pertinence d'une note (RM3062) ──────────────────────────────────────────
-# Une note n'entre au vrac que si elle peut CHANGER quelque chose plus tard (constat, idée, réserve,
-# contrainte) ; jamais une demande immédiate d'exécution, un accord, un accusé, un collage. La règle
-# vit dans NORMS `session-tooling` § « Les quatre rubriques » ; ceci en est l'approximation mécanique.
-_EXPLICITE = re.compile(r"\b(notes? que|consigne[sz]?\b|à noter|pense-bête|retien[st]|à retenir)", re.I)
-_REFLEXION = re.compile(r"\b(il faudra(it)?|on pourrait|on devrait|on va devoir|idée|réfléch|penser à|à terme|plus tard|attention|hypothèse|contrainte|"
-                        r"risque|proposition|principe|règle|généraliser|dans l'idéal|l'idéal|cadrage|doit être|devra|devrait|figé|à compléter|il manque|"
-                        r"reste à|cas de figure|raison pour laquelle|normalement|jamais|toujours)", re.I)
-#: marqueurs FAIBLES (opinion, exécution commentée) : ne comptent qu'avec une vraie longueur et sans ordre en tête — « j'ai mis la bonne
-#: conf cette fois je pense » ou « je veux aller au bout et tester à la fin » ne sont pas des réflexions (retour Mathieu, RM3062)
-_FAIBLE = re.compile(r"\b(je pense|j'ai l'impression|tu en penses|en fait|plutôt|au lieu|important|pourquoi|comment|est-ce|faut-il|"
-                     r"ne (?:veux|voulais|souhaite) pas|je (?:veux|voudrais|souhaite)|soucis|problème|bug|pas (?:encore|toujours)|ne vois pas|je ne comprends|compl[èe]te|préci[sz])", re.I)
-_COMMANDE = re.compile(r"^\W*(ok|oui|non|nickel|parfait|merci|super|top|go|vas-y|fais|prends|étudie|lance|merge|ferme|passe|continue|core update|"
-                       r"reprends|corrige|teste|regarde|montre|liste|crée|ajoute|mets|pousse|push|commit|déploie|relance|attends|c'est bon|"
-                       r"traite|chiffre|livre|répond|donne|envoie|supprime|j'ai fait|je viens de)\b", re.I)
-_OPERATION = re.compile(r"\b(traite|étudie|chiffre|review|continue) (?:et \w+ )?la tâche RM\d+|\bRM\d+\b.{0,20}\b(en_cours|a_faire|ferme|a_tester)\b|core update (?:fait|ok)", re.I)
+# ── pertinence d'une note (RM3062, refondu RM3066) ──────────────────────────
+# Une note ne sert QU'À une chose : retrouver plus tard ce qui n'a PAS été traité. Trois conditions
+# CUMULATIVES (NORMS `session-tooling` § « Les quatre rubriques ») :
+#   1. un RESTE À FAIRE — report explicite, manque, intention différée. Une contrainte (« doit être… »)
+#      n'en est pas une : elle appartient aux décisions.
+#   2. AUTO-SUFFISANTE — on comprend quoi reste à faire en lisant la note seule, hors du fil.
+#   3. PAS DÉJÀ TRAITÉE — un bug a son ticket, une proposition tranchée a sa décision.
+# Ceci en est l'approximation mécanique ; le jugement final reste à l'agent et au demandeur.
+
+#: consigne explicite du demandeur — passe avant tout le reste
+_EXPLICITE = re.compile(r"\b(notes? que|consigne[sz]? que|à noter|a noter|pense-bête|pense-bete|retiens|à retenir|a retenir)", re.I)
+#: rejets DURS — quelle que soit la suite du texte
+_COLLAGE = re.compile(r"(^|\s)(?:[\w.-]+@[\w.-]+:[~/][^\s]*[$#]|root@|Traceback \(most recent|^\s*File \"/)"
+                      r"|This session is being continued|^\s*https?://\S+\s*$", re.I | re.M)
+#: une réponse à une question outillée (« Q42 : … », « D114 : … », « q20 : oui ») est une DÉCISION, pas une note
+_REPONSE_Q = re.compile(r"^\W*[QDCF]\s?0?\d{2,3}\s*[:.)]", re.I)
+#: un ordre adressé à l'agent — même long, même s'il contient « il faudra »
+_ORDRE = re.compile(r"^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go\b|vas-y|nickel|parfait|merci|super|top|c'est bon|bien reçu|bien recu)?\s*"
+                    r"(?:peux-tu|pourrais-tu|je veux que tu|il faut que tu|merci de)\b"
+                    r"|^\W*(?:fais|fait|refais|prends|prend|étudie|etudie|chiffre|lance|relance|merge|mergez|ferme|passe|continue|reprends|reprend|"
+                    r"corrige|teste|test|regarde|montre|liste|crée|cree|ajoute|mets|met|pousse|push|commit|committe|déploie|deploie|supprime|vire|"
+                    r"consigne|consignes|note|notes|traite|livre|réponds|reponds|donne|envoie|applique|renomme|migre|analyse|documente|génère|genere|"
+                    r"core update|attends|stoppe|arrête|arrete)\b", re.I)
+#: le RESTE À FAIRE — report, manque, intention différée. PAS les contraintes (« doit », « devra ») : ce sont des décisions.
+_DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a terme|en attendant|provisoire|temporaire|"
+                    r"(?:un|second|deuxième|deuxieme) (?:premier )?temps|dans un premier temps|il faudra(?:it)?|"
+                    r"faudra(?:it)? (?:aussi|bien|encore)|reste (?:à|a) faire|il (?:reste|manque)|ce qui manque|manquera|"
+                    r"pas encore|(?:à|a) (?:définir|definir|revoir|trier|prévoir|prevoir|faire plus tard|reprendre)|"
+                    r"faute de mieux|en dur pour|quick ?fix|bricol|rustine|dette technique|plus propre|un jour|"
+                    r"on pourrait|on devrait|ce serait (?:bien|mieux)|il serait (?:bon|utile)|serait (?:bien|utile) de)", re.I)
+_MOT = re.compile(r"[^\W\d_]{2,}", re.U)
 
 
 def note_pertinente(text: str):
-    """(pertinente, motif). Explicite (« note que », « consigne ») ⇒ oui. Sinon : une marque de réflexion
-    hors demande d'exécution ⇒ oui ; une longue prose sans ordre en tête ⇒ oui ; le reste (ordre, accord,
-    accusé, opération sur un ticket) ⇒ non. Pure — testée."""
+    """(pertinente, motif). Approximation mécanique des trois conditions (RM3066) : rejets durs, puis un
+    marqueur de reste à faire, puis assez de matière pour être auto-suffisante. Pure — testée sur le corpus réel."""
     s = " ".join(str(text or "").split())
     if not s:
         return False, "vide"
-    if _EXPLICITE.search(s):
+    if _COLLAGE.search(text or ""):
+        return False, "collage (console, trace, compaction, url)"
+    if _REPONSE_Q.match(s):
+        return False, "réponse à une question — c'est une décision"
+    if _EXPLICITE.search(s):                 # « note que … » est une consigne, « note ceci » un ordre : l'explicite passe d'abord
         return True, "explicite"
-    if _PROPOSITION.search(s) and not _COMMANDE.match(s):
-        return True, "proposition"           # une proposition (de l'IA ou du demandeur) est pertinente par construction
-    if _OPERATION.search(s):
-        return False, "opération sur un ticket"
-    ordre = bool(_COMMANDE.match(s))
-    if _REFLEXION.search(s) and not (ordre and len(s) < 80):   # un « ? » seul ne suffit pas : la plupart sont des questions d'exécution à l'agent
-        return True, "réflexion"
-    if _FAIBLE.search(s) and not ordre and len(s) >= 140:      # une opinion ne vaut réflexion qu'avec de la matière derrière
-        return True, "réflexion (marqueur faible)"
-    if not ordre and len(s) >= 300:
-        return True, "prose"
-    return False, "demande immédiate / accord" if ordre else "sans portée"
+    if _ORDRE.search(s):
+        return False, "ordre à l'agent"
+    if not _DETTE.search(s):
+        return False, "rien à faire plus tard (constat, contrainte, opinion)"
+    if len(s) < 45 or len(_MOT.findall(s)) < 7:
+        return False, "trop courte pour être auto-suffisante"
+    return True, "dette"
 
 
 def _norm(s: str) -> str:

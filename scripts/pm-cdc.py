@@ -13,7 +13,10 @@ Options communes : --project <client>/<projet> (défaut : le workspace courant, 
 --docs-dir (surcharge), --prefix (défaut : déduit du seul CDC présent).
 
 Le dictionnaire vit dans `docs/cdc-<prefix>/dict/*.yml` (ou `docs/dict/*.yml`, forme
-historique) ; il est la SOURCE, le chapitre est une VUE. Voisin : `pm-cdc-features.py`
+historique) ; il est la SOURCE, le chapitre est une VUE. Forme GÉNÉRIQUE (RM3015-D017, RM3061) :
+un projet dont le CDC est `docs/cdc.md` + `cdc-<donnée>.md` a son dictionnaire dans `docs/dict/`
+et son chapitre généré dans `docs/cdc-dict.md` (préfixe implicite `cdc`) ; `check` y lit les
+identifiants fusionnés par pm-think-merge (`RM<id>-D001`). Voisin : `pm-cdc-features.py`
 (RM3043) tient le registre d'un CDC *rétrospectif*, dérivé des tickets — voir la norme,
 § « Deux registres de fonctionnalités ».
 """
@@ -57,19 +60,31 @@ def resoudre(args):
     return cfg.path("docs_dir", entity=c, project=p)
 
 
+GENERIC = "cdc"          # RM3061 : la forme générique (docs/cdc.md + cdc-<donnée>.md, dict dans docs/dict/)
+GENERIC_NUM = {"00": "cdc.md", "10": "cdc-features.md", "16": "cdc-dict.md", "90": "cdc-decisions.md",
+               "91": "cdc-notes.md", "99": "cdc-questions.md"}
+ID_RE = r"(?:RM\d+-)?"   # ids fusionnés par pm-think-merge : RM3044-D001 (forme générique) ; D001 (forme numérotée)
+
+
 def prefixe(docs, demande):
     if demande:
         return demande.lower().lstrip("#")
+    if (docs / "cdc.md").is_file():   # forme générique (D017) : les cdc-rm<id>-* à côté sont des CDC PAR TICKET (D015), pas le CDC projet
+        return GENERIC
     vus = sorted({m.group(1) for f in docs.glob("cdc-*-*.md")
                   for m in [re.match(r"cdc-(.+?)-(?:\d\d|0N|1N)-", f.name)] if m})
     if len(vus) == 1:
         return vus[0]
     if not vus:
-        sys.exit(f"aucun cdc-<prefix>-NN-*.md sous {docs} — `pm-cdc.py init --prefix <p>`")
+        if (docs / "cdc.md").is_file():
+            return GENERIC
+        sys.exit(f"aucun cdc-<prefix>-NN-*.md ni cdc.md sous {docs} — `pm-cdc.py init --prefix <p>` (ou pm-think-merge)")
     sys.exit("plusieurs CDC ici (%s) — préciser --prefix" % ", ".join(vus))
 
 
 def dict_dir(docs, prefix):
+    if prefix == GENERIC:
+        return docs / "dict"
     for c in (docs / f"cdc-{prefix}" / "dict", docs / "dict"):
         if c.is_dir():
             return c
@@ -85,10 +100,16 @@ def charge(dd, nom, defaut=None):
 
 
 def chapitres(docs, prefix):
+    if prefix == GENERIC:   # cdc.md + cdc-<donnée>.md ; ni les CDC par ticket (cdc-rm<id>-*), ni les numérotés
+        return sorted(f for f in docs.glob("cdc*.md") if f.name == "cdc.md"
+                      or (re.match(r"^cdc-[a-z][a-z-]*\.md$", f.name) and not re.match(r"^cdc-rm\d+", f.name)))
     return sorted(docs.glob(f"cdc-{prefix}-*.md"))
 
 
 def fichier(docs, prefix, num):
+    if prefix == GENERIC:
+        f = docs / GENERIC_NUM.get(str(num), f"cdc-{num}.md")
+        return f if f.is_file() else None
     for f in chapitres(docs, prefix):
         if re.match(rf"cdc-{re.escape(prefix)}-{num}\b", f.name):
             return f
@@ -195,7 +216,7 @@ def build_dict(dd, chapitre, prefix):
     md = []
     w = md.append
     n = chapitre
-    w(f"# {n} — Dictionnaire des données\n")
+    w(f"# {n} — Dictionnaire des données\n" if prefix != GENERIC else "# Dictionnaire des données\n")
     w("> **Fichier généré** le %s par `pm-cdc.py dict` depuis `dict/*.yml`. Ne pas éditer à la main : "
       "modifier les YAML, qui sont la source — du CDC, du POC, et plus tard du schéma, des classes et de "
       "la spécification d'API dans le langage et le SGBD retenus.\n" % datetime.date.today().isoformat())
@@ -406,12 +427,12 @@ def index(docs, prefix):
     f90 = fichier(docs, prefix, "90")
     if f90:
         for c in lignes_table(f90.read_text(encoding="utf-8")):
-            if re.fullmatch(r"D\d{3}[a-z]?", c[0]):
+            if re.fullmatch(ID_RE + r"D\d{3}[a-z]?", c[0]):
                 dec.append({"id": c[0], "objet": c[1] if len(c) > 1 else "", "etat": c[2] if len(c) > 2 else ""})
     f99 = fichier(docs, prefix, "99")
     if f99:
         for c in lignes_table(f99.read_text(encoding="utf-8")):
-            if re.fullmatch(r"Q\d{3}", c[0]):
+            if re.fullmatch(ID_RE + r"Q\d{3}", c[0]):
                 que.append({"id": c[0], "objet": c[1] if len(c) > 1 else "",
                             "urgence": c[-1] if len(c) > 2 else ""})
     return {"prefix": prefix, "genere_le": datetime.date.today().isoformat(),
@@ -459,9 +480,13 @@ def check(docs, prefix):
 
     # 2. références mortes dans les chapitres et le dictionnaire
     corpus = re.sub(r"`[^`]*`", " ", "\n".join(textes.values())) + "\n" + yaml.safe_dump(d, allow_unicode=True)
-    for x in sorted(set(re.findall(r"\bD\d{3}[a-z]?\b", corpus)) - dec_ids):
+    for x in sorted(set(re.findall(r"\b" + ID_RE + r"D\d{3}[a-z]?\b", corpus)) - dec_ids):
+        if prefix == GENERIC and not x.startswith("RM"):
+            continue   # forme générique : un D001 nu est un id LOCAL d'un think (RM<id>-D001 au registre), pas une référence
         err.append(f"{x} : citée, absente du registre")
-    for x in sorted(set(re.findall(r"\bQ\d{3}\b", corpus)) - que_ids):
+    for x in sorted(set(re.findall(r"\b" + ID_RE + r"Q\d{3}\b", corpus)) - que_ids):
+        if prefix == GENERIC and not x.startswith("RM"):
+            continue
         err.append(f"{x} : citée, absente des questions ouvertes")
 
     # 3. identifiants à trois chiffres
@@ -514,7 +539,7 @@ def check(docs, prefix):
 
     # 6. jalons vides
     jalons_utilises = {f.get("jalon") for f in FEA}
-    for j in d["jalons"]:
+    for j in (d["jalons"] if FEA else []):   # forme générique : les fonctionnalités vivent dans docs/cdc/ (pm-cdc-features), pas ici
         num = int(re.sub(r"\D", "", str(j.get("id"))) or 0)
         if num not in jalons_utilises:
             err.append(f"jalon {j.get('id')} : aucune fonctionnalité — un jalon vide est un jalon qui ment")
@@ -547,8 +572,8 @@ def check(docs, prefix):
         print("  ~ " + x)
     for x in err:
         print("  ✗ " + x)
-    print("%s CDC cdc-%s : %d décision(s), %d question(s), %d fonctionnalité(s) — %d erreur(s), %d avertissement(s)"
-          % ("✗" if err else "✓", prefix, len(dec_ids), len(que_ids), len(FEA), len(err), len(avert)))
+    print("%s CDC %s : %d décision(s), %d question(s), %d fonctionnalité(s) — %d erreur(s), %d avertissement(s)"
+          % ("✗" if err else "✓", ("cdc.md" if prefix == GENERIC else "cdc-" + prefix), len(dec_ids), len(que_ids), len(FEA), len(err), len(avert)))
     return 1 if err else 0
 
 
@@ -577,7 +602,7 @@ def main():
         dd = dict_dir(docs, prefix)
         if not dd.is_dir():
             sys.exit(f"aucun dictionnaire sous {dd}")
-        cible = fichier(docs, prefix, a.chapitre) or docs / f"cdc-{prefix}-{a.chapitre}-dictionnaire.md"
+        cible = (docs / "cdc-dict.md") if prefix == GENERIC else (fichier(docs, prefix, a.chapitre) or docs / f"cdc-{prefix}-{a.chapitre}-dictionnaire.md")
         cible.write_text(build_dict(dd, a.chapitre, prefix), encoding="utf-8")
         print(f"✓ {cible.name} régénéré depuis {dd}")
         return 0

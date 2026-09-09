@@ -2,9 +2,9 @@
 
 Le bouton **📋 CDC** du menu du haut ouvre au centre, en onglet épinglable, le **CDC du projet en
 contexte** — celui de la session attachée, sinon le dernier choisi, sinon le premier — avec, en tête de page,
-**tous les onglets au même niveau** : 📋 Fonctionnalités · 📘 CDC vivant (le sommaire) · puis un onglet par
-chapitre du CDC (🗺 roadmap, ⚖️ registre des décisions, ❓ questions ouvertes, 🗒 notes, 📚 dictionnaire, 📖 aide…).
-L'onglet courant est mémorisé. Un projet peut porter plusieurs CDC (le projet PM : « pm » et « karl ») — des puces
+**tous les onglets au même niveau**, dans l'ordre et avec les noms de la norme `cdc` (§ livrables d'un CDC complet) :
+📋 Fonctionnalités · 📘 CDC vivant (le sommaire) · chapitres thématiques · 🗺 Roadmap · 📚 Dictionnaire · ⚖️ Registre des
+décisions · 🗒 Vrac · ❓ Questions ouvertes · 📖 Glossaire · 📖 Guide. L'onglet courant est mémorisé. Un projet peut porter plusieurs CDC (le projet PM : « pm » et « karl ») — des puces
 permettent d'en changer.
 
 - **Fonctionnalités** : une ligne par ticket (ou par capacité, pour un registre curé) — clic sur un en-tête

@@ -109,6 +109,16 @@ class FakeCfg:
 
 cfg = FakeCfg()
 
+# Le dossier `tasks/` contient aussi les FRÈRES d'une fiche : `RM…_x.log.md`, `RM…_x.think.md`.
+# Ils matchent `RM*.md`. Un journal qui PARLE de `client_notify:` (ce qui arrive : les logs de ce
+# ticket-ci en parlent) franchissait le pré-filtre et se présentait comme un ticket sans statut.
+# Incident réel constaté le 2026-09-09 sur `queue` : RM3025 apparaissait à la fois « refusé
+# (statut ?) » et « à mettre en file ».
+(P[("calicote", "prestashop")] / "tasks" / "RM3025_x.log.md").write_text(
+    "# Journal\n\nOn a posé le bloc client_notify: sur la fiche.\n", encoding="utf-8")
+(P[("calicote", "prestashop")] / "tasks" / "RM3025_x.think.md").write_text(
+    "---\nrm: 3025\n---\nclient_notify: à surveiller\n", encoding="utf-8")
+
 # ── 1. balayage : la file, rien que la file ──────────────────────────────────
 rows = cli._scan_pending(cfg)
 ids = sorted(t["id"] for r in rows for t in r["tickets"])
@@ -116,6 +126,10 @@ check("seuls les tickets EN FILE remontent (envoyé/écarté/jamais en file excl
       ids == [2948, 3025, 3042, 9001], str(ids))
 check("un projet sans ticket en file n'apparaît pas",
       all(r["tickets"] for r in rows))
+check("un .log.md / .think.md n'est JAMAIS pris pour un ticket, même s'il cite client_notify",
+      [t["id"] for r in rows for t in r["tickets"]].count(3025) == 1)
+check("…et `_find_tickets` non plus (sinon un même ticket est refusé ET traité)",
+      len(cli._find_tickets(cfg, "calicote", "prestashop", ["3025"])) == 1)
 ps = cli._scan_pending(cfg, "calicote", "prestashop")
 check("périmètre projet : seul ce projet",
       len(ps) == 1 and sorted(t["id"] for t in ps[0]["tickets"]) == [2948, 3025])
@@ -167,6 +181,67 @@ after = sorted(t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["t
 check("le ticket écarté sort de la file, les autres restent", after == [2948, 3025], str(after))
 check("écarter n'envoie rien : pas de sent_at posé",
       "sent_at: null" in (P[("calicote", "prestasync")] / "tasks" / "RM3042_x.md").read_text(encoding="utf-8"))
+
+# ── 6. queue : remettre en file un ticket désigné ───────────────────────────
+# La file se remplit seule au passage en_mep ; ce verbe la reforme à la main (envoi raté,
+# annonce à refaire, recette du panneau). Il doit trouver des tickets que `_scan_pending`
+# ne voit PAS — c'est tout l'intérêt — sans jamais mettre en file ce qui n'est pas en prod.
+found = cli._find_tickets(cfg, "calicote", None, ["1111", "3333", "999999"])
+check("les tickets DÉSIGNÉS sont trouvés quel que soit leur état de file",
+      sorted(t["id"] for t in found) == [1111, 3333], str([t["id"] for t in found]))
+check("un id inexistant ne fabrique pas de ticket", 999999 not in [t["id"] for t in found])
+check("l'état de file de chacun est rendu (déjà envoyé => pas en file)",
+      {t["id"]: t["queued"] for t in found} == {1111: False, 3333: False})
+check("le statut est rendu — c'est lui qui autorise la mise en file", found[0]["status"] == "en_mep")
+
+
+class A:  # argparse minimal
+    def __init__(self, **kw):
+        self.ref, self.rm, self.yes, self.force, self.json = "calicote/prestashop", None, False, False, False
+        self.__dict__.update(kw)
+
+
+try:
+    cli.cmd_queue(cfg, A(rm=["1111"], yes=True))
+except SystemExit as e:  # noqa: PERF203
+    check("queue d'un ticket en_mep : pas d'échec", False, str(e))
+back = cli._scan_pending(cfg, "calicote", "prestashop")
+check("un ticket DÉJÀ notifié revient en file (nouveau cycle)",
+      1111 in [t["id"] for r in back for t in r["tickets"]])
+check("…et les autres ne bougent pas",
+      sorted(t["id"] for r in back for t in r["tickets"]) == [1111, 2948, 3025])
+try:
+    cli.cmd_queue(cfg, A(rm=["1111"], yes=True))
+    check("remettre en file un ticket DÉJÀ en file : sans effet, sans erreur", True)
+except SystemExit:
+    check("remettre en file un ticket DÉJÀ en file : sans effet, sans erreur", False)
+_st = (P[("calicote", "prestashop")] / "tasks" / "RM1111_x.md").read_text(encoding="utf-8")
+check("la mise en file n'écrase pas le statut ni le corps de la fiche",
+      "status: en_mep" in _st and "Critères d'acceptation" in _st)
+
+# un ticket qui n'est pas en prod n'a rien à annoncer
+task(P[("calicote", "prestashop")], 7777, "Pas encore livré", None)
+(P[("calicote", "prestashop")] / "tasks" / "RM7777_x.md").write_text(
+    "---\nredmine_id: 7777\ntitle: 'Pas livré'\nstatus: en_cours\n---\ncorps\n", encoding="utf-8")
+refused = False
+try:
+    cli.cmd_queue(cfg, A(rm=["7777"], yes=True))
+except SystemExit:
+    refused = True
+check("ticket qui n'est pas en_mep : REFUSÉ (rien à annoncer)", refused)
+check("…et il n'est pas entré en file",
+      7777 not in [t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["tickets"]])
+cli.cmd_queue(cfg, A(rm=["7777"], yes=True, force=True))
+check("--force passe outre (cas assumé, tracé)",
+      7777 in [t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["tickets"]])
+cli._mark_all_dismissed([t for r in cli._scan_pending(cfg, "calicote", None, ["7777"]) for t in r["tickets"]], "2026-09-09T10:00")
+
+no_sel = False
+try:
+    cli.cmd_queue(cfg, A(rm=[], yes=True))
+except SystemExit:
+    no_sel = True
+check("sans --rm : refusé (on ne remet pas « toute la file » en file par hasard)", no_sel)
 
 print()
 if fails:

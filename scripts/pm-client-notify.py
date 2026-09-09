@@ -9,6 +9,10 @@ Sous-commandes :
     preview <entity/project>          aperçu de l'email récap (n'envoie rien).
     send    <entity/project> [--yes]  envoie UN email récap au(x) contact(s) du client,
                 puis vide la file (pose sent_at). Sans --yes : aperçu + demande de confirmer.
+    pending [entity] [--json]         la file de TOUS les clients, groupée (panneau du cockpit).
+    queue   <ref> --rm ID [--yes]     (re)met des tickets en file — envoi raté, annonce à
+                refaire, recette. Refuse un ticket qui n'est pas en `en_mep` (sauf --force).
+    dismiss <ref> [--rm ID] [--yes]   écarte des tickets de la file SANS email.
 
 La file est portée par le frontmatter des tickets (`client_notify`), alimentée à l'entrée
 en `en_mep` par pm-task-status-update. Logique pure : pm_client_notify (testée).
@@ -27,6 +31,7 @@ sys.path.insert(0, str(HERE))
 import yaml  # noqa: E402
 import pm_client_notify as pcn  # noqa: E402
 import pm_markdown as pmd  # noqa: E402
+from pm_think import is_task_sheet  # noqa: E402  la FICHE d'un ticket, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig  # noqa: E402
 import pm_git  # noqa: E402
 from pm_lock import atomic_write  # noqa: E402
@@ -91,6 +96,8 @@ def _queued_tickets(cfg, project_dir, with_protocol=True):
     base = (os.environ.get("REDMINE_URL") or "").rstrip("/")
     out = []
     for md_path in sorted(tasks.glob("RM*.md")):
+        if not is_task_sheet(md_path):        # .log.md / .think.md : ce ne sont pas des tickets
+            continue
         text = md_path.read_text(encoding="utf-8")
         # pré-filtre : sans bloc `client_notify:` un ticket n'a jamais été mis en file —
         # inutile de parser son YAML (le balayage tous projets du panneau lit ~1000 fiches).
@@ -116,6 +123,31 @@ def _queued_tickets(cfg, project_dir, with_protocol=True):
             "protocol": (fm.get("test_protocol") or "") if with_protocol else "",
             "queued_at": pcn.queue_state(fm)[0],
         })
+    return out
+
+
+def _find_tickets(cfg, entity, project, rm_ids):
+    """[{path, id, title, status, queued}] pour des tickets DÉSIGNÉS, quel que soit leur état
+    de file — contrairement à `_queued_tickets` qui ne voit que la file. Sert à (re)mettre en
+    file : un envoi raté, une annonce à refaire, une démo."""
+    want = {str(x) for x in (rm_ids or [])}
+    out = []
+    for ent, proj, pdir in cfg.iter_projects(entity):
+        if project and proj != project:
+            continue
+        for md_path in sorted((pdir / "tasks").glob("RM*.md")):
+            m = re.match(r"RM(\d+)_", md_path.name)
+            if not m or m.group(1) not in want or not is_task_sheet(md_path):
+                continue
+            try:
+                text = md_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            fm, _body, _ = pmd.split_frontmatter(text)
+            fm = fm or {}
+            out.append({"path": md_path, "id": int(m.group(1)), "entity": ent, "project": proj,
+                        "title": fm.get("title") or "", "status": fm.get("status") or "",
+                        "queued": pcn.is_pending(fm)})
     return out
 
 
@@ -406,6 +438,61 @@ def cmd_send(cfg, args):
           f"— {len(tickets)} ticket(s){'' if args.dry_run else ' (file vidée)'}")
 
 
+def cmd_queue(cfg, args):
+    """(Re)met des tickets DÉSIGNÉS dans la file de notification.
+
+    La file se remplit normalement toute seule (passage en `en_mep`). Ce verbe couvre les cas
+    où il faut la reformer à la main : un envoi qui a échoué, une annonce à refaire, une
+    recette du panneau. Il n'invente rien — `set_queued` est la même fonction que celle du
+    hook de MEP, et elle est idempotente.
+
+    Garde : un ticket qui n'est PAS en `en_mep` n'a rien à annoncer (il n'est pas en prod) —
+    refusé sauf `--force`, qui trace le motif dans la sortie."""
+    from datetime import datetime
+    entity, project, label = _scope(args.ref)
+    if not args.rm:
+        return _fail(args, "préciser au moins un ticket (--rm)")
+    found = _find_tickets(cfg, entity, project, args.rm)
+    missing = sorted({str(x) for x in args.rm} - {str(t["id"]) for t in found})
+    if missing:
+        print(f"  ⚠ introuvable(s) dans {label} : {', '.join(missing)}", file=sys.stderr)
+    todo, refused, already = [], [], []
+    for t in found:
+        if t["status"] != "en_mep" and not args.force:
+            refused.append(t)
+        elif t["queued"]:
+            already.append(t)
+            print(f"  = RM{t['id']} déjà en file — inchangé")
+        else:
+            todo.append(t)
+    for t in refused:
+        print(f"  ✗ RM{t['id']} : statut {t['status'] or '?'} (pas en_mep) — rien à annoncer ; "
+              "--force pour passer outre", file=sys.stderr)
+    if not todo:
+        # Déjà en file = l'état demandé est atteint : c'est un SUCCÈS (l'opération est
+        # idempotente). Seuls un refus ou un ticket introuvable sont des échecs.
+        if already and not refused and not missing:
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "queued": 0, "already": [t["id"] for t in already]}, ensure_ascii=False))
+            return
+        return _fail(args, f"{label} : aucun ticket à (re)mettre en file")
+    if not args.yes:
+        print("À (RE)METTRE en file de notification client :")
+        for t in todo:
+            print(f"    RM{t['id']}  {t['title']}"
+                  + ("" if t["status"] == "en_mep" else f"  [forcé — statut {t['status']}]"))
+        print("→ relance avec --yes pour confirmer.")
+        return
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    _stamp(todo, lambda fm: pcn.set_queued(fm, now)[0])
+    pm_git.autocommit([t["path"] for t in todo],
+                      f"pm(notif): {label} {len(todo)} ticket(s) remis en file de notif client (RM3052)")
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "queued": len(todo), "rm": [t["id"] for t in todo]}, ensure_ascii=False))
+        return
+    print(f"✓ {len(todo)} ticket(s) en file — aucun email envoyé (l'annonce reste un geste humain)")
+
+
 def cmd_dismiss(cfg, args):
     """RM3052 — retire des tickets de la file SANS notifier le client (pas d'email) :
     tout n'a pas à être annoncé. Périmètre projet (`entity/project`) ou client (`entity`) ;
@@ -457,15 +544,18 @@ def main():
 
     for name, help_ in (("list", "lister la file"), ("preview", "aperçu de l'email"),
                         ("send", "envoyer l'email récap"),
+                        ("queue", "(re)mettre des tickets en file (RM3052)"),
                         ("dismiss", "écarter des tickets SANS notifier (RM3052)")):
         q = sub.add_parser(name, help=help_)
         q.add_argument("ref", help="entity/project (un projet) ou entity (tout le client)")
         if name == "send":
             q.add_argument("--yes", action="store_true", help="confirmer l'envoi réel")
             q.add_argument("--dry-run", action="store_true", help="passe --dry-run à karl-mail-send (n'envoie pas, ne vide pas)")
-        if name == "dismiss":
-            q.add_argument("--yes", action="store_true", help="confirmer (sans quoi : aperçu de ce qui serait écarté)")
-        if name in ("preview", "send", "dismiss"):
+        if name in ("dismiss", "queue"):
+            q.add_argument("--yes", action="store_true", help="confirmer (sans quoi : aperçu de ce qui serait fait)")
+        if name == "queue":
+            q.add_argument("--force", action="store_true", help="accepter un ticket qui n'est pas en_mep (tracé)")
+        if name in ("preview", "send", "dismiss", "queue"):
             # RM3052 : le panneau n'agit QUE sur les cases cochées — la sélection peut couvrir
             # plusieurs projets du même client (périmètre `entity`).
             q.add_argument("--rm", action="append", metavar="ID",
@@ -478,7 +568,7 @@ def main():
     args = ap.parse_args()
     cfg = PMConfig.load()
     {"config": cmd_config, "list": cmd_list, "pending": cmd_pending, "preview": cmd_preview,
-     "send": cmd_send, "dismiss": cmd_dismiss}[args.cmd](cfg, args)
+     "send": cmd_send, "queue": cmd_queue, "dismiss": cmd_dismiss}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

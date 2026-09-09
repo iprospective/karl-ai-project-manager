@@ -26,3 +26,6 @@
 .cn-prev { border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
 .cn-subj { font-size: 12px; margin-bottom: 6px; }
 .cn-body { font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; margin: 0; max-height: 340px; overflow-y: auto; }
+
+// l'aperçu = l'email lui-même, dans une iframe cloisonnée (ses styles ne fuient pas dans le cockpit)
+.cn-frame { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 4px; background: #fff; resize: vertical; }

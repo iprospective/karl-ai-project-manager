@@ -33,6 +33,8 @@ export function ClientReport(vm) {
       ${vm.busy ? html`<span class="cn-busy">…</span>` : ""}<span class="cn-why">${vm.why}</span>
     </div>
     <h3 class="cn-prevh">Aperçu de l'email</h3>
-    ${vm.preview ? html`<div class="cn-prev"><div class="cn-subj"><b>Objet :</b> ${vm.preview.subject}</div><pre class="cn-body">${vm.preview.body}</pre></div>`
+    ${vm.preview ? html`<div class="cn-prev"><div class="cn-subj"><b>Objet :</b> ${vm.preview.subject}</div>
+      ${vm.previewHtml ? html`<iframe class="cn-frame" sandbox="" title="Aperçu de l'email" srcdoc="${vm.previewHtml}"></iframe>`
+        : html`<pre class="cn-body">${vm.preview.body}</pre>`}</div>`
       : html`<div class="empty">${vm.count ? "aperçu en cours…" : "Rien de coché : aucun email à prévisualiser."}</div>`}`;
 }

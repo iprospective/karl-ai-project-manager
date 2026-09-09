@@ -233,7 +233,10 @@ def _emails_for(cfg, rows):
 
 
 def _render_selection(cfg, entity, project, rm, with_protocol):
-    """(rows, subject, body, emails, orphans) pour un périmètre + une sélection.
+    """(rows, subject, body, emails, orphans, html) pour un périmètre + une sélection.
+
+    Deux rendus du MÊME contenu : le texte (repli) et le HTML (ce que le client lit —
+    tableaux du protocole rendus comme des tableaux).
 
     Périmètre PROJET (`entity/project`) → récap projet, inchangé depuis RM3026.
     Périmètre CLIENT (`entity`) → compte-rendu client, groupé par projet."""
@@ -243,11 +246,13 @@ def _render_selection(cfg, entity, project, rm, with_protocol):
         tickets = rows[0]["tickets"] if rows else []
         name = rows[0]["label"] if rows else project
         subject, body = pcn.compose_email(name, tickets)
+        _, html = pcn.compose_email_html(name, tickets)
     else:
-        subject, body = pcn.compose_client_email(
-            _client_label(cfg, entity),
-            [{"project": r["label"], "tickets": r["tickets"]} for r in rows])
-    return rows, subject, body, emails, orphans
+        groups = [{"project": r["label"], "tickets": r["tickets"]} for r in rows]
+        label = _client_label(cfg, entity)
+        subject, body = pcn.compose_client_email(label, groups)
+        _, html = pcn.compose_client_email_html(label, groups)
+    return rows, subject, body, emails, orphans, html
 
 
 def cmd_pending(cfg, args):
@@ -382,12 +387,12 @@ def _scope(ref):
 
 def cmd_preview(cfg, args):
     entity, project, label = _scope(args.ref)
-    rows, subject, body, emails, orphans = _render_selection(
+    rows, subject, body, emails, orphans, html = _render_selection(
         cfg, entity, project, getattr(args, "rm", None), _proto_override(args))
     n = sum(len(r["tickets"]) for r in rows)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "to": emails, "subject": subject, "body": body,
-                          "count": n, "orphans": orphans}, ensure_ascii=False))
+                          "html": html, "count": n, "orphans": orphans}, ensure_ascii=False))
         return
     if not n:
         print(f"  {label} : file vide — rien à envoyer.")
@@ -403,7 +408,7 @@ def cmd_preview(cfg, args):
 def cmd_send(cfg, args):
     from datetime import datetime
     entity, project, label = _scope(args.ref)
-    rows, subject, body, emails, orphans = _render_selection(
+    rows, subject, body, emails, orphans, html = _render_selection(
         cfg, entity, project, getattr(args, "rm", None), _proto_override(args))
     tickets = [t for r in rows for t in r["tickets"]]
     if orphans:
@@ -422,7 +427,23 @@ def cmd_send(cfg, args):
         cmd += ["--to", e]
     if args.dry_run:
         cmd.append("--dry-run")
-    r = subprocess.run(cmd, input=body, text=True, capture_output=bool(getattr(args, "json", False)))
+    # Le HTML passe par un fichier : stdin porte déjà le corps texte, et un corps de
+    # plusieurs dizaines de Ko n'a rien à faire dans une ligne de commande.
+    tmp = None
+    if html:
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="pm-client-notify-", suffix=".html")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        cmd += ["--html-file", tmp]
+    try:
+        r = subprocess.run(cmd, input=body, text=True, capture_output=bool(getattr(args, "json", False)))
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
     if r.returncode != 0:
         return _fail(args, f"envoi échoué (exit {r.returncode}) {((r.stderr or '')[-300:]) if getattr(args, 'json', False) else ''}".strip())
     if not args.dry_run:

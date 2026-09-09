@@ -168,6 +168,51 @@ check("critères et protocole rendus comme dans le récap projet (même bloc)",
 check("aucune sélection => email vide mais bien formé (0 évolution)",
       cn.compose_client_email("C", [])[0] == "C — 0 évolution mise en ligne")
 
+# ── 6. rendu HTML (RM3052) — un email lisible chez le client ─────────────────
+# Le protocole de test est du markdown à TABLEAUX : recopié en texte brut il arrive en
+# bouillie. L'email part donc en multipart, et c'est la partie HTML que le client lit.
+MD = "## Bandes\n\n| Cas | Attendu |\n|---|---|\n| A1 | Prix barré | \n\n- puce\n"
+h = cn.render_markdown(MD)
+check("un tableau markdown devient un vrai <table> (le cœur de la demande)",
+      "<table style=" in h and "<th style=" in h and "|---" not in h)
+check("titres et listes rendus, pas recopiés",
+      "<h2 style=" in h and "<ul style=" in h and "## Bandes" not in h)
+check("styles EN LIGNE (les clients mail jettent les feuilles <style>)",
+      "<table>" not in h and "<td>" not in h)
+check("les cases d'atelier deviennent lisibles pour un client",
+      cn.render_markdown("- [x] fait\n- [ ] à faire").count("✔") == 1
+      and "☐" in cn.render_markdown("- [ ] à faire"))
+check("aucun HTML brut ne traverse (le markdown source est échappé)",
+      "&lt;script&gt;" in cn.render_markdown("<script>alert(1)</script>")
+      and "<script>" not in cn.render_markdown("<script>alert(1)</script>"))
+check("protocole vide => rien du tout (pas de bloc fantôme)", cn.render_markdown("   ") == "")
+
+T_HTML = {"id": 3025, "title": "Paliers & <prix>", "url": "https://r/3025",
+          "criteria": ["Prix barré"], "protocol": MD}
+sh, hh = cn.compose_client_email_html("Calicote", [{"project": "Site", "tickets": [T_HTML]}])
+check("le sujet HTML est IDENTIQUE au sujet texte (un multipart ne se contredit pas)",
+      sh == cn.compose_client_email("Calicote", [{"project": "Site", "tickets": [T_HTML]}])[0])
+check("document HTML complet et autonome",
+      hh.startswith("<!DOCTYPE html>") and hh.rstrip().endswith("</html>"))
+check("titre et lien du ticket présents, le titre étant ÉCHAPPÉ",
+      'href="https://r/3025"' in hh and "Paliers &amp; &lt;prix&gt;" in hh)
+check("les critères sortent en liste, le protocole en tableau",
+      "Ce qui change" in hh and "<li style=" in hh and "Comment le vérifier" in hh and "<table style=" in hh)
+# Un protocole peut contenir ses propres titres : on cherche le NOM du projet, pas « <h2 ».
+T_PLAIN = {"id": 7, "title": "Sans protocole"}
+_, hh_multi = cn.compose_client_email_html("C", [{"project": "Site vitrine", "tickets": [T_PLAIN]},
+                                                 {"project": "Synchro ERP", "tickets": [T_PLAIN]}])
+check("multi-projets : un intitulé par projet, comme en texte",
+      "Site vitrine" in hh_multi and "Synchro ERP" in hh_multi)
+_, hh_mono = cn.compose_client_email_html("C", [{"project": "Site vitrine", "tickets": [T_PLAIN]}])
+check("mono-projet : aucun intitulé de projet (rien d'interne chez le client)",
+      "Site vitrine" not in hh_mono)
+_, hh_proj = cn.compose_email_html("Site PrestaShop", [T_HTML])
+check("pendant HTML du récap PROJET", hh_proj.startswith("<!DOCTYPE html>") and "Site PrestaShop" in hh_proj)
+_, hh_sans = cn.compose_client_email_html("C", [{"project": "P", "tickets": [{"id": 1, "title": "T"}]}])
+check("ticket sans critère ni protocole : pas de section vide",
+      "Ce qui change" not in hh_sans and "Comment le vérifier" not in hh_sans)
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

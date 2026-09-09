@@ -57,4 +57,7 @@ export class ClientReportViewModel extends EntityViewModel {
     return "";
   }
   get preview() { return this.e.preview || null; }
+  /** L'aperçu est rendu DANS UNE IFRAME cloisonnée (`sandbox=""`, srcdoc) : c'est l'email
+   * exact — styles compris — sans que son HTML ne s'exécute ni ne déteigne sur le cockpit. */
+  get previewHtml() { return (this.e.preview && this.e.preview.html) || ""; }
 }

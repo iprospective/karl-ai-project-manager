@@ -56,6 +56,27 @@ export class ClientReportViewModel extends EntityViewModel {
     if (!this.recipients.length) return "Aucun destinataire : l'option notif_client_mep est inactive, ou les contacts n'ont pas d'email.";
     return "";
   }
+  // — envoi de TEST : se relire dans une vraie boîte avant d'écrire au client —
+  get testTo() { return this.e.testTo || ""; }
+  /** L'annuaire d'abord (choisir sans retaper), puis les destinataires réels du client. */
+  get contacts() {
+    const seen = new Set(), out = [];
+    for (const c of (this.e.contacts || [])) {
+      if (c && c.email && !seen.has(c.email)) { seen.add(c.email); out.push({ email: c.email, label: c.label ? `${c.label} — ${c.email}` : c.email }); }
+    }
+    for (const e of this.recipients) if (!seen.has(e)) { seen.add(e); out.push({ email: e, label: `${e} (destinataire du client)` }); }
+    return out;
+  }
+  get testValid() { return /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(this.testTo); }
+  /** Volontairement indépendant de la validité de l'adresse : un bouton désactivé pendant
+   * la frappe avale le premier clic (le champ perd le focus, la vue se repeint, le clic est
+   * perdu). L'adresse est donc vérifiée AU CLIC, avec un message si elle ne va pas. */
+  get canTest() { return !this.busy && this.count > 0; }
+  get testWhy() {
+    if (!this.count) return "";
+    if (!this.testTo) return "Choisissez ou saisissez une adresse.";
+    return this.testValid ? "" : "Adresse invalide.";
+  }
   get preview() { return this.e.preview || null; }
   /** L'aperçu est rendu DANS UNE IFRAME cloisonnée (`sandbox=""`, srcdoc) : c'est l'email
    * exact — styles compris — sans que son HTML ne s'exécute ni ne déteigne sur le cockpit. */

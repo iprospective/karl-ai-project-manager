@@ -18,6 +18,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement
   d'un dossier réel ou d'un lien vers ailleurs) ; `--dry-run` montre les deux plans. Un hook ou
   un skill ajouté par un ticket est actif dès le core update suivant.
+- **Envoi de TEST + lisibilité du rendu** (RM3052) : le panneau gagne un bloc **« Test
+  d'envoi »** — on choisit un contact de l'annuaire (liste servie par `pending`) ou on saisit
+  une adresse, et le **même** compte-rendu part là, sujet préfixé `[TEST]`, **sans rien
+  écrire** : ni `sent_at`, ni `sent_to`, la file ne bouge pas. Verbe CLI
+  `client-notify test <ref> --to EMAIL` et endpoint `/client-notify/test` **distincts de
+  `send`** (un drapeau oublié aurait pu envoyer au client). Deux corrections de rendu au
+  passage : l'échappement transformait `>` en `&gt;` et **cassait les citations markdown** ;
+  et le YAML repliant les lignes du frontmatter, une énumération rédigée sur dix lignes
+  revenait en **pavé d'un seul tenant** — les longues énumérations « · » repassent à la ligne,
+  et `nl2br` respecte les retours à la ligne voulus.
 - **Email client en HTML** (RM3052) : le protocole de test d'un ticket est du markdown à
   **tableaux** — recopié dans un corps texte, il arrivait en bouillie chez le client. L'email
   part désormais en **multipart** : le texte reste le repli, et la partie **HTML** rend les

@@ -10206,6 +10206,24 @@ def op_client_notify_send(payload: dict) -> dict:
                           + _cn_rm(payload) + _cn_proto(payload), timeout=300)
 
 
+def op_client_notify_test(payload: dict) -> dict:
+    """Envoi de TEST à une adresse choisie : le même email, sans toucher à la file.
+    Endpoint distinct de `send` — un test ne doit jamais pouvoir partir chez le client."""
+    raw = (payload or {}).get("to") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    to = []
+    for e in raw[:5]:
+        e = str(e).strip()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", e):
+            raise ApiError(400, f"adresse de test invalide : {e or '(vide)'}")
+        to += ["--to", e]
+    if not to:
+        raise ApiError(400, "aucune adresse de test")
+    return _client_notify(["test", _cn_client(payload)] + to
+                          + _cn_rm(payload) + _cn_proto(payload), timeout=300)
+
+
 def op_client_notify_dismiss(payload: dict) -> dict:
     """Écarte les tickets cochés de la file, SANS email (le client n'a pas à tout savoir)."""
     return _client_notify(["dismiss", _cn_client(payload), "--yes"] + _cn_rm(payload))
@@ -11711,6 +11729,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_client_notify_preview(payload))
             if path == "/client-notify/send":
                 return self._send_json(200, op_client_notify_send(payload))
+            if path == "/client-notify/test":
+                return self._send_json(200, op_client_notify_test(payload))
             if path == "/client-notify/dismiss":
                 return self._send_json(200, op_client_notify_dismiss(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})

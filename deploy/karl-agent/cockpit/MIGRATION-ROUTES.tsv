@@ -104,3 +104,4 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /client-notify/preview	L4	clientnotify	/api/clientnotify/preview	1	preview
 /client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
 /client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss
+/client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest

@@ -208,6 +208,7 @@ check("le statut est rendu — c'est lui qui autorise la mise en file", found[0]
 class A:  # argparse minimal
     def __init__(self, **kw):
         self.ref, self.rm, self.yes, self.force, self.json = "calicote/prestashop", None, False, False, False
+        self.to, self.dry_run, self.avec_protocole, self.sans_protocole = None, False, False, False
         self.__dict__.update(kw)
 
 
@@ -245,6 +246,55 @@ cli.cmd_queue(cfg, A(rm=["7777"], yes=True, force=True))
 check("--force passe outre (cas assumé, tracé)",
       7777 in [t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["tickets"]])
 cli._mark_all_dismissed([t for r in cli._scan_pending(cfg, "calicote", None, ["7777"]) for t in r["tickets"]], "2026-09-09T10:00")
+
+# ── 7. envoi de test : n'écrit RIEN ─────────────────────────────────────────
+check("l'annuaire est exposé, une entrée par email (choisir sans retaper)",
+      [c["email"] for c in cli._contacts_list(cfg)] == ["m@ipro.fr", "contact@ipro.fr", "s@calicote.com"],
+      str(cli._contacts_list(cfg)))
+check("chaque entrée porte un libellé lisible",
+      all(c["label"] and c["ref"] for c in cli._contacts_list(cfg)))
+
+_sent_cmds = []
+
+
+class _FakeRun:
+    returncode = 0
+    stdout = stderr = ""
+
+
+def _fake_run(cmd, **kw):     # l'envoi est simulé : aucun mail ne part d'un test
+    _sent_cmds.append(cmd)
+    return _FakeRun()
+
+
+_real_run = cli.subprocess.run
+cli.subprocess.run = _fake_run
+before = (P[("calicote", "prestashop")] / "tasks" / "RM3025_x.md").read_text(encoding="utf-8")
+file_before = sorted(t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["tickets"])
+cli.cmd_test(cfg, A(ref="calicote", rm=["3025"], to=["moi@ipro.fr"]))
+check("le test envoie à l'adresse donnée, et à elle seule",
+      _sent_cmds and _sent_cmds[-1].count("--to") == 1 and "moi@ipro.fr" in _sent_cmds[-1])
+check("sujet préfixé [TEST] (ne pas confondre les deux dans une boîte)",
+      "[TEST] " in _sent_cmds[-1][_sent_cmds[-1].index("--subject") + 1])
+check("le HTML accompagne le test (c'est le rendu qu'on veut relire)", "--html-file" in _sent_cmds[-1])
+check("un test ne touche à AUCUNE fiche : ni sent_at, ni sent_to",
+      (P[("calicote", "prestashop")] / "tasks" / "RM3025_x.md").read_text(encoding="utf-8") == before)
+check("…et la file reste entière (rien n'en sort après un test)",
+      sorted(t["id"] for r in cli._scan_pending(cfg, "calicote") for t in r["tickets"]) == file_before,
+      str(file_before))
+bad = False
+try:
+    cli.cmd_test(cfg, A(ref="calicote", rm=["3025"], to=["pasunemail"]))
+except SystemExit:
+    bad = True
+check("adresse invalide : refusée avant tout envoi", bad)
+none_to = False
+try:
+    cli.cmd_test(cfg, A(ref="calicote", rm=["3025"], to=[]))
+except SystemExit:
+    none_to = True
+check("sans --to : refusé", none_to)
+cli.subprocess.run = _real_run
 
 no_sel = False
 try:

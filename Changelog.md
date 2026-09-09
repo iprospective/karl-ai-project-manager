@@ -100,6 +100,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **Éditer le CDC depuis le cockpit** (RM3064, 3.7.6) : dans les registres fusionnés, chaque
+  entrée de think a un sélecteur d'état et un ✕ (confirmé) ; dans la table des fonctionnalités,
+  un sélecteur d'état qui fige l'entrée (`--set-etat`, jamais de suppression). Routes
+  `POST /api/doc/cdc-think` et `/api/doc/cdc-feature`, scripts `pm-task-think --delete`,
+  `pm-cdc-features --set-etat` ; registres régénérés dans la foulée.
 - **En-tête du cockpit** (RM3063, 3.7.5) : le filtre « Clients » (contexte client) est masqué par
   défaut et se réaffiche par une option locale des réglages (carte 🎨 Thème & affichage) ; le bouton
   📋 CDC se place juste à droite du titre.

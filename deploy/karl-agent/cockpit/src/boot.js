@@ -524,7 +524,7 @@ sessproj = mountSessProj(byId("rp-projects"), {
 });
 cdc = mountCdc(byId("cdccard"), {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), md: mdToHtml, notify: notify.toast,
-  openPanel: () => center.openPanel("cdc"), showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(),
+  openPanel: () => center.openPanel("cdc"), showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(), confirm: (m) => window.confirm(m),
 });
 // RM3052 : compte-rendu client — menu déroulant au bandeau (un client par ligne, avec son reste à annoncer),
 // page centrale cochable, aperçu de l'email, envoi. Le badge dit combien d'évolutions livrées attendent d'être annoncées.

@@ -53,6 +53,26 @@ d3 = base / "acme" / "projects" / "mail" / "docs"; (d3 / "dict").mkdir(parents=T
 r3 = ka.op_cdc_features("acme", "mail", "rm2881")
 check("dictionnaire AtomBox lu comme registre : entrées, domaines déduits, jalons", [e["id"] for e in r3["entrees"]] == ["F001", "F002"] and r3["domaines"] == ["Réception", "Tags"] and r3["jalons"][0]["id"] == "V0")
 check("un sommaire cdc-rm<id>-00 est un CDC PAR TICKET (D015) : pas listé comme CDC projet, mais son dictionnaire reste lisible par op_cdc_features", ka._project_cdcs("acme", "mail") == [])
+# RM3064 : édition depuis le cockpit — arguments purs vers pm-task-think, projet d'un ticket, validations
+rm, local, args = ka._cdc_think_args({"id": "RM3044-D001", "action": "delete"})
+check("_cdc_think_args : id fusionné → ticket + id local, --delete", rm == "3044" and local == "D001" and args == ["3044", "--delete", "D001"])
+rm, local, args = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "invalide"})
+check("_cdc_think_args : id local + rm, --set --state", args == ["44", "--set", "Q002", "--state", "invalide"])
+for bad in ({"id": "D1", "action": "delete"}, {"id": "D001", "action": "delete"}, {"id": "RM1-D001", "rm": 2, "action": "delete"}, {"id": "RM1-D001", "action": "state", "state": "zzz"}, {"id": "RM1-D001", "action": "boom"}):
+    try:
+        ka._cdc_think_args(bad); check(f"refus {bad}", False)
+    except ka.ApiError:
+        check(f"refus {bad}", True)
+tdir = base / "acme" / "projects" / "site" / "tasks"; tdir.mkdir(parents=True); (tdir / "RM77_x.md").write_text("---\nredmine_id: 77\n---\n"); (tdir / "RM77_x.think.md").write_text("# think\n")
+check("_task_project : (client, projet) d'un ticket, le think ignoré", ka._task_project("77") == ("acme", "site") and ka._task_project("9999") is None)
+try:
+    ka.op_cdc_feature({"client": "acme", "project": "site", "prefix": "cdc", "id": "F01", "etat": "écarté"}); check("op_cdc_feature : id invalide refusé", False)
+except ka.ApiError:
+    check("op_cdc_feature : id invalide refusé", True)
+try:
+    ka.op_cdc_feature({"client": "acme", "project": "site", "prefix": "cdc", "id": "F001", "etat": "n'importe"}); check("op_cdc_feature : état inconnu refusé", False)
+except ka.ApiError:
+    check("op_cdc_feature : état inconnu refusé", True)
 cs = ka._project_cdcs("acme", "site")
 check("deux CDC dans un même projet (pm + karl), registre détecté pour le premier", [x["prefix"] for x in cs] == ["karl", "site"] and cs[1]["registry"] is True and cs[0]["registry"] is False)
 

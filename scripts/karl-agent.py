@@ -8090,6 +8090,90 @@ def op_cdc_features(client: str, project: str, prefix: str) -> dict:
             "domaines": [d.get("nom") for d in (reg.get("domaines") or []) if isinstance(d, dict)],
             "jalons": reg.get("jalons") or [], "entrees": reg.get("entrees") or []}
 
+# ── Édition du CDC depuis le cockpit (RM3064) : le geste part vers le script, jamais vers le fichier ──
+_THINK_ID_RE = re.compile(r"^(?:RM(\d+)-)?([DCQNF]\d{3}[a-z]?)$")
+_THINK_STATES = ("valide", "invalide", "propose", "attente", "reserve")
+_FEATURE_STATES = ("prévu", "en cours", "en pause", "écarté", "livré")
+
+
+def _pm_script(name: str, args: list, timeout: int = 120) -> str:
+    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon."""
+    path = (REPO_ROOT / "scripts" / name).resolve()
+    if not path.is_file():
+        raise ApiError(500, f"script introuvable : {name}")
+    if any(not isinstance(a, str) for a in args):
+        raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT), capture_output=True, text=True,
+                           timeout=timeout, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"{name} : timeout ({timeout}s)")
+    if p.returncode != 0:
+        raise ApiError(400, f"{name} : {(p.stderr or p.stdout or '').strip()[-400:]}")
+    return p.stdout
+
+
+def _cdc_think_args(payload: dict) -> tuple:
+    """(rm, id local, args de pm-task-think) — pur, testé. L'id fusionné `RM3044-D001` porte le ticket ; sinon `rm` est requis."""
+    raw_id = str(payload.get("id") or "").strip()
+    m = _THINK_ID_RE.match(raw_id)
+    if not m:
+        raise ApiError(400, "id d'entrée invalide (attendu Dnnn ou RM<id>-Dnnn)")
+    rm = str(payload.get("rm") or m.group(1) or "").strip()
+    if not rm.isdigit():
+        raise ApiError(400, "rm (ticket) requis")
+    if m.group(1) and payload.get("rm") and str(payload["rm"]) != m.group(1):
+        raise ApiError(400, "l'id fusionné ne porte pas le ticket indiqué")
+    local = m.group(2)
+    action = str(payload.get("action") or "").strip()
+    if action == "delete":
+        return rm, local, [rm, "--delete", local]
+    if action == "state":
+        state = str(payload.get("state") or "").strip()
+        if state not in _THINK_STATES:
+            raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
+        return rm, local, [rm, "--set", local, "--state", state]
+    raise ApiError(400, "action inconnue (delete | state)")
+
+
+def op_cdc_think(payload: dict) -> dict:
+    """État ou suppression d'une entrée de think depuis le panneau CDC, puis refusion du projet."""
+    rm, local, args = _cdc_think_args(payload)
+    out = _pm_script("pm-task-think.py", args)
+    proj = _task_project(rm)
+    merged = None
+    if proj:
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
+    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged}
+
+
+def _task_project(rm: str):
+    """(client, projet) d'un ticket, par sa fiche dans l'arbre PM."""
+    for f in PROJECTS_BASE.glob(_TASK_GLOB.format(rm)):
+        if f.name.endswith((".log.md", ".think.md")):
+            continue
+        parts = f.parts
+        try:
+            i = parts.index("projects")
+            return parts[i - 1], parts[i + 1]
+        except ValueError:
+            continue
+    return None
+
+
+def op_cdc_feature(payload: dict) -> dict:
+    """État d'une entrée du registre des fonctionnalités (figée en manuel), chapitre régénéré."""
+    client, project, prefix = (str(payload.get(k) or "") for k in ("client", "project", "prefix"))
+    if not (_PART_RE.match(client) and _PART_RE.match(project) and _PART_RE.match(prefix or "cdc")):
+        raise ApiError(400, "client/projet/préfixe invalides")
+    fid = str(payload.get("id") or "").strip(); etat = str(payload.get("etat") or "").strip()
+    if not re.match(r"^F\d{3}[a-z]?$", fid):
+        raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
+    if etat not in _FEATURE_STATES:
+        raise ApiError(400, "état inconnu (" + " · ".join(_FEATURE_STATES) + ")")
+    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
+    return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
+
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
@@ -11733,6 +11817,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_client_notify_test(payload))
             if path == "/client-notify/dismiss":
                 return self._send_json(200, op_client_notify_dismiss(payload))
+            if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
+                return self._send_json(200, op_cdc_think(payload))
+            if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
+                return self._send_json(200, op_cdc_feature(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

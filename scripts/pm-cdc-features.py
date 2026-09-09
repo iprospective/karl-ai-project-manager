@@ -54,6 +54,7 @@ DEFAULT_DOMAINES = [
     ("Tests & qualité", r"\btest|qualit|lint|\bci\b|flaky|régression"),
 ]
 AUTRE = "Autre"
+ETATS_MANUELS = ("prévu", "en cours", "en pause", "écarté", "livré")
 ACTIFS = {"en_cours", "a_tester_dev", "a_tester_demandeur", "a_tester_verifier", "a_tester_preprod", "a_mep", "en_mep", "a_corriger"}
 PREVUS = {"a_faire", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider"}
 FM_RE = re.compile(r"\A---\n(.*?)\n---", re.S)
@@ -136,7 +137,7 @@ def sync(reg, tickets):
             reg["entrees"].append(e); par_rm[rm] = e; nxt += 1; ajout.append(e)
             continue
         avant = dict(e)
-        if etat is not None:
+        if etat is not None and not e.get("manuel"):     # RM3064 : une entrée figée garde l'état posé à la main
             e["etat"] = etat
         e["date"] = date_de(fm); e["type"] = fm.get("type") or e.get("type")
         if not e.get("manuel"):
@@ -242,6 +243,7 @@ def main():
     ap.add_argument("--sync", action="store_true"); ap.add_argument("--build", action="store_true"); ap.add_argument("--check", action="store_true")
     ap.add_argument("--no-sync", action="store_true", help="avec --init : registre vide (curé à la main)")
     ap.add_argument("--assign-version", metavar="V", help="pose cette version sur les entrées qui n'en ont pas (filtre --etat)")
+    ap.add_argument("--set-etat", nargs=2, metavar=("ID", "ETAT"), help="pose l'état d'une entrée (prévu · en cours · en pause · écarté · livré) et la fige en manuel (RM3064)")
     ap.add_argument("--etat", help="avec --assign-version : seulement les entrées de cet état (ex. livré)")
     a = ap.parse_args()
     docs, tasks, projet = resoudre(a)
@@ -268,6 +270,17 @@ def main():
         if not (ok_reg and ok_chap):
             print("  → pm-cdc-features --sync --build"); sys.exit(1)
         return
+    if a.set_etat:
+        fid, etat = a.set_etat
+        if etat not in ETATS_MANUELS:
+            sys.exit(f"état inconnu « {etat} » — admis : {', '.join(ETATS_MANUELS)}")
+        e = next((x for x in reg["entrees"] if x.get("id") == fid), None)
+        if not e:
+            sys.exit(f"entrée {fid} introuvable dans {reg_path}")
+        e["etat"] = etat; e["manuel"] = True
+        reg_path.write_text(dump(reg), encoding="utf-8"); print(f"✓ {fid} → {etat} (entrée figée : manuel)")
+        if not a.build:
+            return
     if a.assign_version:
         n = 0
         for e in reg["entrees"]:

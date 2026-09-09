@@ -126,6 +126,9 @@ if (window.matchMedia) {
   <button class="mini" id="helpbtn" data-cmd="help" title="Aide du cockpit">❓ aide</button>
   <!-- RM3043/RM3044 : le CDC vivant du projet en contexte — un menu, et dedans les onglets du POC AtomBox : Fonctionnalités · CDC · Feuille de route -->
   <button class="mini" id="cdcbtn" data-cmd="panel" data-arg="cdc" title="CDC vivant du projet en contexte — onglets : fonctionnalités, CDC vivant, feuille de route, registre des décisions, vrac, questions…">📋 CDC</button>
+  <!-- RM3052 : compte-rendu client — ce qui est parti en prod et qu'on n'a pas encore annoncé au client.
+       Le badge compte les tickets en attente d'annonce ; le clic déroule un client par ligne (« Calicote (5) »). -->
+  <button class="mini" id="cnbtn" data-cmd="clientnotify" title="Compte-rendu client : cocher les évolutions livrées à annoncer, relire l'email, envoyer">✉ compte-rendu<span class="nbadge" id="ln-clientnotify" style="display:none"></span></button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
   <button class="mini" id="glossbtn" data-cmd="glossary" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
@@ -509,6 +512,10 @@ if (window.matchMedia) {
           <div class="cpanel" id="cp-cdc" style="display:none">
             <!-- RM3044 CDC vivant (onglets fonctionnalités / CDC / feuille de route) — rendu par src/modules/cdc/ -->
             <div class="card" id="cdccard"></div>
+          </div>
+          <div class="cpanel" id="cp-clientnotify" style="display:none">
+            <!-- RM3052 compte-rendu client (tickets livrés cochables, aperçu de l'email, envoyer/écarter) — rendu par src/modules/clientnotify/ -->
+            <div class="card" id="clientnotifycard"></div>
           </div>
           <div class="cpanel" id="cp-memory" style="display:none">
             <!-- RM3007 sonde mémoire par module — rendu par src/modules/memory/ -->

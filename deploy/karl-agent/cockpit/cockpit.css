@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 1b797580ce1571c9 (31 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : b68c85234c6dc19f (32 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3926,4 +3926,139 @@ iframe {
   font-size: 11px;
   color: var(--muted);
   margin-top: 4px;
+}
+
+.cn-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 4px 0 10px;
+}
+
+.cn-to {
+  font-size: 12px;
+}
+
+.cn-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cn-opts label.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.cn-warn {
+  color: var(--warn);
+}
+
+.cn-note {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+
+.cn-group {
+  margin-bottom: 12px;
+}
+
+.cn-group h3 {
+  font-size: 13px;
+  margin: 8px 0 4px;
+}
+
+.cn-t {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cn-t:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+
+.cn-t.on {
+  background: var(--accent-soft, rgba(255, 200, 0, 0.1));
+}
+
+.cn-rm {
+  font-family: var(--mono);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.cn-title {
+  flex: 1 1 auto;
+}
+
+.cn-since {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.cn-send {
+  font-weight: 600;
+}
+
+.cn-busy {
+  color: var(--muted);
+}
+
+.cn-why {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cn-prevh {
+  font-size: 13px;
+  margin: 10px 0 4px;
+}
+
+.cn-prev {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.cn-subj {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.cn-body {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  margin: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.cn-frame {
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  resize: vertical;
 }

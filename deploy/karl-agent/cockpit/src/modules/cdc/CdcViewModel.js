@@ -11,16 +11,28 @@ const ETAT_CLS = { "livré": "ok", "éprouvé": "ok", "codé": "wait", "en cours
 export const etatClass = (e) => ETAT_CLS[etatKey(e)] || "";
 const ticketsOf = (e) => [].concat(e.rm ? [e.rm] : [], (e.tickets || []).filter(t => t !== e.rm)).map(Number).filter(n => n);
 
-const CHAPTER_ICONS = [[/decision/i, "⚖️ "], [/vrac|notes/i, "🗒 "], [/question/i, "❓ "], [/roadmap|feuille/i, "🗺 "], [/dict/i, "📚 "], [/gloss/i, "📖 "], [/help|aide/i, "📖 "]];
-/** Libellé d'onglet d'un chapitre : numéro et « — projet … » retirés, icône selon le sujet. Noms génériques (RM3053) comme numérotés (AtomBox). */
-export function chapterLabel(ch) { const t = String(ch.title || ch.file).replace(/^\d+\s*[—-]\s*/, "").replace(/\s*[—-]\s*(projet|CDC).*$/i, "").replace(/\s*\((RM\d+|`[^`]*`)\)\s*$/, "").trim(); const ic = CHAPTER_ICONS.find(([rx]) => rx.test(ch.file + " " + t)); return (ic ? ic[1] : "") + t; }
+// RM3044-D003 : les onglets suivent PRÉCISÉMENT les parties d'un CDC telles que la norme `cdc` les définit (§ « Les livrables d'un
+// CDC complet » et § « Le CDC vivant du projet ») : sommaire, chapitres thématiques, roadmap, dictionnaire, registre des décisions, vrac,
+// questions ouvertes, glossaire, guide. Nom et rang canoniques par fichier générique ; les chapitres numérotés (AtomBox) gardent leur titre.
+const CANON = [[/^cdc-roadmap\.md$|roadmap|feuille/i, "🗺 Roadmap", 20], [/^cdc-dict\.md$|dictionnaire/i, "📚 Dictionnaire", 30],
+               [/^cdc-decisions\.md$|decision/i, "⚖️ Registre des décisions", 40], [/^cdc-notes\.md$|vrac|notes/i, "🗒 Vrac", 50],
+               [/^cdc-questions\.md$|question/i, "❓ Questions ouvertes", 60], [/gloss/i, "📖 Glossaire", 70], [/^cdc-help\.md$|help|aide|guide/i, "📖 Guide", 80]];
+/** Libellé d'onglet d'un chapitre : nom canonique de la norme pour les parties connues ; sinon le titre, numéro et « — projet … » retirés. */
+export function chapterLabel(ch) {
+  const canon = CANON.find(([rx]) => rx.test(ch.file)); if (canon && /^cdc-[a-z]+\.md$/.test(ch.file)) return canon[1];
+  const t = String(ch.title || ch.file).replace(/^\d+\s*[—-]\s*/, "").replace(/\s*[—-]\s*(projet|CDC).*$/i, "").replace(/\s*\((RM\d+|`[^`]*`)\)\s*$/, "").trim();
+  const ic = CANON.find(([rx]) => rx.test(ch.file + " " + t)); return (ic ? ic[1].split(" ")[0] + " " : "") + t;
+}
+/** Rang d'un chapitre dans l'ordre de la norme ; les chapitres thématiques (numérotés, non canoniques) passent avant les registres. */
+export function chapterRank(ch) { const canon = CANON.find(([rx]) => rx.test(ch.file)); return canon ? canon[2] : 10; }
 const isSommaire = (ch) => ch.file === "cdc.md" || /-00-/.test(ch.file);
 const isFeaturesChapter = (ch) => ch.file === "cdc-features.md" || /-10-/.test(ch.file);
 /** Les onglets d'un CDC, tous au même niveau : la table, le sommaire, puis chaque chapitre (sauf le chapitre features généré). Partagé avec l'onglet projets (RM3045). */
 export function cdcTabs(cdc) {
   const chs = cdc ? (cdc.chapters || []) : []; const som = chs.find(isSommaire);
   const fixed = [["cdc-features", "📋 Fonctionnalités", !!(cdc && cdc.registry !== false)], [som ? "chap:" + som.path : "cdc", "📘 CDC vivant", true]];
-  return fixed.concat(chs.filter(ch => ch !== som && !isFeaturesChapter(ch)).map(ch => ["chap:" + ch.path, chapterLabel(ch), true])).map(([key, label, enabled]) => ({ key, label, enabled }));
+  const rest = chs.filter(ch => ch !== som && !isFeaturesChapter(ch)).map((ch, i) => [ch, chapterRank(ch), i]).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map(([ch]) => ["chap:" + ch.path, chapterLabel(ch), true]);
+  return fixed.concat(rest).map(([key, label, enabled]) => ({ key, label, enabled }));
 }
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {

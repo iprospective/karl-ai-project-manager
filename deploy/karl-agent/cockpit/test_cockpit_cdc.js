@@ -42,6 +42,12 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert.deepStrictEqual(c.tabs.map(t => t.title + (t.on ? "*" : "")), ["CDC PM", "Décisions*"], "sous-onglets, numéro retiré, courant marqué");
   const hh = c.anchored(mdToHtml(c.md)); assert(/<td id="sec-D001">D001/.test(hh), "ancre posée sur l'identifiant en tête de cellule"); assert(/data-action="ticket" data-rm="3013">RM3013<\/a>/.test(hh), "RM nu → geste vers la fiche"); assert(!/onclick=/.test(hh));
   assert(c.isDocLink("cdc-pm-90-decisions.md#sec-D001") && !c.isDocLink("https://x/y.md") && !c.isDocLink("#sec-D001"), "liens relatifs .md seulement");
+  // RM3064 : un registre fusionné reçoit ses gestes (état + ✕) par ligne, et une colonne d'en-tête ; le RM de l'id n'est pas un lien
+  const cm = new VM.ChaptersViewModel({ path: "p/cdc-decisions.md", md: "| # | Ticket | Objet | État |\n|---|---|---|---|\n| RM3044-D001 | RM3044 | Un choix (RM3013) | ✅ |\n" });
+  const hm = cm.anchored(mdToHtml(cm.md));
+  assert(/<td id="sec-RM3044-D001">RM3044-D001<\/td>/.test(hm), "ancre sur l'id fusionné, RM de l'id non lié"); assert(/data-action="ticket" data-rm="3044">RM3044<\/a>/.test(hm) && /data-rm="3013"/.test(hm), "la colonne Ticket et le RM du texte sont des gestes");
+  assert(/data-action="think-state" data-rm="3044" data-id="D001"/.test(hm) && /data-action="think-delete" data-rm="3044" data-id="D001"/.test(hm) && /<th class="cdc-act"><\/th>/.test(hm) && !/onclick=/.test(hm), "gestes injectés, en-tête complété, aucun on*");
+  assert(!/cdc-act/.test(c.anchored(mdToHtml("| # | Objet |\n|---|---|\n| D001 | x |\n"))), "un CDC numéroté (ids locaux) n'a pas de gestes : ses entrées ne sont pas des think");
   assert.strictEqual(c.resolve("../project/overview.md"), "projects/clients/i/projects/pm/project/overview.md");
   // — vues : aucun on*, gestes en data-action —
   const head = new VM.CdcHeaderViewModel({ cdcs, current: cdcs[0], page: "cdc-features" });
@@ -84,7 +90,15 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await ctl.open("cdc-features"); ctl.goto({ key: "i/pm/pm", path: cdcs[0].chapters[1].path, sec: "D001" }); await settle(); assert(opened.includes("cdc") && ctl.page() === "cdc" && ctl.state.chapter.endsWith("decisions.md"), "goto : ouvre le panneau sur l'onglet chapitres, CDC + chapitre + section");
   const ctl2 = mountCdc(fakeEl("x"), { service: svc, storage: store, md: mdToHtml }); assert(ctl2.page() === "cdc" && ctl2.state.chapter.endsWith("decisions.md"), "l'onglet chapitre mémorisé est repris au montage"); ctl2.unmount();
   const n0 = calls.filter(x => x.startsWith("feat:")).length; await ctl.open("cdc-features"); assert(calls.filter(x => x.startsWith("feat:")).length === n0, "registre mis en cache par CDC");
-  ctl.unmount();
+  // RM3064 : les gestes d'édition partent vers le service, avec confirmation pour la suppression ; le cache est invalidé
+  const edits = []; svc.repo.thinkEdit = async (b) => { edits.push(["think", b]); return { ok: true }; }; svc.repo.featureEdit = async (b) => { edits.push(["feature", b]); return { ok: true }; };
+  ctl.unmount();   // sinon son gestionnaire (confirm par défaut) répondrait aussi au clic
+  let ok = false; const ctl3 = mountCdc(F, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, confirm: () => ok, notify: () => {}, sessionProjects: () => [] });
+  await ctl3.open("cdc-features");
+  await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.length === 0 || edits.every(e => e[0] !== "think"), "suppression refusée sans confirmation");
+  ok = true; await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.some(e => e[0] === "think" && e[1].action === "delete" && e[1].rm === "44" && e[1].id === "D001"), "suppression confirmée → service");
+  const n1 = calls.filter(x => x.startsWith("feat:")).length; await ctl3.svc.featureEdit({ id: "F003", etat: "écarté" }); await ctl3.open("cdc-features"); assert(edits.some(e => e[0] === "feature" && e[1].id === "F003" && e[1].etat === "écarté" && e[1].client === "i") && calls.filter(x => x.startsWith("feat:")).length === n1 + 1, "état d'une fonctionnalité → service, registre rechargé");
+  ctl3.unmount();
   console.log("✓ CDC contrôleur : contexte de session, sélection mémorisée, tri persistant, filtre, tickets, pages, chapitres, liens, goto, cache");
   console.log("\nLes pages du CDC vivant passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

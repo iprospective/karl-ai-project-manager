@@ -25,6 +25,9 @@
 .cdc-body { line-height: 1.5; }
 .cdc-body [id^="sec-"] { scroll-margin-top: 12px; }
 .cdc-body [id^="sec-"]:target, .cdc-body .cdc-hit { background: var(--accent-soft, rgba(255, 200, 0, .15)); }
+.cdc-act { white-space: nowrap; }
+.cdc-act select, .cdc-fstate { font-size: 11px; padding: 1px 4px; max-width: 8.5em; }
+.cdc-del { color: var(--danger); padding: 1px 6px; }
 .st { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); white-space: nowrap; }
 .st.ok { color: var(--ok, #2a9d4a); border-color: currentColor; }
 .st.wait { color: var(--warn); border-color: currentColor; }

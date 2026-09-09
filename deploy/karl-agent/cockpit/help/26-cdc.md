@@ -21,3 +21,12 @@ Un projet porte un CDC dès qu'il a un `docs/cdc-<prefix>-00-sommaire.md` ; le r
 (`docs/cdc-<prefix>/fonctionnalites.yml`) se crée et se tient avec `pm-cdc-features` (`--init`, `--sync`,
 `--build`, `--check`). Le CDC se tient à jour **au fil de l'eau**, comme NORMS : une décision, une question,
 une fonctionnalité livrée entrent dans le registre dans la même livraison.
+
+## Corriger depuis le panneau
+
+Dans un registre (décisions, questions, vrac, fonctionnalités des think), chaque ligne porte un **sélecteur
+d'état** (✅ validé · ❌ invalidé · 🟡 proposé · 🕐 en attente · ⏸ en réserve) et un bouton **✕** qui supprime
+l'entrée après confirmation — pour une entrée incohérente. Dans la table des fonctionnalités, le sélecteur
+d'une ligne change son état (prévu · en cours · en pause · écarté · livré) et **fige** l'entrée ; une
+fonctionnalité ne se supprime pas, elle s'écarte. Le geste passe par les scripts (`pm-task-think`,
+`pm-cdc-features`) et les registres sont régénérés aussitôt (RM3064).

@@ -34,6 +34,14 @@ export function cdcTabs(cdc) {
   const rest = chs.filter(ch => ch !== som && !isFeaturesChapter(ch)).map((ch, i) => [ch, chapterRank(ch), i]).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map(([ch]) => ["chap:" + ch.path, chapterLabel(ch), true]);
   return fixed.concat(rest).map(([key, label, enabled]) => ({ key, label, enabled }));
 }
+export const THINK_STATES = [["valide", "✅ validé"], ["invalide", "❌ invalidé"], ["propose", "🟡 proposé"], ["attente", "🕐 en attente"], ["reserve", "⏸ en réserve"]];
+export const FEATURE_STATES = ["prévu", "en cours", "en pause", "écarté", "livré"];
+const escA = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+/** La cellule de gestes d'une entrée de think : état + suppression (RM3064). Chaîne HTML sûre (ids contrôlés par regex). */
+export function thinkActions(rm, id) {
+  const opts = THINK_STATES.map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("");
+  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
+}
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
@@ -64,6 +72,8 @@ export class FeaturesViewModel extends EntityViewModel {
     return rows.map(f => ({ id: f.id, libelle: f.libelle || "", domaine: f.domaine || "", tickets: f.tickets, type: f.type || "", version: versionOf(f), etat: f.etat || "", cls: etatClass(f.etat), date: f.date || "", manuel: !!f.manuel, parent: f.parent || null }));
   }
   get count() { return this.rows().length + " / " + this.all.length; }
+  /** RM3064 : les états qu'une ligne peut recevoir depuis le panneau (l'entrée est alors figée). */
+  get featureStates() { return FEATURE_STATES; }
 }
 
 /** e = { cdc, path, md } — les chapitres d'un CDC en sous-onglets, le chapitre courant rendu ; les identifiants D/C/Q/N/F en tête de cellule reçoivent une ancre. */
@@ -71,10 +81,15 @@ export class ChaptersViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get tabs() { const c = this.e.cdc; return c ? (c.chapters || []).map(ch => ({ path: ch.path, title: (ch.title || ch.file).replace(/^\d+\s*[—-]\s*/, ""), on: ch.path === this.e.path })) : []; }
   get md() { return this.e.md || ""; }
-  /** Ancres : `<td>D012` / `<td><del>Q001` deviennent `<td id="sec-D012">…` ; un `RM1234` nu devient un geste vers la fiche. */
+  /** Ancres : `<td>D012` / `<td><del>Q001` deviennent `<td id="sec-D012">…` ; un `RM1234` nu devient un geste vers la fiche.
+   *  RM3064 : une ligne de registre fusionné (`RM3044-D001`) reçoit ses gestes — sélecteur d'état et ✕ — dans une cellule ajoutée. */
   anchored(htmlText) {
-    return String(htmlText || "").replace(/<td>(<del>|<s>)?([DCQNF]\d{3}[a-z]?)(?=[\s<])/g, (m, del, id) => '<td id="sec-' + id + '">' + (del || "") + id)
-      .replace(/\bRM(\d{3,5})\b(?![^<]*<\/a>)/g, '<a href="#" class="cdcrm" data-action="ticket" data-rm="$1">RM$1</a>');
+    let h = String(htmlText || "").replace(/<td>(<del>|<s>)?((?:RM\d+-)?[DCQNF]\d{3}[a-z]?)(?=[\s<])/g, (m, del, id) => '<td id="sec-' + id + '">' + (del || "") + id)
+      .replace(/\bRM(\d{3,5})\b(?!-)(?![^<]*<\/a>)/g, '<a href="#" class="cdcrm" data-action="ticket" data-rm="$1">RM$1</a>');   // pas le RM d'un id fusionné (RM3044-D001)
+    let touched = false;
+    h = h.replace(/<tr>(\s*<td id="sec-RM(\d+)-([DCQNF]\d{3}[a-z]?)">[\s\S]*?)<\/tr>/g, (m, row, rm, id) => { touched = true; return "<tr>" + row + thinkActions(rm, id) + "</tr>"; });
+    if (touched) h = h.replace(/<tr>(\s*<th>[\s\S]*?)<\/tr>/g, (m, row) => "<tr>" + row + '<th class="cdc-act"></th></tr>');
+    return h;
   }
   isDocLink(href) { return !!href && !/^[a-z]+:/i.test(href) && !href.startsWith("/") && !href.startsWith("#") && href.split("#")[0].endsWith(".md"); }
   resolve(href) { const base = String(this.e.path || "").split("/").slice(0, -1); for (const p of href.split("#")[0].split("/")) { if (p === "..") base.pop(); else if (p !== ".") base.push(p); } return base.join("/"); }

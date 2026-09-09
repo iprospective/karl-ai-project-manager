@@ -16,7 +16,9 @@ export function mountCdc(el, ctx = {}) {
   const isPage = (p) => PAGES.includes(p) || (typeof p === "string" && p.startsWith("chap:"));
   const state = { page: "cdc-features", sort: "id", desc: false, q: "", chapter: null, sec: null, qTimer: null };
   try { const s = ctx.storage && ctx.storage.getItem("karlCdcSort"); if (s) { const [k, d] = s.split(":"); state.sort = k || "id"; state.desc = d === "1"; } const pg = ctx.storage && ctx.storage.getItem("karlCdcPage"); if (isPage(pg)) setPage(pg); } catch (e) { /* stockage indisponible */ }
-  const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)], ["input", "[data-action=\"q\"]", (ev, n) => onQuery(n.value)], ["click", "a[href]", (ev, a) => onLink(ev, a)]] });
+  const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)], ["input", "[data-action=\"q\"]", (ev, n) => onQuery(n.value)], ["click", "a[href]", (ev, a) => onLink(ev, a)],
+    ["change", "[data-action=\"think-state\"]", (ev, n) => onThinkState(n)], ["change", "[data-action=\"feature-state\"]", (ev, n) => onFeatureState(n)]] });
+  const confirm = ctx.confirm || (() => true);
   const head = (page) => new CdcHeaderViewModel({ cdcs: svc.cdcs || [], current: svc.current, page, path: state.chapter, error: svc.error });
   const sessionProjects = () => (ctx.sessionProjects ? ctx.sessionProjects() : []);
 
@@ -48,6 +50,23 @@ export function mountCdc(el, ctx = {}) {
     else if (a === "sort") { const k = el.dataset.key; if (state.sort === k) state.desc = !state.desc; else { state.sort = k; state.desc = false; } try { if (ctx.storage) ctx.storage.setItem("karlCdcSort", state.sort + ":" + (state.desc ? 1 : 0)); } catch (e) { /* */ } renderFeatures(); }
     else if (a === "chapter") { setPage("chap:" + el.dataset.path); state.sec = null; renderChapters(); }
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
+    else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }
+  }
+  // RM3064 : édition d'une entrée depuis le panneau — le geste part vers le script (pm-task-think / pm-cdc-features), jamais vers le fichier
+  async function thinkDelete(rm, id) {
+    if (!confirm("Supprimer l'entrée " + id + " du think de RM" + rm + " ? (définitif)")) return;
+    try { await svc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée, registres régénérés"); await renderChapters(); }
+    catch (e) { notify("suppression impossible : " + e.message, true); }
+  }
+  async function onThinkState(n) {
+    const state = n.value; if (!state) return;
+    try { await svc.thinkEdit({ rm: n.dataset.rm, id: n.dataset.id, action: "state", state }); notify(n.dataset.id + " → " + state); await renderChapters(); }
+    catch (e) { notify("changement d'état impossible : " + e.message, true); }
+  }
+  async function onFeatureState(n) {
+    const etat = n.value; if (!etat) return;
+    try { await svc.featureEdit({ id: n.dataset.id, etat }); notify(n.dataset.id + " → " + etat + " (entrée figée)"); await renderFeatures(); }
+    catch (e) { notify("changement d'état impossible : " + e.message, true); }
   }
   function onLink(ev, a) {
     const href = a.getAttribute("href"); const vm = new ChaptersViewModel({ path: state.chapter });

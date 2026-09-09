@@ -11,6 +11,7 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
   pm-task-think <id> --show                                  résumé : Q ouvertes, D récentes, F
   pm-task-think <id> --counters                              compteurs → frontmatter de la fiche (D007)
 
+  pm-task-think <id> --delete Dnnn                 supprime une ligne incohérente (RM3064)
 Options communes : --by M|A|<nom> (défaut : A = agent), --sid <session> (défaut : $CLAUDE_CODE_SESSION_ID),
 --when AAAA-MM-JJ, --dedupe (ne rien écrire si le texte est déjà consigné), --no-commit, --dry-run.
 
@@ -41,6 +42,7 @@ def main():
     for flag, _ in KIND_FLAGS:
         ap.add_argument(f"--{flag}", metavar="TEXTE")
     ap.add_argument("--set", metavar="ID", help="ligne dont on change l'état (avec --state)")
+    ap.add_argument("--delete", metavar="ID", help="supprime la ligne pour de bon (entrée incohérente, RM3064)")
     ap.add_argument("--state", choices=sorted(pm_think.STATES.values()))
     ap.add_argument("--dest", default="", help="« traitée par » d'une note (avec --set), ou renseigné à l'ajout")
     ap.add_argument("--by", default="A"); ap.add_argument("--sid", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
@@ -73,6 +75,17 @@ def main():
         pmout.op("think", extra=f"RM{a.rm_id} compteurs {'posés' if changed else 'inchangés'}")
         if changed and not a.no_commit:
             pm_git.autocommit([sheet], f"pm(think): RM{a.rm_id} compteurs")
+        return
+    if a.delete:
+        if a.dry_run:
+            print(f"{think.name} : {a.delete} supprimée"); return
+        n = pm_think.remove_rows(think, [a.delete]) if think.is_file() else 0
+        if not n:
+            sys.exit(f"ERREUR : ligne {a.delete} introuvable dans {think.name}")
+        pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        pmout.op("think", extra=f"RM{a.rm_id} {a.delete} supprimée")
+        if not a.no_commit:
+            pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.delete} supprimée")
         return
     if a.set:
         if not a.state:

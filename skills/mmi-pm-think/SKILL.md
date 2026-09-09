@@ -53,6 +53,9 @@ scripts/pm-task-think.py <id> --note "verbatim" --by M          # rarement à la
 scripts/pm-task-think.py <id> --set Q003 --state valide --dest D004   # trancher / trier
 scripts/pm-task-think.py <id> --show                            # Q ouvertes, D récentes, compteurs
 scripts/pm-think-merge.py [--project <client>/<projet>] [--check]   # fusion vers docs/cdc-*.md
+scripts/pm-think-classify.py --session <sid>            # RM3067 : le tri par un modèle léger (rapport)
+scripts/pm-think-classify.py --session <sid> --apply    # … et on consigne ce qu'il retient
+scripts/pm-think-classify.py --all --since 2026-09-01   # reprise de l'historique des transcripts
 scripts/pm-think-merge.py --rename-legacy                       # anciens cdc-<prefix>-NN-*.md → noms génériques
 ```
 

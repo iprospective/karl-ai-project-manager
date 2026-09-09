@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.30.0] - 2026-09-10
+
+### Ajouté
+- **Le tri des tours revient à un modèle léger** (`session-tooling` § « Consignation par ticket »,
+  RM3067) : `pm-think-classify` relit les tours de conversation d'un transcript — ceux du demandeur
+  et ceux de l'agent, jamais le tooling — et rend `rien` · dette · question · décision ·
+  fonctionnalité, avec une reformulation auto-suffisante. Le hook garde son heuristique comme
+  filet. `--dry-run` par défaut, coût rapporté. Ajout seul, pas de ledger.
+
 ## [2.29.0] - 2026-09-10
 
 ### Modifié

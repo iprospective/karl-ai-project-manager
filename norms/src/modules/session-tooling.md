@@ -114,6 +114,14 @@ reformule **dans le même tour** en **question** (ce qu'elle bloque) ou en **fon
 reste à faire), sur le ticket qui la porte — c'est là qu'elle devient actionnable et lisible. Une
 note sans destination au bout de quelques jours n'en aura jamais.
 
+**Le tri final revient à un modèle, pas à un motif de texte** (RM3067). Le hook garde une heuristique —
+rapide et gratuite, elle n'est qu'un filet ; c'est **`pm-think-classify`** (modèle léger, ~1 $ par million
+de jetons) qui décide vraiment : il relit les tours de **conversation** d'un transcript — les tiens et ceux
+de l'agent, **jamais le tooling** — et rend, pour chacun, `rien` · dette · question · décision ·
+fonctionnalité **avec une reformulation auto-suffisante**. À lancer sur une session avant de livrer
+(`--session`), ou en reprise sur l'historique (`--all --since`) ; `--dry-run` par défaut, rien n'est écrit
+sans `--apply`, et le coût est rapporté à chaque passe.
+
 **Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
 dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un
 projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient d'AtomBox).

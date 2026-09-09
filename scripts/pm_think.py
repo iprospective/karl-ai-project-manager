@@ -303,11 +303,13 @@ def proposition_pertinente(text: str):
 # contrainte) ; jamais une demande immédiate d'exécution, un accord, un accusé, un collage. La règle
 # vit dans NORMS `session-tooling` § « Les quatre rubriques » ; ceci en est l'approximation mécanique.
 _EXPLICITE = re.compile(r"\b(notes? que|consigne[sz]?\b|à noter|pense-bête|retien[st]|à retenir)", re.I)
-_REFLEXION = re.compile(r"\b(il faudra(it)?|on pourrait|on devrait|on va devoir|idée|réfléch|penser à|je pense|j'ai l'impression|tu en penses|"
-                        r"à terme|plus tard|attention|important|jamais|toujours|en fait|plutôt|au lieu|hypothèse|contrainte|risque|proposition|"
-                        r"pourquoi|comment|est-ce|faut-il|ne (?:veux|voulais|souhaite) pas|je (?:veux|voudrais|souhaite)|l'idéal|normalement|"
-                        r"principe|règle|généraliser|dans l'idéal|cadrage|compl[èe]te|préci[sz]|doit|devra|devrait|figé|à compléter|il manque|"
-                        r"manque|reste à|soucis|problème|bug|cas de figure|raison pour laquelle|pas (?:encore|toujours)|ne vois pas|je ne comprends)", re.I)
+_REFLEXION = re.compile(r"\b(il faudra(it)?|on pourrait|on devrait|on va devoir|idée|réfléch|penser à|à terme|plus tard|attention|hypothèse|contrainte|"
+                        r"risque|proposition|principe|règle|généraliser|dans l'idéal|l'idéal|cadrage|doit être|devra|devrait|figé|à compléter|il manque|"
+                        r"reste à|cas de figure|raison pour laquelle|normalement|jamais|toujours)", re.I)
+#: marqueurs FAIBLES (opinion, exécution commentée) : ne comptent qu'avec une vraie longueur et sans ordre en tête — « j'ai mis la bonne
+#: conf cette fois je pense » ou « je veux aller au bout et tester à la fin » ne sont pas des réflexions (retour Mathieu, RM3062)
+_FAIBLE = re.compile(r"\b(je pense|j'ai l'impression|tu en penses|en fait|plutôt|au lieu|important|pourquoi|comment|est-ce|faut-il|"
+                     r"ne (?:veux|voulais|souhaite) pas|je (?:veux|voudrais|souhaite)|soucis|problème|bug|pas (?:encore|toujours)|ne vois pas|je ne comprends|compl[èe]te|préci[sz])", re.I)
 _COMMANDE = re.compile(r"^\W*(ok|oui|non|nickel|parfait|merci|super|top|go|vas-y|fais|prends|étudie|lance|merge|ferme|passe|continue|core update|"
                        r"reprends|corrige|teste|regarde|montre|liste|crée|ajoute|mets|pousse|push|commit|déploie|relance|attends|c'est bon|"
                        r"traite|chiffre|livre|répond|donne|envoie|supprime|j'ai fait|je viens de)\b", re.I)
@@ -328,9 +330,10 @@ def note_pertinente(text: str):
     if _OPERATION.search(s):
         return False, "opération sur un ticket"
     ordre = bool(_COMMANDE.match(s))
-    reflexion = bool(_REFLEXION.search(s))          # un « ? » seul ne suffit pas : la plupart sont des questions d'exécution à l'agent
-    if reflexion and not (ordre and len(s) < 80):
+    if _REFLEXION.search(s) and not (ordre and len(s) < 80):   # un « ? » seul ne suffit pas : la plupart sont des questions d'exécution à l'agent
         return True, "réflexion"
+    if _FAIBLE.search(s) and not ordre and len(s) >= 140:      # une opinion ne vaut réflexion qu'avec de la matière derrière
+        return True, "réflexion (marqueur faible)"
     if not ordre and len(s) >= 300:
         return True, "prose"
     return False, "demande immédiate / accord" if ordre else "sans portée"

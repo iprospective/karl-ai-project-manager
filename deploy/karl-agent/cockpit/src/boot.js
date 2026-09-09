@@ -222,6 +222,8 @@ const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard
   download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
 });
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
+  // RM3063 : filtre « Clients » masqué par défaut — appelé au montage, AVANT la déclaration de `show` (TDZ) : DOM direct
+  applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
 });

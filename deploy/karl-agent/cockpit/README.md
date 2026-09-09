@@ -21,7 +21,7 @@ cockpit/
                         errors, markdown, log (journal du front), version, Repository / Factory / EntityViewModel
     modules/<domaine>/  un dossier par domaine, une couche par SUFFIXE (voir ci-dessous)
     styles/             _tokens.scss (couleurs, thèmes), _base.scss, _entities.scss (niveaux .e-row/.e-card/.e-panel/.e-full), main.scss
-  help/                 aide intégrée (markdown, servie par /help, bouton ❓) ; menu 📋 CDC = le CDC vivant du projet en contexte, onglets à plat : fonctionnalités, CDC vivant, puis un par chapitre (roadmap, décisions, questions, notes, dictionnaire…) (/cdc, /cdc-features — modules/cdc, RM3043/RM3044) ; onglet 📂 projets de la colonne de droite (modules/sessproj, RM3045)
+  help/                 aide intégrée (markdown, servie par /help, bouton ❓) ; bouton 📋 CDC (à droite du titre) = le CDC vivant du projet en contexte, onglets à plat : fonctionnalités, CDC vivant, puis un par chapitre (roadmap, décisions, questions, notes, dictionnaire…) (/cdc, /cdc-features — modules/cdc, RM3043/RM3044) ; onglet 📂 projets de la colonne de droite (modules/sessproj, RM3045)
   tooling/              outillage de DÉVELOPPEMENT seulement : package.json (sass), npm run build:css
   scripts/css-stamp.js  écrit l'empreinte des sources SCSS dans cockpit.css
   test_cockpit*.js      suites node (une par domaine + core, runtime, shell ; les gros domaines scindées par couche :

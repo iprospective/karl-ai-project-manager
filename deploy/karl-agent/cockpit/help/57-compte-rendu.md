@@ -55,6 +55,11 @@ mmi-pm client-notify pending                      # la file, groupée par client
 mmi-pm client-notify preview calicote --rm 3025   # l'aperçu, sans rien envoyer
 mmi-pm client-notify send calicote --rm 3025 --yes
 mmi-pm client-notify dismiss calicote --rm 3042 --yes
+mmi-pm client-notify queue calicote --rm 3025 --yes   # (re)mettre en file
 ```
+
+`queue` sert quand la file doit être reformée à la main : un envoi qui a échoué, une
+annonce à refaire, une démonstration du panneau. Il refuse un ticket qui n'est pas en
+`en_mep` (rien à annoncer s'il n'est pas en production) — `--force` passe outre et le trace.
 
 Le périmètre s'écrit `client` (tous ses projets) ou `client/projet`.

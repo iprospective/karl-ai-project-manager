@@ -29,6 +29,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`calicote` = tous ses projets) et sélection `--rm` qui traverse les projets ; l'email
   d'un client multi-projets est **un seul** email groupé par projet. Quatre endpoints
   (`/client-notify/pending|preview|send|dismiss`) qui délèguent au même script que la CLI.
+  Verbe **`client-notify queue <ref> --rm ID`** pour (re)mettre des tickets en file quand elle
+  doit être reformée à la main (envoi échoué, annonce à refaire, recette) — refuse un ticket
+  qui n'est pas en `en_mep` sauf `--force`. Au passage, **correctif** : le balayage de
+  `tasks/RM*.md` prenait aussi les **frères** d'une fiche (`.log.md`, `.think.md`) — un journal
+  qui *parle* de `client_notify` se présentait comme un ticket sans statut.
 - **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
   **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
   `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné

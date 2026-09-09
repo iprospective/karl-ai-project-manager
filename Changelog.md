@@ -13,6 +13,35 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **`pm-core-update` provisionne aussi l'utilisateur de l'instance** (RM3054) : étape 7 — hooks
+  Claude Code manquants posés par `pm-claude-hooks-sync` (ajout seulement) et symlinks
+  `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement
+  d'un dossier réel ou d'un lien vers ailleurs) ; `--dry-run` montre les deux plans. Un hook ou
+  un skill ajouté par un ticket est actif dès le core update suivant.
+- **Email client en HTML** (RM3052) : le protocole de test d'un ticket est du markdown à
+  **tableaux** — recopié dans un corps texte, il arrivait en bouillie chez le client. L'email
+  part désormais en **multipart** : le texte reste le repli, et la partie **HTML** rend les
+  tableaux comme des tableaux (titres, listes, citations aussi ; `[x]`/`[ ]` deviennent ✔/☐).
+  Styles **en ligne** (les clients mail jettent les feuilles `<style>`), markdown source
+  **échappé** (aucun HTML brut ne traverse). Dans le panneau, l'aperçu n'est plus du texte
+  préformaté mais **l'email rendu**, dans une iframe cloisonnée. `karl-mail-send` gagne
+  `--html-file` (alternative HTML) — utilisable par tout autre envoi.
+- **Panneau « compte-rendu client » au cockpit** (RM3052) : un menu **✉ compte-rendu** au
+  bandeau, dont le badge compte les évolutions livrées **pas encore annoncées** ; le clic
+  déroule **un client par ligne avec son reste à annoncer** (`Calicote (5)`), et ouvre au
+  centre la page du client — ses tickets **groupés par projet** mais **cochables en travers
+  des projets** (un compte-rendu peut couvrir plusieurs projets), l'**aperçu de l'email**
+  produit par le serveur (ce qu'on relit est ce qui part), puis **Envoyer** ou **Écarter**,
+  chacun **en deux clics**. Côté outillage : `client-notify pending [client] [--json]` (la
+  file groupée par client), périmètre **client** accepté par `preview|send|dismiss`
+  (`calicote` = tous ses projets) et sélection `--rm` qui traverse les projets ; l'email
+  d'un client multi-projets est **un seul** email groupé par projet. Quatre endpoints
+  (`/client-notify/pending|preview|send|dismiss`) qui délèguent au même script que la CLI.
+  Verbe **`client-notify queue <ref> --rm ID`** pour (re)mettre des tickets en file quand elle
+  doit être reformée à la main (envoi échoué, annonce à refaire, recette) — refuse un ticket
+  qui n'est pas en `en_mep` sauf `--force`. Au passage, **correctif** : le balayage de
+  `tasks/RM*.md` prenait aussi les **frères** d'une fiche (`.log.md`, `.think.md`) — un journal
+  qui *parle* de `client_notify` se présentait comme un ticket sans statut.
 - **Notif client : protocole de test OPTIONNEL** (RM3052) : l'email client réinclut le
   **protocole de test de chaque ticket** (« comment le vérifier »), pilotable par projet via
   `notif_client_mep.protocole` (**défaut : true**) et surchargeable pour un envoi donné

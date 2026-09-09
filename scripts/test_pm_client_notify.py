@@ -137,6 +137,82 @@ _, body3 = cn.compose_email("Calicote", [{"id": 9, "title": "Sans détail"}])
 check("ticket sans critère/protocole => pas de sections vides",
       "Ce qui change" not in body3 and "Comment le vérifier" not in body3)
 
+# ── 5. compte-rendu CLIENT (multi-projets) — RM3052 ──────────────────────────
+T = lambda i, ti: {"id": i, "title": ti, "url": "https://redmine/issues/%d" % i}  # noqa: E731
+s_mono, b_mono = cn.compose_client_email("Calicote", [{"project": "Site PrestaShop", "tickets": [T(1, "A"), T(2, "B")]}])
+check("client mono-projet : sujet au nom du CLIENT, compte total",
+      "Calicote — 2 évolutions mises en ligne" == s_mono)
+check("client mono-projet : PAS d'en-tête de projet (rien d'interne dans l'email)",
+      "== Site PrestaShop ==" not in b_mono and "#1" in b_mono and "#2" in b_mono)
+s_multi, b_multi = cn.compose_client_email("Calicote", [
+    {"project": "Site PrestaShop", "tickets": [T(1, "A")]},
+    {"project": "Synchro Dolibarr", "tickets": [T(2, "B"), T(3, "C")]}])
+check("client multi-projets : total tous projets confondus dans le sujet",
+      "Calicote — 3 évolutions mises en ligne" == s_multi)
+check("client multi-projets : un en-tête par projet, dans l'ordre donné",
+      b_multi.index("== Site PrestaShop ==") < b_multi.index("== Synchro Dolibarr =="))
+check("groupe sans ticket ignoré (pas de section vide)",
+      "== Vide ==" not in cn.compose_client_email("C", [{"project": "Vide", "tickets": []},
+                                                        {"project": "P", "tickets": [T(1, "A")]}])[1])
+check("un seul groupe NON vide parmi plusieurs => on retombe en mono (pas d'en-tête)",
+      "==" not in cn.compose_client_email("C", [{"project": "Vide", "tickets": []},
+                                                {"project": "P", "tickets": [T(1, "A")]}])[1])
+check("sujet au singulier pour 1 ticket",
+      cn.compose_client_email("C", [{"project": "P", "tickets": [T(1, "A")]}])[0]
+      == "C — 1 évolution mise en ligne")
+_, b_det = cn.compose_client_email("C", [{"project": "P", "tickets": [
+    {"id": 9, "title": "T", "criteria": ["Le prix s'affiche"], "protocol": "1. Ouvrir"}]}])
+check("critères et protocole rendus comme dans le récap projet (même bloc)",
+      "Ce qui change" in b_det and "Le prix s'affiche" in b_det
+      and "Comment le vérifier" in b_det and "1. Ouvrir" in b_det)
+check("aucune sélection => email vide mais bien formé (0 évolution)",
+      cn.compose_client_email("C", [])[0] == "C — 0 évolution mise en ligne")
+
+# ── 6. rendu HTML (RM3052) — un email lisible chez le client ─────────────────
+# Le protocole de test est du markdown à TABLEAUX : recopié en texte brut il arrive en
+# bouillie. L'email part donc en multipart, et c'est la partie HTML que le client lit.
+MD = "## Bandes\n\n| Cas | Attendu |\n|---|---|\n| A1 | Prix barré | \n\n- puce\n"
+h = cn.render_markdown(MD)
+check("un tableau markdown devient un vrai <table> (le cœur de la demande)",
+      "<table style=" in h and "<th style=" in h and "|---" not in h)
+check("titres et listes rendus, pas recopiés",
+      "<h2 style=" in h and "<ul style=" in h and "## Bandes" not in h)
+check("styles EN LIGNE (les clients mail jettent les feuilles <style>)",
+      "<table>" not in h and "<td>" not in h)
+check("les cases d'atelier deviennent lisibles pour un client",
+      cn.render_markdown("- [x] fait\n- [ ] à faire").count("✔") == 1
+      and "☐" in cn.render_markdown("- [ ] à faire"))
+check("aucun HTML brut ne traverse (le markdown source est échappé)",
+      "&lt;script&gt;" in cn.render_markdown("<script>alert(1)</script>")
+      and "<script>" not in cn.render_markdown("<script>alert(1)</script>"))
+check("protocole vide => rien du tout (pas de bloc fantôme)", cn.render_markdown("   ") == "")
+
+T_HTML = {"id": 3025, "title": "Paliers & <prix>", "url": "https://r/3025",
+          "criteria": ["Prix barré"], "protocol": MD}
+sh, hh = cn.compose_client_email_html("Calicote", [{"project": "Site", "tickets": [T_HTML]}])
+check("le sujet HTML est IDENTIQUE au sujet texte (un multipart ne se contredit pas)",
+      sh == cn.compose_client_email("Calicote", [{"project": "Site", "tickets": [T_HTML]}])[0])
+check("document HTML complet et autonome",
+      hh.startswith("<!DOCTYPE html>") and hh.rstrip().endswith("</html>"))
+check("titre et lien du ticket présents, le titre étant ÉCHAPPÉ",
+      'href="https://r/3025"' in hh and "Paliers &amp; &lt;prix&gt;" in hh)
+check("les critères sortent en liste, le protocole en tableau",
+      "Ce qui change" in hh and "<li style=" in hh and "Comment le vérifier" in hh and "<table style=" in hh)
+# Un protocole peut contenir ses propres titres : on cherche le NOM du projet, pas « <h2 ».
+T_PLAIN = {"id": 7, "title": "Sans protocole"}
+_, hh_multi = cn.compose_client_email_html("C", [{"project": "Site vitrine", "tickets": [T_PLAIN]},
+                                                 {"project": "Synchro ERP", "tickets": [T_PLAIN]}])
+check("multi-projets : un intitulé par projet, comme en texte",
+      "Site vitrine" in hh_multi and "Synchro ERP" in hh_multi)
+_, hh_mono = cn.compose_client_email_html("C", [{"project": "Site vitrine", "tickets": [T_PLAIN]}])
+check("mono-projet : aucun intitulé de projet (rien d'interne chez le client)",
+      "Site vitrine" not in hh_mono)
+_, hh_proj = cn.compose_email_html("Site PrestaShop", [T_HTML])
+check("pendant HTML du récap PROJET", hh_proj.startswith("<!DOCTYPE html>") and "Site PrestaShop" in hh_proj)
+_, hh_sans = cn.compose_client_email_html("C", [{"project": "P", "tickets": [{"id": 1, "title": "T"}]}])
+check("ticket sans critère ni protocole : pas de section vide",
+      "Ce qui change" not in hh_sans and "Comment le vérifier" not in hh_sans)
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

@@ -61,6 +61,7 @@ import { VERSION } from "./core/version.js";
 import { createLog, installGlobalCapture, errorBrief } from "./core/log.js";
 import { mountJournal } from "./modules/journal/journal.controller.js";
 import { mountCdc } from "./modules/cdc/cdc.controller.js";                 // RM3044
+import { mountClientNotify } from "./modules/clientnotify/clientnotify.controller.js";   // RM3052
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
@@ -255,7 +256,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let journal = null, cdc = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let journal = null, cdc = null, clientnotify = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
   resolve: () => stores.resolve,
@@ -270,6 +271,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
+    clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   noted: () => layout.centerShown(),   // RM3003 : une vue, une session, un panneau ou une fiche ouverte → la page « centre » du gabarit mobile
@@ -508,7 +510,8 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
-  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open(); }, "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
+  "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open(); },
+  "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
@@ -521,6 +524,17 @@ cdc = mountCdc(byId("cdccard"), {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), md: mdToHtml, notify: notify.toast,
   openPanel: () => center.openPanel("cdc"), showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(),
 });
+// RM3052 : compte-rendu client — menu déroulant au bandeau (un client par ligne, avec son reste à annoncer),
+// page centrale cochable, aperçu de l'email, envoi. Le badge dit combien d'évolutions livrées attendent d'être annoncées.
+clientnotify = mountClientNotify(byId("clientnotifycard"), {
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast,
+  openPanel: () => center.openPanel("clientnotify"),
+  badge: (txt) => { const b = byId("ln-clientnotify"); if (b) { b.textContent = txt || ""; b.style.display = txt ? "" : "none"; } },
+  popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "cnmenu"; document.body.appendChild(m); return m; },
+  place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
+  onOutsideClick: (fn) => setTimeout(() => document.addEventListener("click", fn, { once: true }), 0),
+  clear: (id) => clearTimeout(id),
+});
 journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
@@ -530,7 +544,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, clientnotify, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──
@@ -546,5 +560,6 @@ window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
   safe("voix", () => { voice.boot(); try { speechSynthesis.onvoiceschanged = () => voice.paint(); } catch (e) { /* pas de synthèse */ } });   // RM2329/2350/2532
   safe("jeux", () => { setsCtl.refreshSets(); setsCtl.refreshSet(); });                      // RM2442 / RM2395
   safe("tableau de bord", () => dashboard.refresh()); safe("poste", () => env.boot());       // RM2697 / RM2722-2748
+  safe("compte-rendu client", () => clientnotify.refresh());                                 // RM3052 : combien d'évolutions livrées attendent d'être annoncées
   refreshCtl.start();                                                                        // pile /refresh : premier tick (tous les blocs dus), cadence adaptative
 })();

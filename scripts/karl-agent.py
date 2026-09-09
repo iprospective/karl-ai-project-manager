@@ -10128,6 +10128,89 @@ def op_mail_dismiss(payload: dict) -> dict:
     return _mail_script("karl-mail-draft.py", args)
 
 
+# ── RM3052 : panneau « compte-rendu client » ─────────────────────────────────
+# Le cockpit ne réimplémente RIEN : il délègue à pm-client-notify.py --json, exactement
+# comme la CLI. Une seule vérité pour la file, l'aperçu et l'envoi — sans quoi ce que
+# Mathieu relit à l'écran ne serait pas ce qui part chez le client.
+def _client_notify(args: list, timeout: int = 180) -> dict:
+    path = (REPO_ROOT / "scripts" / "pm-client-notify.py").resolve()
+    if not path.is_file():
+        raise ApiError(500, "script introuvable : pm-client-notify.py")
+    for a in args:
+        if not isinstance(a, str):
+            raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"pm-client-notify : timeout ({timeout}s)")
+    out = (p.stdout or "").strip().splitlines()
+    try:
+        data = json.loads(out[-1]) if out else {}
+    except (ValueError, IndexError):
+        data = {}
+    if not data:
+        raise ApiError(500, f"pm-client-notify : sortie illisible — {(p.stderr or p.stdout or '')[-300:]}")
+    if not data.get("ok", True):
+        raise ApiError(400, str(data.get("error") or "échec"))
+    return data
+
+
+def _cn_client(payload: dict) -> str:
+    cl = str((payload or {}).get("client") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}", cl):
+        raise ApiError(400, "client invalide")
+    return cl
+
+
+def _cn_rm(payload: dict) -> list:
+    """Les cases cochées. Une sélection VIDE est refusée : le panneau agit sur ce qui est
+    coché, jamais sur « toute la file » par défaut (un envoi client ne se rattrape pas)."""
+    raw = (payload or {}).get("rm") or []
+    if not isinstance(raw, list) or not raw:
+        raise ApiError(400, "aucun ticket sélectionné")
+    out = []
+    for x in raw[:200]:
+        s = str(x).strip()
+        if not s.isdigit():
+            raise ApiError(400, f"identifiant de ticket invalide : {s}")
+        out += ["--rm", s]
+    return out
+
+
+def _cn_proto(payload: dict) -> list:
+    """Protocole de test dans l'email : None = suivre l'option du projet (défaut oui)."""
+    v = (payload or {}).get("protocole")
+    if v is None:
+        return []
+    return ["--avec-protocole"] if v else ["--sans-protocole"]
+
+
+def op_client_notify_pending(qs: dict) -> dict:
+    """La file de notification, groupée par client (compteurs du menu `Calicote (5)`)."""
+    args = ["pending"]
+    cl = str((qs or {}).get("client") or "").strip()
+    if cl:
+        args.append(_cn_client({"client": cl}))
+    return _client_notify(args)
+
+
+def op_client_notify_preview(payload: dict) -> dict:
+    """Aperçu de l'email pour les tickets cochés — n'écrit rien, n'envoie rien."""
+    return _client_notify(["preview", _cn_client(payload)] + _cn_rm(payload) + _cn_proto(payload))
+
+
+def op_client_notify_send(payload: dict) -> dict:
+    """Envoi réel au(x) contact(s) du client, puis `sent_at`/`sent_to` sur les tickets."""
+    return _client_notify(["send", _cn_client(payload), "--yes"]
+                          + _cn_rm(payload) + _cn_proto(payload), timeout=300)
+
+
+def op_client_notify_dismiss(payload: dict) -> dict:
+    """Écarte les tickets cochés de la file, SANS email (le client n'a pas à tout savoir)."""
+    return _client_notify(["dismiss", _cn_client(payload), "--yes"] + _cn_rm(payload))
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -11448,6 +11531,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/overview":                # RM2696 : agrégat par projet
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
+            if path == "/client-notify/pending":    # RM3052 : file de compte-rendu, par client
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_client_notify_pending(qs))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
             if path == "/vault/status":            # RM2748 : verrous (vault, SSH)
@@ -11619,6 +11705,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mail_create(payload))
             if path == "/mail/dismiss":
                 return self._send_json(200, op_mail_dismiss(payload))
+            # RM3052 — compte-rendu client : aperçu (inoffensif), envoi (email SORTANT vers
+            # le client, geste humain explicite dans le panneau), mise à l'écart (sans email).
+            if path == "/client-notify/preview":
+                return self._send_json(200, op_client_notify_preview(payload))
+            if path == "/client-notify/send":
+                return self._send_json(200, op_client_notify_send(payload))
+            if path == "/client-notify/dismiss":
+                return self._send_json(200, op_client_notify_dismiss(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

@@ -30,19 +30,13 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
     { id: "F005", rm: 13, libelle: "Abandonné", domaine: "Cockpit", type: "feature", etat: "écarté (abandonne)", date: "2026-07-01" },
   ], domaines: ["Cockpit", "Outillage", "Karl"], jalons: [] };
   let f = new VM.FeaturesViewModel({ data, sort: "id" });
-  assert.deepStrictEqual(f.rows().map(r => r.id), ["F001", "F002", "F003", "F004", "F005"]); assert(!f.hasJalon && f.cols.every(c => c.key !== "jalon"), "pas de colonne jalon sans jalon");
+  assert.deepStrictEqual(f.rows().map(r => r.id), ["F001", "F002", "F003", "F004", "F005"]); assert(!f.hasVersion && f.cols.every(c => c.key !== "version"), "pas de colonne version sans version");
   assert.deepStrictEqual(f.counts.map(c => c.etat + ":" + c.n), ["livré:2", "en cours:1", "prévu:1", "écarté:1"], "comptes par état, écarté regroupé");
   assert.deepStrictEqual(f.rows()[3].tickets, [20, 21], "tickets multiples d'une entrée curée"); assert.strictEqual(f.rows()[2].parent, 5);
   f = new VM.FeaturesViewModel({ data, sort: "etat", desc: true }); assert.strictEqual(f.rows()[0].id, "F005", "tri par état inversé : écarté d'abord");
   f = new VM.FeaturesViewModel({ data, sort: "date" }); assert.strictEqual(f.rows()[0].id, "F005", "tri par date");
   f = new VM.FeaturesViewModel({ data, q: "rm21" }); assert.deepStrictEqual(f.rows().map(r => r.id), ["F004"], "filtre sur un RM couvert"); assert.strictEqual(f.count, "1 / 5");
-  f = new VM.FeaturesViewModel({ data: { entrees: [{ id: "F001", libelle: "x", etat: "livré", jalon: 1 }], jalons: [{ id: "V1", titre: "pilote" }] } }); assert(f.hasJalon && f.rows()[0].jalon === "V1");
-  // — RoadmapViewModel —
-  let r = new VM.RoadmapViewModel({ data }); assert(!r.byJalon); let g = r.groups();
-  assert.deepStrictEqual(g.map(x => x.label), ["En cours", "Prévu", "Livré récemment"], "sans jalon : par état, livrées récentes en bas, écartés absents");
-  assert.strictEqual(g[2].rows[0].id, "F002", "livrées triées par date décroissante");
-  r = new VM.RoadmapViewModel({ data: { entrees: [{ id: "F001", libelle: "a", etat: "livré", jalon: 0 }, { id: "F002", libelle: "b", etat: "prévu", jalon: 1 }, { id: "F003", libelle: "c", etat: "prévu" }], jalons: [{ id: "V1", titre: "pilote", note: "n" }] } });
-  g = r.groups(); assert(r.byJalon && g.map(x => x.label).join("|") === "V0|V1 — pilote|Sans jalon" && g[1].avancement === "prévu 1", "par jalon : V0, V1 titré, sans jalon à la fin");
+  f = new VM.FeaturesViewModel({ data: { entrees: [{ id: "F001", libelle: "x", etat: "livré", jalon: 1 }, { id: "F002", libelle: "y", etat: "prévu", version: "V2" }, { id: "F003", libelle: "z", etat: "prévu" }] }, sort: "version" }); assert(f.hasVersion && f.rows().map(r => r.version).join("|") === "V1|V2|", "version : `version` ou `jalon` → V<n>, colonne présente, tri (vides en dernier)");
   // — ChaptersViewModel —
   const c = new VM.ChaptersViewModel({ cdc: cdcs[0], path: cdcs[0].chapters[1].path, md: "| # | Objet |\n|---|---|\n| D001 | Un choix (RM3013) |\n| ~~Q002~~ | fermée |\n" });
   assert.deepStrictEqual(c.tabs.map(t => t.title + (t.on ? "*" : "")), ["CDC PM", "Décisions*"], "sous-onglets, numéro retiré, courant marqué");
@@ -51,12 +45,13 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert.strictEqual(c.resolve("../project/overview.md"), "projects/clients/i/projects/pm/project/overview.md");
   // — vues : aucun on*, gestes en data-action —
   const head = new VM.CdcHeaderViewModel({ cdcs, current: cdcs[0], page: "cdc-features" });
-  for (const frag of [V.FeaturesPage(head, new VM.FeaturesViewModel({ data })), V.RoadmapPage(head, new VM.RoadmapViewModel({ data })), V.ChaptersPage(head, c, { md: mdToHtml }), V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs: [] }), new VM.FeaturesViewModel({}))]) { const s = String(frag); assert(!/\son\w+=/.test(s), "aucun on* dans les vues"); }
-  const sF = String(V.FeaturesPage(head, new VM.FeaturesViewModel({ data }))); assert(/data-action="sort" data-key="etat"/.test(sF) && /data-action="select" data-key="a\/site\/site"/.test(sF) && /data-action="ticket" data-rm="20"/.test(sF) && /data-action="page" data-page="cdc-roadmap"/.test(sF), "en-têtes triables, sélecteur (2 CDC), tickets, pages");
+  for (const frag of [V.FeaturesPage(head, new VM.FeaturesViewModel({ data })), V.ChaptersPage(head, c, { md: mdToHtml }), V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs: [] }), new VM.FeaturesViewModel({}))]) { const s = String(frag); assert(!/\son\w+=/.test(s), "aucun on* dans les vues"); }
+  const sF = String(V.FeaturesPage(head, new VM.FeaturesViewModel({ data }))); assert(/data-action="sort" data-key="etat"/.test(sF) && /data-action="select" data-key="a\/site\/site"/.test(sF) && /data-action="ticket" data-rm="20"/.test(sF) && /data-action="page" data-page="chap:/.test(sF), "en-têtes triables, sélecteur (2 CDC), tickets, pages");
   assert(/Aucun CDC vivant/.test(String(V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs: [] }), new VM.FeaturesViewModel({})))), "état vide explicite");
-  assert.deepStrictEqual(head.pages.map(p => p.label), ["📋 Fonctionnalités", "📘 CDC vivant", "🗺 Feuille de route", "⚖️ Décisions"], "onglets à plat : table, sommaire, feuille de route, puis un par chapitre (pas le 10)");
-  assert(head.pages[1].key === "chap:" + cdcs[0].chapters[0].path && head.pages[3].key === "chap:" + cdcs[0].chapters[1].path, "un chapitre = page chap:<path>");
-  assert(new VM.CdcHeaderViewModel({ cdcs, current: cdcs[0], page: "cdc", path: cdcs[0].chapters[1].path }).pages[3].on, "le chapitre courant est l'onglet actif");
+  assert.deepStrictEqual(head.pages.map(p => p.label), ["📋 Fonctionnalités", "📘 CDC vivant", "⚖️ Décisions"], "onglets à plat : table, sommaire, puis un par chapitre (pas le 10, plus de feuille de route dérivée)");
+  assert(head.pages[1].key === "chap:" + cdcs[0].chapters[0].path && head.pages[2].key === "chap:" + cdcs[0].chapters[1].path, "un chapitre = page chap:<path>");
+  assert(new VM.CdcHeaderViewModel({ cdcs, current: cdcs[0], page: "cdc", path: cdcs[0].chapters[1].path }).pages[2].on, "le chapitre courant est l'onglet actif");
+  assert.deepStrictEqual(VM.cdcTabs(cdcs[1]).map(t => t.label + (t.enabled ? "" : "✗")), ["📋 Fonctionnalités✗", "📘 CDC vivant"], "cdcTabs : fonctionnalités désactivées sans registre (onglet projets)");
   assert.strictEqual(VM.chapterLabel({ file: "cdc-pm-99-questions-ouvertes.md", title: "Questions ouvertes — projet PM (RM3043)" }), "❓ Questions ouvertes");
   // RM3053 : forme générique (cdc.md, cdc-features.md, cdc-roadmap.md, cdc-decisions.md, cdc-questions.md, cdc-notes.md, cdc-help.md)
   const gen = { key: "i/pm/cdc", client: "i", project: "pm", prefix: "cdc", title: "CDC vivant du projet PM", path: "p/cdc.md", registry: true, chapters: [
@@ -64,10 +59,10 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
     { file: "cdc-roadmap.md", path: "p/cdc-roadmap.md", title: "Roadmap — projet `iprospective/pm-ai-agents`" }, { file: "cdc-decisions.md", path: "p/cdc-decisions.md", title: "Registre des décisions — projet PM (RM3043)" },
     { file: "cdc-questions.md", path: "p/cdc-questions.md", title: "Questions ouvertes — projet PM (RM3043)" }, { file: "cdc-notes.md", path: "p/cdc-notes.md", title: "Notes en vrac — projet PM (RM3043)" }, { file: "cdc-help.md", path: "p/cdc-help.md", title: "Aide — projet `iprospective/pm-ai-agents`" }] };
   const gh = new VM.CdcHeaderViewModel({ cdcs: [gen], current: gen, page: "cdc-features" });
-  assert.deepStrictEqual(gh.pages.map(p => p.label), ["📋 Fonctionnalités", "📘 CDC vivant", "🗺 Feuille de route", "🗺 Roadmap", "⚖️ Registre des décisions", "❓ Questions ouvertes", "🗒 Notes en vrac", "📖 Aide"], "forme générique : sommaire = cdc.md, chapitre features exclu, libellés nettoyés");
+  assert.deepStrictEqual(gh.pages.map(p => p.label), ["📋 Fonctionnalités", "📘 CDC vivant", "🗺 Roadmap", "⚖️ Registre des décisions", "❓ Questions ouvertes", "🗒 Notes en vrac", "📖 Aide"], "forme générique : sommaire = cdc.md, chapitre features exclu, libellés nettoyés");
   assert(gh.pages[1].key === "chap:p/cdc.md", "CDC vivant = cdc.md");
   assert(/pas de registre/.test(String(V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs, current: cdcs[1] }), new VM.FeaturesViewModel({ data: { missing: true } })))), "CDC sans registre : dit quoi faire");
-  console.log("✓ CDC (RM3044) : choix du CDC, table triée/filtrée/comptée, feuille de route par état et par jalon, chapitres ancrés, vues sans on*");
+  console.log("✓ CDC (RM3044) : choix du CDC, table triée/filtrée/comptée avec version, chapitres ancrés, vues sans on*");
   // — contrôleur —
   const calls = []; const store = { m: {}, getItem(k) { return this.m[k] || null; }, setItem(k, v) { this.m[k] = String(v); } };
   const svc = new S.CdcService({ storage: store, repo: { cdcs: async () => cdcs, features: async (cl, p, pr) => { calls.push("feat:" + pr); return data; }, file: async (pth) => { calls.push("file:" + pth.split("/").pop()); return "# " + pth.split("/").pop() + "\n\n| # | O |\n|---|---|\n| D001 | x |\n\n[déc](cdc-pm-90-decisions.md#sec-D001)"; } } });
@@ -78,14 +73,14 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await F.click("sort", { key: "date" }); assert(ctl.state.sort === "date" && store.m.karlCdcSort === "date:0"); await F.click("sort", { key: "date" }); assert(ctl.state.desc === true, "second clic inverse");
   await F.input("journal"); await settle(); assert(ctl.state.q === "journal" && /F001/.test(F.innerHTML) && !/F003/.test(F.innerHTML), "filtre appliqué (debounce immédiat en test)");
   await F.click("ticket", { rm: "10" }); assert.deepStrictEqual(tickets, ["10"], "un ticket ouvre sa fiche");
-  await F.click("page", { page: "cdc-roadmap" }); assert(ctl.page() === "cdc-roadmap" && /En cours/.test(F.innerHTML) && opened.length === 0, "les onglets changent la page DANS le panneau, sans passer par le centre");
-  await F.click("page", { page: "zzz" }); assert(ctl.page() === "cdc-roadmap", "onglet inconnu ignoré");
-  await ctl.open("cdc"); assert(/cdc-pm-00-sommaire.md/.test(C.innerHTML) && calls.includes("file:cdc-pm-00-sommaire.md"), "le CDC s'ouvre sur son sommaire");
+  await F.click("page", { page: "chap:" + cdcs[0].chapters[1].path }); assert(ctl.page() === "cdc" && ctl.state.chapter.endsWith("decisions.md") && opened.length === 0, "les onglets changent la page DANS le panneau, sans passer par le centre");
+  await F.click("page", { page: "zzz" }); assert(ctl.page() === "cdc", "onglet inconnu ignoré");
+  await ctl.open("cdc"); assert(ctl.state.chapter.endsWith("decisions.md") && calls.includes("file:cdc-pm-90-decisions.md"), "« cdc » rouvre le dernier chapitre lu");
+  await ctl.open("chap:" + cdcs[0].chapters[0].path); assert(/cdc-pm-00-sommaire.md/.test(C.innerHTML) && calls.includes("file:cdc-pm-00-sommaire.md"), "l'onglet CDC vivant ouvre le sommaire");
   await C.link("cdc-pm-90-decisions.md#sec-D001"); assert(calls.includes("file:cdc-pm-90-decisions.md") && ctl.state.chapter.endsWith("cdc-pm-90-decisions.md"), "lien relatif : chapitre suivi dans la page");
   await C.click("page", { page: "chap:" + cdcs[0].chapters[0].path }); assert(ctl.state.chapter === cdcs[0].chapters[0].path && ctl.page() === "cdc" && store.m.karlCdcPage === "chap:" + cdcs[0].chapters[0].path, "onglet chapitre à plat, mémorisé");
-  await ctl.open("cdc-roadmap"); ctl.goto({ key: "i/pm/pm", path: cdcs[0].chapters[1].path, sec: "D001" }); await settle(); assert(opened.includes("cdc") && ctl.page() === "cdc" && ctl.state.chapter.endsWith("decisions.md"), "goto : ouvre le panneau sur l'onglet chapitres, CDC + chapitre + section");
+  await ctl.open("cdc-features"); ctl.goto({ key: "i/pm/pm", path: cdcs[0].chapters[1].path, sec: "D001" }); await settle(); assert(opened.includes("cdc") && ctl.page() === "cdc" && ctl.state.chapter.endsWith("decisions.md"), "goto : ouvre le panneau sur l'onglet chapitres, CDC + chapitre + section");
   const ctl2 = mountCdc(fakeEl("x"), { service: svc, storage: store, md: mdToHtml }); assert(ctl2.page() === "cdc" && ctl2.state.chapter.endsWith("decisions.md"), "l'onglet chapitre mémorisé est repris au montage"); ctl2.unmount();
-  await ctl.open("cdc-roadmap"); assert(/En cours/.test(R.innerHTML) && /F003/.test(R.innerHTML), "feuille de route rendue");
   const n0 = calls.filter(x => x.startsWith("feat:")).length; await ctl.open("cdc-features"); assert(calls.filter(x => x.startsWith("feat:")).length === n0, "registre mis en cache par CDC");
   ctl.unmount();
   console.log("✓ CDC contrôleur : contexte de session, sélection mémorisée, tri persistant, filtre, tickets, pages, chapitres, liens, goto, cache");

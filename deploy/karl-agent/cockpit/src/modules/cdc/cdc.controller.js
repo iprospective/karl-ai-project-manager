@@ -4,15 +4,15 @@
 import { html } from "../../core/html.js";
 import { mount } from "../../core/dom.js";
 import { CdcService } from "./cdc.service.js";
-import { CdcHeaderViewModel, FeaturesViewModel, RoadmapViewModel, ChaptersViewModel } from "./CdcViewModel.js";
-import { FeaturesPage, RoadmapPage, ChaptersPage } from "./Cdc.view.js";
+import { CdcHeaderViewModel, FeaturesViewModel, ChaptersViewModel } from "./CdcViewModel.js";
+import { FeaturesPage, ChaptersPage } from "./Cdc.view.js";
 
 export function mountCdc(el, ctx = {}) {
   const svc = ctx.service || new CdcService({ storage: ctx.storage });
   const md = ctx.md || ((s) => String(s));
   const notify = ctx.notify || (() => {});
   const later = ctx.later || ((fn, ms) => setTimeout(fn, ms));
-  const PAGES = ["cdc-features", "cdc", "cdc-roadmap"];
+  const PAGES = ["cdc-features", "cdc"];
   const isPage = (p) => PAGES.includes(p) || (typeof p === "string" && p.startsWith("chap:"));
   const state = { page: "cdc-features", sort: "id", desc: false, q: "", chapter: null, sec: null, qTimer: null };
   try { const s = ctx.storage && ctx.storage.getItem("karlCdcSort"); if (s) { const [k, d] = s.split(":"); state.sort = k || "id"; state.desc = d === "1"; } const pg = ctx.storage && ctx.storage.getItem("karlCdcPage"); if (isPage(pg)) setPage(pg); } catch (e) { /* stockage indisponible */ }
@@ -28,9 +28,8 @@ export function mountCdc(el, ctx = {}) {
   }
   /** `chap:<path>` = un chapitre précis (onglet à plat) ; « cdc » = le sommaire, ou le dernier chapitre ouvert. */
   function setPage(p) { if (p.startsWith("chap:")) { state.chapter = p.slice(5); p = "cdc"; } state.page = p; try { if (ctx.storage) ctx.storage.setItem("karlCdcPage", p === "cdc" && state.chapter ? "chap:" + state.chapter : p); } catch (e) { /* */ } }
-  function render() { if (state.page === "cdc-features") return renderFeatures(); if (state.page === "cdc-roadmap") return renderRoadmap(); return renderChapters(); }
+  function render() { if (state.page === "cdc-features") return renderFeatures(); return renderChapters(); }
   async function renderFeatures() { h.update(html`chargement…`); try { const data = await svc.features(); if (state.page !== "cdc-features") return; h.update(FeaturesPage(head("cdc-features"), new FeaturesViewModel({ data, sort: state.sort, desc: state.desc, q: state.q }))); } catch (e) { h.update(html`<div class="empty">registre injoignable : ${e.message}</div>`); } }
-  async function renderRoadmap() { h.update(html`chargement…`); try { const data = await svc.features(); if (state.page !== "cdc-roadmap") return; h.update(RoadmapPage(head("cdc-roadmap"), new RoadmapViewModel({ data }))); } catch (e) { h.update(html`<div class="empty">registre injoignable : ${e.message}</div>`); } }
   async function renderChapters() {
     const c = svc.current; if (!c) { h.update(ChaptersPage(head("cdc"), new ChaptersViewModel({}), { md })); return; }
     if (!state.chapter || !(c.chapters || []).some(ch => ch.path === state.chapter)) state.chapter = c.path;

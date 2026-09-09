@@ -17,7 +17,8 @@ reste lue) : une entrée par ticket (identifiant F001… STABLE, jamais réattri
   --project <client>/<projet>   défaut : le projet du workspace courant (`.mmi-pm`)
   --docs-dir / --tasks-dir      surcharges (tests)
 
-Champs optionnels par entrée : `jalon` (entier, feuille de route ; `jalons:` en tête = [{id: V1, titre, etat, note}]),
+Champs optionnels par entrée : `version` (V0, V1… — RM3015-D018 : la version est une COLONNE, la roadmap un rôle par
+version ; `--assign-version <V> [--etat livré]` la pose en masse sur les entrées qui n'en ont pas), `jalon` (entier, forme AtomBox),
 `tickets` (liste d'ids couverts par une entrée curée — `--sync` ne les rajoute pas), `manuel: true`.
 
 États (dérivés du statut du ticket) : livré (fermé résolu) · en cours (en_cours, tests, MEP,
@@ -197,16 +198,17 @@ def build(reg):
         if not rows:
             continue
         feats = [e for e in rows if e.get("type") != "bugfix"]; bugs = [e for e in rows if e.get("type") == "bugfix"]
-        jal = any(e.get("jalon") is not None for e in ents)
+        ver = lambda e: str(e.get("version") or (f"V{e['jalon']}" if e.get("jalon") is not None else ""))
+        jal = any(ver(e) for e in ents)
         L += [f"## {dom} ({len(rows)})", ""]
         if feats:
-            L += ["| # | Fonctionnalité | Ticket(s) | Type | " + ("Jalon | " if jal else "") + "État | Date |", "|---|---|---|---|" + ("---|" if jal else "") + "---|---|"]
+            L += ["| # | Fonctionnalité | Ticket(s) | Type | " + ("Version | " if jal else "") + "État | Date |", "|---|---|---|---|" + ("---|" if jal else "") + "---|---|"]
             for e in feats:
                 lib = e["libelle"].replace("|", "/")
                 if e.get("parent"):
                     lib += f" *(sous-tâche de RM{e['parent']})*"
                 tk = ", ".join(f"RM{x}" for x in ([e["rm"]] if e.get("rm") else []) + [x for x in (e.get("tickets") or []) if x != e.get("rm")]) or "—"
-                jc = (f" V{e['jalon']} |" if e.get("jalon") is not None else " — |") if jal else ""
+                jc = (f" {ver(e)} |" if ver(e) else " — |") if jal else ""
                 L.append(f"| {e['id']} | {lib} | {tk} | {e.get('type') or ''} |{jc} {e['etat']} | {e.get('date') or ''} |")
             L.append("")
         if bugs:
@@ -239,6 +241,8 @@ def main():
     ap.add_argument("--init", action="store_true"); ap.add_argument("--prefix")
     ap.add_argument("--sync", action="store_true"); ap.add_argument("--build", action="store_true"); ap.add_argument("--check", action="store_true")
     ap.add_argument("--no-sync", action="store_true", help="avec --init : registre vide (curé à la main)")
+    ap.add_argument("--assign-version", metavar="V", help="pose cette version sur les entrées qui n'en ont pas (filtre --etat)")
+    ap.add_argument("--etat", help="avec --assign-version : seulement les entrées de cet état (ex. livré)")
     a = ap.parse_args()
     docs, tasks, projet = resoudre(a)
     regs = sorted(docs.glob("cdc/fonctionnalites.yml")) + sorted(docs.glob("cdc-*/fonctionnalites.yml"))
@@ -264,6 +268,14 @@ def main():
         if not (ok_reg and ok_chap):
             print("  → pm-cdc-features --sync --build"); sys.exit(1)
         return
+    if a.assign_version:
+        n = 0
+        for e in reg["entrees"]:
+            if not e.get("version") and e.get("jalon") is None and (not a.etat or e.get("etat") == a.etat):
+                e["version"] = a.assign_version; n += 1
+        reg_path.write_text(dump(reg), encoding="utf-8"); print(f"✓ version {a.assign_version} posée sur {n} entrée(s)" + (f" ({a.etat})" if a.etat else ""))
+        if not a.build:
+            return
     if a.init or a.sync:
         ajout, modif = ([], []) if (a.init and a.no_sync) else sync(reg, lire_tickets(tasks))
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")

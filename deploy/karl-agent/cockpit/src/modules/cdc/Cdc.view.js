@@ -34,7 +34,6 @@ export function RoadmapPage(head, vm) {
 
 export function ChaptersPage(head, vm, { md }) {
   if (head.empty) return html`<h2>📘 CDC</h2>${CdcHeader(head)}${Empty(head)}`;
-  return html`<h2>📘 ${head.title}</h2>${CdcHeader(head)}
-    <div class="cdc-chapters">${vm.tabs.map(t => html`<button class="chip${t.on ? " on" : ""}" data-action="chapter" data-path="${t.path}">${t.title}</button>`)}</div>
+  return html`<h2>📘 ${head.title} <span class="cdc-count">${(vm.tabs.find(t => t.on) || {}).title || ""}</span></h2>${CdcHeader(head)}
     <div class="cdc-body mdview-host" data-role="body">${raw(vm.anchored(md(vm.md)))}</div>`;
 }

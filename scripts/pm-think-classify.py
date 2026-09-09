@@ -15,7 +15,11 @@ de texte ne décide pas de ça ; un modèle léger, si — pour ~1 $ par million
   pm-think-classify --all [--since AAAA-MM-JJ] [--limit N] reprise de l'historique
   --apply            écrit dans les `.think.md` (défaut : rapport seul, rien n'est écrit)
   --model <id>       défaut : claude-haiku-4-5-20251001 ; --batch <n> tours par appel (défaut 25)
-  --engine claude|api  `claude -p` (défaut, pas de clé à gérer) ou l'API si ANTHROPIC_API_KEY
+  --engine claude|api  `claude -p` (pas de clé à gérer) ou l'API ; **api par défaut si ANTHROPIC_API_KEY existe**
+
+Coût (mesuré le 2026-09-10) : par l'API, ~1 $ par million de jetons d'entrée, soit ~3 $ pour les 276 transcripts.
+Par `claude -p`, le CLI refacture son propre prompt système à chaque appel : compter ~40× plus, et donc réserver
+ce mode à une session isolée, avec un gros `--batch`.
 
 Le moteur est injectable pour les tests : `PM_CLASSIFY_CMD` reçoit le prompt sur stdin et rend le JSON.
 """
@@ -34,7 +38,8 @@ import pm_think                                 # noqa: E402
 from pm_paths import PMConfig                   # noqa: E402
 
 MODEL = "claude-haiku-4-5-20251001"
-BATCH = 25
+BATCH = 60          # RM3067 : `claude -p` refacture son prompt système à CHAQUE appel (~15-20 k jetons) —
+                    # de gros lots l'amortissent ; `--engine api` n'envoie que le prompt et coûte ~40× moins.
 MAX_CHARS = 600
 MIN_USER, MIN_AGENT = 30, 120
 TYPES = {"rien", "dette", "question", "decision", "feature"}
@@ -209,7 +214,7 @@ def main():
     ap.add_argument("--transcript"); ap.add_argument("--session"); ap.add_argument("--rm", type=int)
     ap.add_argument("--all", action="store_true"); ap.add_argument("--since"); ap.add_argument("--limit", type=int)
     ap.add_argument("--apply", action="store_true"); ap.add_argument("--model", default=MODEL)
-    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api"), default="claude")
+    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api"), default=("api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 

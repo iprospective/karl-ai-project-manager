@@ -46,6 +46,7 @@ import pm_git                                      # noqa: E402  (RM3013)
 from pm_markdown import split_frontmatter          # noqa: E402
 from pm_doc import wiki_title_for_slug             # noqa: E402  (règle partagée, RM1890)
 from pm_output import out                          # noqa: E402
+import redmine_utils as rm                         # noqa: E402  (URL de l'instance, RM3059)
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE.parent / "templates" / "aspects" / "common" / "shared-doc.md"
@@ -132,17 +133,61 @@ def detach(path: Path, rm_id: int) -> bool:
 
 
 # ── description du ticket ────────────────────────────────────────────────────
-def ref_line(slug: str) -> str:
-    return f"{REF_PREFIX} `docs/{slug}.md` (aspect projet, publié en page wiki `[[{wiki_title_for_slug(slug)}]]`)."
+# RM3059 : l'ancien format mettait le lien wiki ENTRE BACKTICKS — en Markdown (format
+# des instances Redmine), un `[[…]]` dans un code span n'est jamais linkifié : la
+# référence était illisible sans recopier l'URL à la main.
+OLD_REF_RE = re.compile(
+    r"^Doc partagée : `docs/([a-z0-9][a-z0-9-]*)\.md` \(aspect projet, publié en page wiki "
+    r"`\[\[[^\]]*\]\]`\)\.[ \t]*$", re.M)
 
 
-def ensure_ref(task_file: Path, slug: str, dry: bool) -> bool:
+def wiki_page_url(cfg: PMConfig, ent: str, proj: str, slug: str) -> str | None:
+    """URL absolue de la page wiki — secours quand le `[[lien]]` n'est pas rendu (mail,
+    export, autre instance). None si l'instance ou le projet Redmine est indéterminable."""
+    try:
+        base, _ = rm.redmine_creds()
+    except SystemExit:
+        return None
+    rid = ((cfg.project_meta(ent, proj) or {}).get("redmine") or {}).get("project_id")
+    if not base or not rid:
+        return None
+    return f"{base.rstrip('/')}/projects/{rid}/wiki/{wiki_title_for_slug(slug)}"
+
+
+def ref_line(slug: str, url: str | None = None) -> str:
+    """Référence « Doc partagée » : lien wiki HORS code span (+ URL explicite si connue)."""
+    return (f"{REF_PREFIX} docs/{slug}.md — page wiki [[{wiki_title_for_slug(slug)}]]"
+            + (f" ({url})" if url else "") + ".")
+
+
+def refresh_refs(body: str, url_for) -> str:
+    """Réécrit les références au vieux format (lien entre backticks) au format courant.
+    Idempotent : une référence déjà au nouveau format n'est pas touchée."""
+    return OLD_REF_RE.sub(lambda m: ref_line(m.group(1), url_for(m.group(1))), body)
+
+
+def push_description(rm_id: int, body: str, note: str, cross_project: bool = False) -> None:
+    """Remplace la description du ticket (Redmine + MD) via l'outil canonique."""
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as fh:
+        fh.write(body.strip() + "\n")
+        tmp = fh.name
+    cmd = [sys.executable, str(HERE / "pm-task-description-update.py"), str(rm_id),
+           "--set-from-file", tmp, "--note", note]
+    if cross_project:
+        cmd.append("--cross-project")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    Path(tmp).unlink(missing_ok=True)
+    if r.returncode != 0:
+        out.fail("échec de la mise à jour de description", (r.stderr or r.stdout).strip()[:400])
+
+
+def ensure_ref(task_file: Path, slug: str, dry: bool, url: str | None = None) -> bool:
     """Insère la référence dans la description, via l'outil canonique. Idempotent."""
     text = task_file.read_text(encoding="utf-8")
     _, body, _ = split_frontmatter(text)
     if f"docs/{slug}.md" in body:
         return False
-    line = ref_line(slug)
+    line = ref_line(slug, url)
     if re.search(r"^## Contexte\s*$", body, re.M):
         new_body = re.sub(r"^(## Contexte\s*\n)", r"\1\n" + line.replace("\\", "\\\\") + "\n",
                           body, count=1, flags=re.M)
@@ -150,18 +195,39 @@ def ensure_ref(task_file: Path, slug: str, dry: bool) -> bool:
         new_body = line + "\n\n" + body.lstrip("\n")
     if dry:
         return True
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as fh:
-        fh.write(new_body.strip() + "\n")
-        tmp = fh.name
     rm_id = int(re.match(r"RM(\d+)_", task_file.name).group(1))
-    r = subprocess.run([sys.executable, str(HERE / "pm-task-description-update.py"), str(rm_id),
-                        "--set-from-file", tmp, "--note",
-                        f"Doc partagée adossée : docs/{slug}.md (pm-task-doc)."],
-                       capture_output=True, text=True)
-    Path(tmp).unlink(missing_ok=True)
-    if r.returncode != 0:
-        out.fail("échec de la mise à jour de description", (r.stderr or r.stdout).strip()[:400])
+    push_description(rm_id, new_body, f"Doc partagée adossée : docs/{slug}.md (pm-task-doc).")
     return True
+
+
+def fix_refs(cfg: PMConfig, ref: str | None, dry: bool) -> int:
+    """Reformate, ticket par ticket, les références « Doc partagée » au vieux format
+    (RM3059). Retourne le nombre de tickets concernés."""
+    projects = ([cfg.resolve_project_ref(ref)[:2]] if ref
+                else [(e, p) for e, p, _ in cfg.iter_projects()])
+    n = 0
+    for ent, proj in projects:
+        tasks = Path(cfg.path("tasks_dir", entity=ent, project=proj))
+        if not tasks.is_dir():
+            continue
+        for f in sorted(tasks.glob("RM*_*.md")):
+            if f.name.endswith((".log.md", ".think.md")):
+                continue
+            _, body, _ = split_frontmatter(f.read_text(encoding="utf-8"))
+            if not OLD_REF_RE.search(body):
+                continue
+            rm_id = int(re.match(r"RM(\d+)_", f.name).group(1))
+            n += 1
+            if dry:
+                out.op("reformaterait", rm_id, f"{ent}/{proj}")
+                continue
+            new_body = refresh_refs(body, lambda s, e=ent, p=proj: wiki_page_url(cfg, e, p, s))
+            push_description(rm_id, new_body,
+                             "Références « Doc partagée » reformatées : lien wiki cliquable + URL (RM3059).",
+                             cross_project=True)
+            out.op("références reformatées", rm_id, f"{ent}/{proj}")
+    out.op("tickets à reformater" if dry else "tickets reformatés", extra=str(n))
+    return n
 
 
 # ── audit ────────────────────────────────────────────────────────────────────
@@ -208,6 +274,9 @@ def main() -> None:
     ap.add_argument("--check", nargs="?", const="", metavar="PROJET",
                     help="audit de conformité des aspects (tous les projets par défaut)")
     ap.add_argument("--sync", action="store_true", help="publier au wiki dans la foulée")
+    ap.add_argument("--fix-refs", nargs="?", const="", metavar="PROJET",
+                    help="reformate les références « Doc partagée » au vieux format (lien entre "
+                         "backticks, non cliquable) dans les descriptions — tous les projets par défaut")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--porcelain", action="store_true", help="n'imprime que le chemin de l'aspect")
     out.add_args(ap)
@@ -217,6 +286,9 @@ def main() -> None:
 
     if args.check is not None:
         sys.exit(1 if check(cfg, args.check or None) else 0)
+    if args.fix_refs is not None:
+        fix_refs(cfg, args.fix_refs or None, args.dry_run)
+        return
 
     if not args.rm_id:
         ap.error("rm_id requis (ou --check)")
@@ -259,7 +331,7 @@ def main() -> None:
         out.op("aspect rattaché" if attach(path, args.rm_id) else "aspect déjà lié",
                args.rm_id, f"docs/{args.slug}.md")
 
-    if ensure_ref(task_file, args.slug, args.dry_run):
+    if ensure_ref(task_file, args.slug, args.dry_run, wiki_page_url(cfg, ent, proj, args.slug)):
         out.op("référence en description", args.rm_id, f"docs/{args.slug}.md")
     else:
         out.info("référence déjà présente en description")

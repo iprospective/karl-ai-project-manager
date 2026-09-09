@@ -53,11 +53,13 @@ def project_redmine_id(cfg, entity, project):
 
 
 def task_files(md_path):
-    """(md, log, reporting) — le reporting n'existe que si la tâche a été tickée."""
+    """(md, log, reporting, think) — le reporting n'existe que si la tâche a été tickée,
+    le think (RM3053) que si elle a une réflexion consignée."""
     stem = md_path.name[:-3]
     return (md_path,
             md_path.parent / f"{stem}.log.md",
-            md_path.parent / f"{stem}.reporting.yml")
+            md_path.parent / f"{stem}.reporting.yml",
+            md_path.parent / f"{stem}.think.md")
 
 
 def append_log(log_path, message):
@@ -136,7 +138,9 @@ def main():
                  remede="livrer ou abandonner la branche d'abord, ou --force si la "
                         "tâche change de projet PM sans changer de dépôt de code")
 
-    src_files = task_files(md_path)
+    # seuls les frères PRÉSENTS bougent : un `.think.md` ou `.reporting.yml` absent n'entre
+    # ni dans le déplacement ni dans le commit (un chemin jamais versionné ferait échouer `git add`)
+    src_files = tuple(f for f in task_files(md_path) if f.exists())
     dst_dir = cfg.path("tasks_dir", entity=dst_ent, project=dst_proj)
     dst_files = tuple(dst_dir / f.name for f in src_files)
 

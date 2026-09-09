@@ -48,8 +48,12 @@ PM_HOOKS = [
     ("PostToolUse", "AskUserQuestion|ExitPlanMode", "pm-turn-wait.py", " stop", None),
     # …tick conso par tour (frontmatter + note Redmine)
     ("Stop", "", "pm-task-tick.py", "", None),
+    # RM3053 : moisson automatique du transcript → .think.md du ticket courant (questions,
+    # décisions, demandes verbatim) — après le tick, qui a déjà résolu le ticket du tour
+    ("Stop", "", "pm-think-harvest.py", "", 60),
     # report conso consolidé en fin de session
     ("SessionEnd", None, "pm-task-report.py", " --all --apply", 180),
+    ("SessionEnd", None, "pm-think-harvest.py", "", 60),
     # worklog de session (RM2068) : refresh au démarrage et avant compaction
     ("SessionStart", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),
     ("PreCompact", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),

@@ -13,6 +13,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Fichier de réflexion par ticket et fusion vers le projet** (RM3015, RM3053, NORMS 2.26.0) :
+  chaque fiche a un frère `RM<id>_<slug>.think.md` — notes verbatim (N), questions (Q),
+  décisions/conseils (D/C), fonctionnalités (F), états ✅ ❌ 🟡 🕐 ⏸ — matière de travail hors
+  wiki, à côté du `.log.md` (événements) ; la fiche ne porte que des compteurs (`think:`).
+  `pm-task-think` (ajout normé, `--set/--state`, `--show`), `pm-think-merge` (régénère
+  `docs/cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md` entre marqueurs,
+  ids `RM<id>-Xnnn`, crée `cdc.md`/`cdc-roadmap.md`/`cdc-help.md`, `--check`, `--rename-legacy`
+  pour les anciens `cdc-<prefix>-NN-*.md`), `pm-think-harvest` (hook Stop/SessionEnd : questions,
+  réponses et demandes du transcript → think, dédoublonné). `pm-decisions persist`,
+  `pm-session-status request --ticket` / `notify --ref` écrivent dans le think ; `pm-task-brief`,
+  `pm-task-show` le résument ; `pm-task-status-update … ferme` refuse avec une Q ouverte
+  (`--ignore-think`). Sweep `is_task_sheet()` (`pm_think`) sur les 20 scripts qui prenaient un
+  frère pour la fiche (leçon RM2362) ; `pm-task-move` déplace le think ; `karl-agent` sert le
+  CDC générique (`cdc.md`, registre `docs/cdc/`) en plus de la forme par préfixe. Skill `mmi-pm-think`.
 - **Menu CDC à onglets et onglet projets** (RM3044, RM3045, cockpit 3.7.1) : un seul
   bouton 📋 CDC en haut ouvre un panneau central dont les onglets reprennent la barre
   du POC AtomBox — Fonctionnalités · CDC · Feuille de route — sur le CDC du projet en contexte (session attachée, sinon dernier choisi) :

@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 from pm_output import out
 from redmine_utils import http_json, redmine_creds
@@ -59,7 +60,7 @@ def iter_rm_ids(cfg, only_rm=None):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = RMID_RE.search(f.read_text(encoding="utf-8", errors="replace")[:2000])
             if m:

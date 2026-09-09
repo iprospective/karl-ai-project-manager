@@ -127,6 +127,15 @@ identifiants à moins de trois chiffres. Les avertissements d'une même famille 
 | Guide utilisateur / développeur | écrits **pendant** le CDC — l'explication est un test |
 | POC | maquette qui lit le CDC ; harnais qui teste le CDC |
 
+## Le CDC vivant du projet et la réflexion des tickets (RM3015)
+
+Le CDC complet d'un projet neuf (ce module) et le **CDC vivant** d'un projet en marche partagent
+les mêmes registres, aux noms génériques (`docs/cdc.md`, `cdc-questions.md`, `cdc-decisions.md`,
+`cdc-features.md`, `cdc-notes.md`, `cdc-roadmap.md`, `cdc-help.md`). Les quatre premiers sont
+**régénérés** par `pm-think-merge` depuis les `.think.md` des tickets (`session-tooling` §
+« Consignation par ticket ») ; ce qui est hors marqueurs y survit. Un CDC **par ticket**
+(`cdc-rm<id>-*.md`) reste la référence de son sujet et le `cdc.md` du projet y renvoie.
+
 ## Deux registres de fonctionnalités — ne pas les confondre
 
 | | CDC **prospectif** (`pm-cdc.py`) | CDC **rétrospectif** (`pm-cdc-features.py`, RM3043) |

@@ -37,6 +37,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import yaml  # noqa: E402
 from pm_paths import PMConfig  # noqa: E402
 
@@ -60,7 +61,7 @@ def load_env_runtime() -> dict:
 
 def find_task_file(cfg: PMConfig, rmid: int) -> Path:
     hits = sorted(cfg.projects_root.glob(f"clients/*/projects/*/tasks/RM{rmid}_*.md"))
-    hits = [h for h in hits if not h.name.endswith(".log.md")]
+    hits = [h for h in hits if is_task_sheet(h)]
     if not hits:
         die(f"tâche RM{rmid} introuvable sous {cfg.projects_root}")
     if len(hits) > 1:

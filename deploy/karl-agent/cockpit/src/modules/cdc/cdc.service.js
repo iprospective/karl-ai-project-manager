@@ -28,5 +28,8 @@ export class CdcService {
     if (!this._feat[c.key] || force) this._feat[c.key] = c.registry ? await this.repo.features(c.client, c.project, c.prefix) : { entrees: [], domaines: [], jalons: [], missing: true };
     return this._feat[c.key];
   }
+  /** RM3064 : édition d'une entrée de think ; invalide les chapitres en cache (les registres sont régénérés). */
+  async thinkEdit({ rm, id, action, state }) { const r = await this.repo.thinkEdit({ rm, id, action, state }); this._chap = {}; return r; }
+  async featureEdit({ id, etat }) { const c = this.current; if (!c) return null; const r = await this.repo.featureEdit({ client: c.client, project: c.project, prefix: c.prefix, id, etat }); delete this._feat[c.key]; this._chap = {}; return r; }
   async chapter(path, force) { if (!this._chap[path] || force) this._chap[path] = await this.repo.file(path); return this._chap[path]; }
 }

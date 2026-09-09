@@ -41,13 +41,16 @@ def check(name, cond, detail=""):
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="rm3052-cli-"))
 
 
-def task(project_dir, rm, title, notify_block, criteria=("Le prix s'affiche",), protocol="1. Ouvrir"):
+PROTO_MD = "| Cas | Attendu |\n|---|---|\n| A1 | Le prix barré s'affiche |\n\n1. Ouvrir la fiche"
+
+
+def task(project_dir, rm, title, notify_block, criteria=("Le prix s'affiche",), protocol=PROTO_MD):
     """Une fiche de ticket réaliste : frontmatter + critères en checklist + protocole."""
     tasks = project_dir / "tasks"
     tasks.mkdir(parents=True, exist_ok=True)
     fm = [f"redmine_id: {rm}", f"title: '{title}'", "status: en_mep"]
-    if protocol:
-        fm.append(f"test_protocol: |-\n  {protocol}")
+    if protocol:   # bloc YAML littéral : CHAQUE ligne indentée, sinon le frontmatter est cassé
+        fm.append("test_protocol: |-\n" + "\n".join("  " + ln for ln in protocol.split("\n")))
     if notify_block:
         fm.append(notify_block)
     body = "## Critères d'acceptation\n\n" + "".join(f"- [x] {c}\n" for c in criteria)
@@ -136,7 +139,7 @@ check("périmètre projet : seul ce projet",
 check("les critères d'acceptation sont lus dans le CORPS de la fiche",
       ps[0]["tickets"][0]["criteria"] == ["Le prix s'affiche"], str(ps[0]["tickets"][0]))
 check("le protocole suit l'option du projet (actif ici)",
-      ps[0]["tickets"][0]["protocol"].startswith("1. Ouvrir"))
+      "| Cas | Attendu |" in ps[0]["tickets"][0]["protocol"])
 sync = cli._scan_pending(cfg, "calicote", "prestasync")
 check("projet avec `protocole: false` => protocole ABSENT de l'email",
       sync[0]["tickets"][0]["protocol"] == "")
@@ -160,17 +163,24 @@ em_off, _ = cli._emails_for(cfg, cli._scan_pending(cfg, "abatik"))
 check("projet dont l'option est INACTIVE n'apporte aucun destinataire", em_off == [])
 
 # ── 4. rendu selon le périmètre ──────────────────────────────────────────────
-_, subj_p, body_p, _, _ = cli._render_selection(cfg, "calicote", "prestashop", None, None)
+_, subj_p, body_p, _, _, html_p = cli._render_selection(cfg, "calicote", "prestashop", None, None)
 check("périmètre projet => sujet au nom du PROJET (récap projet, inchangé)",
       subj_p == "Site PrestaShop — 2 évolutions mises en ligne", subj_p)
-_, subj_c, body_c, em_c, _ = cli._render_selection(cfg, "calicote", None, None, None)
+_, subj_c, body_c, em_c, _, html_c = cli._render_selection(cfg, "calicote", None, None, None)
 check("périmètre client => sujet au nom du CLIENT, tous projets comptés",
       subj_c == "Calicote — 3 évolutions mises en ligne", subj_c)
 check("corps client multi-projets : un en-tête par projet",
       "== Site PrestaShop ==" in body_c and "== Synchro Dolibarr ==" in body_c)
-_, _, body_1, _, _ = cli._render_selection(cfg, "calicote", None, ["3025"], None)
+_, _, body_1, _, _, _ = cli._render_selection(cfg, "calicote", None, ["3025"], None)
 check("sélection d'un seul projet côté client => pas d'en-tête de projet",
       "==" not in body_1 and "#3025" in body_1)
+# Le HTML accompagne le texte à CHAQUE rendu : l'email part en multipart, les deux
+# parties portent le même contenu et le même sujet.
+check("un rendu produit AUSSI le HTML, avec le même sujet",
+      html_c.startswith("<!DOCTYPE html>") and subj_c in html_c)
+check("le protocole markdown devient un vrai TABLEAU en HTML (l'objet de la demande)",
+      "<table style=" in html_c and "|---" not in html_c)
+check("périmètre projet : HTML aussi", html_p.startswith("<!DOCTYPE html>"))
 check("l'aperçu ne modifie AUCUNE fiche (aucun sent_at posé)",
       "sent_at: null" in (P[("calicote", "prestashop")] / "tasks" / "RM3025_x.md").read_text(encoding="utf-8"))
 

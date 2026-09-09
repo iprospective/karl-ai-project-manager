@@ -18,6 +18,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement
   d'un dossier réel ou d'un lien vers ailleurs) ; `--dry-run` montre les deux plans. Un hook ou
   un skill ajouté par un ticket est actif dès le core update suivant.
+- **Email client en HTML** (RM3052) : le protocole de test d'un ticket est du markdown à
+  **tableaux** — recopié dans un corps texte, il arrivait en bouillie chez le client. L'email
+  part désormais en **multipart** : le texte reste le repli, et la partie **HTML** rend les
+  tableaux comme des tableaux (titres, listes, citations aussi ; `[x]`/`[ ]` deviennent ✔/☐).
+  Styles **en ligne** (les clients mail jettent les feuilles `<style>`), markdown source
+  **échappé** (aucun HTML brut ne traverse). Dans le panneau, l'aperçu n'est plus du texte
+  préformaté mais **l'email rendu**, dans une iframe cloisonnée. `karl-mail-send` gagne
+  `--html-file` (alternative HTML) — utilisable par tout autre envoi.
 - **Panneau « compte-rendu client » au cockpit** (RM3052) : un menu **✉ compte-rendu** au
   bandeau, dont le badge compte les évolutions livrées **pas encore annoncées** ; le clic
   déroule **un client par ligne avec son reste à annoncer** (`Calicote (5)`), et ouvre au

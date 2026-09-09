@@ -15,7 +15,8 @@ quand tu l'as **annoncé**, ou quand tu l'as **écarté**. Rien ne part sans toi
    cochent **en travers des projets** : un même compte-rendu peut couvrir le site et la
    synchro. Tout est coché à l'ouverture (le cas courant : annoncer ce qui vient de sortir).
 4. L'**aperçu**, en bas, est l'email exact qui partira — il est composé par le serveur,
-   pas reconstitué par la page : ce que tu relis est ce que le client recevra.
+   pas reconstitué par la page : ce que tu relis est ce que le client recevra. Il s'affiche
+   **rendu** (comme dans une boîte mail), dans un cadre isolé du reste du cockpit.
 5. **✉ Envoyer** l'envoie aux contacts du client, puis marque les tickets `sent_at` /
    `sent_to` (à qui, pas seulement quand).
 6. **Écarter** sort les tickets cochés de la file **sans aucun email** — tout n'a pas à
@@ -26,6 +27,10 @@ Les deux gestes se font en **deux clics** : le premier arme (le bouton dit alors
 expire tout seul.
 
 ## Ce que l'email contient
+
+L'email part en **HTML** (avec un repli texte pour les lecteurs qui l'exigent). C'est ce
+qui rend le protocole de test lisible : ses **tableaux** sont de vrais tableaux, ses titres
+et ses listes sont mis en forme, et les cases `[x]` / `[ ]` deviennent ✔ / ☐.
 
 Un seul email pour N tickets, avec pour chacun : le numéro, le titre, son lien, les
 **critères d'acceptation** (« ce qui change ») et, si l'option est active, le

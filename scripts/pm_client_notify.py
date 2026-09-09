@@ -8,10 +8,13 @@ file en UN email récap envoyé aux CONTACTS du client (résolus depuis l'annuai
 leur `ref`), puis vide la file (pose `sent_at`).
 
 Ce module ne contient que la LOGIQUE PURE (testée par test_pm_client_notify.py) :
-option projet, état de file, résolution des destinataires, composition de l'email.
+option projet, état de file, résolution des destinataires, composition de l'email —
+en texte ET en HTML (RM3052 : le protocole de test est du markdown à tableaux, illisible
+en texte brut chez le client ; l'email part donc en multipart).
 Les I/O (lecture meta/annuaire/tickets, écriture frontmatter, envoi mail) vivent
 dans pm-client-notify.py et le hook de pm-task-status-update.py.
 """
+import re
 
 OPTION_KEY = "notif_client_mep"   # bloc du meta PROJET : {actif: bool, contacts: [ref]}
 QUEUE_KEY = "client_notify"        # bloc du frontmatter TICKET : {queued_at, sent_at}
@@ -204,3 +207,132 @@ def compose_client_email(client_name, groups):
             L.extend(_ticket_lines(t))
     L.append("Bien cordialement,")
     return subject, "\n".join(L)
+
+
+# ── Rendu HTML de l'email (RM3052) ───────────────────────────────────────────
+# Pourquoi : le protocole de test d'un ticket est du markdown RICHE — titres, listes et
+# surtout des TABLEAUX. Recopié tel quel dans un corps texte, il arrive chez le client en
+# bouillie. L'email part donc en multipart : le texte reste (lecteurs sans HTML, archives),
+# et la version HTML rend les tableaux comme des tableaux.
+
+_ESC = (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ('"', "&quot;"))
+
+
+def esc(s):
+    """Échappe pour du HTML. Utilisé AUSSI sur le markdown source : nos fiches n'ont
+    jamais de HTML voulu, et on n'en laisse donc pas passer un seul dans un mail sortant."""
+    out = str("" if s is None else s)
+    for a, b in _ESC:
+        out = out.replace(a, b)
+    return out
+
+
+# Styles posés EN LIGNE : la plupart des clients mail ignorent (ou nettoient) une feuille
+# <style>. Chaque balise produite par le rendu markdown reçoit donc son style ici.
+_TAG_STYLE = {
+    "table": 'border-collapse:collapse;width:100%;margin:8px 0;font-size:13px',
+    "th": 'border:1px solid #d9d9de;padding:6px 9px;background:#f4f4f5;text-align:left;font-weight:600',
+    "td": 'border:1px solid #d9d9de;padding:6px 9px;vertical-align:top',
+    "h1": 'font-size:16px;margin:14px 0 6px',
+    "h2": 'font-size:15px;margin:14px 0 6px',
+    "h3": 'font-size:14px;margin:12px 0 4px',
+    "h4": 'font-size:13px;margin:10px 0 4px',
+    "ul": 'margin:6px 0;padding-left:20px',
+    "ol": 'margin:6px 0;padding-left:20px',
+    "li": 'margin:2px 0',
+    "p": 'margin:6px 0',
+    "blockquote": 'margin:8px 0;padding:6px 10px;border-left:3px solid #d9d9de;color:#555',
+    "code": 'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#f4f4f5;padding:1px 4px;border-radius:3px',
+    "pre": 'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#f7f7f8;padding:8px;border-radius:4px;overflow-x:auto',
+}
+
+
+def _inline_styles(html_text):
+    """Ajoute le style de chaque balise connue. Balise déjà stylée : laissée telle quelle."""
+    out = html_text
+    for tag, style in _TAG_STYLE.items():
+        out = re.sub(r"<{0}>".format(tag), '<{0} style="{1}">'.format(tag, style), out)
+        out = re.sub(r"<{0} (?![^>]*style=)".format(tag), '<{0} style="{1}" '.format(tag, style), out)
+    return out
+
+
+def _checkboxes(text):
+    """`[x]` / `[ ]` sont du jargon d'atelier : dans un email client, un signe vaut mieux."""
+    return re.sub(r"\[[xX]\]", "✔", text).replace("[ ]", "☐")
+
+
+def render_markdown(text):
+    """Markdown → HTML stylé pour l'email. S'appuie sur python-markdown quand il est
+    présent (extension `tables` : c'est tout l'enjeu) ; sinon rend le texte tel quel dans
+    un bloc préformaté — dégradé mais lisible, jamais une erreur d'envoi."""
+    src = _checkboxes(esc(text or "").replace("\r\n", "\n"))
+    if not src.strip():
+        return ""
+    try:
+        import markdown as _md
+    except ImportError:
+        return '<pre style="{0}">{1}</pre>'.format(_TAG_STYLE["pre"], src)
+    body = _md.markdown(src, extensions=["tables", "sane_lists"])
+    return _inline_styles(body)
+
+
+def _ticket_html(t):
+    """Un ticket : son numéro et son titre, ce qui change, comment le vérifier."""
+    tid, title = t.get("id"), t.get("title") or ""
+    head = "#{0} — {1}".format(tid, esc(title))
+    if t.get("url"):
+        head = '<a href="{0}" style="color:#1a56b8;text-decoration:none">{1}</a>'.format(esc(t["url"]), head)
+    L = ['<div style="margin:16px 0;padding:10px 14px;border-left:3px solid #1a56b8;background:#fafafa">',
+         '<div style="font-size:15px;font-weight:600;margin-bottom:4px">{0}</div>'.format(head)]
+    crit = [c.strip() for c in (t.get("criteria") or []) if c and c.strip()]
+    if crit:
+        L.append('<div style="font-size:13px;font-weight:600;margin-top:8px">Ce qui change</div>')
+        L.append('<ul style="{0}">{1}</ul>'.format(
+            _TAG_STYLE["ul"], "".join('<li style="{0}">{1}</li>'.format(_TAG_STYLE["li"], esc(c)) for c in crit)))
+    proto = (t.get("protocol") or "").strip()
+    if proto:
+        L.append('<div style="font-size:13px;font-weight:600;margin-top:10px">Comment le vérifier</div>')
+        L.append(render_markdown(proto))
+    L.append("</div>")
+    return "".join(L)
+
+
+def _wrap_html(title, inner):
+    return ("""<!DOCTYPE html><html><head><meta charset="utf-8">"""
+            """<meta name="viewport" content="width=device-width,initial-scale=1"><title>{0}</title></head>"""
+            """<body style="margin:0;padding:0;background:#f0f0f2">"""
+            """<div style="max-width:760px;margin:0 auto;padding:18px 20px;background:#ffffff;"""
+            """font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"""
+            """font-size:14px;line-height:1.5;color:#1c1c1e">{1}</div></body></html>""").format(esc(title), inner)
+
+
+def compose_client_email_html(client_name, groups):
+    """(subject, html) — même contenu et même découpage que `compose_client_email`, rendu
+    en HTML. Le sujet est IDENTIQUE : les deux parties d'un multipart ne se contredisent pas."""
+    gs = [g for g in (groups or []) if (g or {}).get("tickets")]
+    n = sum(len(g["tickets"]) for g in gs)
+    subject = "{0} — {1} évolution{2} mise{3} en ligne".format(
+        client_name, n, _plural(n), _plural(n))
+    multi = len(gs) > 1
+    L = ['<p style="margin:0 0 10px">Bonjour,</p>',
+         '<p style="margin:0 0 6px">Les évolutions suivantes viennent d\'être mises en ligne :</p>']
+    for g in gs:
+        if multi:
+            L.append('<h2 style="font-size:15px;margin:18px 0 2px;padding-bottom:4px;'
+                     'border-bottom:1px solid #e3e3e6">{0}</h2>'.format(esc(g.get("project") or "")))
+        L.extend(_ticket_html(t) for t in g["tickets"])
+    L.append('<p style="margin:18px 0 0">Bien cordialement,</p>')
+    return subject, _wrap_html(subject, "".join(L))
+
+
+def compose_email_html(project_name, tickets):
+    """Pendant HTML de `compose_email` (périmètre projet)."""
+    n = len(tickets or [])
+    subject = "{0} — {1} évolution{2} mise{3} en ligne".format(
+        project_name, n, _plural(n), _plural(n))
+    L = ['<p style="margin:0 0 10px">Bonjour,</p>',
+         '<p style="margin:0 0 6px">Les évolutions suivantes viennent d\'être mises en ligne '
+         'sur <b>{0}</b> :</p>'.format(esc(project_name))]
+    L.extend(_ticket_html(t) for t in (tickets or []))
+    L.append('<p style="margin:18px 0 0">Bien cordialement,</p>')
+    return subject, _wrap_html(subject, "".join(L))

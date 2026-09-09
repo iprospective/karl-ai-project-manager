@@ -69,6 +69,15 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/data-action="pick" data-rm="3025"/.test(frag) && /data-action="all"/.test(frag) && /data-action="proto"/.test(frag)
     && /data-action="send"/.test(frag) && /data-action="dismiss"/.test(frag), "tous les gestes en data-action");
   assert(/Aperçu de l'email/.test(frag) && /<pre class="cn-body">B<\/pre>/.test(frag), "l'aperçu est celui rendu par le serveur");
+  // RM3052 : l'email part en HTML (le protocole de test est un tableau) — l'aperçu montre donc
+  // l'email RENDU, dans une iframe cloisonnée : styles fidèles, rien qui s'exécute ni ne déteigne.
+  const fragH = String(V.ClientReport(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]),
+    preview: { subject: "S", body: "texte", html: "<table><tr><td>A1</td></tr></table>" } })));
+  assert(/<iframe class="cn-frame" sandbox="" /.test(fragH), "aperçu HTML : iframe cloisonnée (sandbox vide)");
+  assert(/srcdoc="&lt;table&gt;/.test(fragH), "le HTML voyage ÉCHAPPÉ dans srcdoc (jamais injecté dans la page)");
+  assert(!/<pre class="cn-body">/.test(fragH), "…et le repli texte ne double pas l'aperçu");
+  assert(/<pre class="cn-body">/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]),
+    preview: { subject: "S", body: "texte" } })))), "serveur sans HTML (ancienne version) : repli sur le texte, pas d'écran vide");
   assert(/disabled/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: cal, sel: new Set() })))), "aucune case : boutons fermés");
   assert(/Aucune évolution en attente/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: { client: "x", projects: [] } })))), "client sans file : état vide explicite");
   assert(/Rien à annoncer/.test(String(V.ClientMenu(new VM.ClientMenuViewModel({ clients: [] })))), "menu vide explicite");

@@ -71,6 +71,22 @@ check("chaque alerte porte son ÂGE", all(a.get("age_days") for a in res["alerts
 check("la plus ancienne en tête",
       [a["key"] for a in res["alerts"]][:2] == ["t:4", "m:r:9"], str([a["key"] for a in res["alerts"]]))
 
+# — RM3026 : évolutions en prod à notifier au client, AGRÉGÉES par projet —
+PROJ_CN = [{"client": "acme", "project": "shop", "mrs": [], "tickets": [
+    {"rm_id": "20", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-10",
+     "title": "livré A", "notify_queued_at": "2026-08-10T09:00"},
+    {"rm_id": "21", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-16",
+     "title": "livré B", "notify_queued_at": "2026-08-16T09:00"},
+    {"rm_id": "22", "status": "en_mep", "bucket": "waiting", "updated": "2026-08-16",
+     "title": "déjà notifié"},  # pas de notify_queued_at -> non compté
+]}]
+_cn = [a for a in ka.build_alerts(PROJ_CN, TH, NOW)["alerts"] if a["kind"] == "client_notify"]
+check("file notif client → UNE alerte par projet", len(_cn) == 1 and _cn[0]["key"] == "cn:acme/shop")
+check("compte les tickets EN FILE (2), pas les déjà notifiés", _cn[0].get("count") == 2)
+check("âge de l'alerte = le plus ancien en file (8 j)", round(_cn[0]["age_days"]) == 8)
+check("pas d'alerte notif si la file est vide",
+      not [a for a in res["alerts"] if a["kind"] == "client_notify"])
+
 # — plafond : borné ET annoncé —
 gros = [{"client": "c", "project": "p", "mrs": [], "tickets": [
     {"rm_id": str(100 + i), "status": "a_tester_demandeur", "bucket": "waiting",
@@ -90,6 +106,18 @@ th2 = dict(TH, verdict_days=60)
 check("relever le seuil fait taire l'alerte",
       "t:4" not in {a["key"] for a in ka.build_alerts(PROJ, th2, NOW)["alerts"]})
 check("entrées vides tolérées", ka.build_alerts(None, TH, NOW)["total"] == 0)
+
+# — RM3026 : _read_task_meta expose notify_queued (chemin overview→alerte cockpit) —
+import tempfile
+_td = pathlib.Path(tempfile.mkdtemp(prefix="rm3026-meta-"))
+def _mk(name, fm):
+    p = _td / name; p.write_text("---\n" + fm + "\n---\ncorps\n", encoding="utf-8"); return p
+check("notify_queued lu quand queued_at posé et sent_at null",
+      ka._read_task_meta(_mk("RM1_x.md", "title: T\nstatus: en_mep\nclient_notify:\n  queued_at: '2026-09-08T18:58'\n  sent_at: null"))["notify_queued"] == "2026-09-08T18:58")
+check("notify_queued VIDE quand déjà notifié (sent_at posé)",
+      ka._read_task_meta(_mk("RM2_x.md", "title: T\nstatus: en_mep\nclient_notify:\n  queued_at: '2026-09-08T18:58'\n  sent_at: '2026-09-08T19:30'"))["notify_queued"] == "")
+check("notify_queued VIDE sans bloc client_notify",
+      ka._read_task_meta(_mk("RM3_x.md", "title: T\nstatus: en_mep\ntags:\n- a"))["notify_queued"] == "")
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

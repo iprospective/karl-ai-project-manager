@@ -963,6 +963,26 @@ def main():
     if assigned_to_id is not None:
         fm["assigned_to"] = assigned_to_id
 
+    # RM3026 — Notification client à la MEP : à l'entrée en `en_mep` (MEP prod
+    # effective), si le PROJET a l'option `notif_client_mep` active, mettre le
+    # ticket en FILE (frontmatter `client_notify`). L'email récap n'est PAS envoyé
+    # ici — il l'est en un seul lot par `mmi-pm client-notify send <projet>` quand
+    # l'humain estime la MEP finie. Idempotent (set_queued), best-effort : une option
+    # illisible ne fait jamais échouer une transition déjà écrite en Redmine.
+    if args.status == "en_mep" and old_status != "en_mep":
+        try:
+            import pm_client_notify as pcn
+            _parts = md_path.relative_to(cfg.projects_root).parts
+            _pmeta = cfg.project_meta(_parts[1], _parts[3]) or {}
+            if pcn.is_option_active(_pmeta):
+                fm, _qchanged = pcn.set_queued(fm, now)
+                if _qchanged:
+                    out.info("  notif client : RM{} mis en file MEP (envoi : "
+                             "mmi-pm client-notify send {}/{})".format(
+                                 args.rm_id, _parts[1], _parts[3]))
+        except Exception as e:                                  # noqa: BLE001
+            out.warn(f"mise en file notif client non effectuée (best-effort) : {e}")
+
     new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
 

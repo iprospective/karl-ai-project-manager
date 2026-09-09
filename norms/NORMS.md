@@ -1,9 +1,9 @@
 ---
-schema_version: "2.26.0"
+schema_version: "2.27.0"
 updated: 2026-09-09
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.26.0
+# Normes de gestion des tâches — v2.27.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -703,14 +703,32 @@ ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
 ## Consignation par ticket — le `.think.md` (RM3015, RM3053)
 
 **Tout ce qui se réfléchit ou se décide appartient à un ticket, pas à la session.** Chaque
-fiche a un frère `RM<id>_<slug>.think.md` à quatre rubriques — notes verbatim (N), questions
-(Q), décisions et conseils (D/C), fonctionnalités (F) — aux états ✅ ❌ 🟡 🕐 ⏸. Le `.log.md`
+fiche a un frère `RM<id>_<slug>.think.md` à quatre rubriques — notes (N), questions (Q),
+décisions et conseils (D/C), fonctionnalités (F) — aux états ✅ ❌ 🟡 🕐 ⏸. Le `.log.md`
 garde les événements, le think garde le **pourquoi** ; la fiche ne porte que des compteurs
-(`think:`). Règles :
+(`think:`).
+
+### Les quatre rubriques — ce qui s'y range, et ce qui ne s'y range pas (RM3062)
+
+| Rubrique | Ce que c'est | Ce que ce n'est pas |
+|---|---|---|
+| **N note** | Une information **utile plus tard**, consignée **verbatim** : un constat, une idée, une réserve, une contrainte, une intuition à moitié finie — ce qui peut **devenir** une question, une décision, une fonctionnalité ou un changement. Explicite (« note que… », « consigne… ») ⇒ toujours. | Une **demande immédiate d'exécution** (« étudie et chiffre RM3058 », « prends le ticket »), un **accord** ou un **accusé** (« ok pour /opt », « j'ai fait le ssh-add »), un collage, une sortie de commande, un résumé de compaction. Ce sont des demandes ou des événements : registre des demandes, `.log.md`, ou rien. |
+| **Q question** | Ce qui n'est **pas tranché** et ce que ça **bloque**, avec l'urgence et l'avis de l'agent. Une supposition non confirmée devient une Q. | Une question de simple exécution qui se règle dans le tour (« quel port ? »). |
+| **D décision** (C conseil) | **Ce que le demandeur demande de faire, pose, ou tranche** — suite à une question **ou non**, ticketé **ou non** : les réponses aux questions en font partie, mais pas seulement. Un arbitrage même bref (« on fusionne », « un seul menu ») est une D ✅. Le **C** est le conseil de l'agent (options, pour/contre, motif), 🟡 tant qu'il n'est pas arbitré. | Le simple choix d'implémentation de l'agent (il vit dans le code et le ticket), un « ok » qui ne pose rien. |
+| **F fonctionnalité** | Une **feature, généralement atomique** : une demande qui **donne lieu à un ticket**, en **complète** un, ou **sera à faire plus tard** — avec son domaine, sa version quand elle est connue, l'état de l'échelle. | Une tâche interne de l'agent, un correctif de son propre code, une étape d'un ticket déjà décrite dans sa description. |
+
+**Le critère d'une note** : « est-ce que ça peut changer quelque chose plus tard ? ». Si non,
+ne rien consigner — un vrac noyé n'est plus lu (« tu peux virer 90 % de ce que tu as mis »).
+Le verbatim qui **fonde** une décision se garde comme **source de la D** (la D le cite), pas
+comme note séparée. Une note pertinente a une **destination** : elle migre vers une Q, une D,
+une F ou un chapitre, et le dit.
+
+Règles :
 
 1. **Les scripts d'abord, l'agent ensuite** : le hook `pm-think-harvest` consigne à chaque tour
-   les questions posées, les réponses retenues et les demandes verbatim ; `request`/`notify`
-   rattachés à un ticket y descendent. L'agent n'écrit à la main que le conseil et l'arbitrage :
+   les questions posées, les réponses retenues et, **sous le critère de la note** (marqueur de
+   réflexion, ou prompt qui a produit une Q/D), les remarques verbatim du demandeur — jamais
+   ses demandes immédiates ; `request`/`notify` rattachés à un ticket y descendent. L'agent n'écrit à la main que le conseil et l'arbitrage :
    `pm-task-think <id> --advise|--decide|--question|--feature "…"`, **dans le même tour** que la
    discussion qui les a fait naître — un arbitrage non consigné est un arbitrage qu'on croira consigné.
 2. **Un ticket ne se ferme pas avec une Q ouverte ou une N à trier** (garde de `pm-task-status-update`) :
@@ -1404,7 +1422,11 @@ Jamais l'un sans les autres, **à chaque lot** :
 | ⏸ en réserve | **arbitré** et volontairement écarté, avec une **condition de reprise** nommée |
 
 `D` décision · `C` conseil · `Q` question · `N` note du vrac · `U` retour d'utilisateur ·
-`F` fonctionnalité · `S` supposition · `O` mesure à observer. **Toujours trois chiffres**
+`F` fonctionnalité · `S` supposition · `O` mesure à observer. Ce qui se range dans N, Q, D/C
+et F — et ce qui ne s'y range pas — est défini une fois, dans `session-tooling` § « Les quatre
+rubriques » (RM3062) : une note n'entre au vrac que si elle peut **changer quelque chose plus
+tard** ; une D est ce que le demandeur demande, pose ou tranche, ticketé ou non ; une F est une
+feature atomique qui donne lieu à un ticket, le complète, ou reste à faire. **Toujours trois chiffres**
 (`D050`, jamais `D50`) : le tri lexical suit alors le tri numérique. Les identifiants sont
 **stables**, jamais réattribués ; un amendement porte un suffixe (`D009b`), il ne remplace pas.
 

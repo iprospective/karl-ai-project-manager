@@ -185,7 +185,7 @@ sys.path.insert(0, str(SCRIPTS))
 import importlib.util
 spec = importlib.util.spec_from_file_location("harv", SCRIPTS / "pm-think-harvest.py"); harv = importlib.util.module_from_spec(spec); spec.loader.exec_module(harv)
 lines = [
-    json.dumps({"type": "user", "message": {"content": "Peux-tu déplacer le worklog dans le core ?"}}),
+    json.dumps({"type": "user", "message": {"content": "Il faudra déplacer le worklog dans le core, je pense que c est plus cohérent"}}),
     json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Je propose."},
                {"type": "tool_use", "id": "t1", "name": "AskUserQuestion", "input": {"questions": [{"question": "Frère ou dossier ?", "options": [{"label": "frère"}, {"label": "dossier"}]}]}}]}}),
     json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": '"Frère ou dossier ?"="frère"'}]}}),
@@ -194,7 +194,7 @@ lines = [
     json.dumps({"type": "user", "message": {"content": "ok"}}),
     json.dumps({"type": "user", "message": {"content": "/context"}}),
     json.dumps({"type": "user", "message": {"content": "[Request interrupted by user]"}}),
-    json.dumps({"type": "user", "message": {"content": "Peux-tu déplacer le worklog dans le core ?"}}),
+    json.dumps({"type": "user", "message": {"content": "Il faudra déplacer le worklog dans le core, je pense que c est plus cohérent"}}),
 ]
 items = harv.harvest_items(lines)
 kinds = [k for k, _, _ in items]
@@ -224,6 +224,34 @@ check("status-update refuse `ferme` avec des Q ouvertes (sauf --ignore-think)", 
 check("hooks : moisson câblée sur Stop et SessionEnd", (SCRIPTS / "pm-claude-hooks-sync.py").read_text().count("pm-think-harvest.py") == 2)
 
 print()
+
+# ── RM3062 : le critère de la note, la moisson filtrée, l'élagage ─────────────────────────────
+print("\n[RM3062] critère de pertinence d'une note")
+for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
+                 ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),
+                 ("note que le vault age ne se verrouille pas", True), ("il faudra faire un point sur les parties du kernel les plus utilisées", True),
+                 ("le choix des lots doit être figé dans prestashop.", True), ("On pourrait réfléchir à découper encore plus fin en modules ?", True),
+                 ("Les notes en vrac : je ne veux que ce qui est suffisamment pertinent pour apporter une information utile plus tard", True)]:
+    ok, motif = pm_think.note_pertinente(txt)
+    check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
+with tempfile.TemporaryDirectory() as tmp:
+    tasks = Path(tmp); sheet = tasks / "RM77_slug.md"; sheet.write_text("---\nredmine_id: 77\ntitle: t\n---\n")
+    th = pm_think.think_path(sheet)
+    n1 = pm_think.append(th, "note", "ok pour /opt. J'ai fait un ssh-add", rm_id=77, by="M", state="attente")
+    n2 = pm_think.append(th, "note", "il faudra revoir la précharge des modules", rm_id=77, by="M", state="attente")
+    n3 = pm_think.append(th, "note", "prends le ticket", rm_id=77, by="M", state="valide")
+    r = subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--dry-run"], capture_output=True, text=True)
+    check("prune --dry-run liste la note sans portée, pas la pertinente ni la déjà traitée", n1 in r.stdout and n2 not in r.stdout and n3 not in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--no-commit"], capture_output=True, text=True)
+    parsed = pm_think.load(th); rows = {x["id"]: x for x in parsed["note"]["rows"]}
+    check("prune : la note élaguée passe ❌ avec son motif, l'autre reste 🕐", rows[n1]["state"] == "invalide" and "élaguée (RM3062)" in rows[n1]["cells"][4] and rows[n2]["state"] == "attente", r.stdout + r.stderr)
+    check("prune : rejouer n'élague rien de plus", subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--dry-run"], capture_output=True, text=True).stdout.strip().endswith("0 note(s) sur 1 think"))
+    lines = [json.dumps({"type": "user", "message": {"role": "user", "content": "ok pour /opt. J'ai fait un ssh-add sur la machine"}}), json.dumps({"type": "user", "message": {"role": "user", "content": "il faudra revoir la précharge des modules NORMS"}})]
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("harv", SCRIPTS / "pm-think-harvest.py"); harv = importlib.util.module_from_spec(spec); spec.loader.exec_module(harv)
+    items = harv.harvest_items(lines)
+    check("moisson : seule la remarque pertinente devient une note", [i[1] for i in items] == ["il faudra revoir la précharge des modules NORMS"], str(items))
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

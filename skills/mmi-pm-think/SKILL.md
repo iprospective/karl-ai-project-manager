@@ -17,6 +17,17 @@ Règle NORMS : `session-tooling` § « Consignation par ticket — le `.think.md
 - Avant de livrer ou de fermer : `pm-think-merge --check` (et la garde de clôture refuse les Q ouvertes).
 - `/mmi-pm-think <id> --note|--question|--decide|--advise|--feature "…"`.
 
+## Quoi consigner — et quoi ne PAS consigner (RM3062)
+
+- **N note** : seulement ce qui peut **changer quelque chose plus tard** (constat, idée, réserve,
+  contrainte) ; « note que » / « consigne » ⇒ toujours. **Jamais** une demande immédiate
+  (« étudie RM3058 »), un accord (« ok pour /opt »), un accusé, un collage.
+- **D décision** : ce que le demandeur **demande de faire, pose ou tranche** — réponse à une
+  question ou non, ticketé ou non. **C** : le conseil de l'agent, 🟡 jusqu'à l'arbitrage.
+- **F fonctionnalité** : une feature **atomique** qui donne lieu à un ticket, le complète, ou
+  reste à faire plus tard.
+- **Q question** : ce qui n'est pas tranché, ce que ça bloque, l'urgence, l'avis.
+
 ## Ce que les scripts font déjà (ne pas doublonner)
 
 - Le hook `pm-think-harvest` (Stop / SessionEnd) consigne **tout seul** les questions posées

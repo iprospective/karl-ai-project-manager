@@ -251,6 +251,27 @@ with tempfile.TemporaryDirectory() as tmp:
     spec = importlib.util.spec_from_file_location("harv", SCRIPTS / "pm-think-harvest.py"); harv = importlib.util.module_from_spec(spec); spec.loader.exec_module(harv)
     items = harv.harvest_items(lines)
     check("moisson : seule la remarque pertinente devient une note", [i[1] for i in items] == ["il faudra revoir la précharge des modules NORMS"], str(items))
+    # lot 3 : signatures nominatives, propositions de l'IA, légende, suppression
+    import os
+    os.environ["PM_THINK_AUTHOR"] = "Claude Opus 5"; os.environ["PM_THINK_HUMAN"] = "Mathieu"
+    check("model_label", pm_think.model_label("claude-fable-5-1") == "Claude Fable 5.1" and pm_think.model_label("qwen3.8:27b") == "Qwen3.8 27b" and pm_think.model_label("deepseek-4-flash") == "Deepseek 4 Flash")
+    check("signature : M → demandeur nommé, A → modèle, nom explicite inchangé", pm_think.signature("M") == "Mathieu" and pm_think.signature("A") == "Claude Opus 5" and pm_think.signature("Paul") == "Paul")
+    th2 = pm_think.think_path(tasks / "RM78_sig.md"); (tasks / "RM78_sig.md").write_text("---\nredmine_id: 78\ntitle: s\n---\n")
+    d1 = pm_think.append(th2, "decision", "on signe", rm_id=78, by="M", state="valide"); c1 = pm_think.append(th2, "decision", "je conseille", rm_id=78, prefix="C", by="A", state="propose")
+    txt2 = th2.read_text()
+    check("lignes signées par un nom, jamais un code", "· Mathieu" in txt2 and "· Claude Opus 5" in txt2 and " · M)" not in txt2 and " · A)" not in txt2, txt2[-300:])
+    check("légende N/Q/D/F dans le gabarit du think", all(pm_think.LEGEND[k].split(" — ")[0] in txt2 for k in pm_think.LEGEND))
+    lines_ia = [json.dumps({"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Je lis le fichier. Je propose de fermer RM3044 en doublon et de reporter son protocole dans RM3043, à trancher par Mathieu. Ensuite je lance les tests."}]}}),
+                json.dumps({"type": "assistant", "message": {"model": "claude-opus-5", "content": [{"type": "text", "text": "Les tests passent, je committe et je pousse la branche."}]}})]
+    it2 = harv.harvest_items(lines_ia)
+    check("moisson : une proposition de l'IA devient une note (extrait porteur), pas le compte-rendu d'exécution", len(it2) == 1 and it2[0][0] == "note" and it2[0][1].startswith("Je propose de fermer RM3044") and it2[0][2].get("by") == "A", str(it2))
+    harv.apply(th2, 78, it2, sid="s9"); check("note de l'IA signée du modèle", "Je propose de fermer RM3044" in th2.read_text() and "· Claude Opus 5 · s:s9" in th2.read_text())
+    merged = pm_think.render_merged("note", {78: pm_think.load(th2)}); check("légende dans le bloc fusionné", "N note —" in merged)
+    n4 = pm_think.append(th2, "note", "ok pour /opt", rm_id=78, by="M", state="attente")
+    r = subprocess.run([sys.executable, str(SCRIPTS / "pm-think-harvest.py"), "--prune", "--all", "--tasks-dir", str(tasks), "--delete", "--no-commit"], capture_output=True, text=True)
+    left = pm_think.load(th2)["note"]["rows"]; left77 = pm_think.load(th)["note"]["rows"]
+    check("prune --delete : la note pourrie disparaît, la pertinente reste ; la déjà-élaguée (❌ RM3062) part aussi", all(x["id"] != n4 for x in left) and any("Je propose" in x["cells"][2] for x in left) and all(x["id"] != n1 for x in left77) and any(x["id"] == n2 for x in left77), r.stdout + r.stderr)
+    del os.environ["PM_THINK_AUTHOR"]; del os.environ["PM_THINK_HUMAN"]
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

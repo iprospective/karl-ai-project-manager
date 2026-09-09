@@ -1,6 +1,7 @@
 // modules/sessproj/SessProjViewModel — l'onglet « projets » de la colonne de droite, décidé : les projets touchés par la session
 // attachée (cwd + worktrees), leurs raccourcis (fiche, docs, fichiers) et leurs CDC vivants (fonctionnalités, CDC, feuille de route). RM3045.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
+import { cdcTabs } from "../cdc/CdcViewModel.js";
 
 /** e = { projects: [{client, project, name, root, branch, dirty, cdcs:[{key,title,prefix,path}], docs:[…]}], attached, error } */
 export class SessProjViewModel extends EntityViewModel {
@@ -14,7 +15,8 @@ export class SessProjViewModel extends EntityViewModel {
       const c = p.client || "", pj = p.project || "";
       return { key: c + "/" + pj, client: c, project: pj, name: p.name || pj, root: p.root || "", branch: p.branch || "", dirty: p.dirty || 0, exists: p.exists !== false,
         overview: "projects/clients/" + c + "/projects/" + pj + "/project/overview.md",
-        docs: (p.docs || []).length, cdcs: (p.cdcs || []).map(x => ({ key: x.key, title: x.title || x.prefix, prefix: x.prefix, path: x.path, registry: x.registry !== false })) };
+        // RM3045 (retour Mathieu) : les MÊMES onglets que le panneau CDC, par CDC du projet
+        docs: (p.docs || []).length, cdcs: (p.cdcs || []).map(x => ({ key: x.key, title: x.title || x.prefix, prefix: x.prefix, path: x.path, registry: x.registry !== false, tabs: cdcTabs(x) })) };
     });
   }
   get count() { return String((this.e.projects || []).length); }

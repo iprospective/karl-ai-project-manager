@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Onglets et sections dans les réglages** (RM3081) : dix cartes s'empilaient en une seule colonne, sans
+  hiérarchie — on y cherchait un réglage en faisant défiler. Cinq onglets à plat, comme le menu CDC :
+  Instance, Fournisseurs, Moteurs, Affichage, Compte. Chaque carte reste une section avec son titre ; un
+  onglet dont toutes les cartes sont masquées ne s'affiche pas, et le dernier ouvert est retenu par ce
+  navigateur. **Le contenu ne se charge qu'à l'ouverture de son onglet** : ouvrir les réglages pour
+  changer le thème n'interroge plus npm pour inventorier les moteurs. Cockpit 3.11.0.
+
 - **Le runtime NORMS se génère par un fournisseur, et se contrôle** (RM3073) : `norms/runtime/` portait
   « Généré ⇒ ne pas éditer » alors qu'aucun générateur n'existait — écrit une fois à la main, il se
   désynchronisait de ses sources en silence. `mmi-pm norms-runtime` le produit par l'API d'un fournisseur

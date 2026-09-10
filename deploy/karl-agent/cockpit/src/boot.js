@@ -65,6 +65,7 @@ import { mountClientNotify } from "./modules/clientnotify/clientnotify.controlle
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
 import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
 import { mountEngines } from "./modules/engines/engines.controller.js";       // RM3069
+import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
@@ -233,6 +234,17 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
 });
 
+// RM3081 : les réglages en onglets. Chaque onglet dit ce qu'il faut charger pour lui, et rien d'autre
+// ne part au serveur tant qu'on ne l'ouvre pas — un onglet n'est chargé qu'une fois.
+const setnav = mountSetnav(byId("setnav"), {
+  document, storage: localStorage,
+  loaders: {
+    instance: () => { settings.load(); memory.render(); },
+    providers: () => providers.load(),
+    engines: () => engines.load(),
+  },
+});
+
 // la voix : les moteurs du navigateur sont fournis ICI, au seul endroit qui les connaît
 const synth = () => (typeof speechSynthesis !== "undefined" ? speechSynthesis : null);
 const voice = mountVoice(document.getElementById("voicecard"), {
@@ -274,7 +286,9 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
-    settings: { label: "réglages",     load: () => { settings.load(); providers.load(); engines.load(); }, show: (on) => show("cp-settings", on) },
+    // RM3081 : les réglages sont en onglets — on ne charge QUE celui qu'on regarde. Ouvrir le panneau
+    // pour changer le thème n'interroge plus npm pour inventorier les moteurs.
+    settings: { label: "réglages",     load: () => setnav.open(), show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans

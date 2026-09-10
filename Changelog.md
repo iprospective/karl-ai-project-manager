@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Onglet MR du worklog** (RM3074) : les merge requests de la session quittent le bandeau de tête
+  pour un **sous-onglet dédié**, groupées par étape du cycle — à merger dans l'intégration · mergées,
+  **à promouvoir en production** · promues. Ce groupe du milieu ne s'affichait nulle part : le worklog
+  ne listait que les MR ouvertes, si bien qu'« aucune MR » et « mergée, pas encore en production » se
+  confondaient. Chaque ligne montre le ticket (cliquable), le **dépôt**, `source → cible`, l'**état**,
+  l'**âge** et le bouton merger quand il a un sens. La tête ne garde qu'un rappel d'une ligne, qui
+  mène à l'onglet. Le compteur ne compte que ce qui appelle un geste. La branche d'intégration vient
+  de la configuration du projet, servie au front avec le bloc worklog — plus de « dev » supposé.
 - **Repères d'aide « ? » sur les zones du cockpit** (RM3075) : une case dans Réglages ▸ Thème &
   affichage pose un **?** discret sur douze zones (liste des sessions, worklog, onglets de droite,
   composer, CDC, journal, panneaux de tickets…). Au survol, une phrase dit à quoi la zone **sert** ;

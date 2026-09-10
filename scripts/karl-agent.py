@@ -5280,7 +5280,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [],
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
+             "integration": _integration_branch(),
              "requests_open": []}
     if not session_id:
         return empty
@@ -5314,6 +5315,13 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "notifications_done": [n for n in (data.get("notifications") or [])
                                    if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM3074 : l'onglet MR montre le CYCLE complet, pas seulement ce qui reste à merger —
+            # ce qui est mergé dans l'intégration mais pas encore promu en production était le seul
+            # état qu'aucune vue ne nommait. Bornées aux 40 dernières : au-delà, c'est de l'archive.
+            "mrs_all": [m for m in (data.get("mrs") or []) if isinstance(m, dict)][-40:],
+            # …et la branche d'intégration, pour que le front n'ait pas à SUPPOSER « dev » : un projet
+            # peut la nommer autrement, et une liste en dur se tromperait en silence sur celui-là.
+            "integration": _integration_branch(),
             # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
             # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
             "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),

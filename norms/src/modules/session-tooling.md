@@ -97,6 +97,10 @@ pas la machine, et la passe ne coûte rien : c'est le mode à préférer pour un
 dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un
 projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient d'AtomBox).
 
+**Et au ticket de SON tour** (RM3100) : la moisson découpe le fil par tour, chacun au ticket qu'il a
+touché (résolution du tick de conso) ; un tour sans signal continue le précédent. Sinon un carnet
+reçoit les questions des autres tickets, et la garde de clôture refuse de le fermer.
+
 Règles :
 
 **Une note, une question — la ligne de partage.** Une **demande** appelle une ACTION (faire quelque

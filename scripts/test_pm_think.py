@@ -245,6 +245,49 @@ p44 = pm_think.load(th44)
 q_open = [r for r in p44["question"]["rows"] if r["state"] not in ("valide", "invalide")]
 check("Q homonyme tranchée à l'arrivée de la réponse", not q_open and pm_think.counters(p44)["decisions"] == 2, str(pm_think.counters(p44)))
 
+# ── 6b. RM3100 : chaque TOUR va au ticket qu'il a touché ─────────────────────
+print("· pm-think-harvest : répartition par tour (RM3100)")
+_hp = lambda txt: json.dumps({"type": "user", "message": {"role": "user", "content": txt}})
+_bash = lambda cmd: json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "b", "name": "Bash", "input": {"command": cmd}}]}})
+fil = [
+    _hp("On attaque le premier sujet."), _bash("mmi-pm task-take 8015"),
+    _hp("Et maintenant ?"),                                    # aucun signal : continuation
+    _hp("Passons à l'autre."), _bash("mmi-pm task-take 8099"),
+    _hp("Encore un mot dessus."), _bash("mmi-pm task-status-update 8099 en_cours"),
+]
+tick = harv._tick_module()
+groupes = harv.par_ticket(fil, defaut=44, tick=tick)
+check("le fil se découpe par ticket réellement touché, pas au ticket courant de la fin",
+      [g[0] for g in groupes] == [8015, 8099], str([g[0] for g in groupes]))
+check("un tour sans signal continue le ticket précédent (pas de saut de sujet)",
+      len(groupes[0][1]) == 3 and len(groupes[1][1]) == 4, str([len(g[1]) for g in groupes]))
+check("les tours consécutifs d'un même ticket sont REGROUPÉS (une question et sa réponse restent ensemble)",
+      len(groupes) == 2)
+check("aucun signal nulle part : tout retombe sur le défaut",
+      [g[0] for g in harv.par_ticket([_hp("bavardage sans outil")], defaut=44, tick=tick)] == [44])
+check("ni signal ni défaut : rien, plutôt qu'un ticket au hasard",
+      harv.par_ticket([_hp("bavardage")], defaut=None, tick=tick) == [])
+check("une ligne illisible ne coupe pas le fil", len(harv.par_ticket(["pas du json\n"] + fil, defaut=44, tick=tick)) == 2)
+# le défaut du CLI ne s'applique QU'aux tours sans signal — c'est tout l'objet du ticket
+grp = harv.par_ticket(fil, defaut=8099, tick=tick)
+check("le ticket passé en argument ne rafle pas les tours des autres", grp[0][0] == 8015)
+# une simple CITATION ne change pas de sujet : sinon un tour qui raconte « comme dans RM2792 »
+# emporterait toute sa moisson chez RM2792
+cite = fil + [json.dumps({"type": "user", "message": {"role": "user", "content": "continue"}}),
+              json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+                  {"type": "text", "text": "C'est le même motif que RM8042, déjà vu."}]}})]
+check("un ticket seulement CITÉ par l'agent ne détourne pas le tour",
+      [g[0] for g in harv.par_ticket(cite, defaut=44, tick=tick)] == [8015, 8099])
+# …mais une consigne du demandeur, elle, change bien de sujet
+demande = fil + [json.dumps({"type": "user", "message": {"role": "user", "content": "et RM8042, on en fait quoi ?"}})]
+check("…tandis qu'une mention DU DEMANDEUR dans son prompt est une consigne, et change de sujet",
+      [g[0] for g in harv.par_ticket(demande, defaut=44, tick=tick)] == [8015, 8099, 8042])
+check("un id capté au passage, qui n'est aucun ticket connu, est ignoré",
+      [g[0] for g in harv.par_ticket(demande, defaut=44, tick=tick, connu=lambda r: r != 8042)] == [8015, 8099])
+check("--no-split existe pour rattraper une moisson mal répartie",
+      "--no-split" in (SCRIPTS / "pm-think-harvest.py").read_text(encoding="utf-8"))
+
 # ── 7. pm-task-think en CLI (sans config PM : --path/--show passent par PMConfig → on teste le parseur d'arguments seulement)
 print("· pm-task-think --help")
 check("aide", "--decide" in run(SCRIPTS / "pm-task-think.py", "--help").stdout)

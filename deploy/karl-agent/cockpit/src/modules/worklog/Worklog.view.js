@@ -6,6 +6,23 @@ const muted = "color:var(--muted)";
 export function MrLine(m) {
   return html`<div class="oline oq" style="white-space:normal">🔀 <b>!${m.iid}</b> ${m.ref ? m.ref + " " : ""}${m.target ? html`→ <span class="pill">${m.target}</span> ` : ""}${m.url ? html`<a href="${m.url}" target="_blank" rel="noopener">ouvrir ↗</a> ` : ""}${m.dead ? html`<span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span> ` : ""}${m.url ? html`<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" data-action="merge-one" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}">⇥ merger</button>` : ""}</div>`;
 }
+/** RM3074 — une MR dans l'onglet : le ticket, le dépôt, le trajet, l'état, l'âge, et le geste. */
+export function MrRow(m, { tip }) {
+  return html`<div class="mrrow${m.mergeable ? " oq" : ""}"><div class="mrhead">🔀 <b>!${m.iid}</b>${m.ref
+    ? (m.rm ? html` <span class="rmref"${raw(tip ? tip(m.rm) : "")} data-action="ticket" data-rm="${m.rm}">${m.ref}</span>` : html` <b>${m.ref}</b>`) : ""}${m.repo
+    ? html` <span class="pill" title="dépôt">${m.repo}</span>` : ""}${m.source || m.target
+    ? html` <span class="mrpath" title="branche source → cible">${m.source || "?"} → <b>${m.target || "?"}</b></span>` : ""}${m.age
+    ? html` <span class="mrage" title="dernier mouvement connu">${m.age}</span>` : ""}</div><div class="mrfoot"><span class="pill ${m.mergeable ? "warn" : "ok"}" title="état sur la forge">${m.state}</span>${m.dead
+    ? html`<span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span>` : ""}${m.url
+    ? html`<a href="${m.url}" target="_blank" rel="noopener">ouvrir ↗</a>` : ""}${m.url && m.mergeable
+    ? html`<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" data-action="merge-one" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}">⇥ merger</button>` : ""}</div></div>`;
+}
+
+export function MrPane(groups, deps) {
+  if (!groups.length) return html`<div class="empty">aucune MR dans cette session</div>`;
+  return html`${groups.map(g => html`<div class="mrgroup"><div class="mrghead" title="${g.hint}">${g.icon} ${g.label} <span class="gcnt">${String(g.rows.length)}</span></div>${g.rows.map(m => MrRow(m, deps))}</div>`)}`;
+}
+
 export function Progress(p) {
   if (!p) return "";
   return html`${p.check ? html`<div class="wl-prog"><span class="pill ${p.check.cls}" title="critères d’acceptation cochés">${p.check.done}/${p.check.total} ✓</span>${p.check.items.map(t => html`<span class="wl-crit" title="critère restant">☐ ${t}</span>`)}${p.check.truncated ? html`<span class="wl-crit" style="opacity:.6">…</span>` : ""}</div>` : ""}${p.subs.length
@@ -24,7 +41,7 @@ export function WorklogPane(vm, deps) {
   if (!vm.attached) return "";
   const notes = vm.notifications(), mrs = vm.mrs(), reqs = vm.requests();
   const head = html`${notes.length ? html`<div class="ms"><h4>🔔 notifications de la session (${notes.length})${vm.notificationsDone ? html` <span class="otag" title="traitées, gardées au worklog">${vm.notificationsDone} traitée${vm.notificationsDone > 1 ? "s" : ""}</span>` : ""}</h4>${notes.map(n => html`<div class="oline ${n.cls}" style="white-space:normal" title="${n.ts}">${n.icon} <span class="otag">${n.label}</span>${n.kind ? html`<span class="pill">${n.kind}</span> ` : ""}${n.ref ? html`<b>${n.ref}</b> ` : ""}${n.message}</div>`)}</div>` : ""}${mrs.length
-    ? html`<div class="ms"><h4>🔀 MR à merger (${mrs.length})</h4>${mrs.map(MrLine)}</div>` : ""}${reqs.length
+    ? html`<div class="ms mrnudge" title="Le détail (dépôt, trajet, état, âge) est dans l’onglet MR" data-action="sub" data-key="mrs">🔀 <b>${String(mrs.length)}</b> MR à merger — voir l’onglet <b>MR</b> →</div>` : ""}${reqs.length
     ? html`<div class="ms"><h4>📥 demandes à traiter (${reqs.length})</h4>${reqs.map(r => html`<div class="oline oq" style="white-space:normal" title="${r.ts}">📥 <span class="otag">#${r.n}</span> ${r.text}</div>`)}</div>` : ""}`;
   if (vm.empty) return html`${head}<div class="ms"><h4>worklog</h4><div style="${muted};font-size:11.5px">${vm.emptyText}</div></div>`;
   const buckets = vm.buckets(), orphan = vm.orphans(), { tabs, sub } = vm.tabs(orphan.length);
@@ -32,7 +49,7 @@ export function WorklogPane(vm, deps) {
   const docsG = vm.docGroups();
   const docs = docsG.length ? docsG.map(g => html`<div style="margin:4px 0 1px"><b>${g.rm ? html`<span class="olink" title="Ouvrir la fiche ${g.ref}" data-action="ticket" data-rm="${g.rm}">${g.ref}</span>` : g.ref}</b></div>${g.docs.map(d => html`<div class="oline" style="white-space:normal">📄 ${raw(deps.linkify(d.name))}${d.kind ? html` <span class="pill">${d.kind}</span>` : ""}</div>`)}`) : html`<div class="empty">aucun document lié aux tickets de la session</div>`;
   const orphans = orphan.length ? html`<div style="margin:8px 0 2px;${muted};font-size:10.5px">🌿 autres branches (${orphan.length})</div><div class="rels">${orphan.map((b, i) => html`${i ? " " : ""}<span class="pill" title="branche ouverte par la session">⎇ ${b}</span>`)}</div>` : "";
-  return html`${head}<div class="rsub">${tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="sub" data-key="${t.key}">${t.label} (${t.n})</button>`)}</div><div class="ms">${sub === "documents" ? docs : html`${buckets[sub] ? bucket(sub) : (sub === "todo" && orphan.length ? "" : html`<div class="empty">rien dans ce statut</div>`)}${sub === "todo" ? orphans : ""}`}</div>`;
+  return html`${head}<div class="rsub">${tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="sub" data-key="${t.key}">${t.label} (${t.n})</button>`)}</div><div class="ms">${sub === "mrs" ? MrPane(vm.mrGroups(), deps) : sub === "documents" ? docs : html`${buckets[sub] ? bucket(sub) : (sub === "todo" && orphan.length ? "" : html`<div class="empty">rien dans ce statut</div>`)}${sub === "todo" ? orphans : ""}`}</div>`;
 }
 // ── écrans de lot (dans la modale doc) ────────────────────────────────────────
 export function BatchPlan(vm, { envoi }) {

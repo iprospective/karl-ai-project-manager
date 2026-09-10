@@ -102,6 +102,9 @@ function safeHtml(frag, what) {
 export function paint(el, frag) { if (!el) return null; el.innerHTML = safeHtml(frag, "paint"); return el; }
 /** Ajoute un fragment sûr à la fin d'un élément (une option de plus dans un select) sans repeindre le reste. */
 export function append(el, frag) { if (!el) return null; const h = safeHtml(frag, "append"); if (h) el.insertAdjacentHTML("beforeend", h); return el; }
+/** RM3075 — symétrique d'`append` : insère EN TÊTE sans repeindre. Même contrôle d'échappement ;
+ *  écrire du HTML brut reste interdit partout ailleurs (garde de test_cockpit_core). */
+export function prepend(el, frag) { if (!el) return null; const h = safeHtml(frag, "prepend"); if (h) el.insertAdjacentHTML("afterbegin", h); return el; }
 
 /** Ce qui est monté et ce que ça retient — pour la sonde mémoire (L1b). */
 export function domStats() {

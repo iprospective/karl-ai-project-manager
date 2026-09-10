@@ -1,7 +1,8 @@
 // viewmodels/sessions/SessionsViewModel — ce que la liste « en cours » PRÉSENTE : tuiles vivantes et grises, en-têtes de groupe,
 // bandeau « à traiter », compteurs, titre de la session attachée. Inerte : ni réseau ni DOM. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
-import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible } from "./sessions.js";
+import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge } from "./sessions.js";
+import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";   // RM3082 : la règle de fenêtre est écrite une fois, pour l'encart méta ET la tuile
 import { bindEntity } from "../../core/entities.js";
 
 /** RM2793 : silence de la session — déplacé d'index.html (même signature) ; la tuile en rend l'équivalent depuis `quiet`. */
@@ -39,6 +40,10 @@ export class SessionTileViewModel extends EntityViewModel {
     return null;
   }
   get autoTitle() { return this.s.auto_yes_until ? "auto-oui armé — " + autoYesLeft(this.s.auto_yes_until) + " restantes" : ""; }
+  /** RM3082 : jauge de contexte — null tant qu'aucun palier n'est atteint (silence sous le premier seuil). */
+  get ctxGauge() { return contextGauge(this.s, this.ctx.ctxThresholds, ctxPct, modelWindow, fmtWin); }
+  /** RM3082 : le palier vient de MONTER → la tuile pulse une fois, puis se tait. */
+  get ctxPulse() { const p = this.ctx.ctxPulsing; return !!(p && p.has(String(this.s.rm_id))); }
   /** RM2598 : question laissée sans réponse — pas si DÉJÀ en attention/choix (même urgence, un seul signal). */
   get stale() { const st = this.ctx.stale; return !!(st && st.has(String(this.s.rm_id)) && this.s.state !== "attention" && this.s.state !== "choice"); }
   get title() { return this.r && this.r.found ? (this.r.title || "") : ""; }
@@ -95,7 +100,9 @@ export class GroupViewModel {
 
 /** RM2346 : puce du bandeau « à traiter ». */
 export class AttnChipViewModel {
-  constructor(session, resolved) { this.s = session; this.r = resolved; }
+  constructor(session, resolved, gauge) { this.s = session; this.r = resolved; this.g = gauge || null; }
+  /** RM3082 : pourquoi cette session est là — une question posée, ou un contexte au bout. */
+  get ctxGauge() { return this.g && this.g.level === "crit" ? this.g : null; }
   get idLabel() { return displayId(this.s); }
   get hasTitle() { return !!(this.r && this.r.found && this.r.title); }
   get fallback() { return tmuxName(this.s.rm_id); }

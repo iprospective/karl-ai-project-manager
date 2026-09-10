@@ -85,6 +85,35 @@ function fakeElement() {
   await th.fire("change", "[data-show-clientctx]", { checked: true }); assert.strictEqual(mem.karlShowClientCtx, "1"); assert(/data-show-clientctx checked/.test(th.innerHTML), "réglage persisté et case cochée");
   await th.fire("change", "[data-show-clientctx]", { checked: false }); assert.strictEqual(mem.karlShowClientCtx, "0");
   s2.unmountAll(); assert.strictEqual(el2.listenerCount + th.listenerCount, 0);
+  // ── RM3094 : les commandes de panes tmux, montrables/masquables d'un bloc ────────────────────
+  const fsx = await import("node:fs");
+  const page = fsx.readFileSync(path.join(DIR, "index.html"), "utf8");
+  const box = /<span id="monbox"[\s\S]*?<\/span>/.exec(page);
+  assert(box, "les commandes de panes vivent dans un bloc nommé (sinon rien ne peut les masquer ensemble)");
+  for (const id of ["monpreset", "monbtn", "unmonbtn", "layoutsel"]) {
+    assert(box[0].includes('id="' + id + '"'), "« " + id + " » est dans le bloc");
+  }
+  assert(/data-action="monitor-add"/.test(box[0]) && /data-action="monitor-remove"/.test(box[0]),
+    "les gestes restent câblés : masquer n'est pas débrancher");
+  const themeOn = String(ThemeCard({ local: "auto", hint: "", showMonitor: true }));
+  const themeOff = String(ThemeCard({ local: "auto", hint: "", showMonitor: false }));
+  assert(/data-show-monitor checked/.test(themeOn) && /data-show-monitor(?! checked)/.test(themeOff),
+    "la case reflète la préférence");
+  assert(/moniteur tmux/i.test(themeOn) && !/onchange=/.test(themeOn), "libellé explicite, aucun gestionnaire inline");
+  // la préférence : affichée par défaut, décochable, et appliquée immédiatement
+  const applied = [];
+  const memStore = { m: {}, getItem(k) { return k in this.m ? this.m[k] : null; }, setItem(k, v) { this.m[k] = String(v); } };
+  const { mountSettings: MS } = await import(path.join(DIR, "src/modules/settings/settings.controller.js"));
+  const s3 = MS(fakeElement(), fakeElement(), { storage: memStore, applyMonitor: (on) => applied.push(on), repo: { list: async () => [] } });
+  assert.strictEqual(s3.showMonitor(), true, "affichées par défaut : masquer d'office changerait le comportement sans le dire");
+  assert.deepStrictEqual(applied, [true], "l'état initial est appliqué au montage");
+  s3.setShowMonitor(false);
+  assert.strictEqual(s3.showMonitor(), false, "la décoche est retenue");
+  assert.deepStrictEqual(applied, [true, false], "…et appliquée tout de suite, sans rechargement");
+  assert.strictEqual(memStore.getItem("karlShowMonitor"), "0", "la préférence est écrite pour ce navigateur");
+  s3.unmountAll();
+  console.log("✓ commandes de panes tmux (RM3094) : bloc unique, gestes intacts, préférence appliquée à chaud");
+
   console.log("✓ réglages et thème (RM2213/RM2386) : groupes, figés, sauvegarde confirmée, thème immédiat");
   console.log("\nTous les tests réglages / commandes PM passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

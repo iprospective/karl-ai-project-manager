@@ -15,6 +15,36 @@ ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
 - **🔊 voix** : annonce à voix haute chaque session qui passe en attente et lit
   sa question (synthèse vocale du navigateur).
 
+## La jauge de contexte
+
+Sous chaque tuile, une **barre fine** et un **pourcentage** disent combien de la
+fenêtre du modèle la conversation occupe déjà. Elle ne s'affiche qu'**à partir du
+premier palier** : en dessous, rien — un indicateur qui parle tout le temps cesse
+d'être lu quand il compte.
+
+| Palier | Couleur | Ce que ça veut dire |
+|---|---|---|
+| 50 % | jaune | la moitié de la fenêtre est occupée |
+| 75 % | orange | il reste peu de marge avant compaction |
+| 90 % | rouge | la conversation va être **compactée** — consigne (`think`), puis repars sur une session neuve |
+
+Le pourcentage se lit **contre la fenêtre du modèle**, et c'est toujours la
+**plus grande** connue pour lui qui fait foi : un même modèle est servi en 200 k
+ou en 1 M et bascule d'une variante à l'autre en cours de session. Retenir la
+petite ferait afficher « 99 % » à une session qui en est à 20 %, et déclencherait
+une compaction inutile. La fenêtre configurée vit dans `pm.pricing.yml`.
+
+Le **contexte se lit au survol de la tuile**, avec les autres informations, et
+**quel qu'il soit** — pas seulement au-delà d'un palier : `contexte : 197k / 1M
+(20 %) · opus-5`.
+
+Au **franchissement** d'un palier, la jauge pulse trois fois puis se tait : le
+mouvement attire l'œil au moment utile, l'état permanent se lit sans bouger. Une
+session au palier rouge rejoint le bandeau **à traiter**, en haut de la liste.
+
+Les trois seuils se règlent (Réglages ▸ Sessions) : sur un modèle à 1 M, 50 %
+laisse encore de quoi travailler une journée.
+
 Chaque tuile porte **deux durées**, qui ne disent pas la même chose : le nombre
 qui suit le titre est l'**âge** de la session (depuis son ouverture), et le
 **⏳** le temps écoulé depuis sa **dernière sortie** — depuis quand elle n'a rien

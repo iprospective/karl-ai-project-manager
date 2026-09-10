@@ -25,7 +25,7 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   const modal = ctx.modal || { open() {}, close() {}, content: () => null };
 
   function render() {
-    const vm = new WorklogViewModel({ data: svc.data, attached: attached(), branches: branches(), selected: new Set(svc.selection.keys()), sub: svc.sub }, { ago: ctx.ago });
+    const vm = new WorklogViewModel({ data: svc.data, attached: attached(), branches: branches(), selected: new Set(svc.selection.keys()), sub: svc.sub }, { ago: ctx.ago, integration: (svc.data || {}).integration });   // RM3074 : la branche d'intégration vient du serveur
     if (fresh) fresh.textContent = vm.fresh;
     if (bodyH) bodyH.update(WorklogPane(vm, deps));
     renderButtons();

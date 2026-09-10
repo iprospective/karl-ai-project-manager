@@ -1,0 +1,31 @@
+# Manifeste du runtime NORMS (RM3073) — ce que chaque fichier dense couvre, et d'où il vient.
+#
+# Le runtime est une réécriture DENSE des sources, destinée aux LLM : rien n'y est verbatim, donc le
+# contrôle de non-perte de `pm-norms-doctor` (comparaison ligne à ligne) ne s'y applique pas. Ce qui se
+# vérifie ici, ce sont les ANCRES : noms de scripts, chemins, statuts, options, champs — ce qu'une
+# réécriture n'a pas le droit de changer sans rendre la règle inapplicable. Voir `pm-norms-anchors`.
+#
+# `covers` peut nommer plusieurs sources : le découpage du runtime n'est pas celui des sources, et c'est
+# voulu. Le contrôle porte sur le CORPUS, pas fichier à fichier — déplacer une règle d'un fichier à
+# l'autre est précisément ce que le découpage cherche.
+#
+# `sha` et `generated` sont écrits par `pm-norms-runtime build` : ils disent de quelle version de la
+# source le fichier est issu, et par quel modèle. Une source plus récente rend le fichier PÉRIMÉ, et
+# `pm-norms-runtime --check` le dit.
+files:
+  KERNEL.md:
+    covers: [NORMS-KERNEL.md]
+    role: garde-fous permanents + index mots-clés → module ; seul fichier préchargé
+  schema.md:
+    covers: [NORMS-KERNEL.md]
+    role: frontmatter, énumérations, cascade — la fin du KERNEL source
+  git-mep.md:
+    covers: [modules/git-mep.md]
+  status-workflow.md:
+    covers: [modules/status-workflow.md]
+  environments.md:
+    covers: [modules/environments.md]
+  session-tooling.md:
+    covers: [modules/session-tooling.md]
+  redmine-hygiene.md:
+    covers: [modules/redmine-hygiene.md]

@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Inventaire des capacités de karl** (RM3048) : un registre **curé par capacité** (`docs/cdc-karl/`,
+  123 entrées sur 12 domaines) répond à « qu'est-ce que karl sait faire », là où `docs/cdc/` (dérivé des
+  tickets, 603 entrées) répond à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs
+  tickets. `pm-cdc-features` gagne `cure: true` (le registre se tient à la main, `--sync` y est refusé en
+  le disant), `--prefix` pour viser un registre quand le projet en porte plusieurs, et un `titre` propre.
+  Le cockpit sert les deux côte à côte, le README pointe le premier.
+
 - **La réflexion d'un ticket sur sa fiche** (RM3089, lot L6 de RM3015) : bloc **🧠 Réflexion** —
   questions ouvertes, décisions et conseils, fonctionnalités, notes — avec le compteur qui **annonce
   le refus de clôture** au lieu de le laisser découvrir. Deux gestes au survol des entrées **encore

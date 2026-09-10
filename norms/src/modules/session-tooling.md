@@ -116,11 +116,14 @@ note sans destination au bout de quelques jours n'en aura jamais.
 
 **Le tri final revient à un modèle, pas à un motif de texte** (RM3067). Le hook garde une heuristique —
 rapide et gratuite, elle n'est qu'un filet ; c'est **`pm-think-classify`** (modèle léger, ~1 $ par million
-de jetons) qui décide vraiment : il relit les tours de **conversation** d'un transcript — les tiens et ceux
-de l'agent, **jamais le tooling** — et rend, pour chacun, `rien` · dette · question · décision ·
+de jetons) qui décide vraiment : il relit les tours de **conversation** d'un transcript — ce que
+le demandeur écrit et ce que l'agent lui **répond à l'écran**, jamais le raisonnement interne, jamais le
+tooling (appels d'outils, résultats, diffs, sorties de commandes) — et rend, pour chacun, `rien` · dette · question · décision ·
 fonctionnalité **avec une reformulation auto-suffisante**. À lancer sur une session avant de livrer
 (`--session`), ou en reprise sur l'historique (`--all --since`) ; `--dry-run` par défaut, rien n'est écrit
-sans `--apply`, et le coût est rapporté à chaque passe.
+sans `--apply`, et le coût est rapporté à chaque passe. Trois moteurs : **Ollama** (local ou hébergé —
+coût nul, pris d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` existe), l'**API Anthropic**, ou `claude -p`
+(qui refacture son prompt système à chaque appel : gros lots obligatoires).
 
 **Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
 dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un

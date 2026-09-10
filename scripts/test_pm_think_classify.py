@@ -58,6 +58,36 @@ ret, cout = C.classe(lot)
 check("seul l'item valide et dans les bornes est retenu, avec sa reformulation", len(ret) == 1 and ret[0][0] == "M" and ret[0][2] == "dette" and ret[0][3].startswith("Le deploiement"), str(ret))
 check("coût rapporté", isinstance(cout, float))
 
+print("\n[RM3067] moteur Ollama (local ou hébergé), sans appel réseau")
+import urllib.request
+appels = {}
+
+
+class _Faux:
+    def __init__(self, payload): self.payload = payload
+    def read(self): return json.dumps(self.payload).encode()
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _urlopen(req, timeout=0):
+    appels["url"] = req.full_url; appels["headers"] = dict(req.headers)
+    appels["body"] = json.loads(req.data.decode())
+    return _Faux({"message": {"content": '[{"i":0,"t":"dette","x":"Le deploiement passe par ssh -A faute de mieux : prevoir un acces propre."}]'}})
+
+
+vrai = urllib.request.urlopen; urllib.request.urlopen = _urlopen
+os.environ["OLLAMA_HOST"] = "https://ollama.example"; os.environ["OLLAMA_API_KEY"] = "cle-de-test"
+items, cout = C._ollama("prompt de test", C.MODEL)
+check("appelle /api/chat sur l'hôte configuré, avec la clé en Bearer", appels["url"] == "https://ollama.example/api/chat" and appels["headers"].get("Authorization") == "Bearer cle-de-test", str(appels.get("url")))
+check("sortie contrainte en JSON, température nulle, pas de flux", appels["body"]["format"] == "json" and appels["body"]["stream"] is False and appels["body"]["options"]["temperature"] == 0)
+check("modèle par défaut adapté à Ollama, pas celui d'Anthropic", appels["body"]["model"] != C.MODEL)
+check("réponse exploitée, coût nul (abonnement)", len(items) == 1 and items[0]["t"] == "dette" and cout == 0.0)
+urllib.request.urlopen = lambda req, timeout=0: _Faux({"message": {"content": '{"resultats": [{"i": 0, "t": "question", "x": "Une question restée ouverte sur le déploiement."}]}'}})
+items, _ = C._ollama("p", "qwen3:8b")
+check("objet enveloppe toléré (petits modèles bavards)", len(items) == 1 and items[0]["t"] == "question", str(items))
+urllib.request.urlopen = vrai; del os.environ["OLLAMA_HOST"]; del os.environ["OLLAMA_API_KEY"]
+
 print("\n[RM3067] écriture dans le think, idempotente")
 with tempfile.TemporaryDirectory() as tmp:
     tasks = pathlib.Path(tmp); sheet = tasks / "RM88_x.md"; sheet.write_text("---\nredmine_id: 88\ntitle: t\n---\n")

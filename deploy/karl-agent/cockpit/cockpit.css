@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0b35df367afe71ec (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 484b62cd5b9aaa03 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1143,16 +1143,26 @@ html[data-layout=mobile] .foot {
   font-family: var(--mono);
 }
 
+/* RM3093 — la tuile tient sur DEUX lignes de titre. `align-items: flex-start` (et non `center`) :
+   sinon, dès que le titre prend deux lignes, la pastille d'état et les boutons de queue se
+   recentrent verticalement et la colonne se met à danser d'une tuile à l'autre. */
 .runitem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px 10px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   margin-bottom: 6px;
   background: var(--panel2);
   cursor: pointer;
+  min-height: 40px;
+}
+
+/* les éléments d'une seule ligne restent alignés sur la PREMIÈRE ligne du titre */
+.runitem > .tdot, .runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tquiet, .runitem > .helpq {
+  margin-top: 1px;
 }
 
 .runitem:hover {
@@ -1171,14 +1181,21 @@ html[data-layout=mobile] .foot {
   flex: none;
 }
 
+/* RM3093 : deux lignes, puis coupe. `line-clamp` coupe au MOT et met les points de suspension ;
+   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas. */
 .runitem .rmeta {
   color: var(--muted);
   font-size: 11.5px;
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  max-height: 2.9em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .tbadge {
@@ -1285,7 +1302,7 @@ html[data-layout=mobile] .foot {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 8px 2px;
+  padding: 0 8px 3px;
   pointer-events: auto;
 }
 

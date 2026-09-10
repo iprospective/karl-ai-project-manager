@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Titres de session sur deux lignes** (RM3093) : dans le panneau de gauche, le titre d'une tuile
+  n'est plus coupé à la première ligne — deux lignes, puis points de suspension. Les tuiles gagnent
+  en hauteur (vivantes comme grises) et leurs pastilles et boutons s'alignent en haut, sinon la
+  colonne danse dès qu'un titre passe à deux lignes. La jauge de contexte reste en pied de tuile. Une
+  garde de `test_cockpit_runtime` refuse un retour à `nowrap`.
 - **Fenêtre de contexte : le maximum du modèle** (RM3084, correctif de RM2611/RM3082) : une session
   Opus 5 à 197 k était rapportée à une fenêtre de 200 k — **99 %**, en rouge — alors qu'elle en est à
   **20 %** de sa vraie fenêtre de 1 M. `modelWindow` retenait la plus petite valeur et *devinait* la

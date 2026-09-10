@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : cc81e140bde71697 (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 47ee8e719e7920a2 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1270,6 +1270,85 @@ html[data-layout=mobile] .foot {
   margin-left: auto;
 }
 
+/* RM3082 — jauge de contexte d'une session : barre fine + chiffre, en pied de tuile.
+   Pas de couleur de FOND : la tuile en porte déjà une (état, disposition) et deux fonds
+   superposés ne se lisent ni l'un ni l'autre. Rien ne s'affiche sous le premier palier. */
+.runitem {
+  position: relative;
+}
+
+.tctx {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 2px;
+  pointer-events: auto;
+}
+
+.tctx .tctxbar {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: hidden;
+}
+
+.tctx .tctxbar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transition: width 0.4s ease;
+}
+
+.tctx .tctxn {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  line-height: 1;
+  opacity: 0.85;
+  flex: none;
+}
+
+.tctx.ctx-warn {
+  color: var(--warn);
+}
+
+.tctx.ctx-high {
+  color: color-mix(in srgb, var(--warn) 55%, var(--danger));
+}
+
+.tctx.ctx-crit {
+  color: var(--danger);
+}
+
+.tctx.ctx-crit .tctxn {
+  font-weight: 700;
+  opacity: 1;
+}
+
+/* Le FRANCHISSEMENT d'un palier, et lui seul, bouge : trois pulsations puis silence.
+   Une animation permanente fatigue, puis cesse d'être vue — au moment où elle compterait. */
+@keyframes ctxcross {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.tctx.ctx-cross {
+  animation: ctxcross 0.55s ease-in-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tctx.ctx-cross {
+    animation: none;
+  }
+}
 /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
 #authgate {
   position: fixed;

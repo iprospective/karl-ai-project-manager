@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Jauge de contexte par session** (RM3082) : sous chaque tuile de la liste de gauche, une barre
+  fine et un pourcentage disent l'occupation de la fenêtre du modèle, **à partir du premier palier
+  seulement** (50 / 75 / 90 % par défaut, réglables dans Réglages ▸ Sessions). Le franchissement d'un
+  palier pulse trois fois puis se tait — pas de couleur de fond qui oscille : la tuile en porte déjà
+  une, et une animation permanente cesse d'être vue. Au palier rouge, la session rejoint le bandeau
+  « à traiter » avec le geste utile (consigner, repartir sur une session neuve). La donnée sort de
+  `_jsonl_tail_meta` — la lecture de queue déjà faite et cachée pour le titre — et non de
+  `/usage/<id>`, qui relit le transcript entier : coût marginal nul par tuile et par tick.
 - **Onglets et sections dans les réglages** (RM3081) : dix cartes s'empilaient en une seule colonne, sans
   hiérarchie — on y cherchait un réglage en faisant défiler. Cinq onglets à plat, comme le menu CDC :
   Instance, Fournisseurs, Moteurs, Affichage, Compte. Chaque carte reste une section avec son titre ; un

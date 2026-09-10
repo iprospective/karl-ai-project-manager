@@ -9,6 +9,8 @@
 import { SessionsService } from "./sessions.service.js";
 import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewModel, CountersViewModel, ReviewTileViewModel, SessionTitleViewModel } from "./SessionsViewModel.js";
 import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle } from "./Sessions.view.js";
+import { contextGauge, contextCrossed } from "./sessions.js";                      // RM3082
+import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";           // RM3082
 import { effDisposition, restartTip, approveShortcutVisible, tmuxName } from "./sessions.js";
 import { mount, paint } from "../../core/dom.js";
 import { raw } from "../../core/html.js";
@@ -30,7 +32,12 @@ export function mountSessions(hosts = {}, ctx = {}) {
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
   listen(hosts.list, "mouseenter", () => svc.enter()); listen(hosts.list, "mouseleave", () => svc.leave()); listen(hosts.list, "mousemove", () => svc.moved());
 
-  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel }; };
+  // RM3082 : la jauge de contexte. `ctxSeen` retient le palier atteint par session pour n'animer
+  // que le FRANCHISSEMENT ; `ctxPulsing` porte les tuiles qui bougent, vidées après l'animation.
+  const ctxSeen = new Map(), ctxPulsing = new Set();
+  const ctxTh = () => ((ctx.cfg ? ctx.cfg() : {}) || {}).context_thresholds || { warn: 50, high: 75, crit: 90 };
+  const gaugeOf = (s) => contextGauge(s, ctxTh(), ctxPct, modelWindow, fmtWin);
+  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
   const toggleSel = (s) => { const set = selection().set; set.has(s.rm_id) ? set.delete(s.rm_id) : set.add(s.rm_id); if (ctx.refresh) ctx.refresh(); };
 
   /** Peint la liste depuis le bloc /sessions ; rend les compteurs (la pile /refresh y lit sa cadence — RM2613). */
@@ -49,7 +56,21 @@ export function mountSessions(hosts = {}, ctx = {}) {
       const reviews = (ctx.review && ctx.review.tabs ? ctx.review.tabs() : []) || [];
       const parts = [];
       if (!sessions.length && !reviews.length) parts.push(Empty());
-      parts.push(AttnBand(sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice")).map(s => new AttnChipViewModel(s, rcache[s.rm_id])), lend));   // RM2346
+      // RM3082 : le palier atteint est relevé AVANT le rendu — la tuile qui vient de franchir un
+      // seuil pulse une fois, puis `later` la rend muette. Une session éteinte oublie son palier.
+      const alive = new Set(sessions.filter(s => !s.ghost).map(s => String(s.rm_id)));
+      for (const k of [...ctxSeen.keys()]) if (!alive.has(k)) ctxSeen.delete(k);
+      for (const s of sessions) {
+        if (s.ghost) continue;
+        const g = gaugeOf(s);
+        if (contextCrossed(s.rm_id, g ? g.level : "", ctxSeen)) {
+          ctxPulsing.add(String(s.rm_id));
+          const later = ctx.later || ((fn, ms) => setTimeout(fn, ms));
+          later(() => { ctxPulsing.delete(String(s.rm_id)); }, 2200);
+        }
+      }
+      // RM2346 — et RM3082 : une session au palier critique appelle un geste (consigner, repartir), donc elle est « à traiter ».
+      parts.push(AttnBand(sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice" || (gaugeOf(s) || {}).level === "crit")).map(s => new AttnChipViewModel(s, rcache[s.rm_id], gaugeOf(s))), lend));
       const cc = ctx.clientContext ? ctx.clientContext() : "";
       if (cc) parts.push(CtxBanner(cc, d.hidden));
       for (const key of d.visKeys) {

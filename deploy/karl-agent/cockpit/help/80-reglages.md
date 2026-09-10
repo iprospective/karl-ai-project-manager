@@ -60,6 +60,15 @@ Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
 (`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` / `KARL_AGENT_MEM_SWAP`) : elle
 s'édite alors dans le `.env`, suivi d'un redémarrage de karl-agent.
 
+## Sessions — paliers de contexte
+
+Trois seuils, en pourcentage de la fenêtre du modèle, décident quand la **jauge de
+contexte** d'une tuile de session s'allume (jaune), passe à l'orange, puis au rouge.
+Défauts : 50, 75 et 90. Ils sont remis en ordre s'ils sont saisis à l'envers.
+
+Le rouge vise le moment où Claude Code s'apprête à **compacter** la conversation :
+c'est là qu'il faut consigner ce qui doit survivre. Voir l'aide « sessions ».
+
 ## Sonde mémoire (ce navigateur)
 
 Un onglet de cockpit qui grossit avec les heures (RM2807) se diagnostique avec la **sonde

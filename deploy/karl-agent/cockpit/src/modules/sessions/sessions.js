@@ -166,3 +166,40 @@ export function approveAllMessage(r) {
 export function approveMessage(rmId, r) {
   return "✔ Oui envoyé à " + (/^\d+$/.test(String(rmId)) ? "RM" + rmId : rmId) + ((r || {}).sent === "y" ? " (y + Entrée)" : " (option 1)");
 }
+
+/** RM3082 — jauge de contexte d'une session : ce que la tuile a besoin de savoir, ou `null`.
+ *
+ * Le pourcentage se lit contre la FENÊTRE DU MODÈLE (`modelWindow`, la règle de l'encart méta —
+ * une seule vérité sur « 76 % »). Sous le premier palier : `null`, donc silence total — un signal
+ * permanent qui parle tout le temps ne se lit plus quand il compte.
+ *
+ * `thresholds` = { warn, high, crit } en % (réglables, cf. conf sessions.context_*_pct).
+ * Rend { pct, level: "warn"|"high"|"crit", label, title, width }.
+ */
+export function contextGauge(session, thresholds, ctxPctFn, modelWindowFn, fmtWinFn) {
+  const s = session || {}, ctx = Number(s.context || 0);
+  if (!ctx) return null;                                   // pas de tour lu dans la queue : rien, jamais de chiffre faux
+  const win = modelWindowFn(s.model, s.rates, ctx);
+  const pct = ctxPctFn(ctx, win);
+  if (pct == null) return null;                            // modèle inconnu → pas de fenêtre → pas de jauge
+  const th = thresholds || {};
+  const warn = Number(th.warn || 50), high = Number(th.high || 75), crit = Number(th.crit || 90);
+  const level = pct >= crit ? "crit" : pct >= high ? "high" : pct >= warn ? "warn" : "";
+  if (!level) return null;
+  const quoi = level === "crit" ? "la conversation va être compactée : consigne (think) puis repars sur une session neuve"
+    : level === "high" ? "il reste peu de marge avant compaction"
+    : "la moitié de la fenêtre est occupée";
+  return { pct, level, label: pct + " %", width: Math.min(100, pct),
+    title: "contexte : " + fmtWinFn(ctx) + " / " + fmtWinFn(win) + " (" + pct + " %)"
+      + (s.model ? "\nmodèle : " + s.model : "") + "\n" + quoi };
+}
+
+/** RM3082 — le palier a-t-il MONTÉ depuis le dernier rendu ? C'est ce franchissement, et lui seul,
+ * qui mérite une animation : l'état permanent se lit sans bouger. Pure ; `seen` est muté (Map). */
+export function contextCrossed(rmId, level, seen) {
+  const RANK = { "": 0, warn: 1, high: 2, crit: 3 };
+  const key = String(rmId), before = seen.get(key) || "";
+  if (RANK[level] === RANK[before]) return false;
+  seen.set(key, level);
+  return RANK[level] > RANK[before] && !!level;
+}

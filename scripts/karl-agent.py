@@ -10081,6 +10081,8 @@ def _envchk_sessions_archive():
 
 def _envchk_pm():
     out = _envchk_workspace_bridge() + _envchk_sessions_archive()
+    lvl, det, fix = budget_contexte_line(_budget_contexte_etat())     # RM3046
+    out.append(_chk("budget de contexte", lvl, det, fix))
     vf = REPO_ROOT / "norms" / "VERSION"
     try:
         norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
@@ -10114,6 +10116,43 @@ def _envchk_pm():
     else:
         out.append(_chk("tâches en_cours", "ok", "toutes ont une branche résoluble"))
     return out
+
+
+# >>> budget_contexte_line — pure (testée par test_karl_agent_envstatus.py)
+def budget_contexte_line(etat):
+    """(level, detail, fix) depuis `pm-context-budget --json` (RM3046).
+
+    Le préchargement des rôles grossit à chaque module ajouté aux normes. On n'en fait
+    PAS un ticket à chaque fois — un ticket par occurrence encombre le backlog sans faire
+    baisser un chiffre : on le REGARDE, ici, et on décide quand ça vaut un geste. `warn`
+    et non `error` : rien n'est cassé, une session coûte simplement plus cher qu'annoncé."""
+    if not etat:
+        return ("info", "non mesuré", "scripts/pm-context-budget.py --json")
+    roles = etat.get("roles") or {}
+    budget = etat.get("budget")
+    if etat.get("ok"):
+        pire = max((v.get("tokens", 0) for v in roles.values()), default=0)
+        return ("ok", f"{len(roles)} rôle(s) sous le plafond ({pire:,} / {budget:,} au plus)"
+                      .replace(",", " "), "")
+    over = etat.get("depassements") or []
+    detail = " · ".join(f"{r} {roles[r]['tokens']:,}".replace(",", " ") for r in over if r in roles)
+    return ("warn", f"plafond {budget:,} dépassé par {len(over)} rôle(s) : {detail}".replace(",", " "),
+            "alléger le préchargement (en-tête « Préchargé par » des modules) — norms/src/manifest.yml")
+# <<< budget_contexte_line
+
+
+def _budget_contexte_etat():
+    """Mesure à la volée : c'est un comptage d'octets sur des fichiers locaux, pas une sonde
+    réseau — le faire ici évite un service, un timer et un fichier d'état de plus."""
+    script = REPO_ROOT / "scripts" / "pm-context-budget.py"
+    if not script.exists():
+        return None
+    try:
+        p = subprocess.run([sys.executable, str(script), "--json"], capture_output=True,
+                           text=True, timeout=20, cwd=str(REPO_ROOT))
+        return json.loads(p.stdout) if p.stdout.strip() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
 
 
 ENV_FAMILIES = [

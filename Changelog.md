@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Zone centrale : le split devient une OPTION** (RM3051) : ouvrir un ticket ou un document
+  coupait la zone centrale en deux (session en haut, fiche en bas) — comportement que
+  personne n'avait demandé. Désormais, par défaut, la fiche **prend la place** de la session
+  le temps de la consultation, et celle-ci **revient à l'identique** à la fermeture (ce qui
+  était masqué le reste). Le split se réactive dans **🔧 réglages → Thème & affichage**, avec
+  une **poignée** pour régler la hauteur (double-clic : défaut) ; hauteur bornée et mémorisée
+  par navigateur. La bascule marche **à chaud**, ticket ouvert.
+
 - **Le pont session → `.think.md` écrit vraiment** (RM3076, correctif de RM3053) : `_think_note()`
   appelait `pm_git.autocommit` sans que `pm_git` soit importé ; son `except` transformait la
   `NameError` en avertissement console, et aucune demande (`request --ticket`) ni notification

@@ -59,3 +59,4 @@ var/
 
 # Journal structuré karl-agent / PM (RM3010) — local à l'instance
 logs/
+norms/runtime/.proposed/

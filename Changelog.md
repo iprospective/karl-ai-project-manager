@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le runtime NORMS se génère par un fournisseur, et se contrôle** (RM3073) : `norms/runtime/` portait
+  « Généré ⇒ ne pas éditer » alors qu'aucun générateur n'existait — écrit une fois à la main, il se
+  désynchronisait de ses sources en silence. `mmi-pm norms-runtime` le produit par l'API d'un fournisseur
+  du registre (`--build`), le compare (`--diff`) et ne remplace qu'au `--apply`. Le contrôle de non-perte
+  se fait par **ancres** — noms de scripts, options, chemins, statuts, champs — qu'une réécriture dense
+  n'a pas le droit de changer, et porte sur le corpus, pas fichier par fichier. `mmi-pm norms-runtime
+  --check` mesure : le runtime actuel garde 238 de ses 273 ancres, 35 sont perdues. `pm_llm_call` parle
+  aux trois dialectes (OpenAI, Ollama, Anthropic) pour tout le système, la clé restant lue du `.env`.
+
 - **Fournisseurs LLM prédéfinis, et modèles demandés au fournisseur** (RM3072) : déclarer un modèle de
   travail demandait de retrouver l'URL d'une API et de savoir quel dialecte elle parle. Dix-sept services
   connus sont maintenant proposés à la création — OpenRouter, Z.ai, Groq, DeepSeek, Mistral, Together,

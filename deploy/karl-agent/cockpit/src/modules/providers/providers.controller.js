@@ -11,10 +11,11 @@ export function mountProviders(el, ctx = {}) {
   const svc = ctx.service || new ProvidersService();
   const notify = ctx.notify || (() => {});
   const ask = ctx.confirm || (() => true);
-  const state = { open: null, loaded: false };
+  const state = { open: null, loaded: false, models: {} };
   const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)],
-                                     ["change", "[data-role=\"type\"]", () => render()]] });
-  const vm = () => new ProvidersViewModel({ cat: svc.cat, data: svc.data, open: state.open });
+                                     ["change", "[data-role=\"type\"]", () => render()],
+                                     ["change", "[data-role=\"preset\"]", (ev, n) => onPreset(n)]] });
+  const vm = () => new ProvidersViewModel({ cat: svc.cat, data: svc.data, open: state.open, models: state.models });
   const render = () => h.update(ProvidersCard(vm()));
   const q = (sel) => (el && el.querySelector ? el.querySelector(sel) : null);
 
@@ -31,6 +32,18 @@ export function mountProviders(el, ctx = {}) {
     (f.querySelectorAll ? f.querySelectorAll('[data-role="field"]') : []).forEach(n => { fields[n.dataset.name] = String(n.value || "").trim(); });
     return { name: val('[data-role="name"]'), type: val('[data-role="type"]'), fields, axis: f.dataset.axis };
   }
+  /** Un service connu pose le type et l'URL dans le formulaire, sans rien envoyer : la saisie reste libre. */
+  function onPreset(n) {
+    const s = vm().serviceOf(String(n.value || "")); if (!s) return;
+    const f = q('[data-role="form"]'); if (!f) return;
+    const type = f.querySelector('[data-role="type"]');
+    if (type) type.value = s.type;
+    const url = f.querySelector('[data-role="field"][data-name="url"]');
+    if (url) url.value = s.url;
+    const nom = f.querySelector('[data-role="name"]');
+    if (nom && !String(nom.value || "").trim()) nom.value = s.id;
+    notify(s.label + " : type et URL posés" + (s.needs_key ? " — reste la clé" : " — aucune clé requise"));
+  }
   async function onAction(ev, n) {
     const a = n.dataset.action; if (ev && ev.preventDefault) ev.preventDefault();
     try {
@@ -45,6 +58,15 @@ export function mountProviders(el, ctx = {}) {
       } else if (a === "save") {
         const v = formValues(); if (!v || !v.name) { notify("nom requis", true); return; }
         await svc.save({ name: v.name, type: v.type, fields: v.fields }); state.open = null; notify(v.name + " enregistrée"); render();
+      } else if (a === "models") {
+        const nom = n.dataset.name;
+        try { state.models[nom] = await svc.loadModels(nom, { instance: nom }); }
+        catch (e) { state.models[nom] = { error: e.message }; }
+        render();
+      } else if (a === "pick-model") {
+        // le modèle choisi va dans la déclaration : c'est ce que le registre lira ensuite
+        await svc.save({ name: n.dataset.name, fields: { model: n.dataset.model } });
+        notify(n.dataset.name + " : modèle « " + n.dataset.model + " »"); render();
       } else if (a === "secret-save" || a === "secret-unset") {
         const champ = q(`[data-role="secret"][data-name="${n.dataset.name}"][data-key="${n.dataset.key}"]`);
         const boite = q(`[data-role="scope"][data-name="${n.dataset.name}"][data-key="${n.dataset.key}"]`);

@@ -122,6 +122,27 @@ En cas de doute, note : une note mal classée se trie, une question perdue ne se
 **Trous d'outillage connus et idiomes de ligne de commande** : `session-tooling-pratique`. Un trou ne
 dispense de rien — il dit quel geste manuel tient lieu d'outil en attendant (tripwire #1).
 
+## Avant une compaction, avant de rendre la main (RM3098)
+
+Une compaction **remplace la conversation par un résumé**. Ce qui n'a pas été écrit ailleurs n'est
+pas « plus difficile à retrouver » : il n'existe plus. Même chose en fin de séance — 42 transcripts
+ont été perdus le 2026-09-06 (RM2997), avec ce qu'ils portaient.
+
+Le système s'en charge d'abord : le hook `PreCompact` lance une **passe complète** de
+`pm-think-harvest`, et à la reprise `pm-norms-recall` réinjecte le KERNEL, que le résumé n'emporte
+pas (RM3071). Restent trois gestes que **seul l'agent** peut faire, et qu'il fait **avant** de
+rendre la main :
+
+1. **La prochaine étape**, en une phrase qui se comprend sans le fil :
+   `pm-session-status.py set <n> --next "…"`. C'est elle que lit `pm-task-brief --reprise`.
+2. **Ce qui n'est pas tranché** : `pm-task-think <id> --question "…"`. Après compaction, une question
+   restée dans le fil n'a jamais été posée.
+3. **Ce qui vient d'être arbitré** : `pm-task-think <id> --decide "…" --state valide --by M`. Un
+   arbitrage non consigné est un arbitrage qu'on croira consigné, et qu'on re-tranchera autrement.
+
+Le reste (demandes, notifications, MR, statuts) est déjà porté par les scripts. Ce qui ne l'est pas :
+le raisonnement — pourquoi on a choisi cela plutôt qu'autre chose.
+
 ## Registre des demandes (RM2621)
 
 Une demande formulée en séance n'existe que dans le fil : non ticketée

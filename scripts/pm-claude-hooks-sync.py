@@ -57,6 +57,10 @@ PM_HOOKS = [
     # worklog de session (RM2068) : refresh au démarrage et avant compaction
     ("SessionStart", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),
     ("PreCompact", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),
+    # RM3098 : DERNIER regard sur les tours avant qu'ils ne deviennent un résumé. Passe COMPLÈTE
+    # (--full) : le curseur incrémental n'a pas à décider ce qu'on relit au moment où le fil va
+    # disparaître. Ce qui n'est pas consigné ici n'est pas « difficile à retrouver » — il n'existe plus.
+    ("PreCompact", None, "pm-think-harvest.py", " --full", 90),
     # RM3071 : une compaction (ou une reprise) emporte les NORMS mais garde la tâche ; le KERNEL est
     # réinjecté dans le contexte au moment exact où il vient d'en sortir. Sa sortie EST le rappel :
     # ce hook ne doit donc pas être silencé, contrairement aux précédents.

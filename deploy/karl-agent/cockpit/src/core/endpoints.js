@@ -59,6 +59,7 @@ export const ROUTES = {
   "pm.commands": { current: "/pm/commands", target: "/api/pm/commands", lot: "L5", callers: 1 },
   "pm.engine_install": { current: "/pm/engine-install", target: "/api/pm/engine-install", lot: "L5", callers: 1 },
   "pm.engines": { current: "/pm/engines", target: "/api/pm/engines", lot: "L5", callers: 1 },
+  "pm.llm_models": { current: "/pm/llm-models", target: "/api/pm/llm-models", lot: "L5", callers: 1 },
   "pm.provider_assign": { current: "/pm/provider-assign", target: "/api/pm/provider-assign", lot: "L5", callers: 1 },
   "pm.provider_secret": { current: "/pm/provider-secret", target: "/api/pm/provider-secret", lot: "L5", callers: 1 },
   "pm.provider_types": { current: "/pm/provider-types", target: "/api/pm/provider-types", lot: "L5", callers: 1 },

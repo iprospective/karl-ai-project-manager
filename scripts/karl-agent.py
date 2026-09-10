@@ -8239,10 +8239,35 @@ def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
 
 
 def op_provider_types() -> dict:
-    """Le catalogue : axes, types, champs, et le NOM des clés attendues — jamais leur valeur."""
+    """Le catalogue : axes, types, champs, le NOM des clés attendues — jamais leur valeur — et les
+    services LLM prédéfinis (RM3072), pour déclarer un fournisseur sans retrouver son URL de mémoire."""
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import pm_provider_types as PT
-    return PT.catalogue()
+    import pm_llm_services as LS
+    cat = PT.catalogue()
+    cat["llm_services"] = LS.catalogue()
+    return cat
+
+
+def op_llm_models(payload: dict) -> dict:
+    """Ce qu'un fournisseur sert VRAIMENT : on le lui demande. Une liste écrite dans le code périmerait.
+    La clé n'entre pas ici — elle est lue du `.env` par le script, et rien ne la rend (garde-fou 11)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("llmm", REPO_ROOT / "scripts" / "pm-llm-models.py")
+    M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
+    try:
+        url, dial, inst = M.resout(payload.get("service"), payload.get("instance"),
+                                   payload.get("url"), payload.get("type"))
+        noms = M.modeles(url, dial, M._clef(inst))
+    except (KeyError, ValueError) as e:
+        raise ApiError(400, str(e))
+    except Exception as e:  # réseau, HTTP, JSON : un diagnostic, pas une trace
+        code = getattr(e, "code", 0)
+        quoi = {401: "clé absente ou refusée", 403: "clé sans droit sur cette route",
+                404: "cette URL n'expose pas de liste de modèles"}.get(code)
+        raise ApiError(502, f"{url or '(sans URL)'} : {quoi or 'injoignable ou muet'}")
+    return {"url": url, "dialect": dial, "models": noms, "count": len(noms)}
 
 
 def op_providers(auth_ctx=None) -> dict:
@@ -12094,6 +12119,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_provider_save(payload, self.auth_ctx))
             if path == "/pm/provider-secret":   # RM3068 : écrire une clé (jamais la relire)
                 return self._send_json(200, op_provider_secret(payload, self.auth_ctx))
+            if path == "/pm/llm-models":        # RM3072 : demander au fournisseur ce qu'il sert
+                return self._send_json(200, op_llm_models(payload))
             if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
                 return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think

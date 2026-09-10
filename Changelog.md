@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Fournisseurs LLM prédéfinis, et modèles demandés au fournisseur** (RM3072) : déclarer un modèle de
+  travail demandait de retrouver l'URL d'une API et de savoir quel dialecte elle parle. Dix-sept services
+  connus sont maintenant proposés à la création — OpenRouter, Z.ai, Groq, DeepSeek, Mistral, Together,
+  Fireworks, Cerebras, xAI, Gemini, OpenAI, Anthropic, Ollama Cloud, et les locaux Ollama, Lemonade,
+  LM Studio, vLLM. Le choix pose le type et l'URL, il ne reste que la clé. Aucune liste de modèles n'est
+  écrite dans le code : `mmi-pm llm-models` (et le bouton du panneau) interroge le fournisseur et rend ce
+  qu'il sert vraiment. La clé n'entre jamais dans une commande ni dans le navigateur. Cockpit 3.10.0.
+
 - **Le KERNEL NORMS revient après une compaction** (RM3071) : une compaction garde la tâche et perd les
   normes ; l'agent continuait avec le souvenir qu'il avait des garde-fous. `mmi-pm norms-recall` rend le
   KERNEL à réinjecter (la version dense de `norms/runtime/` si elle existe, la source sinon), et il est

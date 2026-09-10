@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 484b62cd5b9aaa03 (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 3914993c1771081a (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1604,6 +1604,13 @@ iframe {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+/* RM3094 — le bloc des commandes de panes tmux : `display: contents` pour que la barre le traverse
+   comme si les quatre contrôles y étaient restés (aucun changement d'espacement quand il est
+   affiché) ; masqué, il ne laisse ni trou ni bouton orphelin. */
+.monbox {
+  display: contents;
 }
 
 /* RM2744 : ce conteneur DÉFILE et centre son contenu — combinaison qui coupe.

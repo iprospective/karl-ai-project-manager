@@ -47,3 +47,8 @@ iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
 
 .tabactions { display: flex; align-items: center; gap: 6px; }
 .termwrap { flex: 1; display: flex; min-height: 0; }
+
+/* RM3094 — le bloc des commandes de panes tmux : `display: contents` pour que la barre le traverse
+   comme si les quatre contrôles y étaient restés (aucun changement d'espacement quand il est
+   affiché) ; masqué, il ne laisse ni trou ni bouton orphelin. */
+.monbox { display: contents; }

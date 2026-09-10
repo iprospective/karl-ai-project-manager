@@ -23,6 +23,17 @@ Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autre
 
 - **Thème** : `dark`, `light` ou `auto` (suit le système).
 
+## Commandes de moniteur tmux
+
+Une case de **Thème & affichage** montre ou masque, d'un bloc, les quatre commandes
+de **panes** de la barre du terminal : le moniteur à ajouter, **➕ Moniteur**,
+**✕ Moniteur** et la **disposition des panes**. Utiles quand on découpe le
+terminal, elles occupent quatre places le reste du temps.
+
+Elles sont **affichées par défaut**. Les masquer ne débranche rien : les gestes
+restent câblés et les panes déjà ouverts ne bougent pas. La préférence est propre
+à **ce navigateur**.
+
 ## Repères d'aide « ? »
 
 Une case de **Thème & affichage** pose un petit **?** sur chaque zone du cockpit :

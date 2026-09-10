@@ -235,6 +235,8 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   helpSpots: { enabled: () => (helpSpotsCtl ? helpSpotsCtl.enabled() : true), toggle: (on) => (helpSpotsCtl ? helpSpotsCtl.toggle(on) : on) },
   // RM3063 : filtre « Clients » masqué par défaut — appelé au montage, AVANT la déclaration de `show` (TDZ) : DOM direct
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
+  // RM3094 : les commandes de panes tmux, montrées ou masquées d'un bloc — les gestes restent câblés
+  applyMonitor: (on) => { const el = document.getElementById("monbox"); if (el) el.style.display = on ? "" : "none"; },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
   // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)

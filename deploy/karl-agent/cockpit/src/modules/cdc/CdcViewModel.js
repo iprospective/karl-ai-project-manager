@@ -2,13 +2,17 @@
 // chapitres (sous-onglets + texte rendu avec ancres D/Q/N/F). RM3044 — reprise des pages du POC AtomBox (pages.vue.js).
 import { EntityViewModel } from "../../core/EntityViewModel.js";
 
-export const COLS = [["id", "#"], ["libelle", "Fonctionnalité"], ["domaine", "Domaine"], ["tickets", "Ticket(s)"], ["type", "Type"], ["version", "Version"], ["etat", "État"], ["date", "Date"]];
+// RM3099 : `domaine` est le domaine d'USAGE — il groupe le chapitre ; `domaine_technique` reste
+// visible en ÉTIQUETTE (quelle partie du système est touchée), jamais comme second classement.
+export const COLS = [["id", "#"], ["libelle", "Fonctionnalité"], ["domaine", "Domaine"], ["tickets", "Ticket(s)"], ["domaine_technique", "Technique"], ["type", "Type"], ["version", "Version"], ["etat", "État"], ["date", "Date"]];
 /** La version d'une entrée : `version` (V0, V1…, RM3015-D018) ou l'ancien `jalon` entier (AtomBox) rendu `V<n>` ; "" sinon. */
 export const versionOf = (e) => e.version ? String(e.version) : (e.jalon === null || e.jalon === undefined ? "" : "V" + e.jalon);
 export const ORDRE_ETAT = { "livré": 0, "éprouvé": 0, "codé": 1, "en cours": 2, "prévu": 3, "décidé": 3, "à trancher": 4, "en pause": 5 };
 const etatKey = (e) => String(e || "").startsWith("écarté") ? "écarté" : String(e || "");
 const ETAT_CLS = { "livré": "ok", "éprouvé": "ok", "codé": "wait", "en cours": "wait", "prévu": "", "décidé": "", "à trancher": "due", "en pause": "pause", "écarté": "off" };
 export const etatClass = (e) => ETAT_CLS[etatKey(e)] || "";
+// `rm` est l'ancienne forme (un ticket = une entrée), fondue dans `tickets` par RM3099 ; encore lue
+// pour les registres d'autres projets qui n'ont pas été migrés.
 const ticketsOf = (e) => [].concat(e.rm ? [e.rm] : [], (e.tickets || []).filter(t => t !== e.rm)).map(Number).filter(n => n);
 
 // RM3044-D003 : les onglets suivent PRÉCISÉMENT les parties d'un CDC telles que la norme `cdc` les définit (§ « Les livrables d'un
@@ -66,9 +70,9 @@ export class FeaturesViewModel extends EntityViewModel {
   rows() {
     const q = String(this.e.q || "").trim().toLowerCase(); const s = this.e.sort || "id", desc = !!this.e.desc;
     const val = f => { if (s === "version") { const vv = versionOf(f); return vv ? "0" + vv : "1"; } /* sans version en dernier (ICU trie la ponctuation avant les lettres) */ if (s === "etat") return ORDRE_ETAT[etatKey(f.etat)] ?? 8; if (s === "tickets") return f.tickets[0] || 0; return String(f[s] || ""); };
-    const rows = this.all.filter(f => !q || [f.id, f.libelle, f.domaine, f.etat, f.type, ...f.tickets.map(t => "rm" + t)].join(" ").toLowerCase().includes(q));
+    const rows = this.all.filter(f => !q || [f.id, f.libelle, f.domaine, f.domaine_technique, f.etat, f.type, ...f.tickets.map(t => "rm" + t)].join(" ").toLowerCase().includes(q));
     rows.sort((a, b) => { const x = val(a), y = val(b); const c = typeof x === "number" ? x - y : x.localeCompare(y); return (desc ? -c : c) || (a.id < b.id ? -1 : 1); });
-    return rows.map(f => ({ id: f.id, libelle: f.libelle || "", domaine: f.domaine || "", tickets: f.tickets, type: f.type || "", version: versionOf(f), etat: f.etat || "", cls: etatClass(f.etat), date: f.date || "", manuel: !!f.manuel, parent: f.parent || null }));
+    return rows.map(f => ({ id: f.id, libelle: f.libelle || "", domaine: f.domaine || "", tickets: f.tickets, tech: f.domaine_technique || "", type: f.type || "", version: versionOf(f), etat: f.etat || "", cls: etatClass(f.etat), date: f.date || "", manuel: !!f.manuel, parent: f.parent || null }));
   }
   get count() { return this.rows().length + " / " + this.all.length; }
   /** RM3064 : les états qu'une ligne peut recevoir depuis le panneau (l'entrée est alors figée). */

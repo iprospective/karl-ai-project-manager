@@ -99,3 +99,19 @@ servent et avec quel rôle : le même Redmine est primaire chez son client et se
 
 La déclaration part dans `pm.config.local.yml`, fusionné par-dessus `pm.config.yml` : le fichier commenté
 de référence n'est jamais réécrit par le cockpit.
+
+## Moteurs
+
+La carte 🧩 **Moteurs** installe et tient à jour ce qui fait tourner les agents, en deux familles :
+
+- **Moteurs de session** — les clients qui tiennent une conversation : Claude Code, opencode, Mistral vibe.
+- **Serveurs de modèles** — Ollama, Lemonade Server. Ils ne tiennent aucune session : ils servent les modèles,
+  et se déclarent ensuite comme fournisseurs de l'axe « modèles de travail » dans 🔌 Fournisseurs.
+
+Pour chacun : présent ou absent, version installée, version disponible, état du service, et le nombre de
+sessions qui l'utilisent. **La commande exacte est affichée sous l'outil**, et la confirmation la répète :
+le cockpit n'exécute que des recettes qu'il connaît, il n'envoie au serveur qu'un identifiant, jamais une
+commande. L'installation touche le système, elle demande donc sudo et le rôle administrateur.
+
+**Une mise à jour est refusée tant que des sessions tournent** sur ce moteur : les couper d'abord, ou forcer
+en connaissance de cause. Le bouton « tester » vérifie simplement que l'outil répond.

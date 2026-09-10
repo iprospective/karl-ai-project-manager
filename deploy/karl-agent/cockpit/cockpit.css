@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : f5c61684b42d07b3 (33 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 19fb927526b95db0 (34 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -4075,6 +4075,83 @@ iframe {
 
 .pv-del {
   color: var(--danger);
+}
+
+.eg-grp {
+  margin: 12px 0;
+}
+
+.eg-grp h3 {
+  font-size: 13px;
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.eg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--panel2);
+}
+
+.eg-name {
+  font-weight: 600;
+}
+
+.eg-ver, .eg-ses {
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
+.eg-sp {
+  flex: 1;
+}
+
+.eg-sudo {
+  font-size: 10px;
+  color: var(--warn);
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 0 5px;
+}
+
+.eg-cmd {
+  flex-basis: 100%;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.eg-warn {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.eg-cfg {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.eg-out {
+  max-height: 30vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  white-space: pre-wrap;
 }
 
 .cn-head {

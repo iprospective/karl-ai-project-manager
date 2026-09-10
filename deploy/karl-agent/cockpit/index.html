@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
-<meta name="karl-cockpit-version" content="3.10.0">
+<meta name="karl-cockpit-version" content="3.11.0">
 <!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
      cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
      terminal doit être prêt avant le premier attach. -->
@@ -524,6 +524,10 @@ if (window.matchMedia) {
             <div class="card" id="memorycard"></div>
           </div>
           <div class="cpanel" id="cp-settings" style="display:none">
+            <!-- RM3081 : onglets des réglages — les cartes ci-dessous sont réparties par
+                 modules/setnav, qui n'affiche que celles de l'onglet courant et ne charge
+                 le contenu d'un onglet qu'à son ouverture. -->
+            <div id="setnav"></div>
             <div class="card" id="authcard" style="display:none">
               <h2>Authentification</h2>
               <!-- RM2334 : le login vit dans l'écran plein-cadre #authgate ; ici, seule

@@ -1,0 +1,8 @@
+// RM3081 : la barre d'onglets des réglages. Même vocabulaire que le menu CDC (chips), pour qu'on
+// reconnaisse le geste d'un panneau à l'autre.
+.setnav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; }
+.setnav .chip { font-size: 12.5px; }
+.setnav-help { color: var(--muted); font-size: 11.5px; margin: 0 0 10px 2px; }
+// « pas cet onglet » — distinct de `display:none` posé par le module d'une carte, qui dit
+// « rien à montrer ». Deux questions différentes : la classe l'emporte sur le style en ligne.
+#cp-settings .card.setnav-off { display: none !important; }

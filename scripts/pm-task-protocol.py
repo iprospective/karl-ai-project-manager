@@ -196,9 +196,13 @@ def main():
     log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
     ts = datetime.now().strftime("%Y-%m-%dT%H:%M")
     verb = "remplacé" if args.set_ is not None else ("complété" if args.append is not None else "enrichi (add-test)")
+    # `txt` n'existe que dans les modes --set/--append ; en --add-test on journalise les
+    # lignes ajoutées. Sans ça, le script plantait APRÈS avoir écrit le protocole et poussé
+    # le CF — l'opération réussie passait pour un échec.
+    detail = txt if args.add_test is None else "\n".join("+ " + a for a in ajouts)
     with log_path.open("a", encoding="utf-8") as f:
         f.write(f"\n## {ts} — Protocole de test {verb} (pm-task-protocol)\n"
-                f"Tokens : 0 | Durée : 0 min\n\n{txt}\n")
+                f"Tokens : 0 | Durée : 0 min\n\n{detail}\n")
     if not args.no_commit:
         pm_git.autocommit([md_path, log_path],
                           f"pm(protocol): RM{args.rm_id} protocole de test {verb}")

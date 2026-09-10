@@ -198,7 +198,7 @@ git approprié. La règle s'applique à **deux périmètres** :
    Tout fichier modifié dans ce workspace (code, conf, docs internes) doit être
    commit+push dans le repo applicatif du workspace lui-même (remote GitLab
    canonique `git:`/`gitlab:iprospective/<...>`, **pas** ai-projects ; cf.
-   « Remote canonique GitLab » ci-dessous).
+   `git-mep-pratique` § « Remote canonique GitLab »).
 
 **Règles communes aux deux périmètres** :
 - Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),

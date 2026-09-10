@@ -65,7 +65,8 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
-| **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+| **Branches / repos / submodules** | créer la branche d'un ticket (+ CF GIT Branche) | `pm-branch-start.py` (livré RM1923 ; `--worktree`, `--take`) |
+| **Commit + push conventionné** | message conventionné, push immédiat, base de version | **⚠ trou — pas de script dédié** : geste manuel encadré (cf. § « Commit + push systématique ») |
 
 ## Notifications importantes de session (RM2466)
 

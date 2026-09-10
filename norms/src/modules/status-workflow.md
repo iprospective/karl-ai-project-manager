@@ -68,7 +68,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
 [a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
-[a_tester_preprod]   ──► [en_mep] (RM2920 : instruction « mets en prod » → MEP dans la foulée ; « preprod ok » → a_mep, file de MEP)
+[a_tester_preprod]   ──► [en_mep]      (RM2920 : instruction « mets en prod » → MEP dans la foulée)
+[a_tester_preprod]   ──► [a_mep_prod]  (RM2926 : « préprod ok » → file de MEP PROD, sans déployer encore)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
 
@@ -80,7 +81,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 > |---|---|---|
 > | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
 > | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
-> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `a_mep` | — | recette demandeur OK, **à mettre en préprod** — pas encore déployé |
+> | `a_mep_prod` (**RM2926**) | — | **préprod OK** (non-régression du lot), **à mettre en prod** — 2ᵉ file, lève le doublon d'`a_mep` ; **sauté** quand le projet n'a pas de préprod |
 > | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
 >
 > Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*

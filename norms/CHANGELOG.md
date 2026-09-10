@@ -1,5 +1,24 @@
 # Changelog des normes
 
+## [2.35.0] - 2026-09-10
+
+### Corrigé
+- **Audit de cohérence RM2941** — cinq incohérences prouvées, corrigées :
+  - `git-mep-pratique` § Workflow MEP faisait poser **`en_mep` sur un déploiement PRÉPROD**, alors que
+    RM2893 a redéfini `en_mep` comme « déployé en prod ». Un agent qui suivait ce module sautait
+    `a_tester_preprod` et `a_mep_prod`, déclenchait la réattribution « vérif finale en prod » depuis la
+    préprod, et fermait depuis la préprod. Le flux 3 branches est réécrit sur la sémantique réelle.
+  - **`a_mep_prod` (RM2926) était absent de tout NORMS** alors qu'il est atteignable depuis cinq statuts
+    et câblé dans l'outillage. Ajouté à la machine d'états et à l'énumération du KERNEL, avec
+    `nouveau` et `a_tester_preprod` qui manquaient aussi. `redmine.reference.yml :: statuses` devient la
+    source unique : les libellés Redmine ne se recopient plus dans NORMS.
+  - `session-tooling` déclarait `pm-branch-start.py`, puis « ⚠ trou — aucun outil dédié » quinze lignes
+    plus bas. Dans un module préchargé par **tous** les rôles, c'était la ligne qui autorisait le
+    `git checkout -b` manuel interdit par le garde-fou 1. Le trou restant est le commit+push conventionné.
+  - Le déclencheur « péremption des PAT » envoyait dans `git-mep`, où la règle J-7 ne se trouve pas :
+    elle est dans `git-mep-pratique`. Quatre autres renvois cassés par la scission RM2582 corrigés.
+  - `pm project init` et `pm task create` n'ont jamais existé — il n'y a pas de binaire `pm`.
+
 ## [2.34.0] - 2026-09-10
 
 ### Ajouté

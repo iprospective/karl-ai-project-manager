@@ -54,7 +54,7 @@
 | j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
 | je diagnostique un incident / il me faut l'historique de charge d'une machine du parc | **tripwire #16** + `knowledge/zabbix/api.md` | API JSON-RPC, `ZABBIX_API_TOKEN` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
-| début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
+| début de session PM : péremption des PAT GitLab | `modules/git-mep-pratique.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | une tâche est dans le mauvais projet PM (ou déplacée côté Redmine) | `modules/session-tooling.md` | `pm-task-move` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
@@ -203,7 +203,10 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+
+Liste exhaustive et **source unique** : `redmine.reference.yml :: statuses`. Ne pas recopier
+les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en silence.
 
 `a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
 `a_tester_demandeur`, normalisé par les scripts.

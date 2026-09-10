@@ -47,11 +47,17 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 `preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
 (jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
 
-1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
+1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets **`a_tester_preprod`**.
 2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
-3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
+3. Si OK ⇒ tickets **`a_mep_prod`** (« préprod OK, à mettre en prod » — file de MEP prod).
+4. **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets **`en_mep`**
+   (déployé en prod, dernière vérification avant fermeture), puis `ferme`
    (`close_reason: resolu`).
    - Régression preprod ⇒ `a_corriger` (note obligatoire).
+
+> ⚠ **`en_mep` = déployé en PROD**, depuis RM2893 — pas « en préprod ». Le statut dit *où
+> est le code*. La recette préprod, c'est `a_tester_preprod` ; la file d'attente de la MEP
+> prod, c'est `a_mep_prod`. Détail et machine d'états : `status-workflow` § Refonte RM2893.
 
 **Deux modes de promotion :**
 - **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.

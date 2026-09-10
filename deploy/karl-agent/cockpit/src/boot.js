@@ -63,6 +63,7 @@ import { mountJournal } from "./modules/journal/journal.controller.js";
 import { mountCdc } from "./modules/cdc/cdc.controller.js";                 // RM3044
 import { mountClientNotify } from "./modules/clientnotify/clientnotify.controller.js";   // RM3052
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
+import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
@@ -221,6 +222,8 @@ const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard
   probe, storage: localStorage, notify: notify.toast, help: (t) => doc.openHelp(t),
   download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
 });
+// RM3068 : le panneau Fournisseurs vit dans les réglages ; il charge à la première ouverture du panneau
+const providers = mountProviders(byId("providerscard"), { notify: notify.toast, confirm: (m) => window.confirm(m) });
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
   // RM3063 : filtre « Clients » masqué par défaut — appelé au montage, AVANT la déclaration de `show` (TDZ) : DOM direct
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
@@ -269,7 +272,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
-    settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
+    settings: { label: "réglages",     load: () => { settings.load(); providers.load(); }, show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans

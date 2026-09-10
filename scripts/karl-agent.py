@@ -229,6 +229,8 @@ from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 :
                     category_for_path as _jcat, exception_brief as _jexc, CATEGORIES as _JCATS)   # noqa: E402
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
+import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
                            question_parts as _question_parts,
@@ -433,6 +435,9 @@ MEM_LIMIT_CONF = {"high": ["sessions", "memory_high_gib"],
 MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapMax"}
 
 # Répertoire des logs pipe-pane (alimente /stream et /capture étendu).
+# RM3085 : ces `karl-<slug>.log` n'avaient AUCUNE purge — 130+ fichiers sur ce poste, dont ceux de
+# sessions éteintes depuis des mois. Rétention en jours, débrayable par 0.
+TMUX_LOG_KEEP_DAYS = int(os.environ.get("KARL_TMUX_LOG_KEEP_DAYS") or 30)
 LOG_DIR = Path(
     os.environ.get("KARL_AGENT_LOG_DIR")
     or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "karl-agent")
@@ -1320,7 +1325,8 @@ def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
     """RM2302/RM2327 : re-capture le pane et répond « oui » si une question y est
     visible. Retourne la réponse envoyée ("1" menu / "y" prompt) ou None (pas de
     question). Lève ApiError sur échec tmux. Journalise chaque réponse dans
-    answers.jsonl avec sa provenance (manuel / tout / auto) — socle RM2305."""
+    le journal structuré (catégorie `claude`) avec sa provenance (manuel / tout / auto).
+    RM3085 : plus dans `answers.jsonl`, qui n'avait jamais eu de lecteur."""
     name = _session_name(rm_id)
     rc, out, err = _tmux("capture-pane", "-p", "-t", name)
     if rc != 0:
@@ -1334,14 +1340,11 @@ def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
         raise ApiError(500, f"send-keys a échoué : {err.strip()}")
     if answer == "y":
         _tmux("send-keys", "-t", name, "Enter")
-    try:  # journal best-effort, ne bloque jamais la réponse
-        ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with ANSWERS_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
-                                "sent": answer, "source": source,
-                                "question": tail}, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    # RM3085 : ces réponses partaient dans un `answers.jsonl` que RIEN ne relisait — écrit depuis
+    # RM2302, jamais lu, sans rotation. Le journal structuré (RM3010) a, lui, un lecteur (cockpit,
+    # `mmi-pm log-tail`), des niveaux et une rétention : un store mort de moins.
+    _jlog("claude", "info", "réponse « Oui » envoyée à une session",
+          rm_id=rm_id, sent=answer, source=source, question=tail[-400:])
     return answer
 
 
@@ -1745,10 +1748,13 @@ def _write_json_atomic(path: Path, obj: dict) -> None:
 
 
 def _slug_of(cwd) -> str:
-    """Nom du dossier projet claude pour un cwd — schéma observé du CLI :
-    '/' et '.' → '-'. Sert à recouper le cwd d'un store avec l'emplacement RÉEL
-    du transcript (RM2418)."""
-    return re.sub(r"[/.]", "-", str(cwd).rstrip("/")) or str(cwd)
+    """Nom du dossier projet claude pour un cwd. Sert à recouper le cwd d'un store avec
+    l'emplacement RÉEL du transcript (RM2418).
+
+    RM3085 : la règle vient de `pm_stores.cwd_slug` — celle du CLI, vérifiée dans le binaire.
+    Celle qui vivait ici ne remplaçait que `/` et `.` : tout chemin contenant `_` produisait un
+    slug que le CLI ne fabrique jamais, et `_resume_cwd()` ne retrouvait alors aucun dossier."""
+    return pm_stores.cwd_slug(str(cwd).rstrip("/")) or str(cwd)
 
 
 def _read_json_file(path: Path) -> dict | None:
@@ -4782,36 +4788,24 @@ def pending_entries(sessions, unresolved_by_sid, question_by_sid) -> list:
 
 # RM2466 volet 2 étape 2 : le worklog de session PM (pm-session-status, RM2068).
 # Store keyé par le session_id de l'agent — le même que celui du transcript.
-WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
-                   or (Path.home() / ".claude" / "session-worklogs")).expanduser()
-# Reprises TELLES QUELLES de pm-session-status.py : deux classifications
-# divergentes du même worklog donneraient deux vérités sur « où on en est ».
-WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
-                "résolu", "resolu"}
-# RM2635 : statuts qui sortent une demande du « à traiter ». Copie de
-# REQUEST_DONE (pm-session-status.py) — un test vérifie qu'elles ne divergent
-# pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
-REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
-WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-                   "en_pause"}
-# RM2930 : « à tester / valider » sort de l'attente. Un ticket livré qui attend le
-# test du demandeur n'est pas coincé — il attend une ACTION, de quelqu'un
-# d'identifié. Le ranger avec les blocages le faisait lire « c'est mort » là où il
-# fallait lire « c'est à toi », et le bouton actualiser ne l'en sortait jamais
-# (le statut était juste ; c'est le rangement qui mentait).
-WORKLOG_TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
-                   "a_tester_preprod"}
-# Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
-# attente, plus les variantes libres qu'emploient les chantiers hors ticket.
-WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-                "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
-                "a_corriger", "todo", "à faire", "en cours"}
+# RM3085 : le MÊME dossier avait deux variables (PM_SESSION_WORKLOG_DIR côté scripts,
+# KARL_AGENT_WORKLOG_DIR ici) ; n'en poser qu'une faisait diverger l'écrivain du lecteur, sans
+# erreur visible. `pm_stores.worklog_dir()` accepte les deux.
+WORKLOG_DIR = pm_stores.worklog_dir()
+# RM3085 : ces classifications vivaient en DOUBLE ici et dans pm-session-status.py, recopiées
+# « telles quelles » — et la copie avait déjà divergé (MEP n'existait que d'un côté : un ticket
+# a_mep se rangeait ailleurs selon qu'on regardait le terminal ou l'écran). Une seule définition.
+WORKLOG_DONE = pm_worklog_states.DONE
+REQUEST_DONE_STATES = pm_worklog_states.REQUEST_DONE
+WORKLOG_WAITING = pm_worklog_states.WAITING
+WORKLOG_TESTING = pm_worklog_states.TESTING
+WORKLOG_MEP = pm_worklog_states.MEP
+WORKLOG_TODO = pm_worklog_states.TODO
 # RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
 # ce qui reste est une mise en production — batchée (plusieurs tickets montent
 # ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
 # n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
 # entre des tickets encore à écrire ; elle a donc son propre bucket.
-WORKLOG_MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
@@ -9423,7 +9417,9 @@ _PM_COMMANDS_DEFAULT = [
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
-ANSWERS_LOG = LOG_DIR / "answers.jsonl"   # RM2302 : réponses « Oui » envoyées (socle RM2305)
+# RM3085 : `answers.jsonl` retiré — écrit depuis RM2302, jamais relu. Ces réponses vont désormais
+# au journal structuré (catégorie `claude`), qui est lu et purgé. Le fichier existant est laissé
+# sur disque : le supprimer effacerait un historique, même inexploité.
 
 
 def _probe_env(host: str, env: str) -> tuple:
@@ -12415,8 +12411,31 @@ class Handler(BaseHTTPRequestHandler):
             return  # client parti
 
 
+def purge_tmux_logs(keep_days: int = None, now: float = None) -> int:
+    """RM3085 — supprime les logs pipe-pane plus vieux que la rétention. Rend le nombre effacé.
+
+    Ces fichiers n'avaient aucune purge : ils s'accumulaient un par session tmux depuis toujours.
+    Le geste est fait au DÉMARRAGE, pas par un timer — un filet de plus au fil de l'eau, jamais un
+    process de plus (règle RM3013). `KARL_TMUX_LOG_KEEP_DAYS=0` le débraye."""
+    days = TMUX_LOG_KEEP_DAYS if keep_days is None else keep_days
+    if days <= 0 or not LOG_DIR.is_dir():
+        return 0
+    limite = (now or time.time()) - days * 86400
+    n = 0
+    for f in LOG_DIR.glob("karl-*.log"):
+        try:
+            if f.stat().st_mtime < limite:
+                f.unlink(); n += 1
+        except OSError:
+            pass          # un log verrouillé ou déjà parti n'empêche pas le démarrage
+    return n
+
+
 def main():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    purged = purge_tmux_logs()
+    if purged:
+        _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

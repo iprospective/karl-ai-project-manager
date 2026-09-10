@@ -43,6 +43,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
 from pm_paths import PMConfig
 
 API_URL = "https://smsapi.free-mobile.fr/sendmsg"
@@ -96,12 +97,10 @@ def append_log(cfg: PMConfig, rm_id: int, message: str) -> None:
     if not task_file:
         print(f"AVERTISSEMENT : ticket RM{rm_id} introuvable, log non écrit.", file=sys.stderr)
         return
-    log_file = task_file.parent / task_file.name.replace(".md", ".log.md")
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # RM3085 : format partagé — cette entrée n'avait ni le bon horodatage (espace au lieu de « T »)
+    # ni la ligne « Tokens », donc ni `pm-task-log` ni la feuille de temps ne la voyaient.
     preview = message if len(message) <= 120 else message[:117] + "…"
-    entry = f"\n## {ts} — SMS envoyé (Free Mobile)\n\n> {preview}\n"
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(entry)
+    pm_task_log.append(task_file, "SMS envoyé (Free Mobile)", f"> {preview}")
 
 
 def main() -> None:

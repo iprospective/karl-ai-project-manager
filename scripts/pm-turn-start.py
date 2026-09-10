@@ -16,6 +16,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_stores  # noqa: E402  RM3085 : résolution unique des stores de session
+
 
 def main():
     try:
@@ -24,7 +27,7 @@ def main():
         return
     sid = str(evt.get("session_id") or "unknown")
     sid = re.sub(r"[^A-Za-z0-9_-]", "_", sid)[:80]  # nom de fichier sûr
-    d = Path.home() / ".claude" / "logs"
+    d = pm_stores.turn_dir()
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / f"turn-start-{sid}.json").write_text(

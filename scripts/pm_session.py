@@ -63,6 +63,21 @@ def _write_json(path: Path, data) -> None:
     os.replace(tmp, path)
 
 
+#: RM3085 — l'index croissait sans fin (88 Ko sur ce poste, une entrée par session depuis toujours).
+#: Il sert à retrouver les branches et worktrees d'une session VIVANTE ou récente : au-delà, c'est de
+#: l'archive que personne ne relit. Bornage par nombre d'entrées (les seq sont croissants).
+INDEX_KEEP = int(os.environ.get("PM_SESSIONS_INDEX_KEEP") or 500)
+
+
+def _trim(idx: dict) -> bool:
+    """Ne garde que les `INDEX_KEEP` seq les plus récents. Rend True si l'index a changé. Pure."""
+    if INDEX_KEEP <= 0 or len(idx) <= INDEX_KEEP:
+        return False
+    for k in sorted(idx, key=lambda s: int(s) if str(s).isdigit() else 0)[:-INDEX_KEEP]:
+        idx.pop(k, None)
+    return True
+
+
 def _locked(fn):
     """Exécute `fn(idx)` sous flock exclusif ; persiste l'index si fn renvoie
     (valeur, True). Renvoie la valeur. Le lock couvre lecture + écriture."""
@@ -72,7 +87,8 @@ def _locked(fn):
         fcntl.flock(lk, fcntl.LOCK_EX)
         idx = _read_json(index, {})
         value, dirty = fn(idx)
-        if dirty:
+        trimmed = _trim(idx) if dirty else False   # RM3085 : bornage à l'écriture, jamais en lecture
+        if dirty or trimmed:
             _write_json(index, idx)
         return value
     # flock relâché à la fermeture du with

@@ -23,20 +23,20 @@ import argparse
 import re
 import sys
 from pathlib import Path
+import pm_stores  # RM3085 : stores et slugification partagés
 
-PROJECTS = Path.home() / ".claude" / "projects"
+PROJECTS = pm_stores.claude_stores()[0]   # RM3085 : résolution unique (respecte PM_CLAUDE_STORES)
 
 
 def encode(path: str) -> str:
     """Chemin absolu → nom de dossier de sessions Claude.
 
-    Reproduit FIDÈLEMENT la règle de Claude Code (fonction `cM`, vérifiée dans le
-    binaire 2.1.178) : `replace(/[^a-zA-Z0-9]/g, "-")` — TOUT caractère non
-    alphanumérique (`/`, `.`, `_`, …) devient `-`, casse préservée. Ne PAS se limiter
-    au `/` : un chemin contenant un `.` (ex. `/zfs/workspaces/.mmi-pm-core`) produit
-    sinon un nom que le CLI ne cherche jamais (`-…-.mmi-pm-core` vs réel `-…--mmi-pm-core`).
+    La règle EST celle de `pm_stores.cwd_slug` (vérifiée dans le binaire 2.1.178, fonction `cM`) :
+    tout caractère non alphanumérique devient `-`, casse préservée. Elle vit là-bas parce qu'une
+    seconde version, plus permissive, traînait dans `karl-move-session` : un chemin contenant `_`
+    produisait deux slugs différents et la reprise ne retrouvait jamais son dossier (RM3085).
     """
-    return re.sub(r"[^a-zA-Z0-9]", "-", path.rstrip("/"))
+    return pm_stores.cwd_slug(path.rstrip("/"))
 
 
 def main():

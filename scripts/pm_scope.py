@@ -21,6 +21,7 @@ Un refus n'est JAMAIS silencieux : message explicite avec les deux projets et
 le geste pour passer outre en conscience.
 """
 import json
+import pm_stores  # RM3085 : résolution unique des stores de session
 import os
 import re
 import sys
@@ -98,7 +99,8 @@ def _seen_in_session(rm_id) -> bool:
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not sid:
         return True  # hors session Claude : pas de registre → pas de garde
-    wl = Path.home() / ".claude" / "session-worklogs" / f"{sid}.json"
+    wl = pm_stores.worklog_file(sid)   # RM3085 : plus de chemin en dur — sinon la garde lit un
+                                       # dossier vide et laisse tout passer sans le dire
     try:
         data = json.loads(wl.read_text(encoding="utf-8"))
     except (OSError, ValueError):

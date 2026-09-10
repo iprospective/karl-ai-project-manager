@@ -1,5 +1,13 @@
 # Changelog des normes
 
+## [2.30.1] - 2026-09-10
+
+### Modifié
+- **Le classifieur tourne aussi sur Ollama** (`session-tooling`, RM3067) : moteur local ou hébergé,
+  pris d'office quand `OLLAMA_HOST`/`OLLAMA_API_KEY` existe, coût nul. Précision sur ce qui part au
+  modèle : les messages du demandeur et les **réponses à l'écran** de l'agent, jamais le raisonnement
+  interne ni le tooling.
+
 ## [2.30.0] - 2026-09-10
 
 ### Ajouté

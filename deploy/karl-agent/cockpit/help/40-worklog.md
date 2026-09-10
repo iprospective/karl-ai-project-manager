@@ -3,6 +3,26 @@
 La colonne de droite, sous le terminal, recentre l'information sur la **session
 attachée**, répartie en onglets (dont **infos** et **état**).
 
+## Le tableau de bord de la session
+
+Le worklog n'est pas une liste : c'est le **tableau de bord de la session en
+cours**. Il répond à « où en est-on, et qu'est-ce qui attend quoi ? » sans
+relire la conversation. Chaque zone répond à une question précise :
+
+| Zone | La question à laquelle elle répond |
+|---|---|
+| 🔔 **notifications** | qu'est-ce qui s'est passé de notable, et reste-t-il à traiter ? |
+| 🔀 **MR à merger** | qu'est-ce qui est écrit mais pas encore intégré ? |
+| 📥 **demandes à traiter** | qu'est-ce qui a été demandé et n'a pas encore de ticket ? |
+| **sous-onglets par statut** | que reste-t-il à faire, à tester, à mettre en production ? |
+| 📄 **documents** | qu'est-ce que la session a produit ou consulté ? |
+| 🌿 **branches** | sur quoi le code a-t-il bougé ? |
+
+Ces zones ne se recouvrent pas. Une **demande** appelle une action — souvent
+ouvrir un ticket ; une **notification** raconte un fait ; un **ticket** porte un
+statut. Ce qui est traité **sort** de la liste sans sortir du worklog : la trace
+reste, le backlog s'allège.
+
 ## Worklog
 
 Le worklog reflète l'avancement de la session : tickets ouverts et leur statut,

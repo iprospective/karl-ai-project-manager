@@ -172,12 +172,12 @@ les cases *reprise au démarrage* et *fallback spawn*.
 
 ```bash
 curl -s http://127.0.0.1:9876/health
-curl -s -X POST http://127.0.0.1:9876/spawn \
+curl -s -X POST http://127.0.0.1:9876/api/session/spawn \
   -d '{"rm_id":"1669","cwd":"/zfs/workspaces/ai/project-management","engine":"claude"}'
-curl -s -X POST http://127.0.0.1:9876/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
-curl -s "http://127.0.0.1:9876/capture/1669?lines=200"
+curl -s -X POST http://127.0.0.1:9876/api/session/send -d '{"rm_id":"1669","msg":"traite la tâche RM1669"}'
+curl -s "http://127.0.0.1:9876/api/terminal/capture/1669?lines=200"
 curl -sN http://127.0.0.1:9876/stream/1669      # SSE live
-curl -s -X POST http://127.0.0.1:9876/kill -d '{"rm_id":"1669"}'
+curl -s -X POST http://127.0.0.1:9876/api/session/kill -d '{"rm_id":"1669"}'
 # reprise de main humaine, directement sur dev :
 tmux attach -t karl-RM1669
 ```
@@ -187,10 +187,16 @@ tmux attach -t karl-RM1669
 Première UI web du système PM — **seed de RM1679**. Donne *lancer + superviser +
 reprise de main* dans le navigateur, sur l'API karl-agent existante.
 
-- **UI servie en même origine** par le daemon (`GET /`), HTML/JS auto-contenu
-  (`deploy/karl-agent/cockpit/index.html`) : pas de CORS, pas de build, pas de
-  dépendance. Liste les sessions (poll `/sessions`), formulaire de lancement
-  (`/spawn`), boutons Attach / Kill.
+- **UI servie en même origine** par le daemon (`GET /`) : pas de CORS, aucune
+  dépendance au chargement. Depuis la **3.0.0 (RM2889)** ce n'est plus un HTML
+  auto-contenu : `index.html` (coquille) + `src/boot.js` + modules ES par domaine
+  (`src/modules/<domaine>/`), servis tels quels sous `/static/` ; seul le CSS est
+  compilé (`cockpit.css` depuis les `.scss`, `npm run build:css` dans `tooling/`).
+  Routes `/api/<type>/<action>` (les chemins historiques ci-dessous restent servis
+  par alias). Version du front dans `src/core/version.js`, portée par `/health` et
+  le pied de page. Architecture, règles, tests et MEP : `deploy/karl-agent/cockpit/README.md`.
+  Liste les sessions (composite `/refresh`), formulaire de lancement (`/spawn`),
+  boutons Attach / Kill, et bien plus — voir l'aide intégrée (`❓`, `help/*.md`).
 - **Terminal web = ttyd** (`ttyd.service`), un seul process, lancé writable (`-W`)
   avec `-a` : le cockpit passe le `rm_id` en argument d'URL (`?arg=<id>`) ; le
   wrapper `cockpit/attach-karl.sh` **valide** `rm_id` (`^[0-9]+$`) puis fait
@@ -239,6 +245,56 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
 5. **Token partagé optionnel.** Si `KARL_AGENT_TOKEN` est défini (dans le `.env`
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
+
+## Chemins historiques — période de tolérance (RM3004)
+
+Le front appelle les cibles `/api/<type>/<action>` ; les chemins historiques (`/sessions`, `/spawn`,
+`/resolve/<id>`…) restent servis par l'alias généré `scripts/karl_api_routes.py` pour les autres
+clients. Chaque appel direct d'un chemin historique est **compté et journalisé** (catégorie `api`,
+`info` à la première occurrence par chemin et client puis une fois par heure, `debug` à chaque
+appel) : `GET /api/log/historical` liste les chemins, leurs compteurs et le type de client depuis
+le démarrage ; `mmi-pm log-tail --cat api | grep historique` côté journal. **Zéro appel pendant une
+semaine ⇒ l'alias peut être retiré** (étape 2 de RM3004). Les appelants connus ont été basculés :
+`karl-ttyd-auth.py` (`/api/auth/whoami`), `karl-voice-setup.sh`, les exemples ci-dessus.
+
+## Canal de push (RM3006)
+
+Le cockpit tire tout par son tick `/api/session/refresh` (3–7 s). Depuis RM3006 les blocs
+**arrivent** aussi : `GET /api/session/events?blocks=<mêmes specs bloc:hash>` ouvre un canal
+SSE (le jeton d'appareil voyage en query `token=` — EventSource ne pose aucun en-tête ; il
+n'est jamais journalisé, seul le chemin l'est). À chaque publication, le serveur rejoue
+`op_refresh` avec les hashs de CE client et pousse `event: blocks` (les blocs changés) et
+`event: topics` (les sujets publiés) ; battement `: ping` toutes les 20 s ; au plus
+`KARL_AGENT_MAX_STREAMS` canaux (24) ; un client parti est décompté au tour suivant. Les
+données poussées sont filtrées par le même `auth_ctx` que le tick.
+
+Les scripts PM publient par `scripts/pm_events.py` (`POST /api/session/events/publish
+{"topics": [...], "source": "..."}` — best-effort, 0,6 s, silencieux si karl-agent est absent ;
+`PM_EVENTS_DISABLE=1` coupe) : `pm-task-status-update` (tickets, sessions, pending, worklog,
+dashboard), `pm-task-comment` (tickets), `pm-session-status` (worklog, sessions, pending),
+`karl-mail-fetch` (mail). Sujets connus : `EVENT_TOPICS`. Côté front, `push.service.js`
+branche le canal sur la pile /refresh (`RefreshService.ingest`, dédoublonnage par hash) ; le
+tick reste, en réconciliation, à 6 s / 30 s quand le canal est vivant (pastille de santé
+cerclée). Coupure → EventSource se reconnecte seul, le tick reprend sa cadence entre-temps.
+
+## Journal structuré (RM3010)
+
+`logs/karl-agent.jsonl` à la racine du projet (ignoré par git ; `KARL_JOURNAL_DIR` pour le déplacer) : un enregistrement JSON par
+ligne — `ts`, `level` (`debug` < `info` < `warn` < `error`), `cat` (`auth`, `issue`, `provider`, `tmux`, `claude`, `worklog`, `files`,
+`api`, `mail`, `sets`, `refresh`, `pm`, `session`, `voice`, `env`, `front`, `system`), `msg`, puis les champs (rm_id, user, path,
+status, ms, trace…). Écrit par `scripts/pm_log.py` (thread-safe, ne lève jamais) :
+
+- toute réponse HTTP ≥ 400 (catégorie d'après le chemin, `auth` pour 401/403, traceback court sur 5xx) ;
+- les POST aboutis des domaines qui mutent (tmux, jeux, session, auth, mail, pm, voix, tickets, worklog, fichiers), en `info`,
+  avec un résumé de la charge utile (rm_id, group, sid, engine…) ;
+- sessions tmux lancées / fermées, échecs tmux, connexions ; les autres requêtes en `debug` (`KARL_JOURNAL_LEVEL=debug`) ;
+- ce que le cockpit dépose par `POST /log` (catégorie `front`, RM3011).
+
+Rotation par taille (`KARL_JOURNAL_MAX_MB`, 20) vers `karl-agent-<horodatage>.jsonl`, rétention `KARL_JOURNAL_KEEP_DAYS` (14).
+`warn`/`error` sont aussi reflétés sur stderr (journald), `KARL_JOURNAL_STDERR=0` pour l'éviter.
+
+Lecture : `mmi-pm log-tail [-c auth,api] [-l warn] [--since ISO] [-n 100] [-q texte] [-f] [--json] [--stats]`, ou
+`GET /api/log/tail?category=&level=&since=&limit=&q=` (auth requise) — c'est ce que le menu « journal » du cockpit consomme.
 
 ## Variables d'environnement
 

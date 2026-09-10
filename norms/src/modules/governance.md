@@ -142,10 +142,20 @@ peut refuser une MR « surface » dont la doc n'a pas suivi.
 | `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
 | **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
 | **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+| **CDC vivant du projet** (RM3043) | une **décision / un arbitrage** est rendu en séance, une **question** reste ouverte, une **fonctionnalité** est livrée, prise ou planifiée | `docs/cdc-<prefix>-90-decisions.md` (D/C), `-99-questions-ouvertes.md` (Q), `-91-vrac.md` (N verbatim) ; fonctionnalités : `pm-cdc-features --sync --build` (registre yml → chapitre 10 généré, `--check` vert à la livraison). Modèle AtomBox (`modele-cdc/`) ; bouton 📋 CDC du cockpit |
 
-Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+Principe commun (le CDC vivant inclus) : **pas de rattrapage** (RM2250), pas de valeur qui rouille
 (pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
 commit-par-commit (le détail vit dans les tickets).
+
+### Licence du code et contributions (RM3029)
+
+Le code du repo PM est publié sous **GPL-3.0-or-later** (`LICENSE` à la racine, décision
+iProspective du 2026-09-07). Toute contribution — humaine ou d'agent — est faite **sous cette
+même licence** ; une dépendance ajoutée doit lui être compatible (MIT, BSD, Apache-2.0, LGPL,
+MPL-2.0 le sont ; une licence non libre ou incompatible se refuse en revue). Les données de
+projets (dépôt privé `*-core`) ne sont pas couvertes. Un nouveau projet ou dépôt choisit sa
+licence à la naissance (RM3030, `pm-project-new` / `pm-repo-new`).
 
 ### Changements sans ticket (RM2644)
 
@@ -171,6 +181,43 @@ la branche par son sujet (`glossaire-one-off`).
 
 En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
 réversible, pas ce qui mérite d'être retrouvé plus tard.
+
+## Les normes après une compaction (RM3071)
+
+Une compaction remplace la conversation par un résumé : la tâche y survit, les normes non. L'agent qui
+continue ne travaille plus avec le KERNEL mais avec le souvenir qu'il en a — et les garde-fous tombent un
+par un, sans que rien ne le signale.
+
+Le système le répare lui-même, pour **tous les projets**, sans dépendre de la vigilance de l'agent :
+
+- `mmi-pm norms-recall` rend le KERNEL à réinjecter (la version dense de `norms/runtime/` si elle existe,
+  la source humaine sinon), précédé de la raison de son retour ;
+- il est câblé dans le bloc de hooks canonique de `pm-claude-hooks-sync` sur `SessionStart` de matcher
+  `compact|resume` : sa sortie est versée au contexte de la session qui reprend. Elle n'est donc **pas**
+  silencée, contrairement aux autres hooks PM ;
+- il est posé à l'installation comme les autres hooks, et re-posé à chaque `pm-core-update` (étape 7) sur
+  le profil de chaque utilisateur ; `pm-claude-hooks-sync --check` le voit manquer.
+
+Un hook qui n'a rien à dire se tait et rend 0 : il ne casse jamais la session qui reprend. Si le rappel
+n'arrive pas, l'agent relit le KERNEL de lui-même avant d'agir — c'est écrit dans le KERNEL et dans
+`agents/worker-common.md`.
+
+## Le runtime dense (RM3037, RM3073)
+
+`norms/runtime/*.md` est la réécriture dense des normes pour les LLM. C'est elle qui est préchargée et
+réinjectée après une compaction : **c'est donc elle qui engage les agents**, pas la source humaine.
+
+- `norms/runtime/MANIFEST.yml` dit ce que chaque fichier couvre, de quelle version de source il est issu,
+  par quel modèle et quand. Une source plus récente rend son fichier **périmé**, et ça se voit.
+- La production passe par **un fournisseur du registre**, axe `llm` : `mmi-pm norms-runtime --build`.
+  Aucun agent ne réécrit le runtime à la main — c'est ainsi qu'il s'était désynchronisé en silence.
+- **Contrôle de non-perte par ANCRES**, pas par comparaison de lignes : une réécriture dense n'a rien de
+  verbatim, mais elle n'a pas le droit de toucher aux noms de scripts, options, chemins, statuts, champs
+  et variables. Une paraphrase élégante qui perd `--list-next` a perdu ce qui rendait la règle exécutable.
+- Le contrôle porte sur le **corpus**, pas fichier par fichier : déplacer une règle du KERNEL vers un
+  module est le but du découpage, la perdre est le risque.
+- **Rien n'est remplacé par un appel de modèle** : la sortie va dans `norms/runtime/.proposed/`, se
+  compare (`--diff`), et ne prend la place de l'existant qu'au `--apply`, refusé si une ancre manque.
 
 ## Versionning des normes
 

@@ -16,6 +16,7 @@ Usage :
     echo "Corps multilignes" | karl-mail-send.py --to a@b.fr --subject S --body -
     karl-mail-send.py --to a@b.fr --subject "Q sur infra" --body "..." --rm-id 1234
     karl-mail-send.py --to a@b.fr --cc m@x.fr --bcc archive@x.fr --subject S --body -
+    karl-mail-send.py --to a@b.fr --subject S --body - --html-file corps.html   # multipart
 
 Pré-requis :
 - vault-agentd actif (lance unlock-vault.sh sinon)
@@ -79,7 +80,9 @@ def resolve_secret(uri, field):
     return r.stdout.rstrip("\n")
 
 
-def build_message(args, body, from_addr):
+def build_message(args, body, from_addr, html=None):
+    """`html` (RM3052) : ajoute une alternative HTML — le message part en
+    multipart/alternative, le texte restant le repli (lecteurs sans HTML, archives)."""
     msg = EmailMessage()
     subject = args.subject
     if args.rm_id and not subject.startswith(f"[RM{args.rm_id}]"):
@@ -97,6 +100,8 @@ def build_message(args, body, from_addr):
         msg["In-Reply-To"] = args.in_reply_to
         msg["References"] = args.in_reply_to
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
     return msg
 
 
@@ -124,7 +129,9 @@ def append_to_log(rm_id, msg, bcc_list, dry_run=False):
     if msg["In-Reply-To"]:
         lines.append(f"In-Reply-To: {msg['In-Reply-To']}")
     lines.append("")
-    body = msg.get_content().rstrip()
+    # multipart (RM3052) : c'est la partie TEXTE qu'on journalise, pas le HTML
+    part = msg.get_body(preferencelist=("plain",)) if msg.is_multipart() else msg
+    body = (part.get_content() if part else "").rstrip()
     for ln in body.splitlines():
         lines.append(f"> {ln}" if ln else ">")
     lines.append("")
@@ -161,6 +168,8 @@ def main():
     ap.add_argument("--bcc", action="append", default=[], help="Copie cachée (répétable)")
     ap.add_argument("--subject", required=True)
     ap.add_argument("--body", required=True, help="Corps texte (ou '-' pour stdin)")
+    ap.add_argument("--html-file", help="Fichier HTML joint en alternative (multipart/alternative). "
+                    "Le --body texte reste le repli.")
     ap.add_argument("--rm-id", type=int, help="Si fourni : préfixe subject + append au .log.md")
     ap.add_argument("--reply-to", help="Reply-To header")
     ap.add_argument("--in-reply-to", help="Message-ID auquel ce mail répond (chainage RFC)")
@@ -186,8 +195,17 @@ def main():
         if not username or not password:
             sys.exit("ERREUR : credentials du vault vides")
 
+    html = None
+    if args.html_file:
+        try:
+            html = Path(args.html_file).read_text(encoding="utf-8")
+        except OSError as e:
+            sys.exit(f"ERREUR : --html-file illisible : {e}")
+        if not html.strip():
+            sys.exit("ERREUR : --html-file vide")
+
     from_addr = username  # SMTP impose typiquement From = compte auth
-    msg = build_message(args, body, from_addr)
+    msg = build_message(args, body, from_addr, html)
 
     # Récap pré-envoi
     print(f"From    : {msg['From']}")
@@ -196,7 +214,8 @@ def main():
     if args.bcc:     print(f"Bcc     : {', '.join(args.bcc)} (non visible dans les headers)")
     print(f"Subject : {msg['Subject']}")
     print(f"Mid     : {msg['Message-ID']}")
-    print(f"Corps   : {len(body)} octets, {body.count(chr(10))} ligne(s)")
+    print(f"Corps   : {len(body)} octets, {body.count(chr(10))} ligne(s)"
+          + (f" + HTML {len(html)} octets" if html else ""))
 
     if args.dry_run:
         print("\n--- DRY RUN — RFC822 message ---\n")

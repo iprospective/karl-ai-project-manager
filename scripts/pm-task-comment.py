@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
+import pm_events   # RM3006
 import pm_scope
 
 
@@ -69,6 +70,7 @@ def main():
         out.info(f"✓ Log local appendé : {log_path.relative_to(cfg.projects_root)}")
         if not args.no_commit:
             pm_git.autocommit([log_path], f"pm(comment): RM{args.rm_id} note Redmine + log")
+    pm_events.publish(["tickets"], source="pm-task-comment", rm_id=str(args.rm_id))   # RM3006
 
 
 if __name__ == "__main__":

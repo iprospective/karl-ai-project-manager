@@ -29,31 +29,53 @@ function fromIndex(name) {
   }
   return vm.runInNewContext("(" + html.slice(start, end) + ")");
 }
+function fromIndexSource(name) {
+  const start = html.search(new RegExp(`^function ${name}\\(`, "m"));
+  assert(start >= 0, `${name} introuvable dans index.html`);
+  let depth = 0, seen = false, end = start;
+  for (let i = start; i < html.length; i++) {
+    const c = html[i];
+    if (c === "{") { depth++; seen = true; }
+    else if (c === "}") { depth--; if (seen && depth === 0) { end = i + 1; break; } }
+  }
+  return html.slice(start, end);
+}
 
 const CAS = ["", null, undefined, "simple", "<b>gras</b>", 'guillemet "double"',
   "apostrophe 'simple'", "antislash \\ et \\\\", "& esperluette", "a<b>&\"'c\\d",
   "accentué : é à ù ç", "émoji 🙂", 0, 42, "  espaces  ", "<script>alert(1)</script>"];
 
+// Document minimal — le cockpit ne dépend d'aucun paquet (C1) et ses tests
+// tournent sous node nu (C5) : on fournit juste ce que core/dom.js utilise.
+function fakeElement() {
+  const listeners = [];
+  return {
+    innerHTML: "",
+    contains: () => true,
+    addEventListener(type, fn) { listeners.push([type, fn]); },
+    removeEventListener(type, fn) {
+      const i = listeners.findIndex(([t, f]) => t === type && f === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+    get listenerCount() { return listeners.length; },
+    dispatch(type, target) {
+      for (const [t, fn] of [...listeners]) if (t === type) fn({ type, target });
+    },
+  };
+}
+
 (async () => {
   const H = await import(path.join(DIR, "src/core/html.js"));
   const E = await import(path.join(DIR, "src/core/endpoints.js"));
 
-  // — 1. le déplacement n'a rien changé —
-  for (const name of ["esc", "jarg"]) {
-    const legacy = fromIndex(name);
-    for (const v of CAS) {
-      assert.strictEqual(H[name](v), legacy(v),
-        `${name}(${JSON.stringify(v)}) diverge entre index.html et core/html.js`);
-    }
-  }
-  console.log(`✓ esc et jarg identiques à index.html sur ${CAS.length} cas`);
+  // — 1. le déplacement n'a rien changé — (RM2889 L6 : le script inline a disparu ; la référence est l'implémentation historique, recopiée ici)
+  const escRef = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  for (const v of CAS) assert.strictEqual(H.esc(v), escRef(v), `esc(${JSON.stringify(v)}) diverge de l'implémentation historique`);
+  console.log(`✓ esc identique à l'implémentation historique sur ${CAS.length} cas`);
 
-  // — 2. jarg protège bien un handler inline en guillemets doubles —
-  //      (le piège documenté : JSON.stringify refermerait l'attribut)
-  const arg = H.jarg('il a dit "bonjour" et c\'est tout');
-  assert(!arg.slice(1, -1).includes('"'), "jarg laisse passer un guillemet double");
-  assert(arg.startsWith("'") && arg.endsWith("'"), "jarg doit rendre des simples");
-  console.log("✓ jarg ne peut pas refermer un attribut HTML");
+  // — 2. RM3001 : jarg a disparu avec le dernier handler inline ; esc n'est plus qu'un détail du gabarit (exporté pour les tests) —
+  assert.strictEqual(H.jarg, undefined, "jarg ne doit plus exister : plus aucun on* à protéger");
+  console.log("✓ jarg retiré");
 
   // — 3. html : échappe par défaut, raw() seul fait exception —
   assert.strictEqual(String(H.html`<p>${"<b>"}</p>`), "<p>&lt;b&gt;</p>");
@@ -78,10 +100,224 @@ const CAS = ["", null, undefined, "simple", "<b>gras</b>", 'guillemet "double"',
   }
   assert.strictEqual(Object.keys(E.ROUTES).length, tsv.length,
     "endpoints.js et MIGRATION-ROUTES.tsv ont divergé — régénérer");
-  assert.strictEqual(E.route("auth.login"), "/auth/login");
+  assert.strictEqual(E.route("auth.login"), "/api/auth/login", "L7 : route() rend la cible /api/<type>/<action>");
   assert.strictEqual(E.targetRoute("auth.login"), "/api/auth/login");
+  // L7 : chaque cible que le front appelle est servie par alias côté serveur (scripts/karl_api_routes.py, généré du même TSV)
+  const pyAlias = fs.readFileSync(path.join(DIR, "..", "..", "..", "scripts", "karl_api_routes.py"), "utf8");
+  const alias = Object.fromEntries([...pyAlias.matchAll(/^    "([^"]+)": "([^"]+)",$/gm)].map(m => [m[1], m[2]]));
+  for (const [name, r] of Object.entries(E.ROUTES)) {
+    assert(alias[r.target], `cible sans alias serveur : ${r.target} (${name}) — régénérer scripts/cockpit-gen-endpoints.py`);
+    assert(Object.values(E.ROUTES).some(x => x.target === r.target && x.current === alias[r.target]), `alias serveur incohérent pour ${r.target}`);
+  }
+  assert(/self\.path = api_alias\(self\.path\)/.test(fs.readFileSync(path.join(DIR, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")), "karl-agent.py pose l'alias à l'entrée des verbes HTTP");
   assert.throws(() => E.route("nexistepas"), /route inconnue/);
   console.log(`✓ endpoints : ${tsv.length} routes, nommage injectif`);
+
+  // — 6. store : LRU borné, péremption, abonnement rendu —
+  const S = await import(path.join(DIR, "src/core/store.js"));
+  const st = new S.Store("test", { ttl: 10000, max: 2 });
+  st.set("a", 1); st.set("b", 2); st.get("a"); st.set("c", 3);
+  assert.strictEqual(st.get("b"), undefined, "b aurait dû être évincé (LRU)");
+  assert.strictEqual(st.get("a"), 1, "a, relu récemment, devait survivre");
+  assert.strictEqual(st.stats().evictions, 1);
+  const perime = new S.Store("perime", { ttl: -1 });
+  perime.set("k", "v");
+  assert.strictEqual(perime.get("k"), undefined, "une entrée périmée doit être invisible");
+  assert.strictEqual(perime.stats().stale, 1);
+  let vus = 0;
+  const off = st.subscribe(() => vus++);
+  st.set("d", 4);
+  assert.strictEqual(vus, 1, "l'abonné doit être notifié");
+  off();
+  st.set("e", 5);
+  assert.strictEqual(vus, 1, "un abonné désabonné ne doit plus rien recevoir");
+  assert.strictEqual(st.stats().subscribers, 0);
+  assert.throws(() => new S.Store("x", { max: 0 }), /max doit être/);
+  // RM3005 : fraîcheur douce (age/expire), lecture indexée en lecture seule (view), stores nommés et bornés (appStores)
+  { let t = 0; const s2 = new S.Store("doux", { ttl: 1000, max: 5, now: () => t });
+    s2.set(7, { titre: "sept" }); assert.strictEqual(s2.get("7").titre, "sept", "clé numérique ≡ chaîne"); assert(s2.has(7) && s2.age("7") === 0);
+    t = 300; assert.strictEqual(s2.age(7), 300); s2.expire(7); assert.strictEqual(s2.age(7), Infinity, "expire : à revalider…"); assert.strictEqual(s2.get(7).titre, "sept", "…mais toujours servie (la vue ne clignote pas)");
+    s2.set("8", "huit"); assert.deepStrictEqual(s2.keys(), ["7", "8"]); assert.deepStrictEqual(s2.values(), [{ titre: "sept" }, "huit"]); assert.strictEqual(s2.size, 2);
+    const v = s2.view; assert.strictEqual(v[8], "huit"); assert("8" in v && !("9" in v)); assert.deepStrictEqual(Object.keys(v), ["7", "8"]); assert.deepStrictEqual(Object.values(v), [{ titre: "sept" }, "huit"]);
+    assert.throws(() => { v.x = 1; }, /lecture seule/); assert.throws(() => { delete v[8]; }, /lecture seule/);
+    t = 5000; assert.strictEqual(v[8], undefined, "la vue voit la péremption dure"); assert.deepStrictEqual(s2.keys(), []);
+    S.resetStores(); const app = S.appStores({ now: () => t }); assert.deepStrictEqual(Object.keys(app), ["resolve", "sess", "mc", "usage", "ts", "trans"]);
+    for (const [k, b] of Object.entries(S.STORE_BOUNDS)) assert(app[k].name === b.name && app[k].max === b.max && app[k].ttl === b.ttl && app[k].max > 0 && app[k].ttl > 0, "borné : " + k);
+    assert.strictEqual(S.appStores().resolve, app.resolve, "un seul store par nom"); assert.strictEqual(S.storeStats().length, 6, "karl.stats() les voit tous"); S.resetStores(); }
+  console.log("✓ store : LRU borné, péremption, désabonnement effectif, fraîcheur douce, vue indexée en lecture seule, stores nommés (RM3005)");
+
+  // — 7. LA garde du chantier : un unmount() libère tout ce que mount() a créé —
+  const D = await import(path.join(DIR, "src/core/dom.js"));
+  const el = fakeElement();
+  const store = new S.Store("monté", {});
+  let clics = 0;
+  const h = D.mount(el, "<button class=\"go\">ok</button>", {
+    events: [["click", ".go", () => clics++]],
+  });
+  h.track(store.subscribe(() => {}));
+  h.timer(() => {}, 1000);
+  assert.strictEqual(el.listenerCount, 1, "un seul écouteur délégué, pas un par élément");
+  el.dispatch("click", { closest: () => ({}) });
+  assert.strictEqual(clics, 1, "le geste délégué doit atteindre le handler");
+  assert.strictEqual(store.stats().subscribers, 1);
+  assert.strictEqual(D.domStats().mounted, 1);
+
+  h.unmount();
+  assert.strictEqual(el.listenerCount, 0, "unmount doit retirer les écouteurs");
+  assert.strictEqual(store.stats().subscribers, 0, "unmount doit rendre les abonnements");
+  assert.strictEqual(el.innerHTML, "", "unmount doit vider l'hôte");
+  assert.strictEqual(D.domStats().mounted, 0, "unmount doit sortir du registre");
+  assert.strictEqual(h.pending, 0, "aucune libération ne doit rester en attente");
+  el.dispatch("click", { closest: () => ({}) });
+  assert.strictEqual(clics, 1, "un composant démonté ne doit plus réagir");
+  console.log("✓ cycle de vie : unmount() libère écouteurs, abonnements et minuteries");
+
+  // — 7b. RM3001 : paint()/append() = le seul point d'écriture HTML hors mount/update, et il n'accepte que du SÛR —
+  { const sub = fakeElement();
+    assert.strictEqual(D.paint(sub, H.html`<b>${"<x>"}</b>`), sub); assert.strictEqual(sub.innerHTML, "<b>&lt;x&gt;</b>", "un fragment html est peint tel quel");
+    D.paint(sub, ""); assert.strictEqual(sub.innerHTML, "", "le vide efface"); D.paint(sub, null); assert.strictEqual(sub.innerHTML, "");
+    assert.throws(() => D.paint(sub, "<b>nu</b>"), /fragment non sûr/, "une chaîne nue est refusée"); assert.throws(() => D.paint(sub, String(H.html`x`)), /fragment non sûr/, "même stringifiée");
+    assert.strictEqual(D.paint(null, H.html`x`), null, "hôte absent : rien, sans erreur");
+    const acc = fakeElement(); acc.insertAdjacentHTML = (where, h2) => { acc.innerHTML += h2; }; D.paint(acc, H.html`<i>a</i>`); D.append(acc, H.html`<i>${"b"}</i>`); D.append(acc, ""); assert.strictEqual(acc.innerHTML, "<i>a</i><i>b</i>", "append ajoute sans repeindre");
+    assert.throws(() => D.append(acc, "<i>c</i>"), /fragment non sûr/);
+    console.log("✓ paint/append : fragments sûrs seulement, vide accepté, hôte absent toléré"); }
+
+  // — 8. la coquille de cohabitation est réellement branchée —
+  assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html),
+    "index.html ne charge plus le socle modulaire");
+  const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
+  for (const [, rel] of boot.matchAll(/from "(\.[^"]+)"/g)) {
+    assert(fs.existsSync(path.join(DIR, "src", rel.replace(/^\.\//, ""))),
+      `boot.js importe ${rel}, qui n'existe pas`);
+  }
+  // le pont est temporaire : il ne doit rien exposer qu'un module ne fournisse
+  assert(boot.includes("window.karl"), "le pont de cohabitation a disparu de boot.js");
+  console.log("✓ coquille : index.html charge le socle, imports de boot.js résolus");
+
+  // — 9. api : comportement identique à index.html, erreurs à quatre champs —
+  const A = await import(path.join(DIR, "src/core/api.js"));
+  const ER = await import(path.join(DIR, "src/core/errors.js"));
+  // un accesseur reste un accesseur : la configuration d'instance arrive APRÈS le boot (incident du 2026-09-05 : jeton jamais envoyé)
+  { const live = { on: false }; A.configureApi({ get authRequired() { return live.on; }, token: () => "T" }); assert.deepStrictEqual(A.headers({}), {}, "avant la config : pas de jeton"); live.on = true; assert.deepStrictEqual(A.headers({}), { "X-Karl-Token": "T" }, "la config connue plus tard est lue à chaque requête"); }
+  A.configureApi({ authRequired: true, token: () => "T" });
+  assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1", "X-Karl-Token": "T" }, "headers() : les en-têtes fournis + le jeton quand l'auth est active (comportement historique)");
+  A.configureApi({ authRequired: false }); assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1" }, "auth inactive : pas de jeton"); A.configureApi({ authRequired: true, token: () => "T" });
+  const fakeFetch = (status, body, ct = "application/json") => async () => ({
+    ok: status < 400, status, statusText: "ST",
+    headers: { get: () => ct }, json: async () => body, text: async () => String(body),
+  });
+  A.configureApi({ fetch: fakeFetch(200, { ok: 1 }) });
+  assert.deepStrictEqual(await A.api("/x"), { ok: 1 });
+  A.configureApi({ fetch: fakeFetch(200, "brut", "text/plain") });
+  assert.strictEqual(await A.api("/x"), "brut", "un corps texte doit rester texte");
+  let unauthorized = 0;
+  A.configureApi({ fetch: fakeFetch(401, { error: "jeton révoqué" }), onUnauthorized: () => unauthorized++ });
+  await assert.rejects(A.api("/x"), e => e instanceof ER.ApiError && e.status === 401
+    && e.message === "jeton révoqué" && e.code === "http.401");
+  assert.strictEqual(unauthorized, 1, "un 401 doit rappeler l'écran de login");
+  A.configureApi({ fetch: fakeFetch(500, "", "text/plain") });
+  await assert.rejects(A.api("/x"), /500 ST/);
+  A.configureApi({ fetch: fakeFetch(422, { code: "ticket.invalide", error: "titre vide", remedy: "renseigner un titre" }) });
+  await assert.rejects(A.api("/x"), e => e.code === "ticket.invalide" && e.remedy === "renseigner un titre");
+  const norm = ER.asAppError(new Error("boum"));
+  assert(norm instanceof ER.AppError && norm.code === "unknown" && norm.cause);
+  assert.deepStrictEqual(Object.keys(norm.toJSON()), ["code", "message", "detail", "remedy"]);
+  console.log("✓ api : headers identiques, corps json/texte, 401, erreurs à quatre champs");
+
+  // — 10. modèle : factory qui garantit l'invariant, repository qui cache —
+  const F = await import(path.join(DIR, "src/core/Factory.js"));
+  const RP = await import(path.join(DIR, "src/core/Repository.js"));
+  const f = new F.Factory({ type: "ticket", required: ["id"], defaults: { tags: [] }, coerce: { id: Number } });
+  const e1 = f.one({ id: "12", title: "t" });
+  assert.strictEqual(e1.id, 12); assert.deepStrictEqual(e1.tags, []); assert.strictEqual(e1.type, "ticket");
+  assert(Object.isFrozen(e1), "une entité est immuable");
+  assert.throws(() => f.one({ title: "sans id" }), /champs manquants id/);
+  assert.strictEqual(f.many({ items: [{ id: 1 }, { id: 2 }] }).length, 2);
+  let appels = 0;
+  A.configureApi({ fetch: async (p) => { appels++; return (await fakeFetch(200, { id: 7, title: p })()); } });
+  const repo = new RP.Repository({ name: "ticket-test", factory: f, routes: { one: "auth.login", list: "auth.users" } });
+  const t1 = await repo.one(7); const t2 = await repo.one(7);
+  assert.strictEqual(t1, t2, "la 2e lecture doit venir du cache");
+  assert.strictEqual(appels, 1);
+  assert.throws(() => repo.path("nexiste"), /non déclarée/);
+  console.log("✓ modèle : factory (invariants, défauts, coercition), repository (cache, routes nommées)");
+
+  // — 11. ViewModel : inerte, testable sans réseau, héritage plat —
+  const V = await import(path.join(DIR, "src/core/EntityViewModel.js"));
+  class TicketVM extends V.withConso(V.EntityViewModel) {
+    get badges() { return [...super.badges, this.e.priority]; }
+    sections() { return [{ id: "resume", title: "résumé", summary: true }, this.consoSection()]; }
+  }
+  const vm2 = new TicketVM(f.one({ id: 3, title: "T", state: "en_cours", priority: "high" }), { user: "m" });
+  assert.deepStrictEqual(vm2.badges, ["en_cours", "high"]);
+  assert.deepStrictEqual(vm2.summary().map(s => s.id), ["resume"]);
+  assert.strictEqual(vm2.user, "m"); assert.deepStrictEqual(vm2.actions(), []);
+  assert.strictEqual(vm2.conso.tokens, 0);
+  assert.throws(() => new V.EntityViewModel(null), /exige une entité/);
+  console.log("✓ ViewModel : présente sans réseau, mixin withConso, contexte injecté");
+
+  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir. RM3012 : les modules vivent par domaine
+  //   (src/modules/<domaine>/), la couche se lit sur le SUFFIXE du fichier — même contrat qu'avec les dossiers par couche.
+  const layerOf = (f) => /\.view\.js$/.test(f) ? "view" : /ViewModel/.test(f) ? "viewmodel" : /\.service\.js$/.test(f) ? "service" : /\.controller\.js$/.test(f) ? "controller" : /Repository\.js$/.test(f) ? "repository" : "model";
+  const FORBIDDEN = {
+    view:       [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /Repository\.js$/, /\.controller\.js$/, /ViewModel/],   // une vue rend, elle ne charge rien
+    viewmodel:  [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /\.controller\.js$/, /\.view\.js$/],                  // inerte : ni réseau ni DOM
+    model:      [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],                       // jamais de DOM
+    repository: [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],
+    service:    [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/],                                                    // aucun balisage
+    controller: [/core\/api\.js/],                                                                                        // aucun appel réseau direct
+  };
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x =>
+    x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
+  let verifies = 0; const seen = {};
+  for (const file of walk(path.join(DIR, "src", "modules"))) {
+    const layer = layerOf(file); seen[layer] = (seen[layer] || 0) + 1;
+    const src = fs.readFileSync(file, "utf8");
+    for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
+      for (const ban of FORBIDDEN[layer]) assert(!ban.test(spec), `${path.relative(DIR, file)} (${layer}) importe ${spec} — interdit à cette couche`);
+      verifies++;
+    }
+  }
+  assert(Object.keys(seen).length === 6 && verifies > 300, "gardes : les six couches sont représentées (" + JSON.stringify(seen) + ", " + verifies + " imports)");
+  // un module = un dossier de src/modules ; chaque fichier y est classé par son suffixe ; aucun dossier par couche ne subsiste
+  for (const d of ["models", "services", "viewmodels", "views", "controllers", "components"]) assert(!fs.existsSync(path.join(DIR, "src", d)), "dossier par couche résiduel : src/" + d);
+  console.log(`✓ gardes d'imports par suffixe : ${verifies} import(s) vérifié(s), ${Object.keys(seen).length} couches, ${fs.readdirSync(path.join(DIR, "src", "modules")).length} modules`);
+
+  // — 13. aucune référence DÉTACHÉE à une fonction native du navigateur (setTimeout, fetch…) : appelée comme méthode d'un objet,
+  //   elle lève « Illegal invocation » dans un navigateur mais pas sous node — d'où un test statique (incident du 2026-09-06)
+  { let bare = [];
+    for (const file of walk(path.join(DIR, "src"))) for (const [i, line] of fs.readFileSync(file, "utf8").split("\n").entries())
+      if (/[:=]\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\s*[,)}\];]/.test(line.replace(/\/\/.*$/, "").replace(/^\s*\*.*$|^\s*\/\*.*$/, "")) && !/=>\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\b|globalThis\.|window\./.test(line)) bare.push(path.relative(DIR, file) + ":" + (i + 1));
+    assert.deepStrictEqual(bare, [], "référence détachée à une fonction native : " + bare.join(", "));
+    console.log("✓ aucune référence détachée à setTimeout/fetch… dans src/"); }
+
+  // — 15. RM3001 : toute écriture HTML passe par core/dom.js (mount/update/paint/append) ; plus de jarg ; esc réservé au gabarit
+  { const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); const code = fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+      if (rel !== path.join("src", "core", "dom.js") && /\.(innerHTML|outerHTML)\s*=[^=]|insertAdjacentHTML\(/.test(code)) offenders.push(rel + " : écrit du HTML sans passer par core/dom.js");
+      if (/\bjarg\b/.test(code)) offenders.push(rel + " : jarg");
+      if (rel !== path.join("src", "core", "html.js") && /\besc\s*\(/.test(code)) offenders.push(rel + " : esc() hors du gabarit");
+    }
+    assert.deepStrictEqual(offenders, [], offenders.join(" ; "));
+    console.log("✓ aucune écriture HTML hors core/dom.js, plus de jarg, esc réservé au gabarit (RM3001)"); }
+
+  // — 14. RM3005 : zéro cache hors core/store.js — un store se définit LÀ (appStores/STORE_BOUNDS), jamais dans un module ; aucun objet
+  //   de cache partagé (`caches`, `resolveAt`, `resolveCache = {}`) ; boot.js prête les stores nommés et le dépôt ticket les reçoit
+  { const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+    const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); if (rel === path.join("src", "core", "store.js")) continue;
+      const code = strip(fs.readFileSync(file, "utf8"));
+      if (/\bnew Store\s*\(/.test(code) || (/\bdefineStore\s*\(/.test(code) && rel !== path.join("src", "core", "Repository.js"))) offenders.push(rel + " : définit un store");   // la classe de base Repository nomme le sien par defineStore
+      if (/\b(caches|resolveAt)\b/.test(code)) offenders.push(rel + " : objet de cache partagé");
+      if (/\b\w*[cC]ache\w*\s*=\s*(\{\}|new Map\(\))/.test(code)) offenders.push(rel + " : cache local hors store");
+    }
+    assert.deepStrictEqual(offenders, [], "caches hors core/store.js : " + offenders.join(" ; "));
+    const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"), repo = fs.readFileSync(path.join(DIR, "src/modules/ticket/TicketRepository.js"), "utf8");
+    assert(/const stores = appStores\(\);/.test(boot) && /new TicketRepository\(\{ stores \}\)/.test(boot) && /resolve: \(\) => stores\.resolve/.test(boot) && /sess: \(\) => stores\.sess/.test(boot), "boot.js prête les stores nommés");
+    assert(/this\.s = stores \|\| appStores\(/.test(repo) && !/this\.c\b/.test(repo), "le dépôt ticket range tout dans les stores");
+    console.log("✓ zéro cache hors core/store.js : stores définis dans core/store.js seulement, prêtés par boot.js, reçus par le dépôt ticket (RM3005)"); }
 
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

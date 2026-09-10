@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import yaml
 from pm_paths import PMConfig
+import pm_license   # RM3030 : la licence du code se décide à la naissance du projet
 import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)
 
 
@@ -140,6 +141,9 @@ def main():
     rm_group.add_argument("--existing-redmine-id",
                           help="Identifier d'un projet Redmine déjà créé (skip création, attache le PM dessus)")
     ap.add_argument("--description", default="")
+    ap.add_argument("--license", default=None, metavar="SPDX",
+                    help="licence du code du projet (MPL-2.0, Apache-2.0, MIT, LGPL-3.0, GPL-3.0, AGPL-3.0, proprietary) — sans l'option : "
+                         "question en terminal (défaut GPL-3.0), sinon proprietary ; consignée dans .mmi-pm/meta.yml (RM3030)")
     ap.add_argument("--gitlab-group", default=None)
     ap.add_argument("--no-bootstrap", action="store_true")
     ap.add_argument("--interactive-bootstrap", action="store_true",
@@ -183,6 +187,12 @@ def main():
                  f"'<dossier>-core' — renommer d'abord (ex. dev/fad-framework).")
     gitlab_group_ns = args.gitlab_group or args.client
     core_repo = f"{workspace.name}-core"
+    # RM3030 : la licence se décide maintenant, pas « plus tard » (un dépôt sans LICENSE n'est pas open source)
+    try:
+        license_id = pm_license.choose(args.license, warn=lambda m: print(f"  ⚠ {m}"))
+    except ValueError as e:
+        sys.exit(f"ERREUR : {e}")
+    print(f"  · Licence du code : {license_id}")
 
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
     key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
@@ -263,6 +273,7 @@ def main():
         "name": args.name,
         "client": args.client,
         "status": "active",
+        "license": license_id,        # RM3030 : SPDX du code (pm-repo-new le relit pour écrire LICENSE)
         "created": now,
         "used_by_clients": [],
         "provided_by": None,

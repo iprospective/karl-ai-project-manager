@@ -46,6 +46,7 @@ from pm_output import out
 import pm_reporting
 import pm_git
 import pm_scope
+import pm_events   # RM3006 : prévenir le cockpit sans attendre son tick
 import redmine_utils
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
@@ -606,6 +607,8 @@ def main():
                          "consommée par le cockpit (RM2888)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
+    ap.add_argument("--ignore-think", action="store_true",
+                    help="RM3053 : fermer malgré des questions ouvertes / notes à trier dans le .think.md")
     ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
@@ -652,6 +655,18 @@ def main():
     if canon_status != args.status:
         out.warn(f"statut déprécié '{args.status}' normalisé → '{canon_status}'")
         args.status = canon_status
+    # RM3086 : prendre un ticket, c'est aussi le passer en_cours à la main — même avertissement,
+    # même source. Silencieux dans tous les autres cas.
+    if args.status == "en_cours":
+        try:
+            import pm_concurrent
+            _txt = pm_concurrent.avertissement(
+                args.rm_id, pm_concurrent.concurrentes(args.rm_id, me=os.environ.get("CLAUDE_CODE_SESSION_ID")))
+            if _txt:
+                out.warn(_txt)
+        except Exception:      # noqa: BLE001
+            pass
+
     if args.status == "ferme" and not args.close_reason:
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
     if args.close_reason and args.close_reason not in VALID_CLOSE_REASONS:
@@ -678,6 +693,17 @@ def main():
     # fermés (cas vécu RM1963). Lancé AVANT la lecture du MD ci-dessous pour que le ledger
     # écrit par le report soit relu et préservé. --no-commit : l'auto-commit de ce script
     # (plus bas) emporte le ledger. Best-effort : un échec ne bloque pas la clôture.
+    # RM3015-F004 (RM3053) : un ticket ne se ferme pas avec des questions ouvertes ou des notes
+    # non triées dans son fichier de réflexion — c'est la garde qui empêche de perdre une goutte.
+    if args.status == "ferme" and not args.ignore_think:
+        import pm_think
+        _tp = pm_think.think_path(md_path)
+        if _tp.is_file():
+            _c = pm_think.counters(pm_think.load(_tp))
+            if _c["questions_open"] or _c["notes_pending"]:
+                sys.exit(f"ERREUR : RM{args.rm_id} a encore {_c['questions_open']} question(s) ouverte(s) et "
+                         f"{_c['notes_pending']} note(s) à trier dans {_tp.name} — tranche-les "
+                         f"(`pm-task-think {args.rm_id} --set <id> --state valide|invalide`) ou --ignore-think.")
     if args.status == "ferme":
         rep = Path(__file__).resolve().parent / "pm-task-report.py"
         try:
@@ -949,6 +975,26 @@ def main():
     if assigned_to_id is not None:
         fm["assigned_to"] = assigned_to_id
 
+    # RM3026 — Notification client à la MEP : à l'entrée en `en_mep` (MEP prod
+    # effective), si le PROJET a l'option `notif_client_mep` active, mettre le
+    # ticket en FILE (frontmatter `client_notify`). L'email récap n'est PAS envoyé
+    # ici — il l'est en un seul lot par `mmi-pm client-notify send <projet>` quand
+    # l'humain estime la MEP finie. Idempotent (set_queued), best-effort : une option
+    # illisible ne fait jamais échouer une transition déjà écrite en Redmine.
+    if args.status == "en_mep" and old_status != "en_mep":
+        try:
+            import pm_client_notify as pcn
+            _parts = md_path.relative_to(cfg.projects_root).parts
+            _pmeta = cfg.project_meta(_parts[1], _parts[3]) or {}
+            if pcn.is_option_active(_pmeta):
+                fm, _qchanged = pcn.set_queued(fm, now)
+                if _qchanged:
+                    out.info("  notif client : RM{} mis en file MEP (envoi : "
+                             "mmi-pm client-notify send {}/{})".format(
+                                 args.rm_id, _parts[1], _parts[3]))
+        except Exception as e:                                  # noqa: BLE001
+            out.warn(f"mise en file notif client non effectuée (best-effort) : {e}")
+
     new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
 
@@ -1089,6 +1135,8 @@ def main():
     if not args.dry_run and not args.no_commit:
         pm_git.autocommit([md_path, log_path, pm_reporting.ledger_path(md_path)],
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
+    if not args.dry_run:   # RM3006 : le cockpit affiche le nouveau statut tout de suite (tickets, worklog, alertes)
+        pm_events.publish(["tickets", "sessions", "pending", "worklog", "dashboard"], source="pm-task-status-update", rm_id=str(args.rm_id), status=args.status)
 
 
 if __name__ == "__main__":

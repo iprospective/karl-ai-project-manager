@@ -1,0 +1,37 @@
+// styles/main — la feuille du cockpit : tokens, socle, puis un fichier par module, dans l'ordre de la feuille historique (la cascade
+// compte : deux règles de même spécificité se départagent par l'ordre). `npm run build:css` → cockpit.css (versionné, servi tel quel).
+
+@use "tokens";
+@use "base";
+@use "entities";   // RM3002 : convention des quatre niveaux d'entité, avant les modules
+@use "../modules/layout/layout";
+@use "../modules/sessions/sessions";
+@use "../modules/auth/auth";
+@use "../modules/terminal/terminal";
+@use "../modules/dashboard/dashboard";
+@use "../modules/shell/shell";
+@use "../modules/env/env";
+@use "../modules/search/search";
+@use "../modules/resume/resume";
+@use "../modules/worklog/worklog";
+@use "../modules/meta/meta";
+@use "../modules/center/center";
+@use "../modules/projects/projects";
+@use "../modules/newticket/newticket";
+@use "../modules/launcher/launcher";
+@use "../modules/actions/actions";
+@use "../modules/refresh/refresh";
+@use "../modules/outline/outline";
+@use "../modules/tickets/tickets";
+@use "../modules/files/files";
+@use "../modules/git/git";
+@use "../modules/ticket/ticket";
+@use "../modules/doc/doc";
+@use "../modules/journal/journal";
+@use "../modules/memory/memory";
+@use "../modules/cdc/cdc";
+@use "../modules/sessproj/sessproj";
+@use "../modules/providers/providers";
+@use "../modules/engines/engines";
+@use "../modules/setnav/setnav";
+@use "../modules/clientnotify/clientnotify";   // RM3052 : compte-rendu client

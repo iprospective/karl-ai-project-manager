@@ -45,7 +45,10 @@ def fake_tmux(*args, timeout=10):
 ka._tmux = fake_tmux
 ka._has_session = lambda rm_id: rm_id in PANES
 ka._list_sessions = lambda: [{"rm_id": rm} for rm in PANES]
-ka.ANSWERS_LOG = pathlib.Path(tempfile.mkdtemp()) / "answers.jsonl"
+# RM3085 : les réponses vont au journal structuré (catégorie `claude`), lu par le cockpit —
+# `answers.jsonl` n'avait jamais eu de lecteur. On capture les appels.
+JOURNAL = []
+ka._jlog = lambda cat, level, msg, **f: JOURNAL.append(dict(f, cat=cat))
 
 MENU = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
 CHOICE = "Quelle approche ?\n❯ 1. Refactor complet\n  2. Patch minimal"
@@ -101,9 +104,8 @@ check("tick : idempotent une fois la question partie",
       ka._auto_yes_tick(now=100.0) == [] and not SENT)
 
 # — journal : provenance tracée (tout / auto) —
-lines = [json.loads(ln) for ln in ka.ANSWERS_LOG.read_text().splitlines()]
 check("journal : sources manuel/tout/auto tracées",
-      {e["source"] for e in lines} == {"tout", "auto"} and len(lines) == 4)
+      {e["source"] for e in JOURNAL} == {"tout", "auto"} and len(JOURNAL) == 4)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

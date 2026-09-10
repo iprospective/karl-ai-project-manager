@@ -2,7 +2,7 @@
 type: procedure
 product: karl-agent
 created: 2026-07-28
-refs: [RM2418, RM2391, RM2144, RM1939]
+refs: [RM2418, RM2391, RM2144, RM1939, RM2068, RM2991, RM2997]
 ---
 
 # karl-agent — sessions Claude Code : stockage, host↔conteneur, déplacement
@@ -22,6 +22,56 @@ donc viser le système de fichiers **du conteneur**.
 |---|---|---|
 | `~/.claude/projects/<slug>/<sid>.jsonl` | **transcript** de la conversation (source de `--resume`) | **OUI** (même inode) |
 | `~/.local/state/karl-agent/sessions/<engine>/<sid>.json` | **store per-session** karl (dont le `cwd` de relance) | **NON** (stores distincts) |
+| `~/.claude/session-worklogs/<sid>.json` (+ `.md`) | **worklog PM** de la session (RM2068) | **OUI** |
+| `~/.local/state/karl-agent/tasks/<client>/<projet>/RM<id>-<n>.json` | **jonction ticket ↔ session** | **NON** |
+
+## Archivage — ce qui protège vraiment (RM2997)
+
+`~/.claude/projects` est un dépôt git (remote `claude-projects-sessions`).
+**Un commit local suffit à immuniser un transcript** : git garde le blob même
+quand Claude Code efface le fichier. Le push met hors machine ; la protection,
+elle, commence au commit.
+
+`pm-sessions-archive.py` fait les deux, toutes les heures (timer systemd
+`--user`), et archive aussi `history.jsonl` et les worklogs — sous `_meta/`, à
+une profondeur qui ne les fasse pas passer pour des transcripts (le moteur
+énumère `*/*.jsonl`, profondeur **deux** exactement).
+
+Deux invariants, appris à la dure :
+
+- **aucune suppression n'est consignée.** Un transcript déjà effacé doit garder
+  son blob atteignable dans l'historique — c'est ce qui a permis d'en récupérer
+  313. Consigner sa disparition le retirerait de l'arbre courant, et un clone
+  frais ne le ramènerait plus.
+- **un verrou ne se lève que mort** : plus vieux que 15 min ET aucun git vivant
+  dans le dépôt. Le 2026-06-23, un `.git/index.lock` laissé par un git
+  interrompu a fait échouer chaque archivage pendant **75 jours sans un mot** —
+  aucun cron, aucun log, aucune alerte, le geste étant manuel. Le verrou est mis
+  de côté (`index.lock.perime-<epoch>`), jamais détruit.
+
+Surveillance : `pm-sessions-archive.py --check` (âge du dernier commit, commits
+non poussés, verrou) est branché sur le contrôle d'environnement de karl-agent
+(`_envchk_sessions_archive`, niveau `error`) — ce qui est perdu ici ne se
+rattrape pas.
+
+## Le worklog : les métadonnées PM d'une session (RM2068, RM2991)
+
+`~/.claude/session-worklogs/<sid>.json` est **le** fichier de métadonnées d'une
+session — keyé par le même `session_id` que le transcript, alimenté
+automatiquement par les scripts PM (via `pm_session_hook.py`) :
+
+| Clé | Contenu |
+|---|---|
+| `items[]` | un par ticket touché : `ref` (`RM2703`), `label` (**le titre du ticket**), `project`, `status`, `opened_status`, `note`, `next`, `commit`, `ts` |
+| `requests[]` | **le texte des demandes** telles que formulées, + `status` (ticketée ou non) et `ticket` |
+| `notifications[]` | événements notables consignés en séance (`level`, `kind`, `ref`, `message`) |
+
+Le `.md` du même nom en est le rendu lisible (celui que sert `mmi-pm
+session-status`). Le tout pèse ~0,5 Mo pour une centaine de sessions, contre
+~400 Mo de transcripts : **c'est ici qu'on cherche**, pas dans les `.jsonl`.
+`op_resumable` (recherche du panneau de reprise, RM2991) s'appuie exactement sur
+ces trois listes, plus les jonctions et l'index des titres de tickets ; le
+transcript n'est balayé que sur demande explicite (`deep=1`).
 
 ⇒ Éditer le store per-session **depuis l'hôte** touche le mauvais fichier : le store que
 lit `op_resume` est celui **du conteneur**. Symptôme classique (RM2391) : on « corrige »

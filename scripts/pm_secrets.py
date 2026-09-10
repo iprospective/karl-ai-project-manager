@@ -1314,6 +1314,9 @@ def get_backend(type_, name="default", **options):
 # Convention alignée sur RM2546 (`REDMINE__<slug>__API_KEY`). Les valeurs ne sont
 # jamais journalisées : seules les CLÉS présentes peuvent l'être.
 CREDS_PREFIX = "SECRET__"
+#: tous les préfixes sous lesquels `pm-provider-secret` peut avoir posé un identifiant, par TYPE de
+#: fournisseur. Une lecture qui n'en connaît qu'un ne trouve pas les autres (RM3080).
+CREDS_PREFIXES = ("SECRET__", "LLM__", "REDMINE__", "GITLAB__", "GOGS__", "GITHUB__", "NC__")
 
 # Repli par instance : variables historiques, pour ne rien casser tant qu'un dev
 # n'a pas nommé ses clés par slug. Ne concerne que l'instance Vaultwarden livrée.
@@ -1334,21 +1337,28 @@ def creds_env_key(instance, suffix):
     return f"{CREDS_PREFIX}{env_slug(instance)}__{suffix.upper()}"
 
 
-def creds_for(instance, env=None, legacy=True):
+def creds_for(instance, env=None, legacy=True, prefixes=None):
     """Identifiants déclarés pour une instance : {suffixe: valeur}.
 
     Lit la forme canonique (slug normalisé) ET la forme littérale, cette dernière
     par tolérance pour un `.env` écrit avant RM2683 ; la canonique gagne.
     `legacy=True` complète avec les variables historiques (BW_CLIENTID…) pour les
     clés absentes — la migration vers les clés par slug reste ainsi opt-in.
+
+    `prefixes` : sous quels préfixes chercher. `pm-provider-secret` nomme la variable
+    d'après le TYPE du fournisseur — `SECRET__` pour un coffre, mais `LLM__` pour un
+    modèle, `REDMINE__` pour un Redmine, `GITLAB__` pour une forge (RM3080). Lire sous
+    le seul `SECRET__` revenait à ne jamais retrouver la clé d'un fournisseur LLM :
+    l'appel partait sans clé, et le 401 accusait une clé pourtant bien posée.
     """
     env = os.environ if env is None else env
     out = {}
     # Forme littérale d'abord, la canonique ensuite : elle écrase, donc elle gagne.
-    for prefix in (f"{CREDS_PREFIX}{instance}__",
-                   f"{CREDS_PREFIX}{env_slug(instance)}__"):
-        out.update({k[len(prefix):].upper(): v for k, v in env.items()
-                    if k.startswith(prefix) and v not in (None, "")})
+    for base in (prefixes or (CREDS_PREFIX,)):
+        base = base if base.endswith("__") else base + "__"
+        for prefix in (f"{base}{instance}__", f"{base}{env_slug(instance)}__"):
+            out.update({k[len(prefix):].upper(): v for k, v in env.items()
+                        if k.startswith(prefix) and v not in (None, "")})
     if legacy:
         for suffix, var in LEGACY_CREDS.items():
             if suffix not in out and env.get(var):
@@ -1356,8 +1366,8 @@ def creds_for(instance, env=None, legacy=True):
     return out
 
 
-def creds_keys(instance, env=None, legacy=True):
+def creds_keys(instance, env=None, legacy=True, prefixes=None):
     """Noms des identifiants disponibles, triés — jamais les valeurs.
 
     C'est ce qu'un diagnostic peut afficher ou journaliser (tripwire 11)."""
-    return sorted(creds_for(instance, env=env, legacy=legacy))
+    return sorted(creds_for(instance, env=env, legacy=legacy, prefixes=prefixes))

@@ -38,8 +38,13 @@ check("la suite se découvre seule (les deux conventions de nommage)",
       "test_pm_task.py" in noms and "test-karl-agent-auth.py" in noms)
 check("le socle commun n'est pas lancé comme un test",
       "test_support.py" not in noms)
+# Le filtre se vérifie par sa PROPRIÉTÉ, pas par une liste figée : sinon tout test ajouté
+# dont le nom porte le motif fait rougir le lanceur (RM2967 — cas rencontré à l'ajout de
+# test_mmi_pm_dispatch.py).
+filtres = [f.name for f in pmtest.discover(["mmi_pm"])]
 check("un motif filtre par sous-chaîne",
-      [f.name for f in pmtest.discover(["mmi_pm"])] == ["test_mmi_pm.py"])
+      filtres and all("mmi_pm" in n for n in filtres)
+      and "test_mmi_pm.py" in filtres and len(filtres) < len(noms))
 
 # — les trois verdicts, sur de vrais sous-processus —
 with tempfile.TemporaryDirectory() as td:

@@ -28,38 +28,9 @@ faire à la main. En particulier, toute opération qui **amende l'état d'une t�
 branchée derrière `pm-task-status-update.py` (**source unique des transitions**), qui propage
 Redmine + MD + log + worklog de session. Le worklog de session (`pm-session-status.py`) est
 alimenté **automatiquement** par les scripts qui modifient l'état des tâches (via
-`pm_session_hook.py`) ; cf. RM1875.
-
-### Couverture actuelle (à compléter au fil des trous identifiés)
-
-| Domaine | Opération | Outil canonique |
-|---|---|---|
-| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` (`--porcelain` = id nu sur stdout) |
-| Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
-| Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
-| Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
-| Tâche | **déplacer vers un autre projet PM** (fiche + `.log` + `.reporting`, et `project_id` Redmine vérifié par relecture) | `pm-task-move.py <id> --to <client>/<projet>` (RM2866) |
-| Tâche | description / checklist | `pm-task-description-update.py` |
-| Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
-| Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
-| Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
-| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
-| Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
-| Instance | pont d'onboarding des workspaces (`AGENTS.md` + `CLAUDE.md`) | `pm-workspace-bridge.py` (nu = contrôle · `--install` · `--update`, RM1892) |
-| Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |
-| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
-| Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
-| Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
-| Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
-| Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
-| Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
-| Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
-| Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
-| Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
-| Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
-| Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
-| Instance | **faire tourner un travail PÉRIODIQUEMENT** — jamais une ligne de crontab (RM2792) | `jobs.reference.yml` + `pm-scheduler.py list|check|history` |
-| **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+`pm_session_hook.py`) ; cf. RM1875. **Où il vit sur disque**, avec les deux autres
+stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
+`knowledge/karl-agent/sessions.md`.
 
 ## Notifications importantes de session (RM2466)
 
@@ -75,6 +46,81 @@ coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'es
 use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
 elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
 ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
+
+## Consignation par ticket — le `.think.md` (RM3015, RM3053)
+
+**Tout ce qui se réfléchit ou se décide appartient à un ticket, pas à la session.** Chaque
+fiche a un frère `RM<id>_<slug>.think.md` à quatre rubriques — notes (N), questions (Q),
+décisions et conseils (D/C), fonctionnalités (F) — aux états ✅ ❌ 🟡 🕐 ⏸. Le `.log.md`
+garde les événements, le think garde le **pourquoi** ; la fiche ne porte que des compteurs
+(`think:`).
+
+### Les quatre rubriques — ce qui s'y range, et ce qui ne s'y range pas (RM3062)
+
+| Rubrique | Ce que c'est | Ce que ce n'est pas |
+|---|---|---|
+| **N note** | **Ce qui n'a PAS été traité** et pourra servir : un report explicite (« pour l'instant… on verra plus tard »), un manque, une intention différée. Trois conditions **cumulatives** (RM3066) : (1) un **reste à faire** ; (2) **auto-suffisante** — on comprend QUOI reste à faire en lisant la note seule, hors du fil, dans six mois ; (3) **pas déjà traitée**. Explicite (« note que… ») ⇒ toujours. | Une **demande d'exécution** (« étudie RM3058 », « consigne tout ça maintenant ») — même longue, même si elle contient « il faudra » ; une **réponse à une question** (« Q23 : … ») — c'est une décision ; une **contrainte** (« doit être figé ») — c'est une décision aussi ; un **bug** — c'est un ticket ; un accord, un accusé, un collage de console, un résumé de compaction. |
+| **Q question** | Ce qui n'est **pas tranché** et ce que ça **bloque**, avec l'urgence et l'avis de l'agent. Une supposition non confirmée devient une Q. | Une question de simple exécution qui se règle dans le tour (« quel port ? »). |
+| **D décision** (C conseil) | **Ce que le demandeur demande de faire, pose, ou tranche** — suite à une question **ou non**, ticketé **ou non** : les réponses aux questions en font partie, mais pas seulement. Un arbitrage même bref (« on fusionne », « un seul menu ») est une D ✅. Le **C** est le conseil de l'agent (options, pour/contre, motif), 🟡 tant qu'il n'est pas arbitré. | Le simple choix d'implémentation de l'agent (il vit dans le code et le ticket), un « ok » qui ne pose rien. |
+| **F fonctionnalité** | Une **feature, généralement atomique** : une demande qui **donne lieu à un ticket**, en **complète** un, ou **sera à faire plus tard** — avec son domaine, sa version quand elle est connue, l'état de l'échelle. | Une tâche interne de l'agent, un correctif de son propre code, une étape d'un ticket déjà décrite dans sa description. |
+
+**Chaque ligne est signée par son auteur nommé** — une personne (Mathieu, Paul, Pierre…) ou un modèle
+(Claude Opus 5, Qwen 3.8 27b, Deepseek 4 Flash…), jamais un code : on sait qui a proposé la feature,
+posé la question, laissé la note, tranché. Les **propositions et réflexions pertinentes de l'IA**, même
+non posées en question outillée, entrent au vrac **signées du modèle** (la moisson les repère).
+Chaque fichier (think, registres du projet) porte en tête la **légende** de ses rubriques.
+
+**Le critère d'une note** : « qu'est-ce qui, là-dedans, n'a PAS été traité et pourra servir ? ». Si
+la réponse est « rien », ne rien consigner — un vrac noyé n'est jamais lu. Le verbatim qui **fonde**
+une décision se garde comme **source de la D** (la D le cite), pas comme note séparée.
+
+**Le vrac est un SAS, pas une destination.** Une dette retenue ne reste pas une note : elle se
+reformule **dans le même tour** en **question** (ce qu'elle bloque) ou en **fonctionnalité** (ce qui
+reste à faire), sur le ticket qui la porte — c'est là qu'elle devient actionnable et lisible. Une
+note sans destination au bout de quelques jours n'en aura jamais.
+
+**Le tri final revient à un modèle, pas à un motif de texte** (RM3067). Le hook garde une heuristique —
+rapide et gratuite, elle n'est qu'un filet ; c'est **`pm-think-classify`** (modèle léger, ~1 $ par million
+de jetons) qui décide vraiment : il relit les tours de **conversation** d'un transcript — ce que
+le demandeur écrit et ce que l'agent lui **répond à l'écran**, jamais le raisonnement interne, jamais le
+tooling (appels d'outils, résultats, diffs, sorties de commandes) — et rend, pour chacun, `rien` · dette · question · décision ·
+fonctionnalité **avec une reformulation auto-suffisante**. À lancer sur une session avant de livrer
+(`--session`), ou en reprise sur l'historique (`--all --since`) ; `--dry-run` par défaut, rien n'est écrit
+sans `--apply`, et le coût est rapporté à chaque passe. Le modèle de travail se déclare dans le **registre des
+providers, axe `llm`** (`pm-providers resolve llm`), avec la même cascade que les autres axes — défaut,
+puis client, puis projet. Types : `lemonade` (Ryzen AI), `ollama`, `openai` (vLLM, LM Studio,
+llama.cpp), `anthropic`, `claude-cli`. **Local d'abord** ; une variable d'environnement
+(`LLM_BASE_URL`, `OLLAMA_HOST`…) prime, pour essayer un modèle sans toucher la conf. En local, les transcripts — qui portent le travail des clients — ne quittent
+pas la machine, et la passe ne coûte rien : c'est le mode à préférer pour une reprise d'historique.
+
+**Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
+dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un
+projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient d'AtomBox).
+
+Règles :
+
+**Une note, une question — la ligne de partage.** Une **demande** appelle une ACTION (faire quelque
+chose, souvent ouvrir un ticket) ; une **question ouverte** appelle un ARBITRAGE. La question n'est
+pas définie par son auteur : c'est **tout ce qui n'est pas tranché** — ce que l'agent demande, ce que
+le demandeur se demande, ce qui naît de la réflexion commune. Un même message peut porter les deux.
+En cas de doute, note : une note mal classée se trie, une question perdue ne se retrouve pas.
+
+1. **Les scripts d'abord, l'agent ensuite** : le hook `pm-think-harvest` consigne à chaque tour
+   les questions posées, les réponses retenues et, **sous le critère de la note** (marqueur de
+   réflexion, ou prompt qui a produit une Q/D), les remarques verbatim du demandeur — jamais
+   ses demandes immédiates ; `request`/`notify` rattachés à un ticket y descendent. L'agent n'écrit à la main que le conseil et l'arbitrage :
+   `pm-task-think <id> --advise|--decide|--question|--feature "…"`, **dans le même tour** que la
+   discussion qui les a fait naître — un arbitrage non consigné est un arbitrage qu'on croira consigné.
+2. **Un ticket ne se ferme pas avec une Q ouverte ou une N à trier** (garde de `pm-task-status-update`) :
+   tranche (`--set Qnnn --state valide|invalide`) avant de livrer.
+3. **Le projet agrège, jamais à la main** : `pm-think-merge` régénère `docs/cdc-questions.md`,
+   `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md` (ids `RM<id>-Xnnn`) ; `cdc.md`,
+   `cdc-roadmap.md` (un rôle par version, sur demande) et `cdc-help.md` (complétée par le LLM)
+   restent manuels. `--check` à la livraison. Une idée sans ticket attend dans `cdc-notes.md`,
+   au-dessus des marqueurs. Mode d'emploi : skill `mmi-pm-think`.
+
+**Trous d'outillage connus et idiomes de ligne de commande** : `session-tooling-pratique`. Un trou ne
+dispense de rien — il dit quel geste manuel tient lieu d'outil en attendant (tripwire #1).
 
 ## Registre des demandes (RM2621)
 
@@ -98,25 +144,6 @@ sortie de commande. Ce ne sont pas des demandes et ils noient les vraies. Si
 l'une s'est glissée dans le registre, elle se range en `non_demande` — pas en
 `annulee` : personne n'a rien annulé, et ranger le bruit sous un statut faux
 rend le registre inexploitable pour la question à laquelle il sert à répondre.
-
-### Idiomes fréquents (évite de relancer `--help` à chaque session)
-
-- **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,
-  `redmine-post-note <id> --note -`, `pm-task-add --description -` (ou
-  `--description-file <path>`), `pm-task-description-update <id> --set-from-file <path>`.
-  Passer par stdin/fichier plutôt qu'un argument quoté évite AUSSI la protection
-  Bash « newline + `#` » de Claude Code (validation à répétition sur les arguments
-  multi-lignes contenant un dièse).
-- **Transitions valides depuis le statut courant** : `pm-task-status-update <id> --list-next`
-  (au lieu de deviner le flow d'états).
-- **Auto-assignation** : `en_cours` auto-assigne au porteur (`--assign-to me` implicite) ;
-  `--assign-to <id|me|author>` pour forcer, `--no-assign` pour débrayer.
-- **Détection de projet** : si la détection cwd échoue ou est ambiguë,
-  `--project entity/project` explicite (`pm-task-add`, `pm-task-list`, …).
-- **Répétition sans risque** : `--dry-run` sur `pm-task-add`, `pm-task-status-update`,
-  `pm-task-sync` — voir le diff avant d'écrire.
-- **Script lancé depuis un worktree sans `.env`** : préfixer
-  `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
 
 ### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
 

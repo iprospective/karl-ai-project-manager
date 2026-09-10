@@ -1,0 +1,71 @@
+// modules/doc/doc.scss — style du module « doc » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+.docmodal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 20; align-items: center; justify-content: center; }
+.docmodal.show { display: flex; }
+
+/* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
+.helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.helptoc .chip.on { color: var(--accent); font-weight: 600; }
+.helpbody { font-size: 14px; line-height: 1.55; }
+.helpq { cursor: pointer; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 50%; width: 18px; height: 18px; line-height: 15px; font-size: 12px; padding: 0; margin-left: 6px; vertical-align: middle; }
+.helpq:hover { color: var(--accent); border-color: var(--accent); }
+/* RM3075 — repère d'aide POSÉ sur une zone (registre helpSpots) : plus discret qu'un bouton de
+   panneau, il ne doit pas concurrencer le contenu. Il s'efface tant qu'on ne survole pas la zone. */
+.hspot { opacity: .35; transition: opacity .15s ease; }
+.hspot:hover, .hspot:focus-visible { opacity: 1; }
+h2 .hspot, summary .hspot { vertical-align: middle; }
+.rnav .hspot, #hcnt .hspot, #composer .hspot { margin-right: 6px; }
+*:hover > .hspot { opacity: .75; }
+.docbox { width: min(900px, 92vw); height: min(80vh, 800px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; }
+.docbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
+#doccontent { margin: 0; padding: 16px; overflow: auto; font-size: 12.5px; color: var(--fg); flex: 1; }
+#doccontent.plain { white-space: pre-wrap; font-family: var(--mono); }
+/* RM2309 : rendu markdown (modale doc, description, protocole de test) */
+.mdview { font-size: 13px; line-height: 1.55; white-space: normal; }
+.mdview h1, .mdview h2, .mdview h3, .mdview h4, .mdview h5, .mdview h6 {
+  color: var(--fg); margin: 14px 0 6px; line-height: 1.3; font-weight: 600;
+  text-transform: none; letter-spacing: 0; }
+.mdview h1 { font-size: 16px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.mdview h2 { font-size: 14.5px; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.mdview h3 { font-size: 13.5px; }
+.mdview h4, .mdview h5, .mdview h6 { font-size: 13px; color: var(--muted); }
+.mdview p { margin: 6px 0; }
+.mdview code { font-family: var(--mono); font-size: 12px; background: rgba(127,127,127,.14);
+  border-radius: 4px; padding: 1px 4px; }
+.mdview pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; overflow-x: auto; font-family: var(--mono); font-size: 11.5px;
+  margin: 8px 0; white-space: pre; }
+.mdview pre.mdfm { color: var(--muted); }
+.mdview ul, .mdview ol { margin: 6px 0; padding-left: 22px; }
+.mdview li { margin: 2px 0; }
+.mdview blockquote { margin: 8px 0; padding: 4px 10px; border-left: 3px solid var(--accent);
+  color: var(--muted); }
+.mdview table { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+.mdview th, .mdview td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.mdview th { background: var(--panel2); }
+.mdview a { color: var(--accent); }
+.mdview hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+/* RM2623 : glossaire du jargon */
+.gloss { border-bottom: 1px dotted var(--muted); cursor: help; }
+.gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
+.glosstop { position: sticky; top: 0; background: var(--panel); padding-bottom: 8px;
+  display: flex; align-items: center; gap: 10px; z-index: 1; }
+.glosstop input { flex: 1; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 13px; }
+.glosstop .glosscount { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.glossrow { padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.glossrow.glosshi { background: var(--accent-soft, rgba(127,160,255,.14)); border-radius: 6px; }
+.glossterm { font-family: var(--mono); font-weight: 600; color: var(--fg); font-size: 13px; }
+.glossalias { color: var(--muted); font-weight: normal; font-size: 11.5px; margin-left: 6px; }
+.glossdef { color: var(--fg); font-size: 12.5px; line-height: 1.5; margin-top: 3px; }
+.glossempty { color: var(--muted); padding: 16px 2px; }
+.glosscat { margin: 15px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.glosscat:first-child { margin-top: 2px; }
+// RM3043 : liste des CDC vivants (menu 📋 CDC)
+.cdclist { display: flex; flex-direction: column; gap: 6px; }
+.cdcrow { display: flex; gap: 10px; align-items: baseline; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--fg); cursor: pointer; }
+.cdcrow:hover { border-color: var(--accent); }
+.cdcproj { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.cdctitle { flex: 1; font-weight: 600; }
+.cdcn { font-size: 11px; color: var(--muted); }

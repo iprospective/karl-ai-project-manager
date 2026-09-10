@@ -4,6 +4,7 @@ slug: ""                       # identifiant kebab-case (= nom du dossier)
 name: ""
 client: ""                     # OBLIGATOIRE — slug de l'entité parente (peut être type=client/product/self)
 status: active                 # active | paused | archived
+license: proprietary           # SPDX du code du projet (MPL-2.0 recommandée pour « ouvert avec modules », Apache-2.0, MIT, LGPL-3.0, GPL-3.0, AGPL-3.0) ou proprietary — posé par pm-project-new (RM3030)
 created: 2026-05-12
 
 # Partage cross-client — source de vérité du frontmatter

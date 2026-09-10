@@ -29,8 +29,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_stores  # RM3085 : stores de session résolus une seule fois
 from pm_output import out as pmout
 from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
+import pm_events   # RM3006 : le worklog change → le cockpit l'apprend sans attendre son tick
+import pm_git     # RM3076 : le pont session → .think.md committe ce qu'il écrit (RM3013)
+import pm_worklog_states   # RM3085 : une seule classification du worklog
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -44,28 +48,14 @@ CLAUDE_STORES = [pathlib.Path(x).expanduser()
                      "PM_CLAUDE_STORES", os.path.expanduser("~/.claude/projects")).split(":")
                  if x.strip()]
 
-WORKLOG_DIR = os.path.expanduser(
-    os.environ.get("PM_SESSION_WORKLOG_DIR") or "~/.claude/session-worklogs")
+WORKLOG_DIR = str(pm_stores.worklog_dir())
 
-# statuts considérés comme terminés (filtrés hors du « reste à faire »)
-DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu", "resolu"}
-# statuts vraiment bloqués / en attente d'un tiers : RIEN n'est demandé à
-# personne d'identifié, le ticket dort jusqu'à ce qu'un événement extérieur
-# survienne.
-WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-           "en_pause"}
-# RM2930 : « à tester / valider » n'est PAS une attente — c'est une action, et
-# elle a un acteur. Ces statuts vivaient dans WAITING : un ticket livré qui
-# attendait le test du demandeur s'affichait « en attente / bloqué », donc coincé,
-# alors qu'il fallait lire « c'est à toi ». Même raisonnement que RM2860 pour la
-# MEP : un travail d'une autre nature mérite sa section.
-TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
-           "a_tester_preprod"}
-# RM2860 : le dev est fini, reste la mise en prod — un travail batché, souvent
-# porté par un autre acteur. Section à part, ici comme dans le cockpit : deux
-# vues divergentes du même worklog donneraient deux vérités sur « où on en est ».
-# RM2930 : `a_tester_preprod` en sort — c'est une recette, pas une mise en prod.
-MEP = {"a_mep", "a_mep_prod", "en_mep"}
+# RM3085 : définis une seule fois (pm_worklog_states), importés ici ET par karl-agent — deux
+# classifications du même worklog donnaient deux vérités sur « où on en est » (MEP manquait d'un côté).
+DONE = pm_worklog_states.DONE
+WAITING = pm_worklog_states.WAITING
+TESTING = pm_worklog_states.TESTING
+MEP = pm_worklog_states.MEP
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
@@ -102,7 +92,7 @@ REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee",
 # les autres. Ranger un collage de console dans `annulee` serait un mensonge de
 # classement — personne n'a rien annulé. Il lui faut son propre état, sinon le
 # tri se fait au prix d'une donnée fausse.
-REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee", "non_demande")
+REQUEST_DONE = tuple(sorted(pm_worklog_states.REQUEST_DONE))   # RM3085 : même source que le cockpit
 REQUEST_ICON = {"nouveau": "🆕", "ticketee": "🎫", "repondu": "💬",
                 "annulee": "🚫", "fusionnee": "⛓", "non_demande": "🗒"}
 
@@ -913,6 +903,38 @@ def cmd_request(data, args):
     data["requests"] = reqs
     save(data)
     pmout.op("worklog", extra="demande #%d enregistrée" % len(reqs))
+    _think_note(args.ticket, str(args.text), data["session_id"])
+
+
+def _think_note(ref, text, sid):
+    """RM3015-D004/D005 (RM3053) : ce qui est rattaché à un ticket descend dans son `.think.md`
+    (note verbatim, dédoublonnée) — le worklog n'est plus le contenant durable. Best-effort."""
+    m = re.search(r"(\d+)", str(ref or ""))
+    if not m:
+        return
+    try:
+        import pm_think
+        from pm_paths import PMConfig
+        sheet = PMConfig.load().find_task(int(m.group(1)))
+        if not sheet:
+            return
+        think = pm_think.think_path(sheet)
+        if pm_think.has_text(pm_think.load(think), "note", text):
+            return
+        rid = pm_think.append(think, "note", text, rm_id=int(m.group(1)), by="M", state="attente", sid=sid)
+        pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        pm_git.autocommit([think, sheet], f"pm(think): RM{m.group(1)} +{rid} (session)")
+    except Exception as e:                       # noqa: BLE001 — jamais bloquer l'enregistrement
+        # RM3076 : l'avertissement console seul avait laissé passer un `pm_git` non importé
+        # pendant toute la vie du pont — un « best-effort » muet est un pont mort. Le journal
+        # structuré garde la trace même quand personne ne lit la console (hooks, cockpit).
+        pmout.warn("think non mis à jour : %s" % e)
+        try:
+            from pm_log import log as _jlog
+            _jlog("worklog", "warn", "pont session → think en échec : %s" % e,
+                  ref=str(ref or ""), sid=sid, err=type(e).__name__)
+        except Exception:                        # noqa: BLE001 — le journal ne bloque jamais
+            pass
 
 
 def cmd_notify(data, args):
@@ -966,6 +988,7 @@ def cmd_notify(data, args):
     save(data)
     pmout.op("worklog", extra="notification %s [%s] %s" % (
         NOTIFY_ICON.get(note["level"], "•"), note["level"], args.message[:60]))
+    _think_note(args.ref, "[notification %s/%s] %s" % (note["level"], kind, args.message), data["session_id"])
     pmout.info("  · %s" % paths(data["session_id"])[1])
 
 
@@ -1085,6 +1108,8 @@ def main():
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
      "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
      "mr": cmd_mr, "request": cmd_request}[cmd](data, args)
+    if cmd != "show":
+        pm_events.publish(["worklog", "sessions", "pending"], source="pm-session-status", cmd=cmd)
 
 
 if __name__ == "__main__":

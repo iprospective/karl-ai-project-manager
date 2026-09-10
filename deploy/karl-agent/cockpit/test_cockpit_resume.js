@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// Tests de « Reprendre une session » migré (RM2889) — porte RM2834 (client → projets), RM2991 (recherche, opt-in transcript,
+// libellés, archivées), RM2144/RM2418 (ancrage, déplacement), RM2396 (panneau rechargé après reprise).
+"use strict";
+const path = require("path"); const assert = require("assert"); const DIR = __dirname;
+const settle = (ms) => new Promise(r => setTimeout(r, ms || 10));
+const escO = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return { id, kids, dataset: {}, value: "", get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, contains(n) { return this.id === "rs-list" ? !!(n && n.dataset && n.dataset.sid) : true; }, focus() { this.focused = true; },
+  querySelector(sel) { return kids[sel] || null; }, addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
+  async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); },
+  async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
+(async () => {
+  const M = await import(path.join(DIR, "src/modules/resume/resume.js"));
+  const { ResumeService } = await import(path.join(DIR, "src/modules/resume/resume.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/resume/ResumeViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/resume/Resume.view.js"));
+  const { mountResume } = await import(path.join(DIR, "src/modules/resume/resume.controller.js"));
+  // — RM2834 —
+  const PR = [{ client: "acme", project: "shop", value: "acme/shop" }, { client: "acme", project: "bo", value: "acme/bo" }, { client: "beta", project: "api", value: "beta/api" }, { client: "", project: "", value: "" }];
+  const r1 = M.rsProjectOptions(PR, "acme", "acme/shop"); assert.strictEqual(r1.options.map(o => o.value).join(","), "acme/bo,acme/shop"); assert.strictEqual(r1.value, "acme/shop"); assert.strictEqual(M.rsProjectOptions(PR, "acme", "beta/api").value, "", "changer de client abandonne le projet d'un autre client");
+  const r3 = M.rsProjectOptions(PR, "", "beta/api"); assert.strictEqual(r3.options.map(o => o.value).join(","), "acme/bo,acme/shop,beta/api"); assert.strictEqual(r3.value, "beta/api"); assert.strictEqual(M.rsProjectOptions(PR, "inconnu", "acme/shop").options.length, 0); assert.strictEqual(M.rsProjectOptions(null, "acme", "").options.length, 0);
+  assert.strictEqual(M.rsClientOptions(PR).join(","), "acme,beta"); assert.strictEqual(M.rsClientOptions([]).length, 0);
+  // — RM2991 —
+  assert.strictEqual(M.rsQuery({}), ""); assert.strictEqual(M.rsQuery({ q: "  annuaire  " }), "?q=annuaire"); assert.strictEqual(M.rsQuery({ deep: true }), "", "deep sans mots-clés n'est pas envoyé"); assert.strictEqual(M.rsQuery({ q: "annuaire", deep: true }), "?q=annuaire&deep=1"); assert.strictEqual(M.rsQuery({ q: "annuaire", deep: false }), "?q=annuaire");
+  assert.strictEqual(M.rsQuery({ project: "acme/appli" }), "?client=acme&project=appli"); assert.strictEqual(M.rsQuery({ client: "acme" }), "?client=acme"); assert.strictEqual(M.rsQuery({ project: "acme/appli", client: "beta" }), "?client=acme&project=appli"); assert.strictEqual(M.rsQuery({ engine: "vibe", status: "wip", q: "x" }), "?engine=vibe&status=wip&q=x"); assert(/q=a%26b/.test(M.rsQuery({ q: "a&b" })));
+  assert.strictEqual(M.rsTicketsLabel([]), ""); assert.strictEqual(M.rsTicketsLabel(null), ""); assert.strictEqual(M.rsTicketsLabel([{ rm_id: "2703" }]), "RM2703"); assert.strictEqual(M.rsTicketsLabel([{ rm_id: "2703", title: "Annuaire" }]), "RM2703 Annuaire"); assert.strictEqual(M.rsTicketsLabel([{ rm_id: "1", title: "A" }, { rm_id: "2", title: "B" }]), "RM1 A · RM2 B"); const long = M.rsTicketsLabel([{ rm_id: "9", title: "x".repeat(80) }], 10); assert(long.length < 25 && long.endsWith("…"));
+  // — ancrage (RM2144) —
+  assert.strictEqual(M.resumeAnchorDefault({ tickets: [{ rm_id: 1 }, { rm_id: 42 }] }, "7"), "42", "le dernier ticket de la session"); assert.strictEqual(M.resumeAnchorDefault({ tickets: [] }, " 7 "), "7", "sinon le lanceur"); assert.strictEqual(M.normalizeAnchor("RM42"), "42"); assert.strictEqual(M.normalizeAnchor(" 42 "), "42"); assert.strictEqual(M.normalizeAnchor("mon-slug_2"), "mon-slug_2"); assert.strictEqual(M.normalizeAnchor(""), ""); assert.strictEqual(M.normalizeAnchor("Pas Valide!"), null); assert.strictEqual(M.normalizeAnchor("-x"), null);
+  console.log("✓ modèle (RM2834/2991/2144) : client → projets cohérents, requête avec opt-in transcript, libellés tronqués, ancrage normalisé");
+  // — vue —
+  const RS = [{ session_id: "dcf266aa-460c-46c2-9", title: "Annuaire <b>", mark: "wip", client: "acme", project: "shop", tickets: [{ rm_id: "2703", title: "Annuaire" }], mtime: 1, live: true, match: "transcript", cwd: "/w/x" }, { session_id: "beef0000-1111", tickets: [], mtime: 2, cwd: "/w/y" }];
+  const AR = [{ session_id: "dcf266aa-460c-46c2", updated: "2026-07-21", tickets: [{ ref: "RM2392", title: "Onduleur APC" }] }];
+  const list = (e) => String(V.ResumeList(new VM.ResumeListViewModel(Object.assign({ resumable: RS, archived: [], needle: "" }, e), { ago: () => "3j" }), { markPill: (m) => m ? '<span class="pill warn">' + m.toUpperCase() + "</span> " : "" }));
+  const h = list({ archived: AR });
+  assert(/<li title="[^"]*session dcf266aa-460c-46c2-9" data-action="resume" data-sid="dcf266aa-460c-46c2-9">/.test(h) && /<span class="pill warn">WIP<\/span> <span class="r-title">Annuaire &lt;b&gt;<\/span> <span class="pill" title="Trouvé dans le transcript de la conversation">transcript<\/span>/.test(h), "ligne : marque, titre échappé, pourquoi elle est là");
+  assert(/data-action="move" data-sid="dcf266aa-460c-46c2-9"/.test(h) && /class="r-meta">acme\/shop · RM2703 Annuaire · 3j · <span class="pill ok">tmux vivant<\/span>/.test(h) && /class="r-title">beef0000…</.test(h) && /class="r-meta">\/w\/y · 3j</.test(h) && !/onclick=/.test(h));
+  assert(/class="rs-archived">1 session\(s\) archivée\(s\)[\s\S]*non reprenables[\s\S]*<code>dcf266aa<\/code> 2026-07-21 — RM2392 Onduleur APC/.test(h) && !/460c/.test(h.split("rs-archived")[1]), "RM2991 : archivées nommées, id abrégé, rien de cliquable"); assert(!/<li|<button|data-action/.test(h.split('class="rs-archived"')[1]));
+  assert(!/<img/.test(String(V.ArchivedNote(new VM.ResumeListViewModel({ archived: [{ session_id: "a", tickets: [{ ref: "<img src=x>" }] }] }))))); assert.strictEqual(String(V.ArchivedNote(new VM.ResumeListViewModel({ archived: [] }))), "");
+  assert(/<div class="empty">aucune session<\/div>/.test(list({ resumable: [] }))); assert(/aucune session reprenable pour « zz »/.test(list({ resumable: [], needle: "zz" }))); assert(/aucune session<\/div><div class="rs-archived">/.test(list({ resumable: [], archived: AR })), "la note suit même une liste vide");
+  assert.strictEqual(String(V.SelectOptions(["a", "b"], "b", "tous")), '<option value="">tous</option><option value="a">a</option><option value="b" selected>b</option>');
+  // — service —
+  const calls = []; const repo = { async search(qs) { calls.push(["search", qs]); return { resumable: RS, archived: AR }; }, async resume(body) { calls.push(["resume", body]); return { tmux: "karl-RM42", rm_id: "42" }; }, async move(sid, c, p) { calls.push(["move", sid, c, p]); return { client: c, project: p }; } };
+  const svc = new ResumeService({ repo });
+  await svc.search({ client: "acme", q: "x", deep: true }); assert.deepStrictEqual(calls[0], ["search", "?client=acme&q=x&deep=1"]); assert.strictEqual(svc.last.resumable.length, 2);
+  let r = await svc.resume(RS[1], "RM42"); assert(r.ok && /karl-RM42/.test(r.message)); assert.deepStrictEqual(calls[calls.length - 1], ["resume", { session_id: "beef0000-1111", rm_id: "42" }]); r = await svc.resume(RS[1], ""); assert.deepStrictEqual(calls[calls.length - 1][1], { session_id: "beef0000-1111" }, "vide = slug auto côté serveur");
+  const n = calls.length; r = await svc.resume(RS[1], "pas valide!"); assert(!r.ok && /Ancrage invalide/.test(r.message) && calls.length === n, "ancrage invalide : refusé sans appel");
+  r = await svc.move(RS[0], "acme/bo", ["acme/bo"]); assert(!r.ok && /tmux vivant/.test(r.message)); r = await svc.move(RS[1], "acme/bo", []); assert(!r.ok && /non chargée/.test(r.message)); r = await svc.move(RS[1], "zz/zz", ["acme/bo"]); assert(!r.ok && /Projet inconnu : zz\/zz/.test(r.message));
+  r = await svc.move(RS[1], " acme/bo ", ["acme/bo"]); assert(r.ok && /→ acme\/bo/.test(r.message)); assert.deepStrictEqual(calls[calls.length - 1], ["move", "beef0000-1111", "acme", "bo"]);
+  console.log("✓ vue et service (RM2991/2144/2418) : lignes décorées et échappées, archivées inertes, ancrage validé, déplacement gardé");
+  // — contrôleur —
+  const card = fakeElement("rescard"), q = fakeElement("rs-q"), deep = Object.assign(fakeElement("rs-deep"), { type: "checkbox", checked: false }), cs = fakeElement("rs-client"), ps = fakeElement("rs-project"), st = Object.assign(fakeElement("rs-status"), { value: "not-done" }), eng = fakeElement("rs-engine"), ul = fakeElement("rs-list");
+  Object.assign(card.kids, { "#rs-q": q, "#rs-deep": deep, "#rs-client": cs, "#rs-project": ps, "#rs-status": st, "#rs-engine": eng, "#rs-list": ul });
+  const ev = []; let projects = []; let answer = "RM42";
+  const ctr = mountResume(card, { service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), ago: () => "1j", markPill: () => "", projects: () => projects, launcherRm: () => "7", prompt: (m, d) => { ev.push(["prompt", d]); return answer; }, attach: (rm) => ev.push(["attach", rm]), afterResume: async (r) => ev.push(["after", r.tmux]) });
+  calls.length = 0; await ctr.load(); assert.deepStrictEqual(calls[0], ["search", "?status=not-done"]); assert(/data-sid="beef0000-1111"/.test(ul.innerHTML));
+  projects = PR; ctr.setProjects(); assert(/<option value="acme">acme<\/option><option value="beta">beta<\/option>/.test(cs.innerHTML) && /acme\/bo/.test(ps.innerHTML) && /beta\/api/.test(ps.innerHTML), "RM2834 : clients et projets peuplés des projets connus");
+  cs.value = "acme"; calls.length = 0; await card.fire("change", cs); assert(!/beta\/api/.test(ps.innerHTML) && /<option value="acme\/bo">bo<\/option>/.test(ps.innerHTML), "le client filtre les projets (libellé court)"); assert.deepStrictEqual(calls[0], ["search", "?client=acme&status=not-done"], "…et recharge avec client=");
+  ctr.applyClientContext("beta", "beta/api"); assert.strictEqual(cs.value, "beta"); assert.strictEqual(ps.value, "beta/api"); ctr.applyClientContext("", ""); assert(/acme\/bo/.test(ps.innerHTML) && /beta\/api/.test(ps.innerHTML));
+  ctr.setEngines(["claude", "opencode"]); assert(/<option value="opencode">opencode<\/option>/.test(eng.innerHTML)); eng.value = "opencode"; ctr.setEngines(["claude", "opencode", "vibe"]); assert.strictEqual(eng.value, "opencode", "un rafraîchissement ne défait pas le filtre");
+  q.value = "ann"; calls.length = 0; await card.fire("input", q); await card.fire("input", q); assert.strictEqual(calls.length, 0, "frappe amortie"); await settle(300); assert.strictEqual(calls.length, 1, "…une seule requête après la dernière touche"); assert(/q=ann/.test(calls[0][1]) && !/deep/.test(calls[0][1]));
+  deep.checked = true; calls.length = 0; await card.fire("change", deep); assert(/q=ann&deep=1/.test(calls[0][1]), "la case transcript accompagne des mots-clés"); await card.click("clear"); assert.strictEqual(q.value, ""); assert(q.focused); await card.click("reload"); assert(calls.length >= 3);
+  ev.length = 0; calls.length = 0; await ul.click("resume", { sid: "dcf266aa-460c-46c2-9" }); await settle(450); assert.deepStrictEqual(ev[0], ["prompt", "2703"], "l'ancrage proposé : le dernier ticket de la session"); assert(calls.some(c => c[0] === "resume" && c[1].rm_id === "42") && ev.some(x => x[0] === "toast" && /reprise dans karl-RM42/.test(x[1])) && ev.some(x => x[0] === "after") && calls.filter(c => c[0] === "search").length >= 1 && ev.some(x => x[0] === "attach" && x[1] === "42"), "reprise : suites, panneau rechargé (RM2396), attache");
+  ev.length = 0; answer = null; await ul.click("resume", { sid: "beef0000-1111" }); assert(!ev.some(x => x[0] === "toast"), "annuler l'invite : rien"); answer = "zz zz"; await ul.click("resume", { sid: "beef0000-1111" }); assert(ev.some(x => x[0] === "toast" && /Ancrage invalide/.test(x[1]) && x[2]));
+  ev.length = 0; await ul.click("move", { sid: "dcf266aa-460c-46c2-9" }); assert(ev.some(x => x[0] === "toast" && /tmux vivant/.test(x[1])) && !ev.some(x => x[0] === "prompt"), "session vivante : refusée avant l'invite"); answer = "acme/bo"; ev.length = 0; calls.length = 0; await ul.click("move", { sid: "beef0000-1111" }); assert(calls.some(c => c[0] === "move" && c[2] === "acme" && c[3] === "bo") && ev.some(x => x[0] === "toast" && /déplacée → acme\/bo/.test(x[1])) && calls.some(c => c[0] === "search"), "RM2418 : déplacée puis panneau rechargé");
+  ctr.unmount(); assert.strictEqual(card.listenerCount + ul.listenerCount, 0);
+  console.log("✓ contrôleur : projets → filtres, contexte client, moteurs, frappe amortie, opt-in transcript, reprise ancrée, déplacement gardé");
+  console.log("\nTous les tests de la reprise de session passent.");
+})().catch(e => { console.error("✗", e.message); process.exit(1); });

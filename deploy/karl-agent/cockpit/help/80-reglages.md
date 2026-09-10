@@ -1,11 +1,48 @@
 # Réglages
 
+## Cinq onglets, un sujet chacun
+
+Les réglages s'ouvrent sur une barre d'onglets. Chaque carte reste une section avec son titre ; les
+onglets ne font que donner un ordre à ce qui s'empilait en une seule colonne.
+
+- **⚙ Instance** — les réglages du serveur (liste blanche) et la sonde mémoire : ce qui vaut pour tout le
+  monde sur cette instance.
+- **🔌 Fournisseurs** — tickets, dépôts, documentation, coffres, modèles de travail.
+- **🧩 Moteurs** — moteurs de session et serveurs de modèles.
+- **🎨 Affichage** — thème, colonne de droite, préférences de sessions, voix. Tout y est local à ce
+  navigateur.
+- **👤 Compte** — connexion et comptes. L'onglet n'apparaît pas tant qu'il n'a rien à montrer.
+
+**Chaque onglet ne charge que son contenu, et une seule fois.** Ouvrir les réglages pour changer le thème
+n'interroge plus npm pour inventorier les moteurs. Le dernier onglet ouvert est retenu par ce navigateur.
+
 **🔧 réglages** (menu du haut) regroupe les préférences du cockpit et de la conf PM.
 Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autres vues.
 
 ## Apparence
 
 - **Thème** : `dark`, `light` ou `auto` (suit le système).
+
+## Commandes de moniteur tmux
+
+Une case de **Thème & affichage** montre ou masque, d'un bloc, les quatre commandes
+de **panes** de la barre du terminal : le moniteur à ajouter, **➕ Moniteur**,
+**✕ Moniteur** et la **disposition des panes**. Utiles quand on découpe le
+terminal, elles occupent quatre places le reste du temps.
+
+Elles sont **affichées par défaut**. Les masquer ne débranche rien : les gestes
+restent câblés et les panes déjà ouverts ne bougent pas. La préférence est propre
+à **ce navigateur**.
+
+## Repères d'aide « ? »
+
+Une case de **Thème & affichage** pose un petit **?** sur chaque zone du cockpit :
+la liste des sessions, le worklog, les onglets de droite, le composer, le CDC, le
+journal, les panneaux de tickets. Au **survol**, une phrase dit à quoi la zone
+sert ; au **clic**, la page d'aide correspondante s'ouvre, à la bonne section.
+
+Ils sont affichés par défaut — c'est leur raison d'être — et se décochent quand
+l'écran est devenu familier. La préférence est propre à **ce navigateur**.
 
 ## Dictée
 
@@ -44,6 +81,31 @@ Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
 (`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` / `KARL_AGENT_MEM_SWAP`) : elle
 s'édite alors dans le `.env`, suivi d'un redémarrage de karl-agent.
 
+## Sessions — paliers de contexte
+
+Trois seuils, en pourcentage de la fenêtre du modèle, décident quand la **jauge de
+contexte** d'une tuile de session s'allume (jaune), passe à l'orange, puis au rouge.
+Défauts : 50, 75 et 90. Ils sont remis en ordre s'ils sont saisis à l'envers.
+
+Le rouge vise le moment où Claude Code s'apprête à **compacter** la conversation :
+c'est là qu'il faut consigner ce qui doit survivre. Voir l'aide « sessions ».
+
+## Sonde mémoire (ce navigateur)
+
+Un onglet de cockpit qui grossit avec les heures (RM2807) se diagnostique avec la **sonde
+mémoire** : cochée, elle prend un échantillon à la cadence choisie (5 à 60 s) et ventile,
+**par module** du cockpit (sessions, centre, worklog, tickets…), ce que la page retient :
+montages, **nœuds** DOM, écouteurs/minuteries/abonnements **retenus**, entrées de **store**,
+abonnés, **rendus par minute**. Le panneau **🧠 mémoire** (bouton « ouvrir le panneau »,
+ou l'onglet qu'il laisse au centre) montre le tableau, une courbe des nœuds par module et
+signale en orange un compteur qui **grimpe sans redescendre** sur les six derniers
+échantillons — c'est la signature d'une fuite. **⤓ JSON** télécharge l'historique pour le
+joindre à un ticket ; **↺ vider** l'oublie.
+
+Décochée, la sonde ne coûte rien : aucune minuterie ne tourne. La préférence et la cadence
+sont propres à ce navigateur. Depuis la console, `karl.stats()` donne le même instantané
+(`modules`, `probe`).
+
 ## Conf PM (surcharge contrôlée)
 
 Certains réglages PM sont éditables depuis le cockpit et écrits dans une
@@ -59,4 +121,67 @@ dans le header, en orange et **clignotant** — il est resté longtemps grisé a
 milieu des autres, donc invisible. Si tu as coupé les animations dans ton
 système (« mouvement réduit »), il ne clignote pas mais garde sa couleur.
 C'est **informatif** : l'application reste un geste humain au terminal
-(`mmi-pm core update`, mot de passe sudo).
+(`mmi-pm core-update`, mot de passe sudo demandé par la commande elle-même).
+
+## Affichage (ce navigateur)
+
+Le filtre **« Clients »** de l'en-tête (contexte client, pré-filtre global) est **masqué par défaut** ; la case
+« Afficher le filtre Clients dans l'en-tête » de la carte 🎨 le réaffiche. Le contexte mémorisé reste appliqué même masqué (RM3063).
+
+## Fournisseurs
+
+La carte 🔌 **Fournisseurs** déclare ce que karl utilise : les **tickets** (Redmine), les **dépôts** (GitLab,
+Gogs, GitHub), la **documentation**, les **coffres à secrets** et les **modèles de travail** (Lemonade sur
+Ryzen AI, Ollama, serveur compatible OpenAI, API Anthropic). Chaque axe peut porter **plusieurs instances**
+— deux Redmine, par exemple — et l'une d'elles est le défaut.
+
+**Les clés ne se lisent pas, elles se remplacent.** Le panneau dit seulement « posée » ou « non renseignée »,
+et le champ de saisie est vide : il est vidé dès l'enregistrement, et aucune route ne renvoie une valeur.
+La clé va dans le fichier d'environnement de **ton** compte ; un administrateur peut cocher « global » pour
+viser celui de l'instance.
+
+**Le rôle appartient au couple projet ↔ instance.** Le détail d'une instance liste les projets qui s'en
+servent et avec quel rôle : le même Redmine est primaire chez son client et secondaire ailleurs.
+
+La déclaration part dans `pm.config.local.yml`, fusionné par-dessus `pm.config.yml` : le fichier commenté
+de référence n'est jamais réécrit par le cockpit.
+
+### Brancher un modèle sans le configurer de mémoire
+
+Pour l'axe **Modèles de travail**, la création d'une instance commence par un **service connu** :
+OpenRouter, Z.ai, Groq, DeepSeek, Mistral, Together, Fireworks, Cerebras, xAI, Gemini, OpenAI, Anthropic,
+Ollama Cloud, et les serveurs locaux (Ollama, Lemonade, LM Studio, vLLM). Le choix pose le type et l'URL ;
+le nom reste modifiable, et rien n'est envoyé tant que vous n'enregistrez pas. Il ne reste que la clé, à
+poser comme les autres, en écriture seule.
+
+**Les modèles ne sont pas listés dans le cockpit.** Une liste écrite dans le code périme sans le dire.
+Le bouton **modèles disponibles** interroge le fournisseur une fois la clé posée et affiche ce qu'il sert
+réellement ; cliquer l'un d'eux l'inscrit dans la déclaration. Un refus s'affiche tel quel, clé absente ou
+route inexistante, plutôt que de se déguiser en liste vide.
+
+## Moteurs
+
+La carte 🧩 **Moteurs** installe et tient à jour ce qui fait tourner les agents, en deux familles :
+
+- **Moteurs de session** — les clients qui tiennent une conversation : Claude Code, opencode, Mistral vibe.
+- **Serveurs de modèles** — Ollama, Lemonade Server. Ils ne tiennent aucune session : ils servent les modèles,
+  et se déclarent ensuite comme fournisseurs de l'axe « modèles de travail » dans 🔌 Fournisseurs.
+
+Pour chacun : présent ou absent, **où il est installé et pour qui**, version installée, version disponible,
+état du service, et le nombre de sessions qui l'utilisent. **La commande exacte est affichée sous l'outil**,
+et la confirmation la répète : le cockpit n'exécute que des recettes qu'il connaît, il n'envoie au serveur
+qu'un identifiant, une action et une portée, jamais une commande.
+
+### Deux portées : pour moi, pour tous
+
+- **pour moi** — l'outil est posé dans votre espace (`~/.local/bin`, `~/.opencode/bin`…). Aucun privilège
+  n'est requis, et rien n'est touché sur la machine des autres.
+- **pour tous** (⚠) — l'outil est posé sur la machine entière, en `sudo` : réservé aux administrateurs.
+
+Un outil déjà présent chez vous peut, en plus, être posé pour tous : les deux boutons cohabitent. La
+détection ne se fie pas au seul `PATH` du démon — un outil installé par un utilisateur y est absent et
+serait déclaré manquant à tort. Le mode d'installation de karl lui-même, mono ou multi-utilisateur, est
+une question ouverte (RM3070).
+
+**Une mise à jour est refusée tant que des sessions tournent** sur ce moteur : les couper d'abord, ou forcer
+en connaissance de cause. Le bouton « tester » vérifie simplement que l'outil répond.

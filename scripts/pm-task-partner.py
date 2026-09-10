@@ -43,11 +43,14 @@ Exemples :
 import argparse
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_git
 import pm_partner
 from pm_lock import atomic_write, ticket_lock
@@ -86,11 +89,7 @@ def write_task(path, fm, body):
 
 
 def append_log(path, message):
-    log_path = path.parent / path.name.replace(".md", ".log.md")
-    ts = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(f"\n## {ts} — Ticket partenaire (pm-task-partner)\n"
-                f"Tokens : 0 | Durée : 0 min\n\n{message}\n")
+    pm_task_log.append(path, "Ticket partenaire (pm-task-partner)", message)   # RM3085
 
 
 def autocommit(args, path, message):
@@ -338,7 +337,7 @@ def cmd_pull(cfg, args):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = FM_RE.match(f.read_text(encoding="utf-8"))
             if not m:
@@ -417,6 +416,115 @@ def cmd_push(cfg, args):
                      + (f", {len(warnings)} en échec" if warnings else ""))
 
 
+def cmd_mirror(cfg, args):
+    """Miroir d'états (N3/RM2746) : constater, pousser notre état, arbitrer le leur.
+
+    Sans option, **ne fait rien** : il rend compte. Les deux actions sont explicites
+    (`--push` écrit chez eux, `--accept` change notre statut) — le régime déclaré dit
+    ce qui est permis, jamais ce qui est fait dans notre dos.
+    """
+    rm_id = args.rm_id
+    path, ent, proj, fm, body = load_task(cfg, rm_id)
+    meta, reg = project_context(cfg, ent, proj)
+    refs = pm_partner.partner_refs(fm)
+    if not refs:
+        out.op("miroir d'états", rm=rm_id, extra="aucun lien partenaire")
+        return
+
+    lines, pushed, accepted, declined = [], [], None, False
+    for ref in refs:
+        tag = f"{ref.get('instance')}#{ref.get('issue_id')}"
+        try:
+            res = pm_partner.resolve_secondary(meta, reg, ref.get("instance"))
+        except (pm_partner.PartnerError, RegistryError) as e:
+            out.warn(f"{tag} : {e}")
+            continue
+        regimes = pm_partner.effective_regimes(fm, res)
+        if not regimes:
+            lines.append(f"— {tag} : miroir inactif (aucun régime déclaré)")
+            continue
+        origin = "ticket" if pm_partner.ticket_regimes(fm) else "projet"
+        lines.append(f"— {tag} : régimes [{', '.join(regimes)}] (déclarés au {origin})")
+
+        seen = (ref.get("last_seen_status") or "").strip()
+        if not seen:
+            lines.append("  · statut distant jamais observé — lancer un `pull` d'abord")
+        div = pm_partner.state_divergence(fm, ref, res)
+        if div:
+            lines.append(f"  · DIVERGENCE : `{div['status']}` chez nous, "
+                         f"« {div['seen'] }» chez eux (attendu « {div['expected']} »)")
+        elif seen:
+            lines.append(f"  · états concordants (« {seen} »)")
+
+        prop = pm_partner.incoming_proposal(fm, ref, res)
+        if prop:
+            lines.append(f"  · proposition entrante : `{prop['from']}` → `{prop['to']}`")
+
+        if args.push:
+            try:
+                target = pm_partner.push_state(res, ref, fm, dry_run=args.dry_run)
+            except (pm_partner.PartnerError, Exception) as e:      # noqa: BLE001
+                out.warn(f"{tag} : miroir sortant en échec — {e}")
+                target = None
+            if target:
+                pushed.append((ref, target))
+                lines.append(f"  · statut posé chez eux : « {target['label']} »"
+                             + (" (dry-run)" if args.dry_run else ""))
+        if args.reject and prop:
+            declined |= pm_partner.decline_proposal(ref, prop["remote_status"])
+        if args.accept and prop and accepted is None:
+            accepted = (ref, prop)
+
+    for l in lines:
+        print(l)
+
+    if pushed and not args.dry_run:
+        # Le lien mémorise ce qu'on vient de poser : sans ça, le prochain passage
+        # croirait l'état distant inchangé et repousserait le même statut.
+        for ref, target in pushed:
+            ref["last_seen_status"] = target["label"]
+        write_task(path, fm, body)
+        append_log(path, "Miroir sortant — statut posé chez "
+                   + ", ".join(f"**{r.get('instance')}#{r.get('issue_id')}** "
+                               f"(« {t['label']} »)" for r, t in pushed))
+        autocommit(args, path, f"pm(mirror): RM{rm_id} statut poussé chez le partenaire")
+
+    if declined:
+        write_task(path, fm, body)
+        append_log(path, "Miroir entrant — proposition refusée (elle ne sera plus "
+                         "reproposée pour cet état distant).")
+        autocommit(args, path, f"pm(mirror): RM{rm_id} proposition entrante refusée")
+        out.op("miroir d'états", rm=rm_id, extra="proposition refusée")
+
+    if args.accept:
+        if not accepted:
+            out.op("miroir d'états", rm=rm_id, extra="aucune proposition à accepter")
+            return
+        ref, prop = accepted
+        if args.dry_run:
+            out.op("miroir d'états (dry-run)", rm=rm_id,
+                   extra=f"accepterait `{prop['from']}` → `{prop['to']}`")
+            return
+        # La transition passe par l'outil canonique : lui seul sait synchroniser
+        # Redmine, l'historique de statut et le log. La rejouer ici en dupliquerait
+        # la moitié — et c'est la moitié oubliée qui ferait diverger la fiche.
+        here = Path(__file__).resolve().parent
+        r = subprocess.run(
+            [sys.executable, str(here / "pm-task-status-update.py"), str(rm_id),
+             prop["to"], "--note",
+             f"Miroir d'états : transition proposée par {ref.get('instance')}"
+             f"#{ref.get('issue_id')} (« {prop['remote_status']} » chez eux), "
+             f"acceptée manuellement."],
+            capture_output=True, text=True)
+        detail = "\n".join(s.rstrip() for s in (r.stdout, r.stderr) if s and s.strip())
+        if r.returncode != 0:
+            out.fail(f"transition refusée par pm-task-status-update :\n{detail}",
+                     remede="vérifier les transitions permises "
+                            f"(pm-task-status-update.py {rm_id} --list-next)")
+        out.info(detail)
+        out.op("miroir d'états", rm=rm_id,
+               extra=f"proposition acceptée : `{prop['from']}` → `{prop['to']}`")
+
 def _linked_open_tasks(cfg):
     """Itère (rm_id) des tickets OUVERTS portant au moins un lien partenaire."""
     for ent, proj, _ in cfg.iter_projects():
@@ -424,7 +532,7 @@ def _linked_open_tasks(cfg):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = FM_RE.match(f.read_text(encoding="utf-8"))
             if not m:
@@ -561,6 +669,19 @@ def main():
     p.add_argument("--no-commit", action="store_true")
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("mirror", help="miroir d'états : constater, pousser, arbitrer (N3)")
+    p.add_argument("rm_id", type=int)
+    p.add_argument("--push", action="store_true",
+                   help="régime `outgoing` : pose NOTRE statut chez le partenaire")
+    p.add_argument("--accept", action="store_true",
+                   help="régime `incoming` : applique la transition proposée "
+                        "(via pm-task-status-update)")
+    p.add_argument("--reject", action="store_true",
+                   help="refuse la proposition entrante — elle ne sera plus reproposée "
+                        "pour cet état distant")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--no-commit", action="store_true")
+
     p = sub.add_parser("sync-cf",
                        help="(re)pose la réf. externe sur des tickets déjà rattachés")
     p.add_argument("rm_id", type=int, nargs="?")
@@ -574,7 +695,8 @@ def main():
         ap.error("pull : préciser un <RM-id> ou --all")
     cfg = PMConfig.load()
     {"link": cmd_link, "unlink": cmd_unlink, "show": cmd_show,
-     "pull": cmd_pull, "push": cmd_push, "sync-cf": cmd_sync_cf}[args.cmd](cfg, args)
+     "pull": cmd_pull, "push": cmd_push, "sync-cf": cmd_sync_cf,
+     "mirror": cmd_mirror}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

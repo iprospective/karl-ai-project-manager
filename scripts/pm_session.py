@@ -63,6 +63,21 @@ def _write_json(path: Path, data) -> None:
     os.replace(tmp, path)
 
 
+#: RM3085 — l'index croissait sans fin (88 Ko sur ce poste, une entrée par session depuis toujours).
+#: Il sert à retrouver les branches et worktrees d'une session VIVANTE ou récente : au-delà, c'est de
+#: l'archive que personne ne relit. Bornage par nombre d'entrées (les seq sont croissants).
+INDEX_KEEP = int(os.environ.get("PM_SESSIONS_INDEX_KEEP") or 500)
+
+
+def _trim(idx: dict) -> bool:
+    """Ne garde que les `INDEX_KEEP` seq les plus récents. Rend True si l'index a changé. Pure."""
+    if INDEX_KEEP <= 0 or len(idx) <= INDEX_KEEP:
+        return False
+    for k in sorted(idx, key=lambda s: int(s) if str(s).isdigit() else 0)[:-INDEX_KEEP]:
+        idx.pop(k, None)
+    return True
+
+
 def _locked(fn):
     """Exécute `fn(idx)` sous flock exclusif ; persiste l'index si fn renvoie
     (valeur, True). Renvoie la valeur. Le lock couvre lecture + écriture."""
@@ -72,7 +87,8 @@ def _locked(fn):
         fcntl.flock(lk, fcntl.LOCK_EX)
         idx = _read_json(index, {})
         value, dirty = fn(idx)
-        if dirty:
+        trimmed = _trim(idx) if dirty else False   # RM3085 : bornage à l'écriture, jamais en lecture
+        if dirty or trimmed:
             _write_json(index, idx)
         return value
     # flock relâché à la fermeture du with
@@ -124,6 +140,37 @@ def _record(field, entry):
         return seq, False
 
     return _locked(add)
+
+
+def record_ticket(rm_id):
+    """RM3086 — enregistre qu'un ticket est travaillé par la session courante.
+
+    Le lien ticket ↔ session existait en TROIS exemplaires qui s'ignoraient (inventaire RM3015) :
+    `worklog.items[].ref` (hors git, maille session), les jonctions `karl-agent/tasks/*.json`
+    (locales à la machine, jamais partagées) et le `.log.md` (versionné, maille ticket). Aucun ne
+    connaissait les deux autres, si bien que « qui travaille sur ce ticket ? » n'avait pas de
+    réponse fiable — et qu'une seconde session s'ouvrait sur un ticket déjà pris sans un mot.
+
+    Ce registre-ci est celui qui survit (D020) : partagé, sous verrou, dans le repo. No-op hors session."""
+    try:
+        rid = int(str(rm_id).lstrip("Rm").lstrip("M") or 0)
+    except (TypeError, ValueError):
+        return None
+    return _record("tickets", rid) if rid else None
+
+
+def sessions_of_ticket(rm_id, idx=None) -> list:
+    """[{seq, claude_session_id, machine, branches, worktrees}] des sessions qui ont travaillé ce
+    ticket, la plus récente d'abord. Pure vis-à-vis du registre passé (testable sans disque)."""
+    try:
+        rid = int(str(rm_id).lstrip("Rm").lstrip("M"))
+    except (TypeError, ValueError):
+        return []
+    idx = all_records() if idx is None else idx
+    out = [dict(rec, seq=int(s)) for s, rec in (idx or {}).items()
+           if rid in [int(x) for x in (rec.get("tickets") or []) if str(x).isdigit()]]
+    out.sort(key=lambda r: r.get("seq", 0), reverse=True)
+    return out
 
 
 def record_branch(branch: str):

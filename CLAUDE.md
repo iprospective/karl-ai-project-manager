@@ -31,6 +31,32 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 3. Lire la tâche + son `.log.md` + ses `outputs[]`
 4. Appliquer le protocole de validation
 
+## CDC vivant du projet — à tenir au fil de l'eau (RM3043)
+
+Le projet `pm-ai-agents` a un **cahier des charges vivant** dans `{docs_dir}` (`cdc.md` et
+`cdc-<donnée>.md`, bouton **📋 CDC** du cockpit), sur le modèle AtomBox. Comme pour NORMS et la doc
+vivante (`governance` § Développement du PM), il se met à jour **dans la même livraison**, jamais en
+rattrapage — et depuis RM3015/RM3053 la consignation se fait **au niveau du ticket**, le projet
+n'étant qu'une fusion :
+
+- tout se consigne dans le **`RM<id>_<slug>.think.md`** du ticket concerné : `pm-task-think <id>
+  --advise|--decide|--question|--feature "…"` (le hook `pm-think-harvest` y met déjà, tout seul, les
+  questions posées, les réponses retenues et les demandes verbatim) ;
+- `pm-think-merge` régénère `cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`
+  (ids `RM<id>-Dnnn`) ; **`pm-think-merge --check` et `pm-cdc-features --check` doivent être verts à la livraison** ;
+- **deux registres de fonctionnalités, deux questions** : `docs/cdc/` dérive des **tickets** (« quel ticket
+  a fait quoi ») ; `docs/cdc-karl/` est **curé par capacité** (« qu'est-ce que karl sait faire », RM3048,
+  `cure: true` — `--sync` y est refusé, `--prefix karl` le vise). Une capacité livrée s'ajoute au second
+  dans la MÊME livraison que le code ;
+- `cdc-roadmap.md` est **généré** depuis les `versions` du registre (RM3060) : une version = une étape de
+  travail (rôle + critère de passage), les fonctionnalités s'y rattachent par une colonne
+  (`pm-cdc-features --add-version` / `--set-version`, ou le cockpit : onglet CDC → Feuille de route) ;
+- `cdc.md` et `cdc-help.md` (que le LLM complète quand il le peut) restent manuels ; une idée sans ticket
+  attend dans `cdc-notes.md` au-dessus des marqueurs.
+
+Identifiants à trois chiffres, stables, jamais réattribués. Version alpha en plein développement : c'est le
+moment où c'est le plus facile — on ne reconstitue pas un registre après coup. Skill : `mmi-pm-think`.
+
 ## Rappels critiques
 
 - Tu n'écris que dans les fichiers dont tu es propriétaire (voir `worker-common.md`)

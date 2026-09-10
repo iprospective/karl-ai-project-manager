@@ -1,41 +1,70 @@
 // core/endpoints — table unique des routes du front. RM2889, lot L0.
 //
-// GÉNÉRÉ depuis MIGRATION-ROUTES.tsv : ne pas éditer à la main, régénérer.
+// GÉNÉRÉ par scripts/cockpit-gen-endpoints.py depuis MIGRATION-ROUTES.tsv :
+// ne pas éditer à la main, régénérer.
 //
 // Une route ne s'écrit plus en dur dans un service : elle se nomme. C'est ce
 // qui rend le lot L7 mécanique — basculer `current` sur `target` (grammaire
 // /api/<type>/<action>, § 10.4) se fait ici, une fois, pour tous les appelants.
-// Les routes actuelles restent servies en alias jusqu'à L7.
+// L7 (2026-09-05) : `route()` rend la CIBLE ; le serveur sert /api/<type>/<action> par alias
+// (scripts/karl_api_routes.py, généré ici aussi) et garde les chemins historiques pour les autres clients.
 
 export const ROUTES = {
   "auth.devices": { current: "/auth/devices", target: "/api/auth/devices", lot: "L0", callers: 3 },
   "auth.login": { current: "/auth/login", target: "/api/auth/login", lot: "L0", callers: 1 },
   "auth.users": { current: "/auth/users", target: "/api/auth/users", lot: "L0", callers: 5 },
   "auth.whoami": { current: "/auth/whoami", target: "/api/auth/whoami", lot: "L2", callers: 1 },
+  "clientnotify.dismiss": { current: "/client-notify/dismiss", target: "/api/clientnotify/dismiss", lot: "L4", callers: 1 },
+  "clientnotify.pending": { current: "/client-notify/pending", target: "/api/clientnotify/pending", lot: "L4", callers: 1 },
+  "clientnotify.preview": { current: "/client-notify/preview", target: "/api/clientnotify/preview", lot: "L4", callers: 1 },
+  "clientnotify.send": { current: "/client-notify/send", target: "/api/clientnotify/send", lot: "L4", callers: 1 },
+  "clientnotify.test": { current: "/client-notify/test", target: "/api/clientnotify/test", lot: "L4", callers: 1 },
   "core.update_status": { current: "/core/update-status", target: "/api/core/update-status", lot: "L0", callers: 1 },
   "dashboard.alerts": { current: "/alerts", target: "/api/dashboard/alerts", lot: "L4", callers: 1 },
   "dashboard.overview": { current: "/overview", target: "/api/dashboard/overview", lot: "L4", callers: 2 },
   "dashboard.snooze": { current: "/alerts/snooze", target: "/api/dashboard/snooze", lot: "L4", callers: 1 },
+  "doc.cdc": { current: "/cdc", target: "/api/doc/cdc", lot: "L5", callers: 1 },
+  "doc.cdc_feature": { current: "/cdc/feature", target: "/api/doc/cdc-feature", lot: "L5", callers: 1 },
+  "doc.cdc_features": { current: "/cdc-features", target: "/api/doc/cdc-features", lot: "L5", callers: 1 },
+  "doc.cdc_think": { current: "/cdc/think", target: "/api/doc/cdc-think", lot: "L5", callers: 1 },
+  "doc.cdc_version": { current: "/cdc/version", target: "/api/doc/cdc-version", lot: "L5", callers: 1 },
   "env.env_check": { current: "/env-check", target: "/api/env/env-check", lot: "L5", callers: 1 },
   "env.env_status": { current: "/env-status", target: "/api/env/env-status", lot: "L5", callers: 1 },
   "env.ssh_add": { current: "/vault/ssh-add", target: "/api/env/ssh-add", lot: "L2", callers: 1 },
   "env.unlock": { current: "/vault/unlock", target: "/api/env/unlock", lot: "L2", callers: 1 },
   "file.file": { current: "/file", target: "/api/file/file", lot: "L4,L5", callers: 2 },
-  "file.file__fs_file": { current: "/fs/file", target: "/api/file/file", lot: "L4", callers: 4 },
   "file.git.show": { current: "/git/show", target: "/api/file/git/show", lot: "L4", callers: 2 },
   "file.log": { current: "/fs/log", target: "/api/file/log", lot: "L4", callers: 1 },
   "file.ls": { current: "/fs/ls", target: "/api/file/ls", lot: "L4", callers: 3 },
   "file.project_roots": { current: "/project-roots", target: "/api/file/project-roots", lot: "L4", callers: 1 },
+  "file.read": { current: "/fs/file", target: "/api/file/read", lot: "L4", callers: 4 },
   "file.worktrees": { current: "/worktrees", target: "/api/file/worktrees", lot: "L4", callers: 1 },
   "git.diff": { current: "/git/diff", target: "/api/git/diff", lot: "L4", callers: 1 },
   "git.log": { current: "/git/log", target: "/api/git/log", lot: "L4", callers: 1 },
+  "git.show": { current: "/git/show", target: "/api/git/show", lot: "L4", callers: 1 },
   "glossary.help": { current: "/help", target: "/api/glossary/help", lot: "L5", callers: 1 },
   "glossary.project": { current: "/project", target: "/api/glossary/project", lot: "L5", callers: 2 },
   "layout.outline": { current: "/outline", target: "/api/layout/outline", lot: "L5", callers: 1 },
-  "mail.queue": { current: "/mail/queue", target: "/api/mail/queue", lot: "L4,L5", callers: 2 },
+  "log.historical": { current: "/log/historical", target: "/api/log/historical", lot: "L8", callers: 0 },
+  "log.tail": { current: "/log/tail", target: "/api/log/tail", lot: "RM3010", callers: 1 },
+  "log.write": { current: "/log", target: "/api/log/write", lot: "RM3010", callers: 1 },
+  "mail.create": { current: "/mail/create", target: "/api/mail/create", lot: "L1", callers: 2 },
+  "mail.dismiss": { current: "/mail/dismiss", target: "/api/mail/dismiss", lot: "L1", callers: 1 },
+  "mail.draft": { current: "/mail/draft", target: "/api/mail/draft", lot: "L1", callers: 1 },
+  "mail.fetch": { current: "/mail/fetch", target: "/api/mail/fetch", lot: "L1", callers: 1 },
+  "mail.queue": { current: "/mail/queue", target: "/api/mail/queue", lot: "L1", callers: 2 },
+  "mail.route": { current: "/mail/route", target: "/api/mail/route", lot: "L1", callers: 1 },
+  "mail.route_set": { current: "/mail/route-set", target: "/api/mail/route-set", lot: "L1", callers: 1 },
   "outline.approve": { current: "/approve", target: "/api/outline/approve", lot: "L5", callers: 1 },
   "outline.scroll": { current: "/scroll", target: "/api/outline/scroll", lot: "L5", callers: 2 },
   "pm.commands": { current: "/pm/commands", target: "/api/pm/commands", lot: "L5", callers: 1 },
+  "pm.engine_install": { current: "/pm/engine-install", target: "/api/pm/engine-install", lot: "L5", callers: 1 },
+  "pm.engines": { current: "/pm/engines", target: "/api/pm/engines", lot: "L5", callers: 1 },
+  "pm.llm_models": { current: "/pm/llm-models", target: "/api/pm/llm-models", lot: "L5", callers: 1 },
+  "pm.provider_assign": { current: "/pm/provider-assign", target: "/api/pm/provider-assign", lot: "L5", callers: 1 },
+  "pm.provider_secret": { current: "/pm/provider-secret", target: "/api/pm/provider-secret", lot: "L5", callers: 1 },
+  "pm.provider_types": { current: "/pm/provider-types", target: "/api/pm/provider-types", lot: "L5", callers: 1 },
+  "pm.providers": { current: "/pm/providers", target: "/api/pm/providers", lot: "L5", callers: 1 },
   "pm.run": { current: "/pm/run", target: "/api/pm/run", lot: "L3", callers: 1 },
   "pm.settings": { current: "/pm/settings", target: "/api/pm/settings", lot: "L2,L5", callers: 2 },
   "pm.test_queue": { current: "/pm/test-queue", target: "/api/pm/test-queue", lot: "L3", callers: 1 },
@@ -46,9 +75,12 @@ export const ROUTES = {
   "review.mr.deliver": { current: "/mr/deliver", target: "/api/review/mr/deliver", lot: "L3", callers: 1 },
   "search.resumable": { current: "/resumable", target: "/api/search/resumable", lot: "L3", callers: 1 },
   "search.tags": { current: "/tags", target: "/api/search/tags", lot: "L3", callers: 1 },
+  "search.tickets": { current: "/tickets/search", target: "/api/search/tickets", lot: "L3", callers: 1 },
   "session.approve_all": { current: "/approve-all", target: "/api/session/approve-all", lot: "L2", callers: 1 },
   "session.cockpit_config": { current: "/cockpit-config", target: "/api/session/cockpit-config", lot: "L2", callers: 1 },
   "session.disposition": { current: "/disposition", target: "/api/session/disposition", lot: "L2", callers: 1 },
+  "session.events": { current: "/events", target: "/api/session/events", lot: "L8", callers: 1 },
+  "session.events.publish": { current: "/events/publish", target: "/api/session/events/publish", lot: "L8", callers: 1 },
   "session.kill": { current: "/kill", target: "/api/session/kill", lot: "L2", callers: 1 },
   "session.layout": { current: "/layout", target: "/api/session/layout", lot: "L2", callers: 1 },
   "session.monitor": { current: "/monitor", target: "/api/session/monitor", lot: "L2", callers: 1 },
@@ -96,11 +128,19 @@ export const ROUTES = {
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },
 };
 
-/** Chemin à appeler aujourd'hui pour une route nommée. Lève si le nom est inconnu. */
+/** Chemin à appeler pour une route nommée — la cible /api/<type>/<action> depuis L7. Lève si le nom est inconnu. */
 export function route(name) {
   const e = ROUTES[name];
   if (!e) throw new Error(`route inconnue : ${name}`);
-  return e.current;
+  return e.target;
+}
+
+/** Le nom d'une route d'après son chemin ACTUEL — pour les doublons hérités
+ *  dont la cible normalisée est la même (/file et /fs/file). */
+export function routeFor(current) {
+  const hit = Object.entries(ROUTES).find(([, r]) => r.current === current);
+  if (!hit) throw new Error(`route inconnue : ${current}`);
+  return hit[0];
 }
 
 /** Chemin cible (§ 10.4), pour les tests de dérive et la bascule L7. */

@@ -15,6 +15,36 @@ ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
 - **🔊 voix** : annonce à voix haute chaque session qui passe en attente et lit
   sa question (synthèse vocale du navigateur).
 
+## La jauge de contexte
+
+Sous chaque tuile, une **barre fine** et un **pourcentage** disent combien de la
+fenêtre du modèle la conversation occupe déjà. Elle ne s'affiche qu'**à partir du
+premier palier** : en dessous, rien — un indicateur qui parle tout le temps cesse
+d'être lu quand il compte.
+
+| Palier | Couleur | Ce que ça veut dire |
+|---|---|---|
+| 50 % | jaune | la moitié de la fenêtre est occupée |
+| 75 % | orange | il reste peu de marge avant compaction |
+| 90 % | rouge | la conversation va être **compactée** — consigne (`think`), puis repars sur une session neuve |
+
+Le pourcentage se lit **contre la fenêtre du modèle**, et c'est toujours la
+**plus grande** connue pour lui qui fait foi : un même modèle est servi en 200 k
+ou en 1 M et bascule d'une variante à l'autre en cours de session. Retenir la
+petite ferait afficher « 99 % » à une session qui en est à 20 %, et déclencherait
+une compaction inutile. La fenêtre configurée vit dans `pm.pricing.yml`.
+
+Le **contexte se lit au survol de la tuile**, avec les autres informations, et
+**quel qu'il soit** — pas seulement au-delà d'un palier : `contexte : 197k / 1M
+(20 %) · opus-5`.
+
+Au **franchissement** d'un palier, la jauge pulse trois fois puis se tait : le
+mouvement attire l'œil au moment utile, l'état permanent se lit sans bouger. Une
+session au palier rouge rejoint le bandeau **à traiter**, en haut de la liste.
+
+Les trois seuils se règlent (Réglages ▸ Sessions) : sur un modèle à 1 M, 50 %
+laisse encore de quoi travailler une journée.
+
 Chaque tuile porte **deux durées**, qui ne disent pas la même chose : le nombre
 qui suit le titre est l'**âge** de la session (depuis son ouverture), et le
 **⏳** le temps écoulé depuis sa **dernière sortie** — depuis quand elle n'a rien
@@ -93,6 +123,57 @@ des projets se réduit aux siens (« tous » la rétablit). Client seul, sans pr
 toutes les sessions de ce client, tous projets confondus. Le contexte client du
 bandeau pré-sélectionne le client sans figer le choix, et changer de client
 n'y laisse jamais le projet d'un autre.
+
+### Retrouver une session par mots-clés
+
+Le champ de recherche de la carte répond à la question « où ai-je traité ça ? ».
+Il cherche dans **ce que le PM a enregistré sur la session** :
+
+- le **titre** de la session ;
+- les **tickets qui y ont été traités** — par numéro (`2703` comme `RM2703`) et
+  par **sujet** (« annuaire » retrouve la session de RM2703) ;
+- le **worklog** de la session : libellés, notes, prochaine étape, **le texte de
+  tes demandes** telles que tu les as formulées, et les notifications ;
+- le client, le projet, le répertoire de travail.
+
+Plusieurs mots se cumulent : **tous** doivent être présents, dans n'importe quel
+ordre et sans être collés — `sieve karl@` trouve la session où les deux mots
+vivent à deux lignes d'écart. La recherche se combine aux filtres client /
+projet / statut / moteur, qui restent actifs.
+
+La case **« chercher aussi dans le transcript »** ajoute le contenu des
+conversations elles-mêmes. Elle est décochée par défaut, et pour une bonne
+raison : les métadonnées pèsent 0,5 Mo, les transcripts 400 — c'est la
+différence entre une réponse instantanée et une à quelques secondes. Le
+transcript **complète** les mots que les métadonnées n'ont pas trouvés, il ne
+recommence pas la recherche : `vault sieve` marche quand « vault » vient du
+worklog et « sieve » de la conversation. Une ligne trouvée par cette voie porte
+la pastille **transcript**, pour qu'elle ne ressemble pas à un faux positif. Le
+balayage a un budget de quelques secondes : au-delà, les sessions les plus
+anciennes ne sont pas explorées — c'est délibéré, un panneau qui ne répond plus
+ne sert à rien.
+
+Chaque ligne affiche désormais **le sujet** des tickets de la session, pas
+seulement leur numéro : c'est à lui qu'on la reconnaît.
+
+Deux précisions qui évitent des surprises :
+
+- **Un identifiant de session se cherche par son début**, à partir de six
+  caractères (`dcf266aa`). C'est délibéré : en sous-chaîne libre, « 2392 »
+  tomberait au milieu d'un UUID et te rendrait une session au hasard.
+- **Un numéro nu combiné au transcript ratisse large** : `2392` coché
+  « transcript » remonte des dizaines de conversations, parce que quatre
+  chiffres se trouvent partout dans une trace d'exécution. Pour un ticket,
+  laisse la case décochée — les métadonnées répondent mieux, et instantanément.
+
+### Les sessions archivées
+
+Le worklog **survit** au transcript : une conversation purgée laisse derrière
+elle la trace de ce qui y a été fait. Ces sessions apparaissent sous la liste,
+en note grise, avec leurs tickets — **elles ne sont pas cliquables**, puisqu'il
+n'y a plus rien à reprendre. C'est ce qui permet de répondre à « dans quelle
+session ce ticket a-t-il été traité ? » même quand la réponse n'est plus
+reprenable, sans faire croire l'inverse.
 
 ## Quand le moteur pose une question avant de démarrer
 

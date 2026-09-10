@@ -23,6 +23,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 from test_support import core_env, core_with  # noqa: E402
+import pm_secrets  # noqa: E402
 
 CLI = _HERE / "pm-providers.py"
 
@@ -54,9 +55,12 @@ def _core(td, providers_projet):
 def _resolve(core, **env_extra):
     """Sortie de `resolve --axis secret` pour le projet de test."""
     env = core_env(core, **env_extra)
-    # Le CLI ne doit voir QUE les identifiants que le test lui donne.
+    # Le CLI ne doit voir QUE les identifiants que le test lui donne. Les variables historiques
+    # ne se reconnaissent pas toutes à un préfixe : VAULT_URL en fait partie (LEGACY_CREDS), et
+    # une seule qui survit ajoute une clé à la sortie, donc fait échouer le test selon le poste.
+    historiques = set(pm_secrets.LEGACY_CREDS.values())
     for k in list(env):
-        if k.startswith("SECRET__") or k.startswith("BW_"):
+        if k.startswith("SECRET__") or k.startswith("BW_") or k in historiques:
             env.pop(k)
     env.update({k: str(v) for k, v in env_extra.items()})
     p = subprocess.run(

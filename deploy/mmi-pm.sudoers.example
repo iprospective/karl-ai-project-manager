@@ -25,8 +25,22 @@
 <KARL_USER> ALL=(<KARL_SUDO_USER>) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *
 
 # 2. Déploiement du code (root-owned) : pull + re-verrou via core-lock → root.
+#    RM3033 : `mmi-pm core-update` (dispatcher python) se ré-exécute lui-même par ce chemin exact — la règle reste la seule
+#    porte root du CLI, ne pas la remplacer par `python3 …`.
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update*
 
 # 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/core-lock *
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/provision-core *
+
+# RM3068 — écriture d'un secret de provider depuis le cockpit. Deux cas passent par root :
+#   · le .env d'un AUTRE développeur (--user <login>), quand un administrateur configure pour l'équipe ;
+#   · le .env GLOBAL de l'instance (--scope global), réservé aux administrateurs.
+# La VALEUR n'est jamais un argument : elle arrive sur l'entrée standard, donc rien n'en transpire dans
+# `ps`, ni dans le journal sudo (qui n'enregistre que la ligne de commande).
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/pm-provider-secret.py *
+
+# RM3069 — installation SYSTÈME des moteurs d'agents et des serveurs de modèles depuis le cockpit.
+# Le script n'accepte qu'un IDENTIFIANT de recette : les commandes vivent dans pm_engine_recipes.py,
+# aucune ne vient du navigateur. C'est lui qui appelle npm/pip/sh en root, jamais le démon directement.
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/pm-engine-install.py *

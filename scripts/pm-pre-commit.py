@@ -25,6 +25,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # RM3053
+from pm_think import is_task_sheet  # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
+
 INTEGRATION_BRANCHES = {"dev", "main", "master", "preprod"}
 
 
@@ -106,7 +109,7 @@ def main():
     rm_id = m.group(1)
     tasks = ws / ".mmi-pm" / "tasks"
     task_files = sorted(tasks.glob(f"RM{rm_id}_*.md")) if tasks.is_dir() else []
-    task_files = [f for f in task_files if not f.name.endswith(".log.md")]
+    task_files = [f for f in task_files if is_task_sheet(f)]
     if not task_files:
         print(f"pm-pre-commit: REFUS — branche '{branch}' : aucun ticket RM{rm_id} "
               f"dans {tasks}.\n"

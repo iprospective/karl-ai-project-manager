@@ -37,6 +37,8 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import yaml  # noqa: E402
 from pm_paths import PMConfig  # noqa: E402
 
@@ -60,7 +62,7 @@ def load_env_runtime() -> dict:
 
 def find_task_file(cfg: PMConfig, rmid: int) -> Path:
     hits = sorted(cfg.projects_root.glob(f"clients/*/projects/*/tasks/RM{rmid}_*.md"))
-    hits = [h for h in hits if not h.name.endswith(".log.md")]
+    hits = [h for h in hits if is_task_sheet(h)]
     if not hits:
         die(f"tâche RM{rmid} introuvable sous {cfg.projects_root}")
     if len(hits) > 1:
@@ -196,10 +198,14 @@ def push_cf14(rmid: int, value: str, dry: bool) -> None:
 def append_log(task_file: Path, rmid: int, msg: str, dry: bool) -> None:
     if dry:
         return
-    log = task_file.with_name(task_file.name[:-3] + ".log.md")
-    stamp = time.strftime("%Y-%m-%dT%H:%M")
-    with log.open("a", encoding="utf-8") as f:
-        f.write(f"\n## {stamp} — pm-env-expose\n{msg}\n")
+    # RM3085 : cette entrée n'avait PAS la ligne « Tokens : … » — le parseur de `pm-task-log` et la
+    # feuille de temps la sautaient donc, sans que rien ne le dise. Format partagé désormais.
+    log = pm_task_log.append(task_file, "pm-env-expose", msg)
+    try:  # RM3013 : l'écriture part avec les autres données PM (sinon elle traîne jusqu'au rattrapage)
+        import pm_git
+        pm_git.autocommit([log], f"pm(env-expose): RM{rmid} journal")
+    except Exception as e:  # jamais bloquant : l'exposition a réussi, le commit est de la plomberie
+        print(f"  ⚠ auto-commit du journal : {e}", file=sys.stderr)
 
 
 def pick_port(reg: dict, asked: int | None) -> int:

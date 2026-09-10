@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig
 
 try:
@@ -117,7 +118,7 @@ def check_partner_links(cfg, ovs, errors, warns):
         if not tasks_dir.is_dir():
             continue
         for f in sorted(tasks_dir.glob("RM*.md")):
-            if f.name.endswith(".log.md"):
+            if not is_task_sheet(f):
                 continue
             m = FM_RE.match(f.read_text(encoding="utf-8"))
             if not m:
@@ -134,6 +135,75 @@ def check_partner_links(cfg, ovs, errors, warns):
                              f"{', '.join(missing)} (link.policy: required) — "
                              f"pm-task-partner link {tfm.get('redmine_id')} "
                              f"--instance {missing[0]} --issue <id>")
+
+
+def check_state_mirror(cfg, ovs, errors, warns):
+    """Miroir d'états partenaire (N3, RM2746) : divergences et confs qui ne peuvent pas marcher.
+
+    Le constat se fait **sans réseau** : le pull (N1) a déposé le dernier statut distant
+    dans chaque lien, il ne reste qu'à le comparer à notre statut via la table déclarée.
+    C'est ce qui permet de le rendre ici, dans un outil qu'on lance sans y penser.
+
+    Rien de tout cela n'est une erreur de conf : une divergence est un **fait** entre
+    deux systèmes, à regarder par un humain — d'où l'avertissement. Seule une table
+    ambiguë en régime `incoming` empêche réellement le mécanisme de fonctionner, et
+    c'est dit comme tel.
+    """
+    try:
+        import pm_partner
+        from pm_registry import Registry, RegistryError
+    except ImportError:
+        return
+    try:
+        reg = Registry.from_config(cfg.providers)
+    except RegistryError:
+        return          # déjà signalé par check_partner_links — ne pas le redire
+
+    for (ent, proj), fm in sorted(ovs.items()):
+        if not fm:
+            continue
+        try:
+            if not pm_partner.declared_secondaries(fm, reg):
+                continue        # pas de partenaire : rien à mettre en miroir
+        except RegistryError:
+            continue
+        me = f"{ent}/{proj}"
+        tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if not is_task_sheet(f):
+                continue
+            m = FM_RE.match(f.read_text(encoding="utf-8"))
+            if not m:
+                continue
+            try:
+                tfm = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError:
+                continue
+            if not pm_partner.partner_refs(tfm):
+                continue
+            rep = pm_partner.mirror_report(tfm, fm, reg)
+            rm = f"RM{tfm.get('redmine_id')}"
+            for d in rep["divergences"]:
+                warns.append(
+                    f"{me} : {rm} en `{d['status']}` chez nous, « {d['seen']} » chez "
+                    f"{d['instance']}#{d['issue_id']} (attendu « {d['expected']} ») — "
+                    f"pm-task-partner mirror {tfm.get('redmine_id')}")
+            for p in rep["proposals"]:
+                warns.append(
+                    f"{me} : {rm} — {p['instance']} propose `{p['from']}` → `{p['to']}` "
+                    f"(« {p['remote_status']} » chez eux) ; à valider ou refuser : "
+                    f"pm-task-partner mirror {tfm.get('redmine_id')} --accept|--reject")
+            for label, statuses in sorted(rep["ambiguities"].items()):
+                warns.append(
+                    f"{me} : {rm} — miroir entrant inopérant, « {label} » correspond à "
+                    f"{', '.join(statuses)} ; trancher avec `sync.mirror.map_in:` "
+                    f"dans le meta.yml du projet")
+            for bad in rep["unknown"]:
+                warns.append(
+                    f"{me} : {rm} — régime de miroir inconnu {bad!r} (attendus : "
+                    f"{', '.join(pm_partner.MIRROR_REGIMES)}, none)")
 
 
 def check_repo_forges(cfg, ovs, errors, warns):
@@ -213,6 +283,7 @@ def main():
 
     # 6. Manifestes repos[] : forme des remotes, identité ↔ transport (RM2838)
     check_repo_forges(cfg, ovs, errors, warns)
+    check_state_mirror(cfg, ovs, errors, warns)
 
     for (ent, proj), fm in sorted(ovs.items()):
         me = f"{ent}/{proj}"

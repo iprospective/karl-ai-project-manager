@@ -74,6 +74,7 @@ except ImportError:
     sys.exit("pm-env-session: PyYAML requis")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_session
 import pm_git
 import redmine_utils
@@ -153,7 +154,7 @@ def pick_repo(repos: list[dict], name: str | None) -> dict:
 def task_slug(ws: Path, rmid: int) -> str | None:
     """Slug depuis le fichier tâche co-localisé `.mmi-pm/tasks/RM<id>_<slug>.md`."""
     for f in (ws / ".mmi-pm" / "tasks").glob(f"RM{rmid}_*.md"):
-        if not f.name.endswith(".log.md"):
+        if is_task_sheet(f):
             return f.stem[len(f"RM{rmid}_"):]
     return None
 
@@ -167,7 +168,7 @@ def set_test_url(ws: Path, rmid: int, url, dry: bool):
     deux : une URL morte affichée est pire que rien (c'est le bug d'origine).
     Best-effort — l'env est monté/démonté même si le ticket est introuvable."""
     tf = next((f for f in (ws / ".mmi-pm" / "tasks").glob(f"RM{rmid}_*.md")
-               if not f.name.endswith(".log.md")), None)
+               if is_task_sheet(f)), None)
     if tf is None:
         print(f"  · test_url non écrit (pas de tâche co-localisée RM{rmid})")
         return

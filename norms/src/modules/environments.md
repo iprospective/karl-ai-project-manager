@@ -1,5 +1,5 @@
 > 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (vault, quel qu'il soit).
-> **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
+> **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-infra *(worker-dev l'ouvre à la demande — RM3037 : se connecter à un env est un déclencheur, pas un permanent)*.
 
 ### Environnements (aspect `environments.md`)
 

@@ -1,0 +1,7 @@
+# ACTIONS — chaque geste que l'interface (ou l'API) permet. Inventorié depuis le POC, complété par le CDC.
+# contexte : liste | message | dossier | arborescence | composition | administration | quarantaine
+# portee : ce que le geste modifie — rattachement (par compte ou boîte) | comm (partagé) | boite | compte | adresse | envoi
+# trace : oui = écrit au journal (D054)
+# poc : l'attribut ou la méthode qui le porte dans la maquette, ou non
+
+[]

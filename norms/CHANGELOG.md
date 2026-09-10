@@ -1,5 +1,233 @@
 # Changelog des normes
 
+## [2.36.0] - 2026-09-10
+
+### Modifié
+- **Budget de contexte : tous les rôles repassent sous le plafond, avec la marge** (RM3037). L'invariant
+  anti-régression RM1943 était cassé depuis des semaines — trois rôles au-dessus de 29 000 tokens, jusqu'à
+  33 600 pour `worker-dev`, alors que la conf annonçait « ~24,2k après RM2582 ». Le pire rôle est ramené de
+  **33 638 à 26 031 tokens**, sous les 26 100 exigés, et plus aucun module préchargé ne dépasse 5 000.
+  Quatre leviers, aucun n'ôte de règle :
+  - **quatre modules `-pratique` créés**, hors précharge, ouverts par un déclencheur du KERNEL :
+    `session-tooling-pratique` (trous d'outillage, idiomes), `structure-reference-pratique` (index des
+    projets, annuaire), `roi-pricing-pratique` (mécanique de mesure, journal), `project-modeling-pratique`
+    (relation d'implémentation). Le mode d'emploi sort, la règle reste ;
+  - **la précharge se resserre** : `environments` et `redmine-hygiene` s'ouvrent à la demande pour
+    `worker-dev` — leur obligation est portée par un tripwire toujours en contexte ;
+  - **`git-mep` perd son mode d'emploi** (actions au déploiement, worktrees multi-tickets) au profit de
+    `git-mep-pratique`, et le détail du transport forge est renvoyé au même endroit ;
+  - **trois redondances densifiées** : la prise en charge redisait le tripwire #5, le mapping Redmine
+    recopiait des libellés déjà faux (RM2941 en a fait `redmine.reference.yml` la source unique), et les
+    tripwires #15 et #16 sont resserrés sans perdre une obligation.
+  Chaque réécriture est inscrite au registre de dédoublonnage : la non-perte reste verte.
+
+## [2.35.0] - 2026-09-10
+
+### Corrigé
+- **Audit de cohérence RM2941** — cinq incohérences prouvées, corrigées :
+  - `git-mep-pratique` § Workflow MEP faisait poser **`en_mep` sur un déploiement PRÉPROD**, alors que
+    RM2893 a redéfini `en_mep` comme « déployé en prod ». Un agent qui suivait ce module sautait
+    `a_tester_preprod` et `a_mep_prod`, déclenchait la réattribution « vérif finale en prod » depuis la
+    préprod, et fermait depuis la préprod. Le flux 3 branches est réécrit sur la sémantique réelle.
+  - **`a_mep_prod` (RM2926) était absent de tout NORMS** alors qu'il est atteignable depuis cinq statuts
+    et câblé dans l'outillage. Ajouté à la machine d'états et à l'énumération du KERNEL, avec
+    `nouveau` et `a_tester_preprod` qui manquaient aussi. `redmine.reference.yml :: statuses` devient la
+    source unique : les libellés Redmine ne se recopient plus dans NORMS.
+  - `session-tooling` déclarait `pm-branch-start.py`, puis « ⚠ trou — aucun outil dédié » quinze lignes
+    plus bas. Dans un module préchargé par **tous** les rôles, c'était la ligne qui autorisait le
+    `git checkout -b` manuel interdit par le garde-fou 1. Le trou restant est le commit+push conventionné.
+  - Le déclencheur « péremption des PAT » envoyait dans `git-mep`, où la règle J-7 ne se trouve pas :
+    elle est dans `git-mep-pratique`. Quatre autres renvois cassés par la scission RM2582 corrigés.
+  - `pm project init` et `pm task create` n'ont jamais existé — il n'y a pas de binaire `pm`.
+
+## [2.34.0] - 2026-09-10
+
+### Ajouté
+- **Les versions d'une feuille de route** (RM3060, module `cdc`) : une version est une ÉTAPE DE TRAVAIL —
+  ce qu'elle doit permettre, et à quoi on sait qu'elle est passée — jamais une copie de la liste des
+  fonctionnalités, qui s'y rattachent par une colonne. Les versions vivent dans le registre et
+  `cdc-roadmap.md` en est GÉNÉRÉ, comme `cdc-features.md` l'est des entrées : `pm-cdc-features --check`
+  refuse les deux si l'une a été éditée à la main. Ajout seul, pas de ledger.
+
+## [2.33.0] - 2026-09-10
+
+### Ajouté
+- **Le runtime dense a sa règle** (RM3073) : le module `governance` décrit ce qu'est `norms/runtime/`,
+  pourquoi c'est lui qui engage les agents (préchargé, et réinjecté après compaction), comment il se
+  produit — par un fournisseur du registre, jamais à la main — et comment il se contrôle : par ancres,
+  au niveau du corpus, avec une proposition qui ne remplace rien tant qu'elle n'est pas appliquée.
+  Ajout seul, pas de ledger.
+
+## [2.32.0] - 2026-09-10
+
+### Ajouté
+- **Les normes reviennent après une compaction** (RM3071) : une compaction garde la tâche et perd les
+  normes ; l'agent poursuivait avec le souvenir qu'il avait des garde-fous, sans que rien ne le signale.
+  Le KERNEL porte désormais l'obligation de se relire après compaction ou reprise, `agents/worker-common.md`
+  la reprend, et le module `governance` décrit le mécanisme qui la tient : `mmi-pm norms-recall` réinjecte
+  le KERNEL, câblé en hook `SessionStart` `compact|resume` par `pm-claude-hooks-sync`, posé à l'installation
+  et re-posé à chaque `pm-core-update`. Ajout seul, pas de ledger.
+
+## [2.31.0] - 2026-09-10
+
+### Ajouté
+- **Axe `llm` au registre des providers** (RM3067) : le modèle de travail de karl — celui qu'un script
+  appelle pour un travail machine, à ne pas confondre avec le modèle qui tient la session — se déclare
+  comme les autres providers, avec cascade défaut → client → projet. Types `lemonade` (Ryzen AI),
+  `ollama`, `openai`, `anthropic`, `claude-cli` ; local d'abord. `pm-providers resolve llm`. Ajout seul,
+  pas de ledger.
+
+## [2.30.2] - 2026-09-10
+
+### Modifié
+- **Le classifieur tourne en local, sur n'importe quel serveur à l'API OpenAI** (`session-tooling`,
+  RM3067) : Lemonade Server (Ryzen AI / Strix Halo), vLLM, LM Studio, llama.cpp — via `LLM_BASE_URL`,
+  pris d'office quand la variable existe. Local à préférer pour une reprise : les transcripts ne
+  quittent pas la machine et la passe ne coûte rien.
+
+## [2.30.1] - 2026-09-10
+
+### Modifié
+- **Le classifieur tourne aussi sur Ollama** (`session-tooling`, RM3067) : moteur local ou hébergé,
+  pris d'office quand `OLLAMA_HOST`/`OLLAMA_API_KEY` existe, coût nul. Précision sur ce qui part au
+  modèle : les messages du demandeur et les **réponses à l'écran** de l'agent, jamais le raisonnement
+  interne ni le tooling.
+
+## [2.30.0] - 2026-09-10
+
+### Ajouté
+- **Le tri des tours revient à un modèle léger** (`session-tooling` § « Consignation par ticket »,
+  RM3067) : `pm-think-classify` relit les tours de conversation d'un transcript — ceux du demandeur
+  et ceux de l'agent, jamais le tooling — et rend `rien` · dette · question · décision ·
+  fonctionnalité, avec une reformulation auto-suffisante. Le hook garde son heuristique comme
+  filet. `--dry-run` par défaut, coût rapporté. Ajout seul, pas de ledger.
+
+## [2.29.0] - 2026-09-10
+
+### Modifié
+- **Le critère de la note passe du lexical au sémantique** (`session-tooling` § « Les quatre
+  rubriques », RM3066) : une note ne consigne QUE **ce qui n'a pas été traité** et pourra
+  servir — trois conditions cumulatives (un reste à faire · auto-suffisante · pas déjà
+  traitée). Sortent explicitement : les demandes d'exécution même longues, les réponses aux
+  questions (décisions), les contraintes (décisions), les bugs (tickets), les collages.
+  Le **vrac devient un sas** : une dette retenue se reformule dans le même tour en question ou
+  en fonctionnalité. Garde de **rattachement** : une session ne consigne pas dans le ticket d'un
+  autre projet. Resserrement d'une règle existante, pas de ledger.
+
+## [2.28.0] - 2026-09-09
+
+### Ajouté
+- **Signature nominative et propositions de l'IA** (`session-tooling` § « Les quatre
+  rubriques », RM3062 lot 3) : chaque N/Q/D/F est signée par son auteur nommé (personne ou
+  modèle), jamais un code ; les propositions pertinentes de l'IA entrent au vrac signées du
+  modèle ; légende des rubriques en tête des think et des registres. Ajout seul, pas de ledger.
+
+## [2.27.0] - 2026-09-09
+
+### Ajouté
+- **Les quatre rubriques de la consignation, définies une fois** (`session-tooling`
+  § « Consignation par ticket », RM3062) : ce qui se range dans N, Q, D/C, F — et ce qui ne
+  s'y range pas. Critère d'une **note** : elle doit pouvoir changer quelque chose plus tard
+  (constat, idée, réserve, contrainte) ; jamais une demande immédiate, un accord, un accusé.
+  Une **décision** est ce que le demandeur demande, pose ou tranche — réponse à une question
+  ou non, ticketé ou non. Une **fonctionnalité** est une feature atomique qui donne lieu à un
+  ticket, le complète, ou reste à faire. La moisson `pm-think-harvest` applique le critère de
+  la note. `cdc` § identifiants renvoie à cette définition. Ajout seul, pas de ledger.
+
+## [2.25.0] - 2026-09-08
+
+### Ajouté
+- **Modules `methodes-travail` et `cdc` + deux déclencheurs KERNEL** (RM2967). Le système
+  savait traiter un ticket ; il ne disait nulle part **par quel bout** prendre un projet neuf,
+  une reprise d'existant ou une migration. `methodes-travail` pose quatre natures et leur
+  protocole d'entrée (projet neuf → CDC · ticket ordinaire → protocole worker · audit →
+  `modules/audits` · reprise → inventaire mesuré, matrice de compatibilité, plan par lots
+  vérifiables, chiffrage par lot), et distingue le **CDC de ticket** (proposition
+  d'implémentation, la forme la plus employée du parc) du **CDC de projet**. `cdc` normalise
+  la méthode du CDC complet éprouvée sur AtomBox (RM2881/RM2937) et corrigée par la relecture
+  de sept CDC du parc : trois livrables qui avancent ensemble (chapitres + POC + dictionnaire),
+  les états et les identifiants à trois chiffres, les sept temps, la grille 360° et les cinq
+  postures, le cycle d'un lot, le harnais qui teste le CDC lui-même, le critère de fin, et le
+  fait qu'un CDC finit en **tickets estimés**. Ce que la relecture a ajouté au cas fondateur :
+  provenance en section propre, hors-périmètre motivé, **ce qu'on voudra observer** avant de
+  construire, mesures datées, chiffrage, critères d'acceptation du CDC. Outil : `pm-cdc.py`
+  (init · dict · index · check) et gabarits `templates/cdc/`. Les deux modules sont **hors
+  précharge** (ouverts sur déclencheur) : +113 tokens au KERNEL, rien de plus.
+
+## [2.24.0] - 2026-09-08
+
+### Ajouté
+- **CDC vivant du projet** dans la doc vivante du PM (`governance` § Développement du PM,
+  RM3043) : cinquième cible — décision/arbitrage rendu en séance → registre `D/C`, question
+  ouverte → `Q`, remarque → vrac `N` verbatim, fonctionnalité livrée/prise/planifiée →
+  `pm-cdc-features --sync --build` (registre yml → chapitre 10 généré, `--check` vert à la
+  livraison). Modèle AtomBox (`modele-cdc/`), bouton 📋 CDC du cockpit. Ajout seul, pas de
+  ledger.
+
+## [2.23.0] - 2026-09-07
+
+### Ajouté
+- **Module `testing` + tripwire KERNEL #17 « Tests au fil de l'eau »** (RM3028) :
+  discipline de tests obligatoire à chaque dev — TDD par défaut sur la logique,
+  tests unitaires (extraire en fonctions pures ce qui est dur à tester), tests
+  fonctionnels/workflow/intégration anticipés dès la conception, couverture de
+  TOUS les cas (tests auto ET protocole de test, complémentaires). `mmi-pm test`
+  vert avant livraison ; front/cockpit ⇒ tests node même MR. Seul motif de « pas
+  de test auto » : comportement non automatisable (rendu navigateur, intégration
+  tierce) ⇒ recette humaine + justification tracée. Déclencheur dans le KERNEL
+  (ouvert à la demande, hors précharge). Détail : `norms/src/modules/testing.md`.
+
+## [2.21.0] - 2026-09-07
+
+### Ajouté
+- **`structure-reference` § « L'annuaire de contacts »** et deux lignes
+  d'outillage (RM2703) : l'identité d'une personne vit dans une fiche unique du
+  dépôt de données, la relation (rôle, titre) reste chez le client. La forme
+  précédente imposait de réécrire une personne chez chaque client — mesuré :
+  31 contacts sur 21 clients dont **19 lignes pour la même personne**, en deux
+  orthographes. Y sont écrits aussi les deux endroits où l'annuaire ne peut PAS
+  vivre (le dépôt de code part sur un miroir public ; la racine de
+  `projects_root` n'est versionnée par aucun dépôt) et ce qu'un historique git
+  n'oublie pas.
+
+## [2.20.0] - 2026-09-07
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « archiver les sessions »** (RM2997) :
+  `pm-sessions-archive.py`. Il existait un dépôt d'archivage et un remote, mais
+  aucun outil : le geste était manuel, et il a cessé le 2026-06-23 sur un verrou
+  git périmé — 75 jours sans que rien ne le signale, 42 transcripts effacés
+  entre-temps par la rétention de Claude Code. La règle anti-trou vaut aussi
+  pour ce qui *protège* le travail, pas seulement pour ce qui le produit.
+  Détail et invariants : `knowledge/karl-agent/sessions.md`.
+
+## [2.19.0] - 2026-09-07
+
+> La 2.18.0 est arrivée par `dev` (RM3016, jeton GitHub par organisation) sans
+> entrée ici ; ce lot s'empile dessus.
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « reprendre un ticket sans sa session »**
+  (RM2998) : `pm-task-brief.py <id> --reprise`. La règle anti-trou veut que toute
+  opération de cette nature ait son outil déclaré ; celle-ci n'en avait aucun, et
+  la reprise passait par la conversation — ce qui ne tient plus dès qu'un
+  transcript disparaît (RM2997 : 42 effacés, 70 tickets ouverts orphelins).
+
+## [2.17.0] - 2026-09-05
+
+> Renumérotation : écrit 2.16.0 sur sa branche, ce lot atterrit après le 2.16.0
+> de RM2746 (miroir d'états, arrivé par `dev`) et devient donc 2.17.0.
+
+### Ajouté
+- **`session-tooling` — où vit le worklog de session sur disque (RM2991)** : un
+  renvoi vers `knowledge/karl-agent/sessions.md`, complété des trois stores keyés
+  par `session_id` (worklog PM, store de spawn, jonction ticket ↔ session) et du
+  détail de ce que porte le worklog. La question « où sont enregistrées les infos
+  de session ? » n'avait de réponse que dans le code. Ces métadonnées sont ce sur
+  quoi travaillent la reprise et la recherche de session ; le transcript reste la
+  source de dernier recours, trois ordres de grandeur plus lourde.
+  Le détail va dans `knowledge/` et non dans le module : `session-tooling` est
+  préchargé par **tous** les rôles, et son budget contexte est déjà dépassé.
 ## [2.17.0] - 2026-09-04
 
 > Saute 2.16.0, réservée à RM2772 (tickets récurrents), encore en MR !633 au moment

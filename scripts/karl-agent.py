@@ -75,7 +75,8 @@ API (JSON, localhost:9876)
                                   jusqu'au verdict du demandeur  (RM2718)
   GET  /session-registry        → {records, rm_map} — registre pm_session brut
                                   (var/sessions/index.json, RM2034/RM2166)
-  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&limit=]
+  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&deep=1&limit=]
+                                → {resumable:[…], archived:[…]}  (worklog sans transcript)
                                 → sessions REPRENABLES découvertes dans les
                                   stores claude (titre [WIP]/[DONE]/[A TESTER] de
                                   /session-mark, cwd→projet via .mmi-pm,
@@ -191,6 +192,7 @@ import hmac
 import json
 import secrets
 import os
+import pwd
 import re
 import shlex
 import stat
@@ -198,6 +200,8 @@ import uuid
 import signal
 import subprocess
 import sys
+import select
+import socket
 import threading
 import time
 from http.cookies import SimpleCookie
@@ -220,7 +224,13 @@ SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le t
 # a-t-elle été tranchée ». Le sys.path est explicite : le service démarre avec un
 # cwd quelconque, et l'import échouerait silencieusement au boot sans lui.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from karl_api_routes import api_alias   # RM2889 L7 : /api/<type>/<action> → chemin historique
+from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 : journal structuré (sévérité, catégories)
+                    category_for_path as _jcat, exception_brief as _jexc, CATEGORIES as _JCATS)   # noqa: E402
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
+from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
+import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
                            question_parts as _question_parts,
@@ -425,6 +435,9 @@ MEM_LIMIT_CONF = {"high": ["sessions", "memory_high_gib"],
 MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapMax"}
 
 # Répertoire des logs pipe-pane (alimente /stream et /capture étendu).
+# RM3085 : ces `karl-<slug>.log` n'avaient AUCUNE purge — 130+ fichiers sur ce poste, dont ceux de
+# sessions éteintes depuis des mois. Rétention en jours, débrayable par 0.
+TMUX_LOG_KEEP_DAYS = int(os.environ.get("KARL_TMUX_LOG_KEEP_DAYS") or 30)
 LOG_DIR = Path(
     os.environ.get("KARL_AGENT_LOG_DIR")
     or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "karl-agent")
@@ -716,6 +729,16 @@ def op_auth_devices_list(ctx: dict) -> dict:
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
+
+
+def _cockpit_version() -> str:
+    """RM3000 : la version du cockpit, lue dans src/core/version.js (source unique, côté front) — exposée par /health et
+    comparée par la page à sa propre constante (un cache navigateur périmé se voit)."""
+    try:
+        m = re.search(r'export const VERSION = "([^"]+)"', (COCKPIT_DIR / "src" / "core" / "version.js").read_text(encoding="utf-8"))
+        return m.group(1) if m else "?"
+    except OSError:
+        return "?"
 # Aide intégrée (RM2593) : pages markdown versionnées, servies via /help.
 HELP_DIR = COCKPIT_DIR / "help"
 # Base URL du terminal web ttyd. Vide → le client la calcule (location.hostname:7681).
@@ -758,8 +781,11 @@ def op_help_get(topic: str) -> dict | None:
 
 # ── Helpers tmux ─────────────────────────────────────────────────────────────
 def _tmux(*args, timeout=10):
-    """Exécute tmux et renvoie (rc, stdout, stderr)."""
+    """Exécute tmux et renvoie (rc, stdout, stderr). RM3010 : un échec est journalisé (`tmux`, warn) — sauf les sondes
+    d'existence (has-session) dont le rc ≠ 0 est une réponse, pas une erreur."""
     p = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+    if p.returncode != 0 and args and args[0] not in ("has-session", "-V", "display-message", "list-sessions", "list-windows", "list-panes", "show-options"):
+        _jlog("tmux", "warn", f"tmux {args[0]} rc={p.returncode}", args=[str(a) for a in args[:8]], stderr=(p.stderr or "")[:300])
     return p.returncode, p.stdout, p.stderr
 
 
@@ -1246,6 +1272,7 @@ def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
     )
     if rc != 0:
         raise ApiError(500, f"tmux new-session a échoué : {err.strip()}")
+    _jlog("tmux", "info", "session lancée", rm_id=rm_id, name=name, cwd=str(cwd), cmd=str(cmd)[:160])   # RM3010
 
     # RM2690 : plafond mémoire sur la scope systemd du pane — une session qui fuit
     # se fait tuer SEULE au lieu de laisser le kernel arbitrer. Couvre spawn ET
@@ -1298,7 +1325,8 @@ def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
     """RM2302/RM2327 : re-capture le pane et répond « oui » si une question y est
     visible. Retourne la réponse envoyée ("1" menu / "y" prompt) ou None (pas de
     question). Lève ApiError sur échec tmux. Journalise chaque réponse dans
-    answers.jsonl avec sa provenance (manuel / tout / auto) — socle RM2305."""
+    le journal structuré (catégorie `claude`) avec sa provenance (manuel / tout / auto).
+    RM3085 : plus dans `answers.jsonl`, qui n'avait jamais eu de lecteur."""
     name = _session_name(rm_id)
     rc, out, err = _tmux("capture-pane", "-p", "-t", name)
     if rc != 0:
@@ -1312,14 +1340,11 @@ def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
         raise ApiError(500, f"send-keys a échoué : {err.strip()}")
     if answer == "y":
         _tmux("send-keys", "-t", name, "Enter")
-    try:  # journal best-effort, ne bloque jamais la réponse
-        ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with ANSWERS_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
-                                "sent": answer, "source": source,
-                                "question": tail}, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    # RM3085 : ces réponses partaient dans un `answers.jsonl` que RIEN ne relisait — écrit depuis
+    # RM2302, jamais lu, sans rotation. Le journal structuré (RM3010) a, lui, un lecteur (cockpit,
+    # `mmi-pm log-tail`), des niveaux et une rétention : un store mort de moins.
+    _jlog("claude", "info", "réponse « Oui » envoyée à une session",
+          rm_id=rm_id, sent=answer, source=source, question=tail[-400:])
     return answer
 
 
@@ -1444,6 +1469,7 @@ def op_kill(payload: dict) -> dict:
     rc, _, err = _tmux("kill-session", "-t", _session_name(rm_id))
     if rc != 0:
         raise ApiError(500, f"kill-session a échoué : {err.strip()}")
+    _jlog("tmux", "info", "session fermée", rm_id=rm_id, name=_session_name(rm_id))   # RM3010
     return {"rm_id": rm_id, "killed": True}
 
 
@@ -1722,10 +1748,13 @@ def _write_json_atomic(path: Path, obj: dict) -> None:
 
 
 def _slug_of(cwd) -> str:
-    """Nom du dossier projet claude pour un cwd — schéma observé du CLI :
-    '/' et '.' → '-'. Sert à recouper le cwd d'un store avec l'emplacement RÉEL
-    du transcript (RM2418)."""
-    return re.sub(r"[/.]", "-", str(cwd).rstrip("/")) or str(cwd)
+    """Nom du dossier projet claude pour un cwd. Sert à recouper le cwd d'un store avec
+    l'emplacement RÉEL du transcript (RM2418).
+
+    RM3085 : la règle vient de `pm_stores.cwd_slug` — celle du CLI, vérifiée dans le binaire.
+    Celle qui vivait ici ne remplaçait que `/` et `.` : tout chemin contenant `_` produisait un
+    slug que le CLI ne fabrique jamais, et `_resume_cwd()` ne retrouvait alors aucun dossier."""
+    return pm_stores.cwd_slug(str(cwd).rstrip("/")) or str(cwd)
 
 
 def _read_json_file(path: Path) -> dict | None:
@@ -3078,7 +3107,8 @@ def _transcript_jsonl(session_id: str | None):
 
 
 def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
-    """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes}.
+    """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes},
+    plus {context, model} depuis RM3082 (occupation de contexte du dernier tour).
     `/sessions` est polled en continu et chaque entrée de jeu demandait déjà son
     marqueur puis son titre — soit deux globs par session et par appel. Une
     lecture unique, mise en cache 30 s, sert les trois usages (marqueur, nom,
@@ -3134,7 +3164,10 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
             m = _MARK_RE.match(raw)
             info = {"mark": _mark_key(m),
                     "title": _MARK_RE.sub("", raw).strip() or None,
-                    "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
+                    "mtime": meta.get("mtime"), "bytes": jf.stat().st_size,
+                    # RM3082 : lu dans la même passe que le titre — le cache 30 s
+                    # de cette fonction est ce qui rend la jauge gratuite par tuile.
+                    "context": meta.get("context"), "model": meta.get("model")}
         except OSError:
             info = {}
     _DONE_CACHE["map"][ckey] = info
@@ -3234,6 +3267,16 @@ def _transcript_title(session_id: str | None) -> str | None:
     sujet Redmine du ticket (seul libellé qu'affichait la tuile grise) n'existe
     pas pour une session ancrée sur un slug."""
     return _transcript_info(session_id).get("title")
+
+
+def _transcript_context(session_id: str | None, engine: str | None = None) -> dict:
+    """RM3082 — {context, model} du dernier tour, ou {} : ce que la jauge de la
+    tuile consomme. Sert le pourcentage SANS le calculer : la fenêtre du modèle
+    est une règle de présentation (`modelWindow`, front), déjà écrite une fois
+    pour l'encart méta — la dupliquer ici ferait deux vérités sur « 76 % »."""
+    info = _transcript_info(session_id, engine)
+    ctx = info.get("context")
+    return {"context": ctx, "model": info.get("model")} if ctx else {}
 
 
 def _transcript_age(session_id: str | None):
@@ -3496,8 +3539,16 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
     """Méta d'un transcript claude, extraite de son DERNIER segment (lecture
     bornée : les fichiers font parfois des centaines de Mo) : titre (dernier
     `custom-title`, sinon dernier `ai-title` — même logique que /session-mark),
-    cwd et mtime. Le CLI ré-émet son custom-title à chaque tour → il est
-    toujours dans la fenêtre de fin."""
+    cwd, mtime, et (RM3082) l'OCCUPATION DE CONTEXTE du dernier tour + le modèle.
+
+    Le CLI ré-émet son custom-title à chaque tour → il est toujours dans la
+    fenêtre de fin. Le dernier tour assistant aussi, par construction : d'où le
+    contexte pris ICI plutôt que par `/usage/<id>`, qui relit le fichier ENTIER
+    (inacceptable par tuile, à chaque tick — RM2763). Même formule que
+    `_transcript_usage` : entrée non cachée + cache lu + cache écrit ; un tour
+    sans contexte (sortie seule, ligne synthétique) ne remplace pas le dernier
+    connu. Hors fenêtre de fin → `context` vaut None : aucun indicateur vaut
+    mieux qu'un chiffre faux."""
     st = path.stat()
     key = str(path)
     hit = _tail_cache.get(key)
@@ -3509,8 +3560,10 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
             fh.readline()  # saute la ligne probablement tronquée
         data = fh.read().decode("utf-8", "replace")
     title = ai_title = cwd = None
+    context = model = None
     for line in data.splitlines():
-        if '"custom-title"' not in line and '"ai-title"' not in line and '"cwd"' not in line:
+        if ('"custom-title"' not in line and '"ai-title"' not in line
+                and '"cwd"' not in line and '"usage"' not in line):
             continue
         try:
             obj = json.loads(line)
@@ -3523,7 +3576,17 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
             ai_title = obj["aiTitle"]
         if obj.get("cwd"):
             cwd = obj["cwd"]
-    meta = {"title": title or ai_title, "cwd": cwd, "mtime": int(st.st_mtime)}
+        if t == "assistant":                    # RM3082 : occupation de contexte du dernier tour
+            msg = obj.get("message") or {}
+            u = msg.get("usage")
+            if isinstance(u, dict):
+                ctx = ((u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+                       + (u.get("cache_creation_input_tokens") or 0))
+                if ctx:
+                    context = ctx
+                    model = msg.get("model") or model
+    meta = {"title": title or ai_title, "cwd": cwd, "mtime": int(st.st_mtime),
+            "context": context, "model": model}
     _tail_cache[key] = (st.st_mtime, meta)
     return meta
 
@@ -3635,17 +3698,270 @@ def resume_engines() -> list:
             if _resume_support(n) and (n == "claude" or n in _ENGINE_LIST)]
 
 
+# ── RM2991 : chercher une session par mots-clés ──────────────────────────────
+# Le panneau de reprise ne se pilotait qu'avec des filtres fermés (client,
+# projet, marqueur, moteur) ; `q` existait ici mais ne comparait qu'au TITRE de
+# la session, et aucun champ du cockpit ne l'envoyait — capacité inatteignable.
+#
+# La matière cherchable, c'est d'abord ce que le PM a lui-même enregistré sur la
+# session : son worklog (RM2068) porte les tickets traités avec leur LIBELLÉ, les
+# notes, la prochaine étape, et le texte des demandes telles qu'elles ont été
+# formulées. 107 worklogs = 568 Ko : on peut tout lire à chaque requête. Le
+# transcript, lui, pèse ~400 Mo pour le même service — d'où l'opt-in `deep`.
+
+_TITLES_TTL = 60          # s — même raisonnement que _closed_ticket_ids
+_titles_cache: dict = {"at": 0.0, "by_id": {}}
+
+
+def _task_titles() -> dict:
+    """rm_id → titre du ticket, d'après les fiches locales (TTL 60 s).
+
+    Permet de retrouver une session par le SUJET du ticket qu'on y a traité et
+    pas seulement par son numéro. Le worklog porte déjà un libellé, mais il peut
+    être absent (session sans worklog) ou périmé (ticket renommé depuis) : la
+    fiche fait foi. Scan complet ~0,06 s (cf. `_read_task_meta`)."""
+    now = time.time()
+    if now - _titles_cache["at"] > _TITLES_TTL:
+        by_id = {}
+        for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+            if not is_task_sheet(tf):
+                continue
+            m = re.match(r"RM(\d+)_", tf.name)
+            if m:
+                by_id[m.group(1)] = _read_task_meta(tf).get("title") or ""
+        _titles_cache.update({"at": now, "by_id": by_id})
+    return _titles_cache["by_id"]
+
+
+def _worklog_haystack(session_id: str) -> str:
+    """Ce que le worklog PM d'une session rend cherchable, en minuscules.
+
+    On y prend tout ce qui a été ÉCRIT sur le travail — libellés de tickets,
+    notes, prochaine étape, demandes, notifications — parce que c'est
+    exactement ce dont on se souvient en cherchant « où ai-je fait ça ? »."""
+    wl = _overview_worklog(session_id) or {}
+    bits = [str(wl.get("title") or "")]
+    for it in wl.get("items") or []:
+        bits += [str(it.get(k) or "") for k in
+                 ("ref", "label", "project", "status", "note", "next", "commit")]
+    for rq in wl.get("requests") or []:
+        bits += [str(rq.get("text") or ""), str(rq.get("ticket") or "")]
+    for nf in wl.get("notifications") or []:
+        bits.append(str(nf.get("message") or ""))
+    return " ".join(b for b in bits if b).lower()
+
+
+# >>> resumable_haystack — pur (testé par test_karl_agent_resumable_search.py)
+def resumable_haystack(entry: dict, worklog: str = "") -> str:
+    """Matière cherchable d'une ligne du panneau, en minuscules.
+
+    Délibérément plus large que le titre : le geste réel est « la session où
+    j'ai traité ça », et la réponse tient le plus souvent dans le ticket (numéro
+    OU sujet) ou dans le chemin, rarement dans le titre seul. Un ticket est
+    inscrit sous ses deux formes — « rm2703 » et « 2703 » — parce que les deux
+    se tapent, et qu'une recherche par sous-chaîne ne les relie pas d'elle-même."""
+    e = entry or {}
+    # Pas le session_id : « 2392 » tombe au milieu de « ca239234-0fd9-… » et
+    # ramène une session au hasard. Il se cherche par PRÉFIXE, à part (sid_match).
+    bits = [e.get("title") or "", e.get("cwd") or "", e.get("engine") or ""]
+    if e.get("client") and e.get("project"):
+        bits.append(f"{e['client']}/{e['project']}")
+    else:
+        bits += [e.get("client") or "", e.get("project") or ""]
+    for t in e.get("tickets") or []:
+        rid = str(t.get("rm_id") or "")
+        if rid:
+            bits += [rid, "rm" + rid]
+        bits.append(t.get("title") or "")
+    bits.append(worklog or "")
+    return " ".join(b for b in bits if b).lower()
+# <<< resumable_haystack
+
+
+# >>> sid_match — pur (testé par test_karl_agent_resumable_search.py)
+def sid_match(session_id: str, mot: str) -> bool:
+    """Un mot-clé désigne-t-il CETTE session par son identifiant ?
+
+    Par préfixe, et à partir de six caractères : c'est ainsi qu'on colle un id
+    (on en copie le début, comme le cockpit l'affiche). Une sous-chaîne libre
+    ferait de tout nombre à quatre chiffres un tirage au sort parmi les UUID."""
+    sid = str(session_id or "").lower()
+    m = str(mot or "").lower()
+    return bool(sid) and len(m) >= 6 and sid.startswith(m)
+# <<< sid_match
+
+
+def _archived_worklogs(mots: list, connus: set) -> list:
+    """Sessions dont le worklog PM correspond mais dont le TRANSCRIPT a disparu.
+
+    Le worklog survit au transcript : `~/.claude/session-worklogs/` garde la
+    trace d'un travail dont la conversation a été purgée. La question « dans
+    quelle session ce ticket a-t-il été traité ? » a donc une réponse là où
+    « reprendre » n'en a plus. Les taire ferait mentir la recherche ; les
+    mélanger aux reprenables ferait mentir le bouton."""
+    out = []
+    if not mots or not WORKLOG_DIR.is_dir():
+        return out
+    for f in WORKLOG_DIR.glob("*.json"):
+        sid = f.stem
+        if sid in connus:
+            continue
+        hay = _worklog_haystack(sid)
+        if not hay or not all(m in hay or sid_match(sid, m) for m in mots):
+            continue
+        wl = _overview_worklog(sid) or {}
+        refs, labels = [], {}
+        for it in wl.get("items") or []:
+            r = str(it.get("ref") or "")
+            if r and r not in refs:
+                refs.append(r)
+                labels[r] = it.get("label") or None
+        try:
+            mtime = int(f.stat().st_mtime)
+        except OSError:
+            mtime = None
+        out.append({"session_id": sid, "mtime": mtime,
+                    "updated": wl.get("updated"),
+                    "tickets": [{"ref": r, "title": labels.get(r)} for r in refs[:8]]})
+    out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+    return out[:20]
+
+
+DEEP_BUDGET_S = 6.0            # budget TOTAL de la recherche transcript
+DEEP_FILE_MAX = 128 << 20      # octets lus par transcript, au plus
+
+
+def _file_contains(path: Path, pats: list, deadline: float) -> bool:
+    """TOUS les motifs présents dans un fichier, lu par blocs avec recouvrement.
+
+    Par blocs parce qu'un transcript de session longue pèse plusieurs centaines
+    de Mo : un `read()` entier ferait tomber le serveur avant de répondre. Le
+    recouvrement (les derniers octets du bloc précédent) évite de rater un motif
+    qui tombe à cheval sur deux lectures.
+
+    Tous les motifs sont suivis dans la MÊME passe, chacun rayé dès qu'il est
+    vu : une passe par mot-clé multiplierait le coût du scan par le nombre de
+    mots tapés, sur le plus gros volume du système."""
+    if not pats:
+        return False
+    try:
+        with path.open("rb") as fh:
+            reste, prev, read = list(pats), b"", 0
+            while read < DEEP_FILE_MAX:
+                if time.monotonic() > deadline:
+                    return False
+                blk = fh.read(1 << 20)
+                if not blk:
+                    return False
+                read += len(blk)
+                fenetre = prev + blk
+                reste = [p for p in reste if not p.search(fenetre)]
+                if not reste:
+                    return True
+                prev = blk[-512:]
+    except OSError:
+        return False
+    return False
+
+
+def _vibe_session_dir(session_id: str):
+    """Dossier de session vibe, ou None. Même prudence que
+    `_vibe_session_meta` : le suffixe du dossier filtre, meta.json prouve."""
+    if not VIBE_SESSIONS.is_dir() or "-" not in session_id:
+        return None
+    prefix = session_id.split("-")[0]
+    for d in sorted(VIBE_SESSIONS.glob(f"session_*_{prefix}"), reverse=True):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if meta.get("session_id") == session_id:
+            return d
+    return None
+
+
+def _opencode_deep_hits(mot: str) -> set:
+    """Sessions opencode dont un message porte `mot`.
+
+    Une seule requête pour toutes les sessions : le contenu vit dans la table
+    `part` d'une base partagée — la grepper fichier par fichier n'aurait aucun
+    sens. Un mot à la fois, l'appelant croise (deux mots peuvent tomber dans
+    deux messages différents de la même conversation, et c'est bien ce qu'on
+    veut)."""
+    if not OPENCODE_DB.is_file() or not mot:
+        return set()
+    like = "%" + mot.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute("SELECT DISTINCT session_id FROM part "
+                               "WHERE data LIKE ? ESCAPE '\\'", (like,)).fetchall()
+        finally:
+            con.close()
+    except Exception:            # noqa: BLE001 — base absente, verrouillée, schéma changé
+        return set()
+    return {r[0] for r in rows}
+
+
+def _deep_hits(entries: list, manquants: dict, paths: dict) -> set:
+    """session_id dont le TRANSCRIPT complète les mots-clés qui manquaient aux
+    métadonnées (`manquants` : sid → mots restant à trouver).
+
+    Ce n'est pas « tous les mots dans le transcript » : chercher « vault sieve »
+    doit marcher quand « vault » vient du worklog et « sieve » de la
+    conversation. Le transcript comble, il ne recommence pas.
+
+    Borné volontairement : un panneau qui répond « pas tout vu » reste
+    utilisable, un panneau qui ne répond pas ne l'est plus. Les entrées sont
+    parcourues de la plus récente à la plus ancienne — si le budget saute, ce
+    qui est perdu est ce dont on se souvient le moins."""
+    hits, oc_memo = set(), {}
+    deadline = time.monotonic() + DEEP_BUDGET_S
+    for e in entries:
+        if time.monotonic() > deadline:
+            break
+        sid, eng = e.get("session_id"), e.get("engine")
+        mots = manquants.get(sid) or []
+        if not mots:
+            continue
+        if eng == "opencode":
+            for m in mots:
+                if m not in oc_memo:
+                    oc_memo[m] = _opencode_deep_hits(m)
+            if all(sid in oc_memo[m] for m in mots):
+                hits.add(sid)
+            continue
+        path = paths.get(sid)
+        if path is None and eng == "vibe":
+            d = _vibe_session_dir(sid)
+            path = (d / "messages.jsonl") if d else None
+        pats = [re.compile(re.escape(m).encode("utf-8", "replace"), re.I) for m in mots]
+        if path and _file_contains(path, pats, deadline):
+            hits.add(sid)
+    return hits
+
+
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
     status (wip|done|test — marqueurs [WIP]/[DONE]/[A TESTER] posés par
     /session-mark ; `not-done` = tout sauf les terminées, défaut du panneau : les
-    « à tester » y restent donc visibles), q."""
+    « à tester » y restent donc visibles), q.
+
+    RM2991 — `q` cherche dans les métadonnées que le PM a enregistrées sur la
+    session : titre, client/projet, cwd, tickets traités (numéro ET libellé) et
+    worklog (notes, prochaine étape, demandes, notifications). `deep=1` ajoute
+    le transcript, qui est mille fois plus lourd — d'où l'opt-in."""
     f_engine = qs.get("engine") or None
     f_client = qs.get("client") or None
     f_project = qs.get("project") or None
     f_status = (qs.get("status") or "").lower() or None
-    f_q = (qs.get("q") or "").lower() or None
+    # RM2991 : « mots-clés », au pluriel — chaque mot doit être présent, mais
+    # pas dans cet ordre ni collés. « sieve karl@ » ne trouvait rien alors que
+    # les deux mots vivaient dans la même session, à deux lignes d'écart.
+    f_mots = [m for m in (qs.get("q") or "").lower().split() if m]
+    f_deep = str(qs.get("deep") or "").lower() in ("1", "true", "yes", "on")
     limit = max(1, min(int(qs.get("limit") or 100), 500))
 
     if f_engine and f_engine not in resume_engines():
@@ -3661,6 +3977,11 @@ def op_resumable(qs: dict) -> list:
     # autre session_id).
     live_sids = {ki["session_id"] for s in sessions
                  if (ki := _key_info(s["rm_id"])) and ki.get("session_id")}
+    # RM2991 : le libellé du ticket voyage avec la ligne. « RM2703 » seul ne dit
+    # pas de quoi il s'agissait — or c'est le sujet qu'on reconnaît, et c'est
+    # aussi par lui qu'on cherche.
+    titles = _task_titles()
+    paths: dict = {}          # sid → transcript, pour la recherche `deep`
     def _entry(engine, sid, title_raw, cwd, mtime):
         """Ligne du panneau de reprise, commune à tous les moteurs."""
         m = _MARK_RE.match(title_raw or "")
@@ -3674,7 +3995,8 @@ def op_resumable(qs: dict) -> list:
             "mark": _mark_key(m),
             "cwd": cwd, "mtime": mtime,
             "client": client, "project": project,
-            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
+            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n"),
+                         "title": titles.get(str(r["rm_id"])) or None} for r in runs],
             "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
         }
 
@@ -3704,6 +4026,7 @@ def op_resumable(qs: dict) -> list:
                 meta = _jsonl_tail_meta(jf)
             except OSError:
                 continue
+            paths[sid] = jf
             out.append(_entry("claude", sid, meta["title"], meta["cwd"], meta["mtime"]))
 
     def keep(e):
@@ -3717,13 +4040,61 @@ def op_resumable(qs: dict) -> list:
             return False
         if f_project and e["project"] != f_project:
             return False
-        if f_q and f_q not in (e["title"] or "").lower():
-            return False
         return True
 
     out = [e for e in out if keep(e)]
+    # Tri AVANT la recherche : `_deep_hits` a un budget, et ce qu'il abandonnera
+    # en le dépassant doit être le plus ancien, pas le premier venu.
     out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+    if f_mots:
+        found, rest, manquants = [], [], {}
+        for e in out:
+            sid = e["session_id"]
+            hay = resumable_haystack(e, _worklog_haystack(sid))
+            absents = [m for m in f_mots if m not in hay and not sid_match(sid, m)]
+            if not absents:
+                e["match"] = "meta"
+                found.append(e)
+            else:
+                rest.append(e)
+                manquants[e["session_id"]] = absents
+        if f_deep and rest:
+            hits = _deep_hits(rest, manquants, paths)
+            for e in rest:
+                if e["session_id"] in hits:
+                    e["match"] = "transcript"
+                    found.append(e)
+            found.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+        out = found
     return out[:limit]
+
+
+def _transcript_cwds(path: Path, max_bytes: int = 4 * 1024 * 1024) -> list:
+    """RM3057 : les `cwd` d'un transcript claude, dans l'ordre d'apparition et sans
+    doublon — lecture BORNÉE depuis le DÉBUT (le premier cwd est celui de la
+    création, donc celui dont le slug nomme le dossier du .jsonl), puis la queue
+    si le fichier est plus gros que la fenêtre."""
+    out, seen = [], set()
+
+    def scan(data: bytes):
+        for line in data.decode("utf-8", "replace").splitlines():
+            if '"cwd"' not in line:
+                continue
+            try:
+                c = json.loads(line).get("cwd")
+            except ValueError:
+                continue
+            if c and c not in seen:
+                seen.add(c); out.append(c)
+    try:
+        st = path.stat()
+        with path.open("rb") as fh:
+            scan(fh.read(max_bytes))
+            if st.st_size > 2 * max_bytes:
+                fh.seek(st.st_size - max_bytes); fh.readline(); scan(fh.read())
+    except OSError:
+        pass
+    return out
 
 
 def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
@@ -3732,17 +4103,39 @@ def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
     du transcript → relance au mauvais cwd et « No conversation found ».
     Correctif : on retient le premier candidat — store per-session, puis cwd
     interne du transcript — dont le slug == dossier où vit RÉELLEMENT le .jsonl.
-    Aucun ne colle → comportement historique (store, sinon transcript)."""
-    smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
+
+    RM3057 : une session qui a fait `cd` pendant sa vie (worktree, sous-dossier
+    d'un env) a un store ET une queue qui pointent le sous-dossier, alors que le
+    CLI range le transcript sous le cwd de DÉPART ; ni l'un ni l'autre ne colle
+    et le repli historique relançait dans le sous-dossier → tmux mort aussitôt
+    (session atombox). On parcourt donc aussi les cwd du transcript depuis le
+    début, et le store est RÉPARÉ quand le cwd retenu diffère de ce qu'il porte :
+    la cause racine est son figement au spawn, pas la reprise. Sans candidat :
+    comportement historique (store, sinon queue)."""
+    store = SESS_DIR / engine / f"{session_id}.json"
+    smeta = _read_json_file(store) or {}
     try:
         tail = _jsonl_tail_meta(jf)["cwd"]
     except OSError:
         tail = None
     slug = jf.parent.name
+    chosen = None
     for c in (smeta.get("cwd"), tail):
         if c and _slug_of(c) == slug:
-            return c
-    return smeta.get("cwd") or tail
+            chosen = c; break
+    if chosen is None:
+        chosen = next((c for c in _transcript_cwds(jf) if _slug_of(c) == slug), None)
+    if chosen is None:
+        return smeta.get("cwd") or tail
+    if smeta and smeta.get("cwd") != chosen:
+        smeta["cwd_before_fix"] = smeta.get("cwd"); smeta["cwd"] = chosen
+        try:
+            store.write_text(json.dumps(smeta, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            _jlog("session", "warn", "store de session réparé : cwd de reprise réaligné sur le dossier du transcript",
+                  sid=session_id, cwd=chosen, before=smeta["cwd_before_fix"])
+        except OSError:
+            pass
+    return chosen
 
 
 def _engine_of_session(session_id: str) -> str | None:
@@ -4395,36 +4788,24 @@ def pending_entries(sessions, unresolved_by_sid, question_by_sid) -> list:
 
 # RM2466 volet 2 étape 2 : le worklog de session PM (pm-session-status, RM2068).
 # Store keyé par le session_id de l'agent — le même que celui du transcript.
-WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
-                   or (Path.home() / ".claude" / "session-worklogs")).expanduser()
-# Reprises TELLES QUELLES de pm-session-status.py : deux classifications
-# divergentes du même worklog donneraient deux vérités sur « où on en est ».
-WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
-                "résolu", "resolu"}
-# RM2635 : statuts qui sortent une demande du « à traiter ». Copie de
-# REQUEST_DONE (pm-session-status.py) — un test vérifie qu'elles ne divergent
-# pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
-REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
-WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-                   "en_pause"}
-# RM2930 : « à tester / valider » sort de l'attente. Un ticket livré qui attend le
-# test du demandeur n'est pas coincé — il attend une ACTION, de quelqu'un
-# d'identifié. Le ranger avec les blocages le faisait lire « c'est mort » là où il
-# fallait lire « c'est à toi », et le bouton actualiser ne l'en sortait jamais
-# (le statut était juste ; c'est le rangement qui mentait).
-WORKLOG_TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
-                   "a_tester_preprod"}
-# Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
-# attente, plus les variantes libres qu'emploient les chantiers hors ticket.
-WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-                "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
-                "a_corriger", "todo", "à faire", "en cours"}
+# RM3085 : le MÊME dossier avait deux variables (PM_SESSION_WORKLOG_DIR côté scripts,
+# KARL_AGENT_WORKLOG_DIR ici) ; n'en poser qu'une faisait diverger l'écrivain du lecteur, sans
+# erreur visible. `pm_stores.worklog_dir()` accepte les deux.
+WORKLOG_DIR = pm_stores.worklog_dir()
+# RM3085 : ces classifications vivaient en DOUBLE ici et dans pm-session-status.py, recopiées
+# « telles quelles » — et la copie avait déjà divergé (MEP n'existait que d'un côté : un ticket
+# a_mep se rangeait ailleurs selon qu'on regardait le terminal ou l'écran). Une seule définition.
+WORKLOG_DONE = pm_worklog_states.DONE
+REQUEST_DONE_STATES = pm_worklog_states.REQUEST_DONE
+WORKLOG_WAITING = pm_worklog_states.WAITING
+WORKLOG_TESTING = pm_worklog_states.TESTING
+WORKLOG_MEP = pm_worklog_states.MEP
+WORKLOG_TODO = pm_worklog_states.TODO
 # RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
 # ce qui reste est une mise en production — batchée (plusieurs tickets montent
 # ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
 # n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
 # entre des tickets encore à écrire ; elle a donc son propre bucket.
-WORKLOG_MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
@@ -4690,6 +5071,128 @@ def _subtasks_status(refs) -> list:
     return out
 
 
+# RM3004 : chaque appel d'un chemin HISTORIQUE (hors /api/…) est compté et journalisé (catégorie api) — période de tolérance
+# avant le retrait de l'alias : au bout d'une semaine sans appel, karl_api_routes.py peut disparaître. Journal : info à la
+# première occurrence par (chemin, client) puis une fois par heure ; debug à chaque appel ; GET /api/log/historical = les compteurs.
+_HIST_LOCK = threading.Lock()
+_HIST: dict = {}          # chemin historique → {"n", "first", "last", "target", "clients": {ua-kind: n}}
+_HIST_SEEN: dict = {}     # (chemin, client) → dernier `info` (epoch)
+_HIST_INFO_EVERY_S = 3600
+
+
+def _client_kind(ua: str) -> str:
+    u = (ua or "").lower()
+    if not u:
+        return "sans-ua"
+    for k in ("curl", "python", "okhttp", "dart", "mozilla", "wget"):
+        if k in u:
+            return k
+    return u[:24]
+
+
+def note_historical_path(path: str, ua: str = "", ip: str = "", user=None) -> str | None:
+    """Rend la cible /api/… si `path` est un chemin historique routé (et l'enregistre), None sinon."""
+    from karl_api_routes import historical_target
+    target = historical_target(path)
+    if not target:
+        return None
+    kind = _client_kind(ua); now = time.time()
+    with _HIST_LOCK:
+        rec = _HIST.setdefault(path, {"n": 0, "first": now, "last": now, "target": target, "clients": {}})
+        rec["n"] += 1; rec["last"] = now; rec["clients"][kind] = rec["clients"].get(kind, 0) + 1
+        key = (path, kind); first_or_stale = now - _HIST_SEEN.get(key, 0) >= _HIST_INFO_EVERY_S
+        if first_or_stale:
+            _HIST_SEEN[key] = now
+    try:
+        _jlog("api", "info" if first_or_stale else "debug", "chemin historique appelé — migrer vers la cible /api (RM3004)",
+              path=path, target=target, client=kind, ua=(ua or "")[:120], ip=ip, user=user, n=rec["n"])
+    except Exception:  # noqa: BLE001
+        pass
+    return target
+
+
+def op_historical_paths() -> dict:
+    with _HIST_LOCK:
+        rows = [{"path": p, "target": r["target"], "n": r["n"], "clients": dict(r["clients"]),
+                 "first": _dtfmt(r["first"]), "last": _dtfmt(r["last"])} for p, r in sorted(_HIST.items(), key=lambda kv: -kv[1]["n"])]
+    return {"paths": rows, "total": sum(r["n"] for r in rows), "since": _AGENT_STARTED_ISO, "note": "0 appel pendant une semaine ⇒ karl_api_routes.py peut être retiré (RM3004)"}
+
+
+def _dtfmt(ts: float) -> str:
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+
+
+import datetime as _dt_boot
+_AGENT_STARTED_ISO = _dt_boot.datetime.now().isoformat(timespec="seconds")
+
+
+class _EventBus:
+    """RM3006 : le bus des événements du cockpit. Les scripts PM (statut, note, worklog, relève mail) PUBLIENT des sujets ; chaque
+    connexion SSE `/api/session/events` attend sur la condition et, réveillée, rejoue `op_refresh` avec SES hashs — la donnée poussée
+    est donc exactement celle du tick, filtrée par le même `auth_ctx`. Pas de veilleur de fichiers : c'est l'écriture qui prévient."""
+
+    def __init__(self) -> None:
+        self.cond = threading.Condition()
+        self.seq = 0
+        self.last: dict = {}          # seq → {topics, source, ts}
+        self.listeners = 0
+
+    def publish(self, topics: list, source: str | None = None, **meta) -> int:
+        with self.cond:
+            self.seq += 1
+            self.last[self.seq] = {"topics": list(topics), "source": source, "ts": time.time(), **meta}
+            for k in [k for k in self.last if k < self.seq - 200]:   # borné : on ne garde que le récent
+                del self.last[k]
+            self.cond.notify_all()
+            return self.seq
+
+    def wait(self, since: int, timeout: float) -> int:
+        """Bloque jusqu'à un seq > since (ou le timeout) ; rend le seq courant."""
+        with self.cond:
+            if self.seq <= since:
+                self.cond.wait(timeout)
+            return self.seq
+
+    def topics_since(self, since: int) -> list:
+        with self.cond:
+            out: list = []
+            for k in sorted(self.last):
+                if k > since:
+                    for t in self.last[k]["topics"]:
+                        if t not in out:
+                            out.append(t)
+            return out
+
+
+EVENTS = _EventBus()
+EVENT_TOPICS = ("tickets", "sessions", "pending", "worklog", "dashboard", "mail", "env", "sets")
+MAX_EVENT_STREAMS = int(os.environ.get("KARL_AGENT_MAX_STREAMS", "24"))
+EVENT_HEARTBEAT_S = 20
+
+
+def op_events_publish(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """POST /api/session/events/publish — `{"topics": [...], "source": "pm-task-status-update", "rm_id": "…"}`.
+    Un sujet inconnu est refusé (400) : la liste EVENT_TOPICS est le contrat entre les scripts et le front."""
+    topics = payload.get("topics") if isinstance(payload, dict) else None
+    if not isinstance(topics, list) or not topics or not all(isinstance(t, str) for t in topics):
+        raise ApiError(400, "topics : liste non vide de chaînes attendue")
+    bad = [t for t in topics if t not in EVENT_TOPICS]
+    if bad:
+        raise ApiError(400, f"sujet(s) inconnu(s) : {', '.join(bad)} — connus : {', '.join(EVENT_TOPICS)}")
+    source = str(payload.get("source") or "")[:80] or None
+    seq = EVENTS.publish(topics, source=source, rm_id=str(payload.get("rm_id") or "")[:40] or None, user=(auth_ctx or {}).get("user"))
+    try:
+        _jlog("refresh", "debug", "événement publié", topics=topics, source=source, seq=seq, listeners=EVENTS.listeners)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "seq": seq, "listeners": EVENTS.listeners}
+
+
+def _sse_frame(event: str, data) -> bytes:
+    return (f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n").encode("utf-8")
+
+
 def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
     """RM2763 : pile de refresh — endpoint composite des pollers continus du
     cockpit (/sessions, /health, /worklog/<sid>).
@@ -4771,7 +5274,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [],
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
+             "integration": _integration_branch(),
              "requests_open": []}
     if not session_id:
         return empty
@@ -4805,6 +5309,13 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "notifications_done": [n for n in (data.get("notifications") or [])
                                    if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM3074 : l'onglet MR montre le CYCLE complet, pas seulement ce qui reste à merger —
+            # ce qui est mergé dans l'intégration mais pas encore promu en production était le seul
+            # état qu'aucune vue ne nommait. Bornées aux 40 dernières : au-delà, c'est de l'archive.
+            "mrs_all": [m for m in (data.get("mrs") or []) if isinstance(m, dict)][-40:],
+            # …et la branche d'intégration, pour que le front n'ait pas à SUPPOSER « dev » : un projet
+            # peut la nommer autrement, et une liste en dur se tromperait en silence sur celui-là.
+            "integration": _integration_branch(),
             # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
             # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
             "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),
@@ -4815,7 +5326,36 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "requests_open": [dict(r, n=i + 1) for i, r
                               in enumerate(data.get("requests") or [])
                               if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
+            # RM3088 (D021) : « à trancher » — les questions ouvertes des tickets de la session,
+            # lues dans leur `.think.md`. UN seul canal : la fiche du ticket (RM3089) consomme
+            # celui-ci plutôt que d'aller relire les mêmes fichiers de son côté.
+            "questions_open": _worklog_questions(items),
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
+
+
+def _worklog_questions(items, limite: int = 20) -> list:
+    """[{ref, rm, n}] — les tickets de la session qui ont des questions non tranchées.
+
+    Le compte vient du frontmatter de la fiche (`think:`, posé par la fusion) : le lire là évite
+    d'ouvrir chaque `.think.md` à chaque tick. Une fiche sans compteur ne dit rien plutôt que zéro —
+    « aucune question » et « pas encore mesuré » ne sont pas la même chose."""
+    out = []
+    for it in (items or []):
+        ref = str((it or {}).get("ref") or "").strip()
+        m = _RM_ID_RE.match(ref[2:]) if ref[:2].upper() == "RM" else None
+        if not m:
+            continue
+        tf = _find_task_file(ref[2:])
+        if not tf:
+            continue
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8")) or {}
+        except Exception:      # noqa: BLE001
+            continue
+        n = ((fm.get("think") or {}) if isinstance(fm.get("think"), dict) else {}).get("questions_open")
+        if isinstance(n, int) and n > 0:
+            out.append({"ref": ref, "rm": ref[2:], "n": n})
+    return out[:limite]
 
 
 # ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────
@@ -4843,7 +5383,7 @@ def _overview_open_tasks(client=None, project=None) -> list:
     wanted = OVERVIEW_ACTIVE | OVERVIEW_WAITING
     out = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -4857,6 +5397,11 @@ def _overview_open_tasks(client=None, project=None) -> list:
         entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
                  "status": meta.get("status"), "priority": meta.get("priority") or "",
                  "client": cl, "project": pr}
+        # RM3026 — ticket déployé en attente de notification client (client_notify :
+        # queued_at posé, sent_at vide) : lu par _read_task_meta (notify_queued) et remonté
+        # au cockpit (alerte `client_notify`) pour ne pas oublier d'envoyer le récap.
+        if meta.get("notify_queued"):
+            entry["notify_queued_at"] = meta["notify_queued"]
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:
@@ -5016,7 +5561,10 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
 # La troisième est la seule qui couvre une session lancée sur un slug, qui traite
 # des tickets sans qu'aucune branche ne porte leur numéro : sans elle, la fiche
 # aurait affiché « aucune session » à un ticket en cours de traitement.
-TICKET_SESSION_REASONS = ("ancrage", "registre", "worklog")
+# RM3086 : « jonction » = le registre PARTAGÉ de sessions porte ce ticket (pm_session.tickets[]).
+# C'est la source que le terminal interroge aussi (`pm_concurrent`) : écran et terminal disent enfin
+# la même chose sur « qui travaille dessus ».
+TICKET_SESSION_REASONS = ("ancrage", "jonction", "registre", "worklog")
 
 
 def _sid_sort_key(sid: str):
@@ -5058,6 +5606,8 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
                     if (m := _RM_BRANCH.match(str(b))) and m.group(1) == rm]
         worktrees = [w for w in (reg.get("worktrees") or [])
                      if (m := _RM_WORKTREE.search(str(w))) and m.group(1) == rm]
+        if rm in [str(x) for x in (reg.get("tickets") or [])]:
+            reasons.append("jonction")          # RM3086 : le registre partagé le dit explicitement
         if branches or worktrees:
             reasons.append("registre")
         if ("RM" + rm) in refs.get(sid, ()):
@@ -5651,6 +6201,15 @@ def build_alerts(projects, thresholds, now_ts, snoozed=None):
                 add("mr", f"m:{m.get('repo')}:{m.get('iid')}", age, "MR ouverte, pas mergée",
                     iid=m.get("iid"), url=m.get("url"), rm_id=str(m.get("ref") or "").replace("RM", ""),
                     client=cl, project=pr, title=str(m.get("ref") or ""))
+        # RM3026 — évolutions déployées en attente de notification client, AGRÉGÉES par
+        # PROJET (une alerte par projet, pas une par ticket) ; âge = la plus ancienne en
+        # file, pour ne pas oublier d'envoyer le récap (`mmi-pm client-notify send`).
+        _nq = [t.get("notify_queued_at") for t in (g.get("tickets") or []) if t.get("notify_queued_at")]
+        if _nq:
+            _age = max((alert_age_days(x, now_ts) or 0.0) for x in _nq)
+            add("client_notify", f"cn:{cl}/{pr}", _age,
+                f"{len(_nq)} évolution(s) en prod à notifier au client",
+                client=cl, project=pr, count=len(_nq))
     # le plus vieux d'abord, et un nombre BORNÉ : une liste d'alertes qu'on ne
     # finit pas de lire se contourne, puis s'ignore
     out.sort(key=lambda a: -a["age_days"])
@@ -5768,6 +6327,19 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         title = _transcript_title(s.get("session_id"))
         if title:
             s["title"] = title
+        # RM3082 : occupation de contexte du dernier tour — même lecture (cachée
+        # 30 s) que le titre ci-dessus, donc rien de plus à payer. Le front en
+        # fait un pourcentage avec la fenêtre du modèle.
+        cx = _transcript_context(s.get("session_id"), s.get("engine"))
+        if cx:
+            s["context"] = cx["context"]
+            s.setdefault("model", cx.get("model"))
+            # RM3084 : la fenêtre CONFIGURÉE du modèle (pm.pricing.yml) voyage avec la tuile. Le front
+            # garde la décision — il retient le plus grand entre cette valeur et ce qu'il sait de la
+            # famille — mais il ne doit pas IGNORER une fenêtre posée à la main dans les tarifs.
+            win = (_pricing_models().get(cx.get("model") or "") or {}).get("context_window")
+            if win:
+                s["rates"] = {"context_window": win}
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():
@@ -5787,6 +6359,9 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
                 "created": rec.get("created"),
                 "branches": rec.get("branches") or [],
                 "worktrees": rec.get("worktrees") or [],
+                # RM3086 : les tickets que la session a pris — la jonction ticket ↔ session, dans le
+                # registre PARTAGÉ. Les `tasks/*.json` de karl-agent, eux, sont locaux à la machine.
+                "tickets": [str(x) for x in (rec.get("tickets") or [])],
             }
         if s.get("is_ticket"):
             own_rms.add(s["rm_id"])  # ticket de l'onglet, même sans registre
@@ -5887,7 +6462,7 @@ def _read_task_meta(path: Path) -> dict:
     """
     meta = {"title": "", "status": "", "priority": "", "type": "",
             "test_url": "", "target_env": "", "schema_version": "",
-            "git_branch": "", "tags": []}
+            "git_branch": "", "tags": [], "notify_queued": ""}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -5898,6 +6473,8 @@ def _read_task_meta(path: Path) -> dict:
     fm = text[3:end] if end != -1 else text
     in_tags = False
     in_git = False
+    in_cn = False                 # RM3026 : bloc client_notify (file de notif client)
+    _cn_q = _cn_s = ""
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -5911,8 +6488,19 @@ def _read_task_meta(path: Path) -> dict:
                     meta["git_branch"] = _scalar(line)
                 continue
             in_git = False
+        if in_cn:
+            if line.startswith("  "):
+                s = line.strip()
+                if s.startswith("queued_at:"):
+                    _cn_q = _scalar(line)
+                elif s.startswith("sent_at:"):
+                    _cn_s = _scalar(line)
+                continue
+            in_cn = False
         if line.startswith("schema_version:"):
             meta["schema_version"] = _scalar(line)
+        elif line.startswith("client_notify:"):
+            in_cn = True
         elif line.startswith("git:"):
             in_git = True
         elif line.startswith("title:"):
@@ -5929,6 +6517,8 @@ def _read_task_meta(path: Path) -> dict:
             meta["target_env"] = _scalar(line)
         elif line.startswith("tags:"):
             in_tags = True
+    # RM3026 : « en file de notif client » = queued_at posé ET sent_at vide/null.
+    meta["notify_queued"] = _cn_q if (_cn_q and not _cn_s) else ""
     return meta
 
 
@@ -6020,7 +6610,7 @@ def _closed_ticket_ids() -> frozenset:
     if now - _closed_cache["at"] > _CLOSED_TTL:
         ids = set()
         for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-            if tf.name.endswith(".log.md"):
+            if not is_task_sheet(tf):
                 continue
             m = re.match(r"RM(\d+)_", tf.name)
             if m and _read_task_meta(tf).get("status") == "ferme":
@@ -6032,7 +6622,7 @@ def _closed_ticket_ids() -> frozenset:
 def _find_task_file(rm_id: str):
     # Exclure les .log.md (même préfixe RM<id>_, mais pas de frontmatter).
     matches = sorted(p for p in PROJECTS_BASE.glob(_TASK_GLOB.format(rm_id))
-                     if not p.name.endswith(".log.md"))
+                     if is_task_sheet(p))
     return matches[0] if matches else None
 
 
@@ -6218,6 +6808,35 @@ def _test_protocol(tf: Path, body: str):
     return None
 
 
+def _ticket_think(task_file, limite: int = 40) -> dict:
+    """{questions, decisions, notes, features, counts} — les entrées du `.think.md` d'un ticket.
+
+    Lecture seule et bornée : la fiche s'ouvre souvent et le carnet d'un gros ticket peut être long.
+    Les états restent tels quels (valide, invalide, propose, attente, reserve) — c'est le cockpit qui
+    en fait des pastilles. Carnet absent ou illisible : {} plutôt qu'une erreur, la fiche s'ouvre."""
+    try:
+        import pm_think
+        th = pm_think.think_path(Path(task_file))
+        if not th.is_file():
+            return {}
+        parsed = pm_think.load(th)
+    except Exception:      # noqa: BLE001
+        return {}
+
+    def _rows(kind, col):
+        out = []
+        for r in (parsed.get(kind, {}).get("rows") or [])[:limite]:
+            cells = r.get("cells") or []
+            out.append({"id": r.get("id"), "text": cells[col] if col < len(cells) else "",
+                        "state": r.get("state") or "", "closed": bool(r.get("closed")),
+                        "prefix": r.get("prefix") or ""})
+        return out
+
+    return {"questions": _rows("question", 1), "decisions": _rows("decision", 1),
+            "notes": _rows("note", 2), "features": _rows("feature", 1),
+            "counts": pm_think.counters(parsed), "file": th.name}
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -6310,6 +6929,10 @@ def op_resolve(rm_id: str) -> dict:
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
         "project_docs": _project_docs(project_dir),
         "log_tail": _log_tail(tf),
+        # RM3089 : la RÉFLEXION du ticket — questions, décisions, notes, fonctionnalités, avec leur
+        # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
+        # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
+        "think": _ticket_think(tf),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.
@@ -6414,7 +7037,7 @@ def op_tags() -> list:
     """GET /tags — inventaire des étiquettes en usage (RM2830)."""
     metas = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         metas.append(_read_task_meta(tf))
     return tags_in_use(metas)
@@ -6426,7 +7049,7 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     q_low = (q or "").lower().strip()
     out = []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -6625,7 +7248,7 @@ def op_triage(qs: dict) -> dict:
 
     status_by_id, open_files = {}, []
     for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
-        if tf.name.endswith(".log.md"):
+        if not is_task_sheet(tf):
             continue
         m = re.match(r"RM(\d+)_", tf.name)
         if not m:
@@ -7190,10 +7813,40 @@ def _root_project(root) -> tuple | None:
     return str(client), str(slug)
 
 
+DOC_ROOT_SUBS = ("project", "docs")
+
+
+def _doc_root_id(client: str, project: str, sub: str) -> str:
+    """RM3014 : identifiant d'une racine documentaire — `doc:<client>/<projet>/<docs|project>`.
+    C'est lui que le cockpit manipule et met dans ses URL : jamais le chemin absolu
+    (interface, URL, journal du démon)."""
+    return f"doc:{client}/{project}/{sub}"
+
+
+def _doc_root_path(ident: str):
+    """Chemin réel d'une racine documentaire depuis son identifiant, ou None si
+    l'identifiant est mal formé, désigne un projet inconnu ou une racine absente.
+    Résolution SERVEUR uniquement (le client ne connaît que l'identifiant)."""
+    if not (isinstance(ident, str) and ident.startswith("doc:")):
+        return None
+    parts = ident[4:].split("/")
+    if len(parts) != 3:
+        return None
+    client, project, sub = parts
+    if sub not in DOC_ROOT_SUBS or not (_PART_RE.match(client) and _PART_RE.match(project)):
+        return None
+    pdir = PROJECTS_BASE / client / "projects" / project / sub
+    return pdir if pdir.is_dir() else None
+
+
 def _project_docs_entries(client: str, project: str) -> list:
     """Racines documentaires d'un projet, au format « racine lisible » de
-    l'explorateur (chemin, nom, nombre de .md, libellé)."""
-    return [{"path": d, "name": Path(d).name,
+    l'explorateur. RM3014 : `path` est l'IDENTIFIANT `doc:<client>/<projet>/<racine>`
+    (projet:file), pas le chemin absolu — le triplet client/projet/racine est
+    porté à plat pour que le front s'en serve sans rien deviner."""
+    return [{"path": _doc_root_id(client, project, Path(d).name),
+             "client": client, "project": project, "root": Path(d).name,
+             "name": Path(d).name,
              "docs": len(list(Path(d).glob("*.md"))),
              "label": ("documents du projet" if Path(d).name == "docs"
                        else "fiches canoniques (overview, environnements)")}
@@ -7217,6 +7870,7 @@ def _session_projects(sid: str) -> list:
         out[str(root)] = {
             "root": str(root), "name": root.name, "client": client, "project": project,
             "docs": _project_docs_entries(client, project),
+            "cdcs": _project_cdcs(client, project),   # RM3045 : raccourcis vers les CDC vivants
         }
     return list(out.values())
 
@@ -7241,14 +7895,16 @@ def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str 
         allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
-        allowed |= set(_project_doc_roots(client, project))   # RM2622
+        allowed |= set(_project_doc_roots(client, project))   # RM2622 (chemins réels : clients historiques)
         # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
         # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
         # l'explorateur ouvre quand aucune session n'est attachée.
         allowed |= _project_root_paths(client, project)
     if worktree in allowed:
-        p = Path(worktree)
-        if p.is_dir():
+        # RM3014 : une racine documentaire se désigne par `doc:<client>/<projet>/<racine>`
+        # (projet:file) ; le chemin réel n'est résolu qu'ici, côté serveur.
+        p = _doc_root_path(worktree) if worktree.startswith("doc:") else Path(worktree)
+        if p is not None and p.is_dir():
             return p
     raise ApiError(403, "worktree hors du périmètre autorisé")
 
@@ -7384,12 +8040,8 @@ def op_project_worktrees(client: str, project: str) -> dict:
         out.append(item)
     # RM2622 : la doc du projet, marquée `kind: doc` — la présenter comme un
     # worktree ferait attendre une branche et des commits qui n'existent pas.
-    for d in _project_doc_roots(client, project):
-        p = Path(d)
-        n = len(list(p.glob("*.md")))
-        out.append({"path": d, "name": p.name, "exists": True, "kind": "doc",
-                    "docs": n, "label": ("documents du projet" if p.name == "docs"
-                                         else "fiches canoniques (overview, environnements)")})
+    for d in _project_docs_entries(client, project):   # RM3014 : identifiant projet:file, jamais le chemin
+        out.append(dict(d, exists=True, kind="doc"))
     return {"client": client, "project": project, "worktrees": out}
 
 
@@ -7464,6 +8116,517 @@ def op_file(relpath: str) -> str:
     except OSError as e:
         raise ApiError(500, f"lecture impossible : {e}")
 
+
+# ── CDC vivant des projets (RM3043, RM3044) : sommaires `docs/cdc-<prefix>-00-*.md` ──
+def _project_cdcs(client: str, project: str) -> list:
+    """Les CDC vivants d'un projet : un par préfixe portant un sommaire
+    `docs/cdc-<prefix>-00-*.md` (modèle AtomBox RM2881). Un projet peut en porter
+    plusieurs (pm-ai-agents : `pm` et `karl`). Chemins RELATIFS à `projects/`
+    (ceux que `op_file` sert) ; `registry` dit si le registre des fonctionnalités existe."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        return []
+    docs = PROJECTS_BASE / client / "projects" / project / "docs"
+    if not docs.is_dir():
+        return []
+    rel = lambda f: str(PurePosixPath("projects") / "clients" / client / "projects" / project / "docs" / f.name)
+    out = []
+    # RM3015-D008 (RM3053) : la forme générique — `docs/cdc.md` + `cdc-<donnée>.md` (questions,
+    # decisions, features, notes, roadmap, help), registre `docs/cdc/fonctionnalites.yml`. Les CDC
+    # PAR TICKET (`cdc-rm<id>-*.md`, D006) ne sont pas des chapitres du CDC projet.
+    generic = docs / "cdc.md"
+    if generic.is_file():
+        order = ["cdc.md", "cdc-features.md", "cdc-roadmap.md", "cdc-decisions.md", "cdc-questions.md",
+                 "cdc-notes.md", "cdc-help.md"]
+        files = [docs / n for n in order if (docs / n).is_file()]
+        files += sorted(f for f in docs.glob("cdc-*.md") if f not in files
+                        and not re.match(r"^cdc-rm\d+-", f.name) and not re.match(r"^cdc-.+?-\d\d-", f.name))
+        out.append({"client": client, "project": project, "prefix": "cdc", "key": f"{client}/{project}/cdc",
+                    "path": rel(generic), "title": _help_title(generic),
+                    "chapters": [{"file": f.name, "path": rel(f), "title": _help_title(f)} for f in files],
+                    "registry": (docs / "cdc" / "fonctionnalites.yml").is_file()})
+    # forme historique par préfixe (`cdc-<prefix>-00-*.md`, RM3043) — encore lue
+    for som in sorted(docs.glob("cdc-*-00-*.md")):
+        m = re.match(r"cdc-(.+?)-00-", som.name)
+        if not m or re.match(r"^rm\d+$", m.group(1)):
+            continue
+        prefix = m.group(1)
+        chapters = [{"file": f.name, "path": rel(f), "title": _help_title(f)}
+                    for f in sorted(docs.glob(f"cdc-{prefix}-*.md"))]
+        out.append({"client": client, "project": project, "prefix": prefix, "key": f"{client}/{project}/{prefix}",
+                    "path": rel(som), "title": _help_title(som), "chapters": chapters,
+                    # AtomBox : le dictionnaire `docs/dict/fonctionnalites.yml` (liste F001…) vaut registre
+                    "registry": (docs / f"cdc-{prefix}" / "fonctionnalites.yml").is_file() or (docs / "dict" / "fonctionnalites.yml").is_file()})
+    return out
+
+
+def _self_project():
+    """Le projet PROPRE de l'instance PM (celui du cockpit lui-même), dérivé du
+    `contacts_dir` de la config — source de vérité déjà posée (ex. iprospective/pm-ai-agents).
+    Repli constant si la config est illisible."""
+    try:
+        from pm_paths import PMConfig
+        parts = PMConfig.load().path("contacts_dir").parts   # …/<client>/projects/<project>/contacts
+        if len(parts) >= 4 and parts[-1] == "contacts" and parts[-3] == "projects":
+            return (parts[-4], parts[-2])
+        return ("iprospective", "pm-ai-agents")
+    except Exception:                                        # noqa: BLE001
+        return ("iprospective", "pm-ai-agents")
+
+
+def op_cdc_list() -> dict:
+    """Le(s) CDC du projet PROPRE de l'instance UNIQUEMENT (le cockpit montre EN HAUT le CDC
+    de PM — `pm-ai-agents` —, PAS une liste multi-projets). RM3049 : un seul CDC en haut ;
+    quand le projet propre n'en porte qu'un, le front l'ouvre directement (pas de sélecteur).
+    Les CDC des AUTRES projets restent accessibles depuis le panneau « projets » (données
+    séparées, par projet), jamais depuis ce menu global."""
+    return {"cdcs": _project_cdcs(*_self_project())}
+
+
+def op_cdc_features(client: str, project: str, prefix: str) -> dict:
+    """RM3044 : le registre des fonctionnalités d'un CDC (`docs/cdc-<prefix>/fonctionnalites.yml`,
+    tenu par pm-cdc-features) tel quel, en JSON — le cockpit en fait la table triable et la
+    feuille de route ; le chapitre 10 markdown reste la vue pour le wiki."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "") and _PART_RE.match(prefix or "")):
+        raise ApiError(400, "client/projet/préfixe invalides")
+    reg_dir = "cdc" if prefix == "cdc" else f"cdc-{prefix}"   # RM3053 : forme générique `docs/cdc/`
+    docs = PROJECTS_BASE / client / "projects" / project / "docs"
+    f = docs / reg_dir / "fonctionnalites.yml"
+    dict_f = docs / "dict" / "fonctionnalites.yml"          # AtomBox (RM2881) : dictionnaire = liste F001…, jalons à côté
+    if not f.is_file() and not dict_f.is_file():
+        raise ApiError(404, "registre des fonctionnalités introuvable")
+    try:
+        import yaml as _y2
+        if f.is_file():
+            reg = _y2.safe_load(f.read_text(encoding="utf-8")) or {}
+        else:
+            ents = _y2.safe_load(dict_f.read_text(encoding="utf-8")) or []
+            jal = docs / "dict" / "jalons.yml"
+            reg = {"projet": f"{client}/{project}", "entrees": ents if isinstance(ents, list) else [],
+                   "domaines": [{"nom": d} for d in dict.fromkeys(e.get("domaine") for e in ents if isinstance(e, dict) and e.get("domaine"))],
+                   "jalons": (_y2.safe_load(jal.read_text(encoding="utf-8")) or []) if jal.is_file() else []}
+    except Exception as e:
+        raise ApiError(500, f"registre illisible : {e}")
+    return {"client": client, "project": project, "prefix": prefix, "projet": reg.get("projet"),
+            "domaines": [d.get("nom") for d in (reg.get("domaines") or []) if isinstance(d, dict)],
+            "jalons": reg.get("jalons") or [], "entrees": reg.get("entrees") or [],
+            # RM3060 : les versions déclarées — étapes de travail, avec leur rôle et leur critère de
+            # passage. C'est ce qui permet de rattacher une fonctionnalité sans retaper un identifiant.
+            "versions": [v for v in (reg.get("versions") or []) if isinstance(v, dict) and v.get("id")]}
+
+# ── Édition du CDC depuis le cockpit (RM3064) : le geste part vers le script, jamais vers le fichier ──
+_THINK_ID_RE = re.compile(r"^(?:RM(\d+)-)?([DCQNF]\d{3}[a-z]?)$")
+_THINK_STATES = ("valide", "invalide", "propose", "attente", "reserve")
+_FEATURE_STATES = ("prévu", "en cours", "en pause", "écarté", "livré")
+
+
+def _pm_script(name: str, args: list, timeout: int = 120) -> str:
+    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon."""
+    path = (REPO_ROOT / "scripts" / name).resolve()
+    if not path.is_file():
+        raise ApiError(500, f"script introuvable : {name}")
+    if any(not isinstance(a, str) for a in args):
+        raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT), capture_output=True, text=True,
+                           timeout=timeout, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"{name} : timeout ({timeout}s)")
+    if p.returncode != 0:
+        raise ApiError(400, f"{name} : {(p.stderr or p.stdout or '').strip()[-400:]}")
+    return p.stdout
+
+
+def _cdc_think_args(payload: dict) -> tuple:
+    """(rm, id local, args de pm-task-think) — pur, testé. L'id fusionné `RM3044-D001` porte le ticket ; sinon `rm` est requis."""
+    raw_id = str(payload.get("id") or "").strip()
+    m = _THINK_ID_RE.match(raw_id)
+    if not m:
+        raise ApiError(400, "id d'entrée invalide (attendu Dnnn ou RM<id>-Dnnn)")
+    rm = str(payload.get("rm") or m.group(1) or "").strip()
+    if not rm.isdigit():
+        raise ApiError(400, "rm (ticket) requis")
+    if m.group(1) and payload.get("rm") and str(payload["rm"]) != m.group(1):
+        raise ApiError(400, "l'id fusionné ne porte pas le ticket indiqué")
+    local = m.group(2)
+    action = str(payload.get("action") or "").strip()
+    if action == "delete":
+        return rm, local, [rm, "--delete", local]
+    if action == "state":
+        state = str(payload.get("state") or "").strip()
+        if state not in _THINK_STATES:
+            raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
+        return rm, local, [rm, "--set", local, "--state", state]
+    raise ApiError(400, "action inconnue (delete | state)")
+
+
+def op_cdc_think(payload: dict) -> dict:
+    """État ou suppression d'une entrée de think depuis le panneau CDC, puis refusion du projet."""
+    rm, local, args = _cdc_think_args(payload)
+    out = _pm_script("pm-task-think.py", args)
+    proj = _task_project(rm)
+    merged = None
+    if proj:
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
+    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged}
+
+
+def _task_project(rm: str):
+    """(client, projet) d'un ticket, par sa fiche dans l'arbre PM."""
+    for f in PROJECTS_BASE.glob(_TASK_GLOB.format(rm)):
+        if f.name.endswith((".log.md", ".think.md")):
+            continue
+        parts = f.parts
+        try:
+            i = parts.index("projects")
+            return parts[i - 1], parts[i + 1]
+        except ValueError:
+            continue
+    return None
+
+
+def op_cdc_feature(payload: dict) -> dict:
+    """État d'une entrée du registre des fonctionnalités (figée en manuel), chapitre régénéré."""
+    client, project, prefix = (str(payload.get(k) or "") for k in ("client", "project", "prefix"))
+    if not (_PART_RE.match(client) and _PART_RE.match(project) and _PART_RE.match(prefix or "cdc")):
+        raise ApiError(400, "client/projet/préfixe invalides")
+    fid = str(payload.get("id") or "").strip(); etat = str(payload.get("etat") or "").strip()
+    if not re.match(r"^F\d{3}[a-z]?$", fid):
+        raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
+    if etat not in _FEATURE_STATES:
+        raise ApiError(400, "état inconnu (" + " · ".join(_FEATURE_STATES) + ")")
+    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
+    return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
+
+
+_VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
+
+
+def op_cdc_version(payload: dict) -> dict:
+    """Créer une version, la compléter, la retirer, ou y rattacher une fonctionnalité (RM3060).
+
+    Une version est une ÉTAPE DE TRAVAIL — un rôle et un critère de passage — pas une liste de
+    fonctionnalités : celles-ci s'y rattachent par une colonne. Feuille de route régénérée à chaque fois."""
+    client, project = (str(payload.get(k) or "") for k in ("client", "project"))
+    if not (_PART_RE.match(client) and _PART_RE.match(project)):
+        raise ApiError(400, "client/projet invalides")
+    geste = str(payload.get("action") or "").strip()
+    vid = str(payload.get("version") or "").strip()
+    args = ["--project", f"{client}/{project}"]
+    if geste == "attach":
+        fid = str(payload.get("id") or "").strip()
+        if not re.match(r"^F\d{3}[a-z]?$", fid):
+            raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
+        if vid and vid != "-" and not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide")
+        args += ["--set-version", fid, vid or "-"]
+    elif geste in ("add", "update"):
+        if not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide (lettres, chiffres, . et -)")
+        args += ["--add-version", vid]
+        for cle, opt in (("role", "--role"), ("critere", "--critere")):
+            v = payload.get(cle)
+            if v is not None:
+                args += [opt, str(v)[:400]]
+        etat = str(payload.get("etat") or "").strip()
+        if etat:
+            args += ["--etat-version", etat]
+    elif geste == "drop":
+        if not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide")
+        args += ["--drop-version", vid]
+    else:
+        raise ApiError(400, "action inconnue (add · update · attach · drop)")
+    out = _pm_script("pm-cdc-features.py", args + ["--build"])
+    return {"ok": True, "action": geste, "version": vid, "out": out.strip().splitlines()[-3:]}
+
+# ── Fournisseurs : déclaration, secrets, affectations (RM3068) ───────────────
+# La déclaration est PUBLIQUE (nom, type, url, modèle) et va dans `pm.config.local.yml`, fusionné
+# par-dessus `pm.config.yml` — le fichier commenté de référence n'est jamais réécrit par une machine.
+# Le SECRET, lui, ne transite que dans un sens : il s'écrit (entrée standard de `pm-provider-secret`),
+# il ne se relit jamais. Aucune route ne rend une valeur, même masquée (garde-fou 11).
+PROVIDER_LOCAL = "pm.config.local.yml"
+
+
+def _yaml():
+    import yaml
+    return yaml
+
+
+def _providers_local() -> dict:
+    f = REPO_ROOT / PROVIDER_LOCAL
+    if not f.is_file():
+        return {}
+    return _yaml().safe_load(f.read_text(encoding="utf-8")) or {}
+
+
+def _providers_ecrit_local(cfg: dict) -> None:
+    f = REPO_ROOT / PROVIDER_LOCAL
+    tete = ("# Surcharge locale de pm.config.yml — ÉCRIT PAR LE COCKPIT (RM3068).\n"
+            "# Fusionné par-dessus pm.config.yml (pm_paths). Ne contient JAMAIS de secret :\n"
+            "# les clés vivent dans un .env, posées par pm-provider-secret, et rien ne les relit.\n")
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(tete + _yaml().safe_dump(cfg, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    tmp.replace(f)
+    try:
+        subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "pm-post-commit.py"), "--noop"],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
+def _user_unix(auth_ctx) -> str:
+    """Le compte système du dev connecté au cockpit. Le nom d'utilisateur du cockpit fait foi ;
+    à défaut, le compte qui fait tourner le démon (mono-utilisateur)."""
+    u = str((auth_ctx or {}).get("user") or "").strip().lower()
+    if u and re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", u):
+        try:
+            pwd.getpwnam(u)
+            return u
+        except KeyError:
+            pass
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
+    """Lance pm-provider-secret, au besoin par sudo (autre dev, ou .env global). La valeur part
+    par l'ENTRÉE STANDARD : jamais un argument, donc jamais dans `ps` ni dans le journal sudo."""
+    script = REPO_ROOT / "scripts" / "pm-provider-secret.py"
+    if not script.is_file():
+        raise ApiError(500, "script introuvable : pm-provider-secret.py")
+    cmd = [sys.executable, str(script)] + args
+    if as_user and as_user != pwd.getpwuid(os.getuid()).pw_name:
+        cmd = ["sudo", "-n", "-u", as_user] + cmd
+    p = subprocess.run(cmd, input=(valeur if valeur is not None else ""), capture_output=True, text=True, timeout=30)
+    if p.returncode != 0:
+        raise ApiError(400, f"secret : {(p.stderr or p.stdout or '').strip()[-200:]}")
+    return p.stdout.strip()
+
+
+def op_provider_types() -> dict:
+    """Le catalogue : axes, types, champs, le NOM des clés attendues — jamais leur valeur — et les
+    services LLM prédéfinis (RM3072), pour déclarer un fournisseur sans retrouver son URL de mémoire."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    import pm_llm_services as LS
+    cat = PT.catalogue()
+    cat["llm_services"] = LS.catalogue()
+    return cat
+
+
+def op_llm_models(payload: dict) -> dict:
+    """Ce qu'un fournisseur sert VRAIMENT : on le lui demande. Une liste écrite dans le code périmerait.
+    La clé n'entre pas ici — elle est lue du `.env` par le script, et rien ne la rend (garde-fou 11)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("llmm", REPO_ROOT / "scripts" / "pm-llm-models.py")
+    M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
+    try:
+        url, dial, inst = M.resout(payload.get("service"), payload.get("instance"),
+                                   payload.get("url"), payload.get("type"))
+        noms = M.modeles(url, dial, M._clef(inst))
+    except (KeyError, ValueError) as e:
+        raise ApiError(400, str(e))
+    except Exception as e:  # réseau, HTTP, JSON : un diagnostic, pas une trace
+        code = getattr(e, "code", 0)
+        quoi = {401: "clé absente ou refusée", 403: "clé sans droit sur cette route",
+                404: "cette URL n'expose pas de liste de modèles"}.get(code)
+        raise ApiError(502, f"{url or '(sans URL)'} : {quoi or 'injoignable ou muet'}")
+    return {"url": url, "dialect": dial, "models": noms, "count": len(noms)}
+
+
+def op_providers(auth_ctx=None) -> dict:
+    """Instances déclarées, défauts par axe, ÉTAT des clés (posée / vide), affectations par projet."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    from pm_paths import PMConfig
+    cfg = PMConfig.load()
+    brut = _yaml().safe_load((Path(cfg.pm_dir) / "pm.config.yml").read_text(encoding="utf-8")) or {}
+    prov = brut.get("providers") or {}
+    fusion = _providers_local().get("providers") or {}
+    servers = dict(prov.get("servers") or {}); servers.update(fusion.get("servers") or {})
+    defauts = dict(prov.get("defaults") or {}); defauts.update(fusion.get("defaults") or {})
+    user = _user_unix(auth_ctx)
+    etats = {}
+    try:
+        for ligne in _secret_cmd(["--status"], as_user=user).splitlines():
+            nom, _, etat = ligne.partition("\t")
+            etats[nom.strip()] = (etat.strip() == "posée")
+    except ApiError:
+        etats = {}
+    out = []
+    for nom, d in sorted(servers.items()):
+        if not isinstance(d, dict):
+            continue
+        typ = str(d.get("type") or "")
+        cles = [{"key": k, "var": f"{PT.prefixe_de(typ)}__{re.sub(r'[^A-Za-z0-9]', '_', nom).upper()}__{k}",
+                 "label": lb} for k, lb in PT.type_de(typ).get("secrets", [])]
+        for c in cles:
+            c["set"] = bool(etats.get(c["var"]))          # l'ÉTAT, jamais la valeur
+        out.append({"name": nom, "axis": d.get("axis") or PT.type_de(typ).get("axis", ""), "type": typ,
+                    "local": nom in (fusion.get("servers") or {}),
+                    "fields": {k: v for k, v in d.items() if k not in ("axis", "type")}, "secrets": cles})
+    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "defaults": defauts,
+            "instances": out, "assignments": _provider_assignments()}
+
+
+def _provider_assignments() -> list:
+    """Qui utilise quoi : [{client, project, axis, instance, role, params}] — le rôle appartient au
+    couple projet ↔ instance (RM3068), jamais à l'instance."""
+    out = []
+    for meta in sorted(PROJECTS_BASE.glob("*/projects/*/meta.yml")):
+        try:
+            d = _yaml().safe_load(meta.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        prov = d.get("providers") or {}
+        client, projet = meta.parent.parent.parent.name, meta.parent.name
+        for axe, v in prov.items():
+            for e in (v if isinstance(v, list) else [v]):
+                if isinstance(e, dict) and e.get("instance"):
+                    out.append({"client": client, "project": projet, "axis": axe, "instance": e["instance"],
+                                "role": e.get("role") or "primary",
+                                "params": {k: x for k, x in e.items() if k not in ("instance", "role")}})
+    return out
+
+
+def op_provider_save(payload: dict, auth_ctx=None) -> dict:
+    """Déclare ou modifie une instance (jamais un secret), ou pose le défaut d'un axe."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    local = _providers_local()
+    prov = local.setdefault("providers", {})
+    if payload.get("default_for"):
+        axe = str(payload["default_for"]); nom = str(payload.get("name") or "")
+        if axe not in PT.AXES:
+            raise ApiError(400, f"axe inconnu : {axe}")
+        prov.setdefault("defaults", {})[axe] = nom
+        _providers_ecrit_local(local)
+        return {"ok": True, "defaults": prov["defaults"]}
+    nom = str(payload.get("name") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,40}", nom):
+        raise ApiError(400, "nom d'instance invalide (minuscules, chiffres, . _ -)")
+    if payload.get("delete"):
+        prov.setdefault("servers", {}).pop(nom, None)
+        _providers_ecrit_local(local)
+        return {"ok": True, "deleted": nom}
+    typ = str(payload.get("type") or "")
+    d = PT.type_de(typ)
+    if not d:
+        raise ApiError(400, f"type inconnu : {typ}")
+    champs = {k: v for k, v in (payload.get("fields") or {}).items() if k in PT.champs_admis(typ) and v not in (None, "")}
+    manquants = [f[0] for f in d["fields"] if f[2] and not champs.get(f[0])]
+    if manquants:
+        raise ApiError(400, "champ(s) requis : " + ", ".join(manquants))
+    if "ssh_aliases" in champs and isinstance(champs["ssh_aliases"], str):
+        champs["ssh_aliases"] = [x.strip() for x in champs["ssh_aliases"].split(",") if x.strip()]
+    prov.setdefault("servers", {})[nom] = {"axis": d["axis"], "type": typ, **champs}
+    _providers_ecrit_local(local)
+    return {"ok": True, "name": nom, "axis": d["axis"], "type": typ}
+
+
+def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
+    """Pose, remplace ou efface une clé. La valeur ARRIVE ici et n'en ressort jamais."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    nom = str(payload.get("name") or "").strip()
+    cle = str(payload.get("key") or "").strip().upper()
+    typ = str(payload.get("type") or "")
+    if not (re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,40}", nom) and cle in PT.cles_attendues(typ)):
+        raise ApiError(400, "instance ou clé inattendue pour ce type")
+    portee = "global" if payload.get("scope") == "global" else "user"
+    admin = bool((auth_ctx or {}).get("admin"))
+    cible_user = str(payload.get("user") or "").strip() or None
+    if (portee == "global" or cible_user) and not admin:
+        raise ApiError(403, "réservé aux administrateurs : le .env global et celui d'un autre développeur")
+    args = ["--instance", nom, "--key", cle, "--type", typ, "--scope", portee]
+    if payload.get("unset"):
+        args.append("--unset")
+        valeur = None
+    else:
+        valeur = str(payload.get("value") or "")
+        if not valeur.strip():
+            raise ApiError(400, "valeur vide (utiliser « effacer »)")
+    comme = cible_user or (_user_unix(auth_ctx) if portee == "user" else "root")
+    if portee == "global":
+        args += []                      # le script vise le .env de l'instance ; sudo -u root ci-dessous
+    _secret_cmd(args, valeur=valeur, as_user=comme)
+    _jlog("auth", "info", f"clé {cle} de {nom} {'effacée' if payload.get('unset') else 'enregistrée'}",
+          scope=portee, by=str((auth_ctx or {}).get("user") or ""))     # le fait, jamais la matière
+    return {"ok": True, "name": nom, "key": cle, "scope": portee, "set": not payload.get("unset")}
+
+
+def op_provider_assign(payload: dict, auth_ctx=None) -> dict:
+    """Affecte une instance à un PROJET, avec son rôle : le rôle appartient au couple, pas à l'instance."""
+    client, projet = str(payload.get("client") or ""), str(payload.get("project") or "")
+    if not (_PART_RE.match(client) and _PART_RE.match(projet)):
+        raise ApiError(400, "client/projet invalides")
+    meta = PROJECTS_BASE / client / "projects" / projet / "meta.yml"
+    if not meta.is_file():
+        raise ApiError(404, "meta.yml introuvable pour ce projet")
+    axe, inst = str(payload.get("axis") or ""), str(payload.get("instance") or "")
+    role = str(payload.get("role") or "primary")
+    if role not in ("primary", "secondary"):
+        raise ApiError(400, "rôle : primary ou secondary")
+    d = _yaml().safe_load(meta.read_text(encoding="utf-8")) or {}
+    liste = d.setdefault("providers", {}).get(axe)
+    liste = [liste] if isinstance(liste, dict) else (list(liste) if isinstance(liste, list) else [])
+    liste = [e for e in liste if isinstance(e, dict) and e.get("instance") != inst]
+    if not payload.get("delete"):
+        entree = {"instance": inst, "role": role}
+        entree.update({k: v for k, v in (payload.get("params") or {}).items() if v not in (None, "")})
+        liste = ([entree] + liste) if role == "primary" else (liste + [entree])
+    if liste:
+        d["providers"][axe] = liste
+    else:
+        d["providers"].pop(axe, None)
+    tmp = meta.with_suffix(".tmp")
+    tmp.write_text(_yaml().safe_dump(d, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    tmp.replace(meta)
+    return {"ok": True, "client": client, "project": projet, "axis": axe, "entries": liste}
+
+# ── Moteurs et serveurs de modèles : état, installation, mise à jour (RM3069) ─
+def _engines_mod():
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import importlib.util
+    import pm_engine_recipes as R
+    spec = importlib.util.spec_from_file_location("pm_engine_install", REPO_ROOT / "scripts" / "pm-engine-install.py")
+    E = importlib.util.module_from_spec(spec); spec.loader.exec_module(E)
+    return R, E
+
+
+def op_engines() -> dict:
+    """Le catalogue et l'état réel : présent, version installée, version disponible, sessions en cours.
+    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas."""
+    R, E = _engines_mod()
+    return {"catalogue": R.catalogue(), "etats": E.etats()}
+
+
+def op_engine_install(payload: dict, auth_ctx=None) -> dict:
+    """Installe, met à jour ou teste — par IDENTIFIANT de recette et par PORTÉE. Aucune commande ne
+    vient du client. La portée `user` reste dans l'espace du développeur et n'a besoin d'aucun droit ;
+    la portée `system` touche la machine entière (sudo) : réservée aux administrateurs, jamais implicite."""
+    R, E = _engines_mod()
+    nom = str(payload.get("recipe") or "").strip()
+    action = str(payload.get("action") or "test").strip()
+    portee = str(payload.get("scope") or "user").strip()
+    if not R.recette(nom):
+        raise ApiError(400, f"recette inconnue : {nom}")
+    if action not in R.ACTIONS:
+        raise ApiError(400, f"action inconnue : {action}")
+    if portee not in R.PORTEES:
+        raise ApiError(400, f"portée inconnue : {portee}")
+    if action in ("install", "update") and portee == "system" and not bool((auth_ctx or {}).get("admin")):
+        raise ApiError(403, "installer pour toute la machine touche le système : réservé aux "
+                            "administrateurs — l'installation « pour moi » reste ouverte")
+    try:
+        r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")),
+                      portee=portee)
+    except (KeyError, ValueError) as e:
+        raise ApiError(400, str(e))
+    _jlog("env", "info", f"moteur {nom} : {action} ({portee})"
+          + (" (simulation)" if payload.get("dry_run") else ""),
+          by=str((auth_ctx or {}).get("user") or ""), ok=bool(r.get("ok")))
+    return r
 
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
@@ -7587,7 +8750,7 @@ def op_project(client: str, project: str) -> dict:
     tdir = pdir / "tasks"
     if tdir.is_dir():
         for tf in tdir.glob("RM*_*.md"):
-            if tf.name.endswith(".log.md"):
+            if not is_task_sheet(tf):
                 continue
             m = re.match(r"RM(\d+)_", tf.name)
             if not m:
@@ -8324,7 +9487,9 @@ _PM_COMMANDS_DEFAULT = [
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
-ANSWERS_LOG = LOG_DIR / "answers.jsonl"   # RM2302 : réponses « Oui » envoyées (socle RM2305)
+# RM3085 : `answers.jsonl` retiré — écrit depuis RM2302, jamais relu. Ces réponses vont désormais
+# au journal structuré (catégorie `claude`), qui est lu et purgé. Le fichier existant est laissé
+# sur disque : le supprimer effacerait un historique, même inexploité.
 
 
 def _probe_env(host: str, env: str) -> tuple:
@@ -8412,6 +9577,7 @@ def _probe_cockpit_test_env(host: str) -> tuple:
 # Aucun secret n'est jamais rendu : présence/absence de variables uniquement.
 
 ENV_TOOLS = [
+    ("tmux", "apt install tmux"),   # RM2889 : le « tmux ok » de l'en-tête vit ici désormais
     ("git", "sudo apt install git"),
     ("python3", "sudo apt install python3"),
     ("psql", "sudo apt install postgresql-client"),
@@ -8505,7 +9671,7 @@ def _iter_task_files(limit=None):
     out = []
     try:
         for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
-            if p.name.endswith(".log.md"):
+            if not is_task_sheet(p):
                 continue
             out.append(p)
             if limit is not None and len(out) >= limit:
@@ -8954,8 +10120,39 @@ def _envchk_workspace_bridge():
                  "scripts/pm-workspace-bridge.py --update")]
 
 
+def _envchk_sessions_archive():
+    """RM2997 — les sessions sont-elles encore archivées ?
+
+    Le contrôle qui a manqué. L'archivage de `~/.claude/projects` s'est arrêté le
+    2026-06-23 sur un verrou git périmé et personne ne l'a su pendant 75 jours ;
+    pendant ce temps la rétention de Claude Code effaçait 42 transcripts, et avec
+    eux la réflexion de 70 tickets ouverts. Une panne d'archivage ne se voit pas
+    toute seule : elle ne produit rien, elle cesse de produire.
+
+    Délègue au script — jamais de seconde implémentation du verdict."""
+    script = REPO_ROOT / "scripts" / "pm-sessions-archive.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script), "--check"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("archivage des sessions", "warn", "contrôle impossible")]
+    detail = " ; ".join(l.strip().lstrip("✗ ") for l in p.stdout.splitlines()
+                        if l.strip()) or "état inconnu"
+    if p.returncode == 0:
+        return [_chk("archivage des sessions", "ok", detail[:200])]
+    # `error` et non `warn` : ce qui est perdu ici ne se rattrape pas — et seuls
+    # `warn`/`error` sont comptés par le résumé du cockpit (envStatus.js), donc
+    # seul `error` fait vraiment rougir la pastille.
+    return [_chk("archivage des sessions", "error", detail[:200],
+                 "scripts/pm-sessions-archive.py (ou --install-timer)")]
+
+
 def _envchk_pm():
-    out = _envchk_workspace_bridge()
+    out = _envchk_workspace_bridge() + _envchk_sessions_archive()
+    lvl, det, fix = budget_contexte_line(_budget_contexte_etat())     # RM3046
+    out.append(_chk("budget de contexte", lvl, det, fix))
     vf = REPO_ROOT / "norms" / "VERSION"
     try:
         norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
@@ -8989,6 +10186,43 @@ def _envchk_pm():
     else:
         out.append(_chk("tâches en_cours", "ok", "toutes ont une branche résoluble"))
     return out
+
+
+# >>> budget_contexte_line — pure (testée par test_karl_agent_envstatus.py)
+def budget_contexte_line(etat):
+    """(level, detail, fix) depuis `pm-context-budget --json` (RM3046).
+
+    Le préchargement des rôles grossit à chaque module ajouté aux normes. On n'en fait
+    PAS un ticket à chaque fois — un ticket par occurrence encombre le backlog sans faire
+    baisser un chiffre : on le REGARDE, ici, et on décide quand ça vaut un geste. `warn`
+    et non `error` : rien n'est cassé, une session coûte simplement plus cher qu'annoncé."""
+    if not etat:
+        return ("info", "non mesuré", "scripts/pm-context-budget.py --json")
+    roles = etat.get("roles") or {}
+    budget = etat.get("budget")
+    if etat.get("ok"):
+        pire = max((v.get("tokens", 0) for v in roles.values()), default=0)
+        return ("ok", f"{len(roles)} rôle(s) sous le plafond ({pire:,} / {budget:,} au plus)"
+                      .replace(",", " "), "")
+    over = etat.get("depassements") or []
+    detail = " · ".join(f"{r} {roles[r]['tokens']:,}".replace(",", " ") for r in over if r in roles)
+    return ("warn", f"plafond {budget:,} dépassé par {len(over)} rôle(s) : {detail}".replace(",", " "),
+            "alléger le préchargement (en-tête « Préchargé par » des modules) — norms/src/manifest.yml")
+# <<< budget_contexte_line
+
+
+def _budget_contexte_etat():
+    """Mesure à la volée : c'est un comptage d'octets sur des fichiers locaux, pas une sonde
+    réseau — le faire ici évite un service, un timer et un fichier d'état de plus."""
+    script = REPO_ROOT / "scripts" / "pm-context-budget.py"
+    if not script.exists():
+        return None
+    try:
+        p = subprocess.run([sys.executable, str(script), "--json"], capture_output=True,
+                           text=True, timeout=20, cwd=str(REPO_ROOT))
+        return json.loads(p.stdout) if p.stdout.strip() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
 
 
 ENV_FAMILIES = [
@@ -9473,6 +10707,107 @@ def op_mail_dismiss(payload: dict) -> dict:
     return _mail_script("karl-mail-draft.py", args)
 
 
+# ── RM3052 : panneau « compte-rendu client » ─────────────────────────────────
+# Le cockpit ne réimplémente RIEN : il délègue à pm-client-notify.py --json, exactement
+# comme la CLI. Une seule vérité pour la file, l'aperçu et l'envoi — sans quoi ce que
+# Mathieu relit à l'écran ne serait pas ce qui part chez le client.
+def _client_notify(args: list, timeout: int = 180) -> dict:
+    path = (REPO_ROOT / "scripts" / "pm-client-notify.py").resolve()
+    if not path.is_file():
+        raise ApiError(500, "script introuvable : pm-client-notify.py")
+    for a in args:
+        if not isinstance(a, str):
+            raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"pm-client-notify : timeout ({timeout}s)")
+    out = (p.stdout or "").strip().splitlines()
+    try:
+        data = json.loads(out[-1]) if out else {}
+    except (ValueError, IndexError):
+        data = {}
+    if not data:
+        raise ApiError(500, f"pm-client-notify : sortie illisible — {(p.stderr or p.stdout or '')[-300:]}")
+    if not data.get("ok", True):
+        raise ApiError(400, str(data.get("error") or "échec"))
+    return data
+
+
+def _cn_client(payload: dict) -> str:
+    cl = str((payload or {}).get("client") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}", cl):
+        raise ApiError(400, "client invalide")
+    return cl
+
+
+def _cn_rm(payload: dict) -> list:
+    """Les cases cochées. Une sélection VIDE est refusée : le panneau agit sur ce qui est
+    coché, jamais sur « toute la file » par défaut (un envoi client ne se rattrape pas)."""
+    raw = (payload or {}).get("rm") or []
+    if not isinstance(raw, list) or not raw:
+        raise ApiError(400, "aucun ticket sélectionné")
+    out = []
+    for x in raw[:200]:
+        s = str(x).strip()
+        if not s.isdigit():
+            raise ApiError(400, f"identifiant de ticket invalide : {s}")
+        out += ["--rm", s]
+    return out
+
+
+def _cn_proto(payload: dict) -> list:
+    """Protocole de test dans l'email : None = suivre l'option du projet (défaut oui)."""
+    v = (payload or {}).get("protocole")
+    if v is None:
+        return []
+    return ["--avec-protocole"] if v else ["--sans-protocole"]
+
+
+def op_client_notify_pending(qs: dict) -> dict:
+    """La file de notification, groupée par client (compteurs du menu `Calicote (5)`)."""
+    args = ["pending"]
+    cl = str((qs or {}).get("client") or "").strip()
+    if cl:
+        args.append(_cn_client({"client": cl}))
+    return _client_notify(args)
+
+
+def op_client_notify_preview(payload: dict) -> dict:
+    """Aperçu de l'email pour les tickets cochés — n'écrit rien, n'envoie rien."""
+    return _client_notify(["preview", _cn_client(payload)] + _cn_rm(payload) + _cn_proto(payload))
+
+
+def op_client_notify_send(payload: dict) -> dict:
+    """Envoi réel au(x) contact(s) du client, puis `sent_at`/`sent_to` sur les tickets."""
+    return _client_notify(["send", _cn_client(payload), "--yes"]
+                          + _cn_rm(payload) + _cn_proto(payload), timeout=300)
+
+
+def op_client_notify_test(payload: dict) -> dict:
+    """Envoi de TEST à une adresse choisie : le même email, sans toucher à la file.
+    Endpoint distinct de `send` — un test ne doit jamais pouvoir partir chez le client."""
+    raw = (payload or {}).get("to") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    to = []
+    for e in raw[:5]:
+        e = str(e).strip()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", e):
+            raise ApiError(400, f"adresse de test invalide : {e or '(vide)'}")
+        to += ["--to", e]
+    if not to:
+        raise ApiError(400, "aucune adresse de test")
+    return _client_notify(["test", _cn_client(payload)] + to
+                          + _cn_rm(payload) + _cn_proto(payload), timeout=300)
+
+
+def op_client_notify_dismiss(payload: dict) -> dict:
+    """Écarte les tickets cochés de la file, SANS email (le client n'a pas à tout savoir)."""
+    return _client_notify(["dismiss", _cn_client(payload), "--yes"] + _cn_rm(payload))
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -9583,6 +10918,18 @@ _PM_SETTINGS_CONF = [
      "label": "Mémoire — plafond dur, GiB (0 = illimité)",
      "group": "Sessions", "type": "number", "path": ["sessions", "memory_max_gib"],
      "min": 0, "max": 512},
+    # RM3082 — paliers de la jauge de contexte des tuiles de session, en % de la
+    # fenêtre du modèle. Réglables parce qu'ils dépendent de l'usage : sur un
+    # modèle 1M, 50 % laisse encore de quoi travailler une journée.
+    {"key": "conf:sessions.context_warn_pct", "label": "Contexte — palier d'attention (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_warn_pct"],
+     "default": 50, "min": 1, "max": 100},
+    {"key": "conf:sessions.context_high_pct", "label": "Contexte — palier élevé (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_high_pct"],
+     "default": 75, "min": 1, "max": 100},
+    {"key": "conf:sessions.context_critical_pct", "label": "Contexte — palier critique (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_critical_pct"],
+     "default": 90, "min": 1, "max": 100},
     # Le swap inverse la convention : 0 = aucun swap (plafond réel), -1 = illimité.
     {"key": "conf:sessions.memory_swap_gib", "mem_kind": "swap",
      "label": "Mémoire — swap autorisé, GiB (0 = aucun, -1 = illimité)",
@@ -9676,6 +11023,23 @@ def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
     return spec["value"] if spec else "auto"
+
+
+def _context_thresholds() -> dict:
+    """RM3082 — les trois paliers de la jauge de contexte, lus de la whitelist.
+    Ordonnés de force : des seuils croisés (90/50/75) rendraient la jauge
+    incompréhensible sans jamais lever d'erreur."""
+    vals = {}
+    for name, key, dflt in (("warn", "conf:sessions.context_warn_pct", 50),
+                            ("high", "conf:sessions.context_high_pct", 75),
+                            ("crit", "conf:sessions.context_critical_pct", 90)):
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        try:
+            vals[name] = int(spec["value"]) if spec and spec.get("value") is not None else dflt
+        except (TypeError, ValueError):
+            vals[name] = dflt
+    w, h, c = sorted((vals["warn"], vals["high"], vals["crit"]))
+    return {"warn": w, "high": h, "crit": c}
 
 
 def op_pm_settings_set(payload: dict) -> dict:
@@ -10323,8 +11687,60 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # journald capte stderr ; format compact
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
+    # ── RM3010 : journal structuré ─────────────────────────────────────────
+    # Chaque requête est horodatée ; toute réponse ≥ 400 est journalisée (catégorie
+    # d'après le chemin, `auth` pour 401/403, traceback court sur 5xx) ; les POST
+    # aboutis des domaines qui MUTENT (tmux, jeux, session, auth, mail, pm, voix,
+    # tickets) le sont en `info` ; les autres réponses en `debug` (visibles avec
+    # KARL_JOURNAL_LEVEL=debug). Le journal ne lève jamais.
+    _JOURNAL_MUTATIONS = frozenset({"tmux", "sets", "session", "auth", "mail", "pm", "voice", "issue", "worklog", "files"})
+
+    def handle_one_request(self):
+        self._t0 = time.monotonic(); self._status = None
+        return super().handle_one_request()
+
+    def send_response(self, code, message=None):
+        self._status = code
+        return super().send_response(code, message)
+
+    def _note_historical(self):
+        try:
+            p = urlparse(self.path).path
+            if p.startswith("/api/") or p in ("/", "/cockpit") or p.startswith("/static/") or p.startswith("/help") or p == "/cockpit-config":
+                return
+            note_historical_path(p, self.headers.get("User-Agent", ""), self.client_address[0], (getattr(self, "auth_ctx", None) or {}).get("user"))
+        except Exception:  # noqa: BLE001 — jamais bloquant
+            pass
+
+    def _journal_fields(self) -> dict:
+        ctx = getattr(self, "auth_ctx", None) or {}
+        t0 = getattr(self, "_t0", None)
+        return {"method": getattr(self, "command", None), "path": urlparse(self.path).path,
+                "ms": int((time.monotonic() - t0) * 1000) if t0 else None, "user": ctx.get("user"), "ip": self.client_address[0]}
+
+    def _journal_response(self, code: int, obj: dict | None) -> None:
+        try:
+            f = self._journal_fields(); path = f["path"]
+            if code >= 400:
+                cat = "auth" if code in (401, 403) else _jcat(path)
+                lvl = "error" if code >= 500 else "warn"
+                msg = (obj or {}).get("error") or f"HTTP {code}"
+                _jlog(cat, lvl, str(msg)[:400], status=code, trace=_jexc(sys.exc_info()[1]) if code >= 500 else None, **f)
+            elif f["method"] in ("POST", "PUT", "DELETE") and _jcat(path) in self._JOURNAL_MUTATIONS:
+                _jlog(_jcat(path), "info", f"{f['method']} {path} → {code}", status=code, **self._journal_payload_summary(), **f)
+            else:
+                _jlog("api", "debug", f"{f['method']} {path} → {code}", status=code, **f)
+        except Exception:  # noqa: BLE001 — le journal n'emporte jamais la réponse
+            pass
+
+    def _journal_payload_summary(self) -> dict:
+        p = getattr(self, "_journal_payload", None) or {}
+        keep = {k: p[k] for k in ("rm_id", "sid", "group", "name", "engine", "view", "user", "to", "from") if k in p and isinstance(p[k], (str, int, float, bool))}
+        return {"payload": keep} if keep else {}
+
     # -- utilitaires de réponse --
     def _send_json(self, code: int, obj: dict, extra_headers=None):
+        self._journal_response(code, obj if isinstance(obj, dict) else None)   # RM3010
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -10471,6 +11887,10 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(
             {"error": "authentification requise (login, Basic ou X-Karl-Token)"},
             ensure_ascii=False).encode("utf-8")
+        try:   # RM3010 : un client sans jeton (page ouverte sans login) — info, pas warn
+            _jlog("auth", "info", "authentification requise", status=401, **self._journal_fields())
+        except Exception:  # noqa: BLE001
+            pass
         self.send_response(401)
         if (BASIC_USER is not None and BASIC_PASS is not None
                 and (self.headers.get("Authorization") or "").startswith("Basic ")):
@@ -10495,8 +11915,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routage --
     def do_GET(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/events":   # RM3006 : EventSource ne pose aucun en-tête — le jeton voyage en query (jamais journalisé : _journal_fields ne garde que le chemin)
+            tok = {k: v[0] for k, v in parse_qs(parsed.query).items()}.get("token")
+            if tok and not self.headers.get("X-Karl-Token"):
+                self.headers["X-Karl-Token"] = tok
         # Routes publiques du cockpit (RM1873/RM2334) : la page et sa config se
         # chargent SANS auth — nécessaire pour afficher la carte de login (mdp
         # → token d'appareil) — et ne divulguent rien de sensible (le ttyd_base
@@ -10517,6 +11943,19 @@ class Handler(BaseHTTPRequestHandler):
             data = op_help_get(path[len("/help/"):])
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
+        if path == "/pm/engines":            # RM3069 : catalogue + état des moteurs et serveurs
+            return self._send_json(200, op_engines())
+        if path == "/pm/provider-types":     # RM3068 : catalogue des types de fournisseurs
+            return self._send_json(200, op_provider_types())
+        if path == "/pm/providers":          # RM3068 : instances, défauts, ÉTAT des clés, affectations
+            return self._send_json(200, op_providers(self.auth_ctx))
+        if path == "/cdc":                   # RM3043 : sommaires des CDC vivants
+            return self._send_json(200, op_cdc_list())
+        if path.startswith("/cdc-features/"):   # RM3044 : registre des fonctionnalités d'un CDC
+            parts = path[len("/cdc-features/"):].split("/")
+            if len(parts) != 3:
+                return self._send_json(400, {"error": "attendu /cdc-features/<client>/<projet>/<prefix>"})
+            return self._send_json(200, op_cdc_features(*parts))
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
@@ -10558,6 +11997,10 @@ class Handler(BaseHTTPRequestHandler):
                 # Route publique : une préférence de thème n'est pas sensible, et
                 # le front en a besoin AVANT l'authentification (écran de login).
                 "ui_theme": _ui_theme(),
+                # RM3082 : paliers de la jauge de contexte (route publique — un
+                # seuil d'affichage n'est pas une donnée sensible, et le front en
+                # a besoin au premier rendu de la liste des sessions).
+                "context_thresholds": _context_thresholds(),
             })
         if not authed:
             return self._send_auth_required()
@@ -10569,11 +12012,20 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/auth/users":
                 self._require_admin()
                 return self._send_json(200, op_auth_users_list())
+            if path == "/log/tail":   # RM3010 : lecture filtrée du journal (auth requise)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                try:
+                    limit = int(qs.get("limit") or 200)
+                except ValueError:
+                    limit = 200
+                return self._send_json(200, {"entries": _jtail(qs.get("category"), qs.get("level"), qs.get("since"), limit, qs.get("q")),
+                                             "categories": sorted(_JCATS), "stats": _jstats()})
             if path == "/health":
                 return self._send_json(200, {
                     "status": "ok",
                     "sessions": len(_list_sessions()),
                     "tmux": _tmux("-V")[0] == 0,
+                    "version": _cockpit_version(),   # RM3000
                 })
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
@@ -10581,6 +12033,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/refresh":       # RM2763 : pile de refresh (composite)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
+            if path == "/log/historical":   # RM3004 : qui appelle encore les chemins historiques (compteurs depuis le démarrage)
+                return self._send_json(200, op_historical_paths())
+            if path == "/events":        # RM3006 : canal de push (SSE) — mêmes blocs, même auth_ctx, poussés à la publication
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._events_stream(qs.get("blocks", ""))
             if path == "/voice/caps":
                 return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
@@ -10612,7 +12069,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"queue": op_test_queue(qs)})
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, {"resumable": op_resumable(qs)})
+                res = op_resumable(qs)
+                # RM2991 : ce que la recherche trouve mais qu'on ne peut PAS
+                # reprendre — worklog conservé, transcript disparu. À part, pour
+                # que le panneau ne propose jamais un bouton qui échouerait.
+                mots = [m for m in (qs.get("q") or "").lower().split() if m]
+                archives = _archived_worklogs(
+                    mots, {e["session_id"] for e in res}) if mots else []
+                return self._send_json(200, {"resumable": res, "archived": archives})
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))
@@ -10703,6 +12167,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/overview":                # RM2696 : agrégat par projet
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
+            if path == "/client-notify/pending":    # RM3052 : file de compte-rendu, par client
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_client_notify_pending(qs))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
             if path == "/vault/status":            # RM2748 : verrous (vault, SSH)
@@ -10744,12 +12211,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         path = urlparse(self.path).path
         # /auth/login est LA porte d'entrée : pas d'auth préalable (throttle
         # progressif par IP dans op_auth_login).
         if path == "/auth/login":
             try:
-                res = op_auth_login(self._read_json(), self.client_address[0])
+                login_payload = self._read_json()
+                res = op_auth_login(login_payload, self.client_address[0])
+                _jlog("auth", "info", "connexion", user=res.get("user"), admin=bool(res.get("admin")), device=str(login_payload.get("device_name") or ""), ip=self.client_address[0])
                 # RM2700 : pose AUSSI le token en cookie de session même-origine
                 # (en plus de la réponse JSON que le cockpit met en localStorage).
                 # Sert exclusivement au gate du terminal distant `/ttyd`.
@@ -10763,6 +12234,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_auth_required()
         try:
             payload = self._read_json()
+            self._journal_payload = payload if isinstance(payload, dict) else None   # RM3010 : résumé dans le journal des mutations
+            if path == "/log":   # RM3010/RM3011 : le front dépose ses erreurs et avertissements
+                fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else {}
+                _jlog(str(payload.get("category") or "front"), str(payload.get("level") or "info"), str(payload.get("message") or "")[:1000],
+                      via="front", user=(self.auth_ctx or {}).get("user"), ip=self.client_address[0], **{k: v for k, v in fields.items() if k not in ("via", "user", "ip")})
+                return self._send_json(200, {"ok": True})
+            if path == "/events/publish":   # RM3006 : un script PM (ou le front) signale que quelque chose a changé
+                return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.
@@ -10862,6 +12341,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mail_create(payload))
             if path == "/mail/dismiss":
                 return self._send_json(200, op_mail_dismiss(payload))
+            # RM3052 — compte-rendu client : aperçu (inoffensif), envoi (email SORTANT vers
+            # le client, geste humain explicite dans le panneau), mise à l'écart (sans email).
+            if path == "/client-notify/preview":
+                return self._send_json(200, op_client_notify_preview(payload))
+            if path == "/client-notify/send":
+                return self._send_json(200, op_client_notify_send(payload))
+            if path == "/client-notify/test":
+                return self._send_json(200, op_client_notify_test(payload))
+            if path == "/client-notify/dismiss":
+                return self._send_json(200, op_client_notify_dismiss(payload))
+            if path == "/pm/engine-install":    # RM3069 : installer / mettre à jour / tester, par recette
+                return self._send_json(200, op_engine_install(payload, self.auth_ctx))
+            if path == "/pm/providers":         # RM3068 : déclarer / modifier / supprimer une instance
+                return self._send_json(200, op_provider_save(payload, self.auth_ctx))
+            if path == "/pm/provider-secret":   # RM3068 : écrire une clé (jamais la relire)
+                return self._send_json(200, op_provider_secret(payload, self.auth_ctx))
+            if path == "/pm/llm-models":        # RM3072 : demander au fournisseur ce qu'il sert
+                return self._send_json(200, op_llm_models(payload))
+            if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
+                return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
+            if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
+                return self._send_json(200, op_cdc_think(payload))
+            if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
+                return self._send_json(200, op_cdc_feature(payload))
+            if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
+                return self._send_json(200, op_cdc_version(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})
@@ -10869,6 +12374,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_PUT(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
         path = urlparse(self.path).path
@@ -10884,6 +12391,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_DELETE(self):
+        self._note_historical()             # RM3004 : un chemin historique appelé directement est compté et journalisé
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
         path = urlparse(self.path).path
@@ -10917,6 +12426,64 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(e.code, {"error": e.msg})
         except Exception as e:  # noqa: BLE001
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    # -- SSE RM3006 : le canal de push du cockpit — les blocs du composite /refresh ARRIVENT quand un script PM publie --
+    def _events_stream(self, blocks_qs: str):
+        if EVENTS.listeners >= MAX_EVENT_STREAMS:
+            return self._send_json(503, {"error": f"trop de canaux ouverts ({MAX_EVENT_STREAMS}) — le tick suffit"})
+        hashes: dict = {}
+        names: list = []
+        for spec in [x for x in (blocks_qs or "").split(",") if x]:
+            name, *rest = spec.split(":")
+            if name == "worklog":
+                names.append("worklog:" + ":".join(rest[:-1]) if len(rest) >= 2 else "worklog:" + (rest[0] if rest else ""))
+                hashes["worklog"] = rest[-1] if len(rest) >= 2 else ""
+            else:
+                names.append(name); hashes[name] = rest[0] if rest else ""
+        def specs():
+            return ",".join((n + ":" + hashes.get("worklog", "")) if n.startswith("worklog:") else (n + ":" + hashes.get(n, "")) for n in names)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        with EVENTS.cond:
+            EVENTS.listeners += 1
+        since = EVENTS.seq
+        try:
+            _jlog("refresh", "debug", "canal de push ouvert", blocks=names, user=(self.auth_ctx or {}).get("user"), listeners=EVENTS.listeners)
+            self.wfile.write(_sse_frame("hello", {"seq": since, "blocks": names, "heartbeat_s": EVENT_HEARTBEAT_S})); self.wfile.flush()
+            last_beat = time.time()
+            while True:
+                try:   # le client est-il parti ? (connexion lisible et vide = fermée) — sans attendre le battement suivant
+                    r, _, _ = select.select([self.connection], [], [], 0)
+                    if r and not self.connection.recv(1, socket.MSG_PEEK):
+                        return
+                except (OSError, ValueError):
+                    return
+                seq = EVENTS.wait(since, 1.0)
+                if seq > since:
+                    topics = EVENTS.topics_since(since); since = seq
+                    self.wfile.write(_sse_frame("topics", {"seq": seq, "topics": topics}))
+                    if names:
+                        r = op_refresh(specs(), self.auth_ctx)
+                        for n, b in (r.get("blocks") or {}).items():
+                            hashes[n] = b.get("hash", "")
+                        if r.get("blocks"):
+                            self.wfile.write(_sse_frame("blocks", {"seq": seq, "blocks": r["blocks"], "errors": r.get("errors") or {}}))
+                    self.wfile.flush(); last_beat = time.time()
+                elif time.time() - last_beat > EVENT_HEARTBEAT_S:
+                    self.wfile.write(b": ping\n\n"); self.wfile.flush(); last_beat = time.time()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return   # client parti
+        finally:
+            with EVENTS.cond:
+                EVENTS.listeners -= 1
+            try:
+                _jlog("refresh", "debug", "canal de push fermé", listeners=EVENTS.listeners)
+            except Exception:  # noqa: BLE001
+                pass
 
     # -- SSE : tail du log pipe-pane (octets de terminal bruts) --
     def _stream(self, rm_id: str):
@@ -10953,8 +12520,31 @@ class Handler(BaseHTTPRequestHandler):
             return  # client parti
 
 
+def purge_tmux_logs(keep_days: int = None, now: float = None) -> int:
+    """RM3085 — supprime les logs pipe-pane plus vieux que la rétention. Rend le nombre effacé.
+
+    Ces fichiers n'avaient aucune purge : ils s'accumulaient un par session tmux depuis toujours.
+    Le geste est fait au DÉMARRAGE, pas par un timer — un filet de plus au fil de l'eau, jamais un
+    process de plus (règle RM3013). `KARL_TMUX_LOG_KEEP_DAYS=0` le débraye."""
+    days = TMUX_LOG_KEEP_DAYS if keep_days is None else keep_days
+    if days <= 0 or not LOG_DIR.is_dir():
+        return 0
+    limite = (now or time.time()) - days * 86400
+    n = 0
+    for f in LOG_DIR.glob("karl-*.log"):
+        try:
+            if f.stat().st_mtime < limite:
+                f.unlink(); n += 1
+        except OSError:
+            pass          # un log verrouillé ou déjà parti n'empêche pas le démarrage
+    return n
+
+
 def main():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    purged = purge_tmux_logs()
+    if purged:
+        _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

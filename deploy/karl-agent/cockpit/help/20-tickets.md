@@ -167,3 +167,17 @@ et journalisent dans le `.log.md` du ticket.
 
 La prise en charge (`en_cours`) implique l'auto-assignation. Les changements de
 statut se font via les [commandes PM](commandes) ou la [file de test](tests).
+
+## La réflexion du ticket
+
+La fiche porte un bloc **🧠 Réflexion** : les **questions** encore ouvertes, les
+**décisions** et conseils, les **fonctionnalités** et les **notes** du carnet du
+ticket (`RM<id>_<slug>.think.md`).
+
+Le compteur en tête dit ce qui **bloque la clôture** — un ticket ne se ferme pas
+tant qu'il reste une question ouverte ou une note à trier. Le savoir avant de
+tenter la fermeture vaut mieux que de découvrir le refus.
+
+Au survol d'une entrée **encore ouverte**, deux gestes : ✅ trancher, ❌ écarter.
+Une entrée déjà tranchée n'en propose aucun. L'écriture passe par le même chemin
+que le panneau CDC, et les registres du projet sont régénérés dans la foulée.

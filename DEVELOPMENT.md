@@ -26,14 +26,21 @@ onboarding agent), voir d'abord [README.md](README.md).
   plusieurs checkouts (ex. une copie **PROD** root-owned qui fait tourner le
   système, une copie **DEV** éditable).
 - **Privilege separation (3 couches).** Le provisioning privilégié passe par un
-  point d'entrée unique `bin/mmi-pm` (`core update`, doctor…) et un helper
+  point d'entrée unique `mmi-pm` (`scripts/mmi-pm.py` : `mmi-pm <domaine>-<verbe>` → `pm-<domaine>-<verbe>.py`,
+  `core-update` demande sudo lui-même ; RM3033 — `bin/mmi-pm` n'est plus qu'une coquille) et un helper
   confiné `pm-env-helper` (NOPASSWD ciblé). Détail : `docs/cdc/*privsep*`,
   `docs/cdc/*mmi-pm-cli*`.
 - **Cockpit / karl-agent.** Le service HTTP (loopback) est `scripts/karl-agent.py` ;
   `deploy/karl-agent/` porte l'UI `cockpit/` (servie **en même origine**), le vhost
-  Apache HTTPS et les units systemd. Aide utilisateur intégrée :
-  `deploy/karl-agent/cockpit/help/` (servie via `/help`). Tests UI sans navigateur :
-  `deploy/karl-agent/cockpit/test_cockpit.js`.
+  Apache HTTPS et les units systemd. Depuis la 3.0.0 (RM2889) le front est en
+  **modules ES sans build runtime** — `cockpit/src/boot.js` + `src/core/` (socle) +
+  `src/modules/<domaine>/` (une couche par suffixe : modèle, `Repository`, `service`,
+  `ViewModel`, `.view`, `controller`, `.scss`) ; CSS compilé en un `cockpit.css`
+  (`npm run build:css` dans `cockpit/tooling/`) ; routes `/api/<type>/<action>` ;
+  caches = stores nommés (`core/store.js`) ; journal structuré (`core/log.js` ↔
+  `scripts/pm_log.py`). **Architecture, règles, ajout d'un domaine, tests et MEP :
+  `deploy/karl-agent/cockpit/README.md`.** Aide utilisateur intégrée :
+  `deploy/karl-agent/cockpit/help/` (servie via `/help`).
 - **Sessions tmux et cgroups (RM2690).** tmux crée une scope systemd par pane
   (`tmux-spawn-<uuid>.scope`, UUID aléatoire ⇒ pas de drop-in déclaratif) : le
   plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
@@ -89,8 +96,9 @@ pm-branch-start.py <RM> --take --worktree --from origin/dev
 # 2. coder dans le worktree envs/<repo>-rm<RM> ; tester
 mmi-pm test                                        # TOUTE la suite (~10 s)
 mmi-pm test vault session                          # ou seulement ce qu'on touche
-node deploy/karl-agent/cockpit/test_cockpit.js     # si cockpit touché
-node deploy/karl-agent/cockpit/test_cockpit_core.js # modules src/core/ (RM2889)
+for t in deploy/karl-agent/cockpit/test_cockpit*.js; do node "$t" || break; done   # si cockpit touché (35 suites node)
+KARL_PLAYWRIGHT_DIR=<node_modules avec playwright> KARL_BROWSERS=chromium,firefox \
+  node deploy/karl-agent/cockpit/test_cockpit_browser.js   # AVANT une MEP du front (cf. cockpit/README.md)
 
 # 3. livrer : MR vers dev, puis livraison outillée (statut + note + report)
 pm-mr.py create <RM>
@@ -98,12 +106,22 @@ pm-task-deliver.py <RM> --check-all --protocol - --summary -
 
 # 4. MEP : promotion dev→main (branche protégée) puis déploiement
 pm-promote.py                 # ouvre + merge une MR dev→main
-mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
+mmi-pm core-update            # geste HUMAIN au terminal (sudo demandé) : pull + re-verrou + restart si karl-agent.py change
 
 # 0 bis. NAISSANCE d'un dépôt (RM2640) — avant tout le reste, si le dépôt n'existe pas
 pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
+#   RM3030 : la LICENCE fait partie de la naissance — `--license <SPDX>` (sinon la question en
+#   terminal, défaut GPL-3.0 ; sinon proprietary) ; `--push-from` écrit et committe LICENSE si absent.
+#   pm-project-new pose la même question et la consigne dans .mmi-pm/meta.yml (`license:`).
+pm-cdc.py init --prefix rm<id> --projet "<nom>"   # 0 ter : un PROJET NEUF qui commence par un CDC
+#   RM2967 : gabarits templates/cdc/ → docs/ ; puis `dict` (chapitre généré), `index` (pour le POC),
+#   `check` (le harnais du CDC : références, cycles, jalon ultérieur, cascade, anonymat).
+#   Quelle méthode pour quel travail : norms/src/modules/methodes-travail.md
+pm-repo-new.py --forge github --path <owner>/<nom> [--branches main,dev] [--remote github]
+#   RM3016 : owner résolu (organisation OU utilisateur), branche par défaut fixée APRÈS le push,
+#   protection selon le plan (avertissement si le plan ne l'a pas), jeton GITHUB__<OWNER>__TOKEN.
 ```
 
 **La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`

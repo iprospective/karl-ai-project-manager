@@ -1,0 +1,19 @@
+// modules/refresh/refresh.scss — style du module « refresh » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2721 : « ⬆ MAJ dispo » (RM2571) est une info rare et actionnable, mais elle
+   apparaissait comme un `.mini` de plus dans une rangée de six — donc invisible.
+   Deux niveaux, cumulés : la couleur --warn le distingue en PERMANENCE (capture
+   d'écran, mouvement réduit), l'animation attire l'œil à son apparition. On ne
+   reprend PAS `kblink` ici : faire fondre à .25 un bouton porteur de texte le
+   rend illisible la moitié du temps, et il reste affiché tant que la MAJ n'est
+   pas faite. On pulse donc le fond/halo, texte toujours opaque. */
+@keyframes updpulse {
+  0%, 100% { background: var(--warn-soft); box-shadow: none; }
+  50%      { background: var(--warn-soft-hover); box-shadow: 0 0 0 3px var(--warn-soft); }
+}
+#updbtn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft);
+  font-weight: 600; animation: updpulse 1.6s ease-in-out infinite; }
+/* au survol on fige : le clic est imminent, la pulsation n'a plus rien à signaler
+   (et `button:hover` repasserait la bordure en --accent — on la garde en --warn). */
+#updbtn:hover { animation: none; background: var(--warn-soft-hover); border-color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { #updbtn { animation: none; } }

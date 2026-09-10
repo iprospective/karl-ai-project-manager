@@ -33,6 +33,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_output import out                                     # noqa: E402
 import redmine_utils                                          # noqa: E402
 from pm_paths import PMConfig                                 # noqa: E402
@@ -52,7 +53,7 @@ def local_git_info(tasks_root: Path) -> dict:
     """{redmine_id: {branch, pr}} d'après le frontmatter `git:` des MD."""
     out_ = {}
     for f in tasks_root.glob("*/projects/*/tasks/RM*.md"):
-        if f.name.endswith(".log.md"):
+        if not is_task_sheet(f):
             continue
         try:
             text = f.read_text(encoding="utf-8", errors="replace")

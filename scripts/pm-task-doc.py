@@ -42,6 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig                      # noqa: E402
+import pm_git                                      # noqa: E402  (RM3013)
 from pm_markdown import split_frontmatter          # noqa: E402
 from pm_doc import wiki_title_for_slug             # noqa: E402  (règle partagée, RM1890)
 from pm_output import out                          # noqa: E402
@@ -102,6 +103,7 @@ def scaffold(path: Path, slug: str, title: str, rm_id: int) -> None:
         body = body.replace(k, v)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
+    pm_git.autocommit([path], f"pm(task-doc): RM{rm_id} aspect {slug} créé")
 
 
 def attach(path: Path, rm_id: int) -> bool:
@@ -115,6 +117,7 @@ def attach(path: Path, rm_id: int) -> bool:
     new_fm, changed = add_related(raw_fm, rm_id)
     if changed:
         path.write_text("---" + new_fm + "---" + text.split("---", 2)[2], encoding="utf-8")
+        pm_git.autocommit([path], f"pm(task-doc): RM{rm_id} <- {path.name}")
     return changed
 
 
@@ -124,6 +127,7 @@ def detach(path: Path, rm_id: int) -> bool:
     new_fm, changed = rm_related(raw_fm, rm_id)
     if changed:
         path.write_text("---" + new_fm + "---" + text.split("---", 2)[2], encoding="utf-8")
+        pm_git.autocommit([path], f"pm(task-doc): RM{rm_id} -/- {path.name}")
     return changed
 
 

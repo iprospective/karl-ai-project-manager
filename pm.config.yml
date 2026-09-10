@@ -72,6 +72,14 @@ paths:
   # d'email ne s'en approche (la file de triage, elle, reste hors git — RM2668).
   mail_routing_file:   "{conf_dir}/mail-routing.yml"
 
+  # Annuaire de contacts (RM2703) — une fiche par personne, `contacts/<ref>.yml`.
+  # Ni sous `conf_dir` : le dépôt de CODE part sur un miroir GitHub PUBLIC, et
+  # ce sont des données personnelles (noms, adresses, téléphones). Ni à la racine
+  # de `projects_root`, que ne versionne aucun dépôt (cf. la note de
+  # `mail_routing_file`). Donc dans le dépôt de DONNÉES, sous le projet système
+  # — privé, versionné, et lisible depuis n'importe quel client.
+  contacts_dir:        "{entities_dir}/iprospective/projects/pm-ai-agents/contacts"
+
   # Symlinks de liaison code ↔ PM
   # workspace_link  : côté PM, pointe vers le workspace de code
   # reverse_link    : côté workspace de code, pointe vers le projet PM
@@ -205,7 +213,23 @@ providers:
     forge:  gitlab-ipro
     doc:    redmine-wiki
     secret: vw-ipro
+    llm:    lemonade-strix        # RM3067 : le modèle de travail de karl — local d'abord
   servers:
+    # — axe llm (RM3067) : les modèles que karl appelle pour un travail MACHINE (tri des tours d'un
+    #   transcript, classification, résumé) — à ne pas confondre avec le modèle qui tient la session.
+    #   Local d'abord : les transcripts portent le travail des clients, ils n'ont pas à sortir de la
+    #   machine, et une passe ne coûte alors rien. Le cloud reste déclarable, en repli.
+    #   `type` : lemonade | ollama | openai (tout serveur à l'API OpenAI : vLLM, LM Studio, llama.cpp)
+    #            | anthropic (API) | claude-cli (`claude -p`, refacture son prompt système à chaque appel).
+    #   Clé éventuelle par instance : LLM__<INSTANCE>__API_KEY dans ~/.config/mmi-pm/.env, jamais ici.
+    lemonade-strix: { axis: llm, type: lemonade, url: "${LEMONADE_URL:-http://strix.lan:8000/api/v1}",
+                      model: qwen3-8b, note: "Ryzen AI (Strix Halo), API OpenAI" }
+    ollama-strix:   { axis: llm, type: ollama,   url: "${OLLAMA_HOST:-http://strix.lan:11434}",
+                      model: "qwen3:8b" }
+    ollama-local:   { axis: llm, type: ollama,   url: "http://localhost:11434", model: "qwen3:8b" }
+    claude-cli:     { axis: llm, type: claude-cli, model: "claude-haiku-4-5-20251001",
+                      note: "repli sans clé ni serveur ; le CLI refacture son prompt système à chaque appel" }
+
     # — axe forge —
     # `ssh_aliases:` = alias `~/.ssh/config` par lesquels les remotes atteignent
     # cette instance (RM2766). Nécessaire, pas cosmétique : les remotes passent

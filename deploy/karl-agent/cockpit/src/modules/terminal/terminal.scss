@@ -1,0 +1,54 @@
+// modules/terminal/terminal.scss — style du module « terminal » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+.termbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.termbar .title { font-family: var(--mono); font-size: 13px; }
+iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
+/* RM2522 : hôte du client terminal maison (remplace l'iframe ttyd). L'iframe
+   reste dans le DOM comme repli si le bundle xterm ne charge pas. */
+#termhost { flex: 1; width: 100%; min-height: 0; background: var(--term-bg);
+  padding: 4px 0 0 6px; box-sizing: border-box; }
+#termhost .xterm { height: 100%; }
+/* RM2527 : composer — barre de saisie permanente sous le terminal. `flex: none`
+   pour qu'il garde sa hauteur : c'est le terminal qui cède (min-height: 0). */
+#composer { flex: none; border-top: 1px solid var(--line); background: var(--panel2);
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+#cmptext { width: 100%; box-sizing: border-box; resize: vertical; min-height: 42px;
+  max-height: 40vh; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 13px;
+  line-height: 1.45; }
+#cmptext:focus { outline: none; border-color: var(--accent); }
+#cmptext:disabled { opacity: .55; cursor: not-allowed; }
+.cmpbar { display: flex; align-items: center; gap: 8px; }
+.cmphint { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* Bouton d'envoi : `.primary` pour l'accent, mais `button.primary` est le GROS
+   bouton de formulaire du lanceur (width:100%, margin-top, fond accent). Il
+   faut donc annuler sa géométrie, et surtout reposer le fond : `.mini.primary`
+   n'écrasait que `color`, ce qui donnait du texte accent SUR fond accent —
+   bouton pleine largeur et libellé invisible. */
+.mini.primary { width: auto; margin-top: 0; background: var(--accent);
+  border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.mini.primary:disabled { opacity: .5; cursor: not-allowed; background: var(--panel2);
+  border-color: var(--line); color: var(--muted); }
+/* Avertissement de garde d'état : un envoi texte pendant un menu SÉLECTIONNE
+   une option au lieu d'écrire (RM2527). */
+.cmpwarn { border: 1px solid var(--warn); border-left-width: 3px; border-radius: 6px;
+  padding: 6px 10px; font-size: 12px; color: var(--warn); background: var(--panel); }
+.cmpwarn b { color: var(--fg); }
+.cmphist { max-height: 30vh; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel); }
+.cmphist .hitem { padding: 6px 10px; font-size: 12px; font-family: var(--mono);
+  color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--line);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmphist .hitem:last-child { border-bottom: 0; }
+.cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
+.cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
+
+.tabactions { display: flex; align-items: center; gap: 6px; }
+.termwrap { flex: 1; display: flex; min-height: 0; }
+
+/* RM3094 — le bloc des commandes de panes tmux : `display: contents` pour que la barre le traverse
+   comme si les quatre contrôles y étaient restés (aucun changement d'espacement quand il est
+   affiché) ; masqué, il ne laisse ni trou ni bouton orphelin. */
+.monbox { display: contents; }

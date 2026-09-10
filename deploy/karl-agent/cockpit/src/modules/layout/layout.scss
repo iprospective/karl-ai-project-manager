@@ -1,0 +1,88 @@
+// modules/layout/layout.scss — style du module « layout » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
+.lbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; overscroll-behavior: contain; }
+.lpanel { display: none; }
+.lpanel.active { display: block; }
+.lnav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; flex: none;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.lnav button { display: flex; align-items: center; gap: 5px; padding: 4px 9px; font-size: 12px;
+  border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+.lnav button:hover { color: var(--fg); border-color: var(--line); }
+.lnav button.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
+.nbadge { font-size: 10px; font-family: var(--mono); padding: 1px 5px; border-radius: 8px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--fg); line-height: 1.4; }
+.nbadge.att { color: var(--on-danger); background: var(--danger); border-color: var(--danger);
+  animation: kblink 1s ease-in-out infinite; }
+
+/* RM2744 : `min-height: 0` est ce qui rend le défilement d'un enfant POSSIBLE
+   dans une colonne flex — sans lui, un enfant en `overflow-y:auto` ne se
+   contraint pas, la colonne grandit avec son contenu et le débordement sort de
+   la zone visible au lieu de défiler. `.termwrap` l'avait, pas `.termarea`. */
+.termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* RM2466 volet 3 : colonne de DROITE à panneaux commutables — un seul actif à
+   la fois, sur le modèle de la gauche (.lnav), au lieu de deux asides empilés
+   qui mangeaient chacun leur largeur. Se replie vers SON bord : la droite. */
+/* RM2599 : largeur réglable (poignée) et persistée, via --rpanel-w */
+.rpanel { width: var(--rpanel-w, 330px); border-left: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; position: relative; }
+.rpanel.collapsed { width: 34px; }
+/* RM2579 : l'onglet conversation est plus large par DÉFAUT (échanges lisibles).
+   RM2952 : par défaut seulement — `max(--rpanel-w, 460px)` imposait un plancher
+   de 460 px même à qui venait de régler la poignée à 300 : le panneau ne
+   bougeait plus, et le réglage passait pour cassé. Une largeur réglée gagne,
+   jusqu'à la borne de `clampWidth` ; sans réglage, on garde les 460 px. */
+.rpanel.wide { width: var(--rpanel-w, 460px); }
+.rpanel.resizing { transition: none; user-select: none; }
+.rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.collapsed .rhandle { display: none; }
+
+/* RM2599 : poignée de redimensionnement sur le bord gauche */
+.rhandle { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
+.rhandle:hover, .rpanel.resizing .rhandle { background: var(--accent); opacity: .45; }
+.rtoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
+  border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
+.rnav { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; flex: none;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.rnav button { display: flex; align-items: center; gap: 5px; padding: 4px 9px; font-size: 12px;
+  border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+.rnav button:hover { color: var(--fg); border-color: var(--line); }
+.rnav button.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
+.rbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rp { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.rp.active { display: flex; }
+/* RM2466 : la colonne de gauche se replie vers la gauche, symétriquement */
+main.lcollapsed { grid-template-columns: 34px 1fr; }
+main.lcollapsed .lnav, main.lcollapsed .lbody { display: none; }
+.ltoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
+  border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
+
+/* RM3003 : gabarit MOBILE — une colonne à la fois, barre de navigation en bas. Les surfaces sont celles du bureau, seule la disposition
+   change : `html[data-layout="mobile"]` (posé par layout.controller : écran ≤ 820 px ou ?layout=mobile), `main[data-mpage]` = la page montrée. */
+.mnav { display: none; }
+html[data-layout="mobile"] {
+  header { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  header h1 { display: none; }
+  main, main.lcollapsed { grid-template-columns: 1fr; }
+  .ltoggle, .rtoggle, .rhandle { display: none; }
+  .left { border-right: 0; }
+  main[data-mpage="center"] .left, main[data-mpage="right"] .left { display: none; }
+  main[data-mpage="left"] .right { display: none; }
+  main[data-mpage="center"] .rpanel { display: none; }
+  main[data-mpage="right"] .tabbar, main[data-mpage="right"] .termwrap > :not(.rpanel) { display: none; }
+  main[data-mpage="right"] .rpanel, main[data-mpage="right"] .rpanel.collapsed, main[data-mpage="right"] .rpanel.wide { width: 100%; border-left: 0; }
+  main[data-mpage="right"] .rpanel.collapsed .rnav, main[data-mpage="right"] .rpanel.collapsed .rbody { display: flex; }
+  main[data-mpage="right"] .rtitle { display: block; }
+  .mnav { display: flex; flex: none; justify-content: space-around; gap: 4px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border-top: 1px solid var(--line); }
+  .mnav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 10.5px; position: relative; }
+  .mnav-btn .mnav-ico { font-size: 16px; line-height: 1.1; }
+  .mnav-btn.active { color: var(--accent); background: var(--bg); border-color: var(--line); font-weight: 600; }
+  .mnav-btn .nbadge { position: absolute; top: 2px; right: 10px; }
+  .foot { display: none; }
+}
+
+// RM3051 — split de la zone centrale (option) : le ticket/document occupe une hauteur
+// réglée à la poignée, la session garde le reste. Sans split, `#reviewpane` reste en
+// `flex:1` et prend toute la zone : la session est masquée le temps de la consultation.
+#reviewpane.split { flex: 0 0 var(--reviewpane-h, 300px); }
+.chandle { flex: 0 0 6px; cursor: row-resize; background: var(--line); border: 0; }
+.chandle:hover, .chandle:active { background: var(--accent); }

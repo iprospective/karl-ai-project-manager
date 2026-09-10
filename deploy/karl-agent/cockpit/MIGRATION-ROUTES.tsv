@@ -18,16 +18,23 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck
 /env-status	L5	env	/api/env/env-status	1	openEnvStatus
 /file	L4,L5	files	/api/file/file	2	openCenterFile;openDoc
-/fs/file	L4	files	/api/file/file	4	filesOpen;openCenterFile;projOpen;vocabShow
+/fs/file	L4	files	/api/file/read	4	filesOpen;openCenterFile;projOpen;vocabShow
 /fs/log	L4	files	/api/file/log	1	filesToggleCommits
 /fs/ls	L4	files	/api/file/ls	3	filesLoadDir;openCenterDir;projBrowse
 /git/diff	L4	git	/api/git/diff	1	gitShowDiff
 /git/log	L4	git	/api/git/log	1	gitLoad
 /git/show	L4	files	/api/file/git/show	2	gitShowCommit;openCenterCommit
+/git/show	L4	git	/api/git/show	1	gitShowCommit
 /help	L5	glossary	/api/glossary/help	1	openHelp
 /kill	L2	sessions	/api/session/kill	1	kill
 /layout	L2	sessions	/api/session/layout	1	setLayout
-/mail/queue	L4,L5	files	/api/mail/queue	2	loadMail;openCenterMail
+/mail/create	L1	mail	/api/mail/create	2	mailCreate;mailNoteOn
+/mail/dismiss	L1	mail	/api/mail/dismiss	1	mailDismiss
+/mail/draft	L1	mail	/api/mail/draft	1	mailDraft
+/mail/fetch	L1	mail	/api/mail/fetch	1	mailFetch
+/mail/queue	L1	files	/api/mail/queue	2	loadMail;openCenterMail
+/mail/route	L1	mail	/api/mail/route	1	mailRoute
+/mail/route-set	L1	mail	/api/mail/route-set	1	mailReroute
 /memdebug	L2	terminal	/api/terminal/memdebug	1	memProbeSample
 /mergecheck	L3	tickets	/api/ticket/mergecheck	1	ensureMergecheck
 /monitor	L2	sessions	/api/session/monitor	1	addMonitor
@@ -74,6 +81,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /ticket-transitions	L3	testqueue	/api/test-queue/ticket-transitions	1	ticketTransitions
 /tickets	L2,L3	sessions	/api/ticket/tickets	2	createTicket;submitNewTicket
 /tickets/brief	L3	tickets	/api/ticket/brief	1	requestBriefs
+/tickets/search	L3	search	/api/search/tickets	1	search
 /triage	L3	tickets	/api/ticket/triage	1	loadTriage
 /tts	L5	voice	/api/voice/tts	1	serverSpeak
 /unmonitor	L2	sessions	/api/session/unmonitor	1	removeMonitor
@@ -85,3 +93,25 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worklog/batch	L3,L4	worklog	/api/worklog/batch	3	openBatchPlan;sendBatch;spawnBatchSession
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
+/log/tail	RM3010	log	/api/log/tail	1	journal (cockpit RM3011)
+/log	RM3010	log	/api/log/write	1	journal : dépôt front (RM3011)
+/events	L8	refresh	/api/session/events	1	push.service
+/events/publish	L8	refresh	/api/session/events/publish	1	pm_events
+/log/historical	L8	journal	/api/log/historical	0	(hors cockpit : compteur RM3004)
+/cdc	L5	doc	/api/doc/cdc	1	openCdc
+/cdc-features	L5	doc	/api/doc/cdc-features	1	loadFeatures
+/client-notify/pending	L4	clientnotify	/api/clientnotify/pending	1	loadPending
+/client-notify/preview	L4	clientnotify	/api/clientnotify/preview	1	preview
+/client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
+/client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss
+/cdc/think	L5	doc	/api/doc/cdc-think	1	thinkEdit
+/cdc/version	L5	doc	/api/doc/cdc-version	1	versionEdit
+/cdc/feature	L5	doc	/api/doc/cdc-feature	1	featureEdit
+/client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
+/pm/provider-types	L5	settings	/api/pm/provider-types	1	loadProviderTypes
+/pm/providers	L5	settings	/api/pm/providers	1	loadProviders
+/pm/provider-secret	L5	settings	/api/pm/provider-secret	1	saveSecret
+/pm/provider-assign	L5	settings	/api/pm/provider-assign	1	saveAssign
+/pm/llm-models	L5	settings	/api/pm/llm-models	1	loadLlmModels
+/pm/engines	L5	settings	/api/pm/engines	1	loadEngines
+/pm/engine-install	L5	settings	/api/pm/engine-install	1	installEngine

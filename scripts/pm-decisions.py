@@ -10,8 +10,10 @@ comme ça.
 
 Ce script fait le pont : il lit le transcript, ne garde que ce qui a été
 DÉCIDÉ (question posée + réponse retenue) ou LAISSÉ EN PLAN (question sans
-réponse), et l'append au `.log.md` du ticket — versionné, partagé, à côté du
-reste de l'histoire de la tâche.
+réponse), et le consigne dans le `.think.md` du ticket (RM3015/RM3053 : décisions D ✅,
+questions Q 🕐, dédoublonnées) — versionné, partagé, fusionné vers le projet par
+`pm-think-merge`. Le `.log.md` reçoit une ligne d'événement (« N décisions moissonnées »).
+Le hook `pm-think-harvest` fait la même chose automatiquement à chaque tour.
 
 Ce qu'il ne fait PAS : rejouer le direct (RM2466 volet 2 s'en charge), ni
 deviner une décision dans de la prose (RM2549 : une question est un fait
@@ -30,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout          # noqa: E402
 from pm_paths import PMConfig               # noqa: E402
+import pm_git                               # noqa: E402  (RM3013)
 from pm_transcript import transcript_outline  # noqa: E402
 
 CLAUDE_STORES = [
@@ -133,11 +136,25 @@ def cmd_persist(args):
     if args.dry_run:
         sys.stdout.write(entry)
         return
+    import pm_think                                   # RM3053 : la réflexion vit dans le think
+    think = pm_think.think_path(task)
+    added = []
+    for q, a in decisions:
+        kind, text = ("decision", f"{q} → {a}") if a else ("question", q)
+        if pm_think.has_text(pm_think.load(think), kind, text):
+            continue
+        added.append(pm_think.append(think, kind, text, rm_id=int(args.rm_id), by="M" if a else "A",
+                                     state="valide" if a else "attente", sid=session_id))
+    pm_think.set_counters(task, pm_think.counters(pm_think.load(think)))
+    when = datetime.now().strftime("%Y-%m-%dT%H:%M")
     with open(log, "a", encoding="utf-8") as fh:
-        fh.write(entry)
+        fh.write(f"\n## {when} — Décisions de session (pm-decisions)\nTokens : 0 | Durée : 0 min\n\n"
+                 f"Session `{session_id}` — {len(decisions)} question(s), {len(added)} nouvelle(s) consignée(s) "
+                 f"dans `{think.name}` ({', '.join(added) or 'rien de neuf'}).\n")
+    pm_git.autocommit([log, think, task], f"pm(decisions): RM{args.rm_id} {len(added)} entrée(s) think")  # RM3013
     pmout.op("decisions", extra=f"RM{args.rm_id} ← {len(decisions)} question(s) "
-                                f"({sum(1 for _, a in decisions if a)} tranchée(s))")
-    pmout.info(f"  · {log}")
+                                f"({sum(1 for _, a in decisions if a)} tranchée(s)), {len(added)} nouvelle(s)")
+    pmout.info(f"  · {think}")
 
 
 def main():

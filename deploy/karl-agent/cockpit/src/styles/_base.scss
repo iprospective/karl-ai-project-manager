@@ -1,0 +1,94 @@
+// styles/_base — socle partagé : reset, page, en-tête, colonnes, formulaires, boutons, pastilles, listes génériques, animations.
+
+* { box-sizing: border-box; }
+/* RM3000 : pied de page — une ligne, la version du front ; l'écart avec le serveur s'y signale */
+.foot { flex: none; display: flex; gap: 12px; align-items: center; padding: 2px 16px; font-size: 10.5px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); }
+.foot .verwarn { color: var(--warn); font-weight: 600; }
+/* RM1893 (retour test) : layout verrouillé à la hauteur du viewport — la page
+   ne scrolle JAMAIS ; chaque zone (colonne gauche, encart session) a son
+   propre scroll, indépendant du terminal. */
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); overflow: hidden;
+  display: flex; flex-direction: column;
+  font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+header .brand { width: 26px; height: 26px; flex: none; color: var(--fg); }   // RM3065 : la marque, en encre du thème
+header .sub { color: var(--muted); font-size: 12px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.push { outline: 2px solid var(--accent-soft-hover); outline-offset: 1px; }   /* RM3006 : canal de push vivant */
+.dot.ko { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+header { flex: none; }
+main { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; min-height: 0; }
+.left { border-right: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+.right { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+  margin: 0 0 10px; font-weight: 600; }
+.card { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+/* RM2816 : panneaux « commandes pm » / « réglages » au centre. Bridés en
+   largeur : les champs font 100 % de leur colonne, et un formulaire étalé
+   sur 1 400 px se lit moins bien qu'à l'étroit. */
+.cpanel { max-width: 760px; }
+
+label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+input, select, textarea { width: 100%; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+textarea { font-family: var(--mono); resize: vertical; min-height: 56px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel2); color: var(--fg);
+  border-radius: 6px; padding: 7px 12px; font-size: 13px; font-family: inherit; transition: .12s; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; width: 100%; margin-top: 14px; }
+button.primary:hover { filter: brightness(1.08); }
+button.mini { padding: 4px 9px; font-size: 12px; }
+button.danger:hover { border-color: var(--danger); color: var(--danger); }
+.sessions { list-style: none; margin: 0; padding: 0; }
+.sess { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 7px; margin-bottom: 8px; background: var(--panel2); }
+.sess.active { border-color: var(--accent); }
+.sess .rm { font-family: var(--mono); font-weight: 600; color: var(--accent); }
+.sess .meta { color: var(--muted); font-size: 12px; flex: 1; min-width: 0; }
+.badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--muted); }
+.badge.att { color: var(--ok); border-color: var(--ok); }
+.empty { color: var(--muted); font-size: 13px; font-style: italic; padding: 8px 2px; }
+
+details.card > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--muted); font-weight: 600; list-style: none; outline: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before { content: "▸ "; color: var(--accent); }
+details.card[open] > summary::before { content: "▾ "; }
+.row2 { display: flex; gap: 8px; }
+.row2 > div { flex: 1; }
+.results { list-style: none; margin: 10px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.results li { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px;
+  cursor: pointer; background: var(--panel2); }
+.results li:hover { border-color: var(--accent); }
+.results .r-top { display: flex; gap: 6px; align-items: baseline; }
+.results .r-id { font-family: var(--mono); color: var(--accent); font-weight: 600; font-size: 12px; }
+.results .r-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.results .r-move { flex: none; border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); border-radius: 4px; font-size: 12px; line-height: 1; padding: 2px 5px;
+  cursor: pointer; opacity: 0; transition: opacity .12s; }
+.results li:hover .r-move { opacity: 1; }
+.results .r-move:hover { border-color: var(--accent); color: var(--accent); }
+.results .r-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+@keyframes kblink { 50% { opacity: .25; } }
+
+.chip { font-size: 11px; padding: 3px 9px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel2); color: var(--fg); }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: .45; cursor: default; }
+
+.kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.kv .k { color: var(--muted); } .kv .v { text-align: right; word-break: break-word; }
+.pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg); }
+
+.pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.dang { color: var(--danger); border-color: var(--danger); }
+.pill.test { color: var(--accent); border-color: var(--accent); }   /* RM2718 : [A TESTER] */

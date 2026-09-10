@@ -1,9 +1,9 @@
 ---
-schema_version: "2.39.0"
+schema_version: "2.40.0"
 updated: 2026-09-11
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.39.0
+# Normes de gestion des tâches — v2.40.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -733,6 +733,10 @@ pas la machine, et la passe ne coûte rien : c'est le mode à préférer pour un
 **Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
 dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un
 projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient d'AtomBox).
+
+**Et au ticket de SON tour** (RM3100) : la moisson découpe le fil par tour, chacun au ticket qu'il a
+touché (résolution du tick de conso) ; un tour sans signal continue le précédent. Sinon un carnet
+reçoit les questions des autres tickets, et la garde de clôture refuse de le fermer.
 
 Règles :
 

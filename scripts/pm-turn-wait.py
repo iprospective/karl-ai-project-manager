@@ -18,11 +18,12 @@ import re
 import sys
 import time
 from pathlib import Path
+import pm_stores  # RM3085 : stores de session résolus une seule fois
 
 
 def turn_file(evt):
     sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(evt.get("session_id") or "unknown"))[:80]
-    return Path.home() / ".claude" / "logs" / f"turn-start-{sid}.json"
+    return pm_stores.turn_dir() / f"turn-start-{sid}.json"
 
 
 def main():

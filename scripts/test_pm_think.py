@@ -59,7 +59,9 @@ check("think_path", pm_think.think_path(Path("/x/RM1_a.md")).name == "RM1_a.thin
 # le sweep : aucun script ne filtre plus les frères par le seul `.log.md`
 rest = [f.name for f in SCRIPTS.glob("*.py") if not f.name.startswith("test_")
         and re.search(r'\.name\.endswith\("\.log\.md"\)', f.read_text(encoding="utf-8"))
-        and f.name not in ("pm-task-report.py", "validate-task.py")]
+        and f.name not in ("pm-task-report.py", "validate-task.py",
+                           # RM3085 : c'est LUI qui définit le suffixe — le tester ici serait circulaire
+                           "pm_task_log.py")]
 check("sweep : plus d'exclusion `.log.md` seule dans les scripts", not rest, str(rest))
 
 # l'ordre du glob ne compte plus : find_sheet ignore le think même s'il sort en premier

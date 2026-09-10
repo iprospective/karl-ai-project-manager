@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_stores  # RM3085 : stores de session résolus une seule fois
 from pm_paths import PMConfig
 import pm_git  # auto-commit scopé des écritures (RM2095)
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
@@ -46,8 +47,8 @@ except ImportError:
 FM_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 LOG_THRESHOLD_TOKENS = 1000  # n'append au .log.md que si > seuil
 
-UNTRACKED_LOG = Path.home() / ".claude" / "logs" / "pm-task-tick-untracked.jsonl"
-TURN_START_DIR = Path.home() / ".claude" / "logs"
+UNTRACKED_LOG = pm_stores.turn_dir() / "pm-task-tick-untracked.jsonl"
+TURN_START_DIR = pm_stores.turn_dir()
 # Garde-fou : un tour wall-clock > ce seuil est ignoré (ex: prompt soumis puis
 # attente d'une validation de permission pendant des heures). Évite de polluer
 # ai_time avec des durées absurdes.

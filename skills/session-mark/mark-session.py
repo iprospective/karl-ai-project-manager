@@ -110,7 +110,12 @@ def transcript_titles(path: str) -> tuple[str | None, str | None]:
 
 def worklog_title(sid: str) -> str | None:
     """Titre du worklog PM de la session (posé par pm-session-status.py title)."""
-    p = os.path.expanduser(f"~/.claude/session-worklogs/{sid}.json")
+    # RM3085 : respecte PM_SESSION_WORKLOG_DIR / KARL_AGENT_WORKLOG_DIR — en dur, ce chemin
+    # faisait lire un dossier vide dès que le worklog était ailleurs (instance de test), et le
+    # titre PM ne remontait jamais. Pas d'import du core : ce skill doit tourner seul.
+    base = (os.environ.get("PM_SESSION_WORKLOG_DIR") or os.environ.get("KARL_AGENT_WORKLOG_DIR")
+            or "~/.claude/session-worklogs")
+    p = os.path.join(os.path.expanduser(base), f"{sid}.json")
     try:
         with open(p, encoding="utf-8") as f:
             title = json.load(f).get("title")

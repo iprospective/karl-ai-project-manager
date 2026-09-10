@@ -49,6 +49,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
 from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_git
 import pm_partner
@@ -88,11 +89,7 @@ def write_task(path, fm, body):
 
 
 def append_log(path, message):
-    log_path = path.parent / path.name.replace(".md", ".log.md")
-    ts = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(f"\n## {ts} — Ticket partenaire (pm-task-partner)\n"
-                f"Tokens : 0 | Durée : 0 min\n\n{message}\n")
+    pm_task_log.append(path, "Ticket partenaire (pm-task-partner)", message)   # RM3085
 
 
 def autocommit(args, path, message):

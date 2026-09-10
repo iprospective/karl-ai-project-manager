@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Stores de session : une seule résolution, une seule classification, un seul journal** (RM3085,
+  lot L5 de RM3015). Ce qui cassait en silence : `pm_scope` lisait le worklog par un chemin **codé
+  en dur**, si bien qu'une fois `PM_SESSION_WORKLOG_DIR` posée la **garde de périmètre RM2274
+  laissait tout passer** ; `karl-move-session` résolvait `KARL_AGENT_STATE_DIR` **sans son repli**
+  (le symptôme de RM2391, qu'il est censé réparer) ; deux slugifications du `cwd` coexistaient, dont
+  une qui perdait tout chemin contenant `_` ; sept `append_log` reconstruisaient le format du journal
+  de ticket, dont deux **sans la ligne « Tokens »** — invisibles du parseur et de la feuille de temps.
+  Nouveaux modules : `pm_stores` (worklog, état, transcripts, historique, tours, slug),
+  `pm_task_log` (le format, écrit une fois), `pm_worklog_states` (les buckets, importés par le
+  terminal ET le cockpit — `MEP` n'existait que d'un côté). `answers.jsonl`, écrit depuis RM2302 et
+  jamais relu, laisse la place au journal structuré. Les logs pipe-pane sont purgés au démarrage
+  (`KARL_TMUX_LOG_KEEP_DAYS`, 30 j) et le registre `var/sessions` est borné (`PM_SESSIONS_INDEX_KEEP`).
 - **Commandes de moniteur tmux masquables** (RM3094) : `monpreset`, ➕/✕ Moniteur et la disposition
   des panes sont regroupés dans un bloc de la barre du terminal, qu'une case de Réglages ▸ Thème &
   affichage montre ou masque à chaud. Affichées par défaut (masquer d'office changerait le

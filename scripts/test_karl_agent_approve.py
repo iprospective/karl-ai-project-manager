@@ -2,7 +2,7 @@
 """Tests RM2302 — répondre « Oui » à une session qui pose une question.
 
 Unitaire (sans tmux ni réseau) : _approve_answer (décision pure) et op_approve
-(garde 409, séquence send-keys, journal answers.jsonl).
+(garde 409, séquence send-keys, journal structuré — RM3085 : plus d'answers.jsonl, qui n'avait aucun lecteur).
 Lancer : python3 scripts/test_karl_agent_approve.py
 """
 import importlib.util
@@ -55,7 +55,10 @@ def fake_tmux(*args, timeout=10):
 
 ka._tmux = fake_tmux
 ka._has_session = lambda rm_id: True
-ka.ANSWERS_LOG = pathlib.Path(tempfile.mkdtemp()) / "answers.jsonl"
+# RM3085 : les réponses partent au journal structuré (catégorie `claude`), lu par le cockpit et
+# `mmi-pm log-tail`. On capture les appels plutôt qu'un fichier.
+JOURNAL = []
+ka._jlog = lambda cat, level, msg, **f: JOURNAL.append(dict(f, cat=cat, level=level, msg=msg))
 
 # menu numéroté : « 1 » seul, PAS d'Enter (la touche chiffre valide seule)
 fake_tmux.pane = menu
@@ -71,11 +74,11 @@ r = ka.op_approve({"rm_id": "42"})
 sent = [c for c in calls if c[0] == "send-keys"]
 check("y/n : « y » puis Enter", r["sent"] == "y" and len(sent) == 2 and sent[1][-1] == "Enter")
 
-# journal answers.jsonl (socle RM2305)
-lines = [json.loads(ln) for ln in ka.ANSWERS_LOG.read_text().splitlines()]
-check("journal : une entrée par réponse (rm_id, sent, question)",
-      len(lines) == 2 and lines[1]["rm_id"] == "42" and lines[1]["sent"] == "y"
-      and "(y/n)" in lines[1]["question"])
+# RM3085 : une ligne de journal structuré par réponse — catégorie `claude`, avec ce qu'il faut
+# pour retrouver QUI a répondu à QUOI. C'est ce que `answers.jsonl` promettait sans jamais être lu.
+check("journal : une entrée par réponse (rm_id, sent, question), catégorie claude",
+      len(JOURNAL) == 2 and JOURNAL[1]["rm_id"] == "42" and JOURNAL[1]["sent"] == "y"
+      and "(y/n)" in JOURNAL[1]["question"] and JOURNAL[1]["cat"] == "claude")
 
 # pas de question → 409, rien envoyé
 calls.clear()

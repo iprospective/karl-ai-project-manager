@@ -128,19 +128,17 @@ _vide = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
          "unknown": []}
 check("worklog vide ou absent toléré",
       ka.worklog_buckets([]) == _vide and ka.worklog_buckets(None) == _vide)
-# la classification DOIT rester celle de pm-session-status : deux vérités
-# divergentes sur « où on en est » seraient pires que pas de panneau du tout
-import re as _re
+# RM3085 : la classification n'est plus RECOPIÉE de pm-session-status — les deux importent
+# `pm_worklog_states`. La garde compare donc les OBJETS : la divergence n'est plus seulement
+# détectée après coup, elle est devenue impossible (avant, MEP n'existait que d'un côté).
+import pm_worklog_states as _states
 _src = (HERE / "pm-session-status.py").read_text(encoding="utf-8")
-_done = eval(_re.search(r"^DONE = (\{[^}]*\})", _src, _re.M).group(1))
-_wait = eval(_re.search(r"^WAITING = (\{[^}]*\})", _src, _re.M | _re.S).group(1))
-check("DONE identique à celui de pm-session-status.py", ka.WORKLOG_DONE == _done)
-check("WAITING identique à celui de pm-session-status.py", ka.WORKLOG_WAITING == _wait)
-_mep_set = eval(_re.search(r"^MEP = (\{[^}]*\})", _src, _re.M).group(1))
-check("MEP identique à celui de pm-session-status.py (RM2860)", ka.WORKLOG_MEP == _mep_set)
-_test_set = eval(_re.search(r"^TESTING = (\{[^}]*\})", _src, _re.M | _re.S).group(1))
-check("TESTING identique à celui de pm-session-status.py (RM2930)",
-      ka.WORKLOG_TESTING == _test_set)
+check("DONE : le même objet des deux côtés", ka.WORKLOG_DONE is _states.DONE)
+check("WAITING : le même objet", ka.WORKLOG_WAITING is _states.WAITING)
+check("MEP : le même objet (RM2860)", ka.WORKLOG_MEP is _states.MEP)
+check("TESTING : le même objet (RM2930)", ka.WORKLOG_TESTING is _states.TESTING)
+check("pm-session-status importe la même source (plus aucun ensemble en dur)",
+      "pm_worklog_states.DONE" in _src and 'DONE = {"fait"' not in _src)
 
 # — RM2930 : « à tester / valider » est son propre bucket —
 _TEST_ITEMS = [{"ref": "RM%d" % i, "status": st} for i, st in enumerate(

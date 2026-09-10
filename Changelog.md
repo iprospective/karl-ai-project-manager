@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Repères d'aide « ? » sur les zones du cockpit** (RM3075) : une case dans Réglages ▸ Thème &
+  affichage pose un **?** discret sur douze zones (liste des sessions, worklog, onglets de droite,
+  composer, CDC, journal, panneaux de tickets…). Au survol, une phrase dit à quoi la zone **sert** ;
+  au clic, sa page d'aide s'ouvre, **à la bonne section**. Un registre unique
+  (`src/modules/doc/helpSpots.js`) porte zone → phrase → page → ancre, et une garde de test lit les
+  vrais `help/*.md` : un repère qui pointerait une page ou une section disparue casse la suite.
+  Affichés par défaut, décochables (préférence de ce navigateur), reposés après les rendus.
+  `help/40-worklog.md` présente désormais le worklog comme **le tableau de bord de la session**,
+  zone par zone. `core/dom.js` gagne `prepend`, symétrique d'`append`.
 - **Jauge de contexte par session** (RM3082) : sous chaque tuile de la liste de gauche, une barre
   fine et un pourcentage disent l'occupation de la fenêtre du modèle, **à partir du premier palier
   seulement** (50 / 75 / 90 % par défaut, réglables dans Réglages ▸ Sessions). Le franchissement d'un

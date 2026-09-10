@@ -23,6 +23,16 @@ Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autre
 
 - **Thème** : `dark`, `light` ou `auto` (suit le système).
 
+## Repères d'aide « ? »
+
+Une case de **Thème & affichage** pose un petit **?** sur chaque zone du cockpit :
+la liste des sessions, le worklog, les onglets de droite, le composer, le CDC, le
+journal, les panneaux de tickets. Au **survol**, une phrase dit à quoi la zone
+sert ; au **clic**, la page d'aide correspondante s'ouvre, à la bonne section.
+
+Ils sont affichés par défaut — c'est leur raison d'être — et se décochent quand
+l'écran est devenu familier. La préférence est propre à **ce navigateur**.
+
 ## Dictée
 
 - **Langue** de la reconnaissance vocale (français par défaut) et choix du mode

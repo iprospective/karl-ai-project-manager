@@ -32,3 +32,10 @@
 # 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/core-lock *
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/provision-core *
+
+# RM3068 — écriture d'un secret de provider depuis le cockpit. Deux cas passent par root :
+#   · le .env d'un AUTRE développeur (--user <login>), quand un administrateur configure pour l'équipe ;
+#   · le .env GLOBAL de l'instance (--scope global), réservé aux administrateurs.
+# La VALEUR n'est jamais un argument : elle arrive sur l'entrée standard, donc rien n'en transpire dans
+# `ps`, ni dans le journal sudo (qui n'enregistre que la ligne de commande).
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/pm-provider-secret.py *

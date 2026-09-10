@@ -88,6 +88,27 @@ items, _ = C._ollama("p", "qwen3:8b")
 check("objet enveloppe toléré (petits modèles bavards)", len(items) == 1 and items[0]["t"] == "question", str(items))
 urllib.request.urlopen = vrai; del os.environ["OLLAMA_HOST"]; del os.environ["OLLAMA_API_KEY"]
 
+print("\n[RM3067] moteur OpenAI-compatible (Lemonade Server, vLLM, LM Studio…)")
+appels.clear()
+
+
+def _urlopen2(req, timeout=0):
+    appels["url"] = req.full_url; appels["headers"] = dict(req.headers); appels["body"] = json.loads(req.data.decode())
+    return _Faux({"choices": [{"message": {"content": '[{"i":0,"t":"feature","x":"Servir le tri par un modele local sur la machine Ryzen AI."}]'}}]})
+
+
+urllib.request.urlopen = _urlopen2
+os.environ["LLM_BASE_URL"] = "http://strix.lan:8000/api/v1"; os.environ["LLM_API_KEY"] = "k"; os.environ["LLM_MODEL"] = "qwen3-14b"
+items, cout = C._openai("prompt", C.MODEL)
+check("appelle /chat/completions sur la base configurée", appels["url"] == "http://strix.lan:8000/api/v1/chat/completions")
+check("modèle et clé pris de l'environnement, JSON demandé, température nulle",
+      appels["body"]["model"] == "qwen3-14b" and appels["headers"].get("Authorization") == "Bearer k"
+      and appels["body"]["response_format"]["type"] == "json_object" and appels["body"]["temperature"] == 0)
+check("réponse exploitée, coût nul (local)", len(items) == 1 and items[0]["t"] == "feature" and cout == 0.0)
+urllib.request.urlopen = vrai
+for v in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"):
+    os.environ.pop(v, None)
+
 print("\n[RM3067] écriture dans le think, idempotente")
 with tempfile.TemporaryDirectory() as tmp:
     tasks = pathlib.Path(tmp); sheet = tasks / "RM88_x.md"; sheet.write_text("---\nredmine_id: 88\ntitle: t\n---\n")

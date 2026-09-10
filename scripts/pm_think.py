@@ -512,7 +512,10 @@ def set_counters(sheet, cnt: dict) -> bool:
     fm = m.group(1)
     block = "think:\n" + "".join(f"  {k}: {v}\n" for k, v in cnt.items())
     if re.search(r"(?m)^think:\s*$", fm):
-        new_fm = re.sub(r"(?ms)^think:\n(?:[ \t]+.*\n?)*", block, fm + "\n")
+        # (?m) SANS (?s) : avec DOTALL, « . » matche aussi les sauts de ligne, si bien que
+        # `[ \t]+.*` avalait TOUT le frontmatter situé après le bloc — test_protocol, tags,
+        # reporting… disparaissaient en silence à chaque mise à jour des compteurs (RM3091).
+        new_fm = re.sub(r"(?m)^think:\n(?:[ \t]+.*\n?)*", block, fm + "\n")
     else:                               # pas de bloc existant → ajout en fin de frontmatter
         new_fm = fm + "\n" + block
     new_fm = new_fm.rstrip("\n")

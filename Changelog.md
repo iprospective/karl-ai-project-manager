@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le pont session → `.think.md` écrit vraiment** (RM3076, correctif de RM3053) : `_think_note()`
+  appelait `pm_git.autocommit` sans que `pm_git` soit importé ; son `except` transformait la
+  `NameError` en avertissement console, et aucune demande (`request --ticket`) ni notification
+  (`notify --ref`) n'atteignait jamais le think du ticket. Import posé, échec désormais journalisé
+  (`pm_log`, catégorie `worklog`) en plus de l'avertissement, et `test_pm_session_status_think.py`
+  verrouille les deux chemins — plus un contrôle qui voit un nom non résolvable sans jouer le code.
 - **Le runtime NORMS se génère par un fournisseur, et se contrôle** (RM3073) : `norms/runtime/` portait
   « Généré ⇒ ne pas éditer » alors qu'aucun générateur n'existait — écrit une fois à la main, il se
   désynchronisait de ses sources en silence. `mmi-pm norms-runtime` le produit par l'API d'un fournisseur

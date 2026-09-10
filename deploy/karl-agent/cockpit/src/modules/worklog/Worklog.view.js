@@ -39,9 +39,10 @@ export function WorklogItem(it, { tip, pin }) {
 }
 export function WorklogPane(vm, deps) {
   if (!vm.attached) return "";
-  const notes = vm.notifications(), mrs = vm.mrs(), reqs = vm.requests();
+  const notes = vm.notifications(), mrs = vm.mrs(), reqs = vm.requests(), qs = vm.questions();
   const head = html`${notes.length ? html`<div class="ms"><h4>🔔 notifications de la session (${notes.length})${vm.notificationsDone ? html` <span class="otag" title="traitées, gardées au worklog">${vm.notificationsDone} traitée${vm.notificationsDone > 1 ? "s" : ""}</span>` : ""}</h4>${notes.map(n => html`<div class="oline ${n.cls}" style="white-space:normal" title="${n.ts}">${n.icon} <span class="otag">${n.label}</span>${n.kind ? html`<span class="pill">${n.kind}</span> ` : ""}${n.ref ? html`<b>${n.ref}</b> ` : ""}${n.message}</div>`)}</div>` : ""}${mrs.length
-    ? html`<div class="ms mrnudge" title="Le détail (dépôt, trajet, état, âge) est dans l’onglet MR" data-action="sub" data-key="mrs">🔀 <b>${String(mrs.length)}</b> MR à merger — voir l’onglet <b>MR</b> →</div>` : ""}${reqs.length
+    ? html`<div class="ms mrnudge" title="Le détail (dépôt, trajet, état, âge) est dans l’onglet MR" data-action="sub" data-key="mrs">🔀 <b>${String(mrs.length)}</b> MR à merger — voir l’onglet <b>MR</b> →</div>` : ""}${qs.length
+    ? html`<div class="ms"><h4>❓ à trancher (${qs.reduce((a, q) => a + q.n, 0)})</h4>${qs.map(q => html`<div class="oline oq" style="white-space:normal" title="Questions ouvertes dans la réflexion du ticket — un ticket ne se ferme pas tant qu'il en reste">❓ <span class="rmref" data-action="ticket" data-rm="${q.rm}">${q.ref}</span> <span class="otag">${String(q.n)}</span> question${q.n > 1 ? "s" : ""} sans réponse</div>`)}</div>` : ""}${reqs.length
     ? html`<div class="ms"><h4>📥 demandes à traiter (${reqs.length})</h4>${reqs.map(r => html`<div class="oline oq" style="white-space:normal" title="${r.ts}">📥 <span class="otag">#${r.n}</span> ${r.text}</div>`)}</div>` : ""}`;
   if (vm.empty) return html`${head}<div class="ms"><h4>worklog</h4><div style="${muted};font-size:11.5px">${vm.emptyText}</div></div>`;
   const buckets = vm.buckets(), orphan = vm.orphans(), { tabs, sub } = vm.tabs(orphan.length);

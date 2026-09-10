@@ -352,6 +352,15 @@ def note_pertinente(text: str):
     return True, "dette"
 
 
+def has_text_anywhere(parsed: dict, text: str) -> bool:
+    """Ce texte est-il déjà consigné, dans N'IMPORTE quelle rubrique ? RM3090.
+
+    Le classement d'un même tour peut changer (une remarque relue devient une question) : sans ce
+    contrôle, la reprise l'ajouterait une seconde fois sous l'autre rubrique, et le carnet dirait
+    deux fois la même chose. Reclasser est un geste explicite (`--set`), pas un effet de bord."""
+    return any(has_text(parsed, kind, text) for kind in KINDS)
+
+
 def _norm(s: str) -> str:
     s = " ".join(str(s or "").lower().split())
     return s.strip(" «»\"'“”‘’").strip()[:200]

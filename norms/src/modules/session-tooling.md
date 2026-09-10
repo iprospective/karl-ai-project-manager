@@ -99,6 +99,12 @@ projet se déverse dans le think d'un autre (36 des 51 notes de RM2967 parlaient
 
 Règles :
 
+**Une note, une question — la ligne de partage.** Une **demande** appelle une ACTION (faire quelque
+chose, souvent ouvrir un ticket) ; une **question ouverte** appelle un ARBITRAGE. La question n'est
+pas définie par son auteur : c'est **tout ce qui n'est pas tranché** — ce que l'agent demande, ce que
+le demandeur se demande, ce qui naît de la réflexion commune. Un même message peut porter les deux.
+En cas de doute, note : une note mal classée se trie, une question perdue ne se retrouve pas.
+
 1. **Les scripts d'abord, l'agent ensuite** : le hook `pm-think-harvest` consigne à chaque tour
    les questions posées, les réponses retenues et, **sous le critère de la note** (marqueur de
    réflexion, ou prompt qui a produit une Q/D), les remarques verbatim du demandeur — jamais

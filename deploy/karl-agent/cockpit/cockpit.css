@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5ecc9f6a7289eb4b (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : e96a48cfbcfd28c2 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1143,14 +1143,20 @@ html[data-layout=mobile] .foot {
   font-family: var(--mono);
 }
 
-/* RM3093 — la tuile tient sur DEUX lignes de titre. `align-items: flex-start` (et non `center`) :
-   sinon, dès que le titre prend deux lignes, la pastille d'état et les boutons de queue se
-   recentrent verticalement et la colonne se met à danser d'une tuile à l'autre. */
+/* RM3093 — la tuile tient sur DEUX lignes de titre, et le titre a la tuile ENTIÈRE pour lui.
+   Première version : le titre restait un item de la ligne, coincé entre le slug et les boutons de
+   queue ; ses deux lignes n'avaient qu'une demi-largeur, si bien que la seconde se coupait alors
+   qu'il restait de la place sous le slug et sous les boutons. `flex-wrap` + `order` le renvoient en
+   SECONDE rangée, pleine largeur — c'est là qu'il respire.
+   `--tline` = la hauteur d'UNE ligne de titre : tout ce qui n'occupe qu'une ligne (pastille, slug,
+   badges, boutons) se centre sur elle, jamais sur le haut de la tuile. */
 .runitem {
+  --tline: 17px;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px 10px;
+  gap: 3px 7px;
+  padding: 7px 10px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   margin-bottom: 6px;
@@ -1159,10 +1165,33 @@ html[data-layout=mobile] .foot {
   min-height: 40px;
 }
 
-/* les éléments d'une seule ligne restent alignés sur la PREMIÈRE ligne du titre */
-.runitem > .tdot, .runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
-.runitem > .tquiet, .runitem > .helpq {
-  margin-top: 1px;
+/* la pastille est ronde (8×8) : on la centre au margin, un `min-height` l'étirerait en ellipse */
+.runitem > .tdot {
+  margin-top: calc((var(--tline) - 8px) / 2);
+}
+
+/* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark {
+  min-height: var(--tline);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* la queue (boutons) est poussée à droite ; le titre passe dessous, sur toute la largeur */
+.runitem::before {
+  content: "";
+  flex: 1 1 0;
+  order: 1;
+}
+
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq {
+  order: 2;
+}
+
+.runitem > .rmeta {
+  order: 3;
+  flex: 1 0 100%;
 }
 
 .runitem:hover {
@@ -1174,27 +1203,29 @@ html[data-layout=mobile] .foot {
   background: var(--bg);
 }
 
+/* le slug de session est un repère, pas un titre : plus petit que le texte qu'il annonce (RM3093) */
 .runitem .tid {
   font-family: var(--mono);
   font-weight: 600;
   color: var(--accent);
   flex: none;
+  font-size: 11px;
 }
 
 /* RM3093 : deux lignes, puis coupe. `line-clamp` coupe au MOT et met les points de suspension ;
-   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas. */
+   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas.
+   `line-height` desserré : deux lignes collées se lisent comme un pâté. */
 .runitem .rmeta {
   color: var(--muted);
   font-size: 11.5px;
-  flex: 1;
   min-width: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
-  max-height: 2.9em;
-  line-height: 1.35;
+  max-height: 3.1em;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 

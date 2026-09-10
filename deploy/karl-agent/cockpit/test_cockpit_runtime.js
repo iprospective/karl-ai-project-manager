@@ -40,8 +40,17 @@ console.log("✓ aucun handler inline dans la page");
   assert(rmeta, ".runitem .rmeta doit exister dans le style compilé");
   assert(/line-clamp:\s*2/.test(rmeta[1]), "le titre d'une session s'affiche sur deux lignes (line-clamp: 2)");
   assert(!/white-space:\s*nowrap/.test(rmeta[1]), "…donc plus de `nowrap` : il couperait le titre à la première ligne");
-  assert(/align-items:\s*flex-start/.test(/\.runitem \{([^}]*)\}/.exec(css)[1]),
+  const runitem = /\.runitem \{([^}]*)\}/.exec(css)[1];
+  assert(/align-items:\s*flex-start/.test(runitem),
     "les pastilles et boutons restent alignés en haut : centrés, ils dansent dès qu'un titre passe à deux lignes");
+  // RM3093 (correction) : le titre occupe une rangée à LUI, sur toute la largeur de la tuile. Sans
+  // `flex-wrap` + la base 100 %, il redevient un item coincé entre le slug et les boutons, et ses
+  // deux lignes se coupent alors qu'il reste de la place dessous — le défaut signalé à la recette.
+  assert(/flex-wrap:\s*wrap/.test(runitem), "la tuile enroule : le titre part en seconde rangée");
+  assert(/\.runitem\s*>\s*\.rmeta \{[^}]*flex:\s*1 0 100%/.test(css),
+    "le titre prend toute la largeur de la tuile (flex-basis 100 %), pas la place qui reste sur la ligne");
+  assert(/\.runitem\s*>\s*\.tdot \{[^}]*margin-top:\s*calc/.test(css),
+    "la pastille se centre sur la PREMIÈRE ligne du titre (calc), elle ne se colle pas au bord haut");
   assert(!/<style>/.test(html) && /<link rel="stylesheet" href="\/static\/cockpit\.css">/.test(html), "la page charge cockpit.css, sans <style> inline");
   assert(scss.length >= 20 && fs.existsSync(path.join(DIR, "src/styles/main.scss")), "un fichier scss par module + tokens + base + main");
   console.log("✓ cockpit.css à jour (" + scss.length + " sources scss, empreinte " + m[1] + ")"); }

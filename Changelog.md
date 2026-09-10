@@ -320,6 +320,35 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 - **Correctif** : l'explorateur de fichiers ne pouvait plus ouvrir aucun fichier (« chemin hors de projects/ ») — depuis L7 (RM2889), `/fs/file` et `/file` partageaient la cible `/api/file/file`, résolue côté serveur vers la seule route générique. `/fs/file` a désormais sa cible `/api/file/read` (`MIGRATION-ROUTES.tsv` régénérée : `endpoints.js` + `karl_api_routes.py`).
 - **Racines documentaires par projet:file** : une racine `docs/` ou `project/` se désigne par `doc:<client>/<projet>/<racine>` — le cockpit ne reçoit, n'affiche et n'envoie plus de chemin absolu pour la documentation (infobulle « client/projet · docs », URL, journal du démon) ; la résolution du chemin réel est serveur (`_doc_root_path`), avec les gardes existantes (projet du périmètre, racine connue, sous-chemin confiné). Les chemins absolus restent acceptés pour les clients historiques.
 - Tests : `test_karl_agent_fs.py` (alias, identifiants, gardes, portées session/projet, symlink), `test_cockpit_files.js` (routes distinctes, identifiant → portée, infobulle et URL sans chemin).
+### Travaux périodiques
+- **L'instance PM n'a plus qu'un seul cron** (RM2792, lot 1). Les travaux périodiques
+  étaient une ligne de crontab chacun — orchestrateur toutes les 15 min, `pm-task-report`
+  toutes les 30, wiki-sync toutes les 10, summarizer et veille tarifaire quotidiens, GC des
+  verrous horaire. Le problème n'était pas leur nombre : c'est que le crontab ne sait rien
+  faire de ce dont ils ont besoin. Il ne **garde aucun état** — « c'est passé quand, et ça
+  s'est bien passé ? » n'avait de réponse qu'en fouillant des journaux séparés, quand ils
+  existaient. Il ne **verrouille rien** : cron relance un job même si le précédent tourne
+  encore, et deux orchestrateurs concurrents s'assignent les mêmes tâches. Et il
+  n'**inventorie rien** — en vérifiant, la moitié de ces jobs n'étaient installés nulle
+  part : seulement décrits dans `cron.example.sh`, un fichier que personne ne relit.
+  Désormais le registre est **`jobs.reference.yml`** (11 travaux déclarés, avec pour chacun
+  ce qu'on perd s'il ne tourne pas, et le motif écrit pour les deux qui sont désactivés), et
+  **`pm-scheduler.py`** décide de ce qui est dû, sous verrou, avec un état, une trace et un
+  journal par travail. Le crontab tient en une ligne, que `pm-scheduler crontab` imprime
+  déjà remplie. Trois comportements méritent d'être connus, tous les trois délibérés : un
+  job **jamais vu est armé, pas exécuté** — sinon ajouter un job quotidien au registre à
+  15 h le lancerait aussitôt, au titre de l'occurrence de 6 h déjà passée ; **pas de
+  rattrapage en cascade** — machine éteinte trois jours, un job quotidien tourne une fois,
+  pas trois, parce que rejouer trois fois un résumé quotidien ne rend pas trois jours de
+  travail ; et **pas de recouvrement** — un job encore en cours est tracé « déjà en cours »
+  plutôt que doublé, ce qui était précisément le défaut du cron nu. Un job qui échoue ou qui
+  dépasse son `timeout` n'empêche jamais les autres, et le passage sort en code ≠ 0 pour que
+  l'échec reste visible. Premier bénéficiaire concret : le **réveil des tickets récurrents**
+  de RM2772, qui n'avait jusque-là aucun moyen de tourner tout seul. Le parseur cron est
+  maison et testé pour de bon (66 cas) : le champ `*` en jour-de-semaine s'y était fait
+  normaliser « 7 % 7 = 0 » à l'écriture, ce qui ne laissait passer que le dimanche — une
+  panne qu'aucune exécution ponctuelle ne révèle, et que seul un test étalé sur plusieurs
+  jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
 - **Le budget de contexte se regarde, il ne se ticketise plus** (RM3046). Le préchargement des

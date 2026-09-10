@@ -1,0 +1,152 @@
+# ── Registre des travaux périodiques PM (RM2792, lot 1) ───────────────────────
+#
+# UN SEUL cron système appelle `pm-scheduler.py run` toutes les 5 minutes ; c'est
+# LUI qui décide de ce qui est dû. Le crontab ne porte plus qu'une ligne :
+#
+#   */5 * * * * python3 "$PM_DIR/scripts/pm-scheduler.py" run >> "$LOG_DIR/scheduler.log" 2>&1
+#
+# Pourquoi pas un cron par travail : les jobs PM ont besoin de choses que le
+# crontab ne sait pas donner. Un état consultable (« quand est-ce passé pour la
+# dernière fois, et ça s'est bien passé ? »), un verrou par travail (cron relance
+# un job même si le précédent tourne encore), une trace, et un point unique où
+# lire ce qui tourne. Éparpillés, ces jobs n'avaient rien de tout ça — et la
+# moitié n'étaient installés nulle part, seulement décrits dans un fichier
+# d'exemple que personne ne relit.
+#
+# ── Champs ────────────────────────────────────────────────────────────────────
+#   schedule    (requis) expression cron 5 champs : minute heure jour mois jour-semaine
+#               `*`, `a`, `a-b`, `*/n`, `a-b/n`, listes `a,b`. Jour-semaine :
+#               0 ou 7 = dimanche. Si jour-du-mois ET jour-semaine sont tous deux
+#               restreints, c'est un OU — sémantique cron, pas une bizarrerie locale.
+#   command     liste argv, exécutée SANS shell (préféré : rien à échapper).
+#   shell       alternative : ligne de commande passée à `bash -c`, avec `pm.env`
+#               et `.env` déjà sourcés. Exactement un de `command` / `shell`.
+#   description (requis) ce que fait le travail, et ce qu'on perd s'il ne tourne pas.
+#   enabled     défaut `true`. `false` = déclaré mais pas exécuté (voir le motif).
+#   timeout     secondes avant SIGKILL. Défaut 900.
+#   cwd         répertoire d'exécution, relatif à la racine PM. Défaut : la racine.
+#
+# ── Ce que l'ordonnanceur NE fait PAS ─────────────────────────────────────────
+#   · pas de rattrapage en cascade : si la machine était éteinte trois jours, un
+#     job quotidien tourne UNE fois, pas trois. Rejouer trois fois un résumé
+#     quotidien ne rend pas trois jours de travail, ça fait trois fois du bruit.
+#   · pas de recouvrement : un job encore en cours n'est pas relancé, il est
+#     signalé « déjà en cours ». C'est le défaut exact du cron nu qu'on remplace.
+#   · pas de dépendances entre jobs, ni d'ordre garanti. Si ce besoin apparaît,
+#     il se déclare — il ne s'obtient pas en jouant sur les horaires.
+
+jobs:
+
+  # ── Réveil des tickets récurrents (RM2772, lot 4) ───────────────────────────
+  recurrent-wake:
+    schedule: "0 7 * * *"
+    command: ["python3", "scripts/pm-task-recurrence.py", "wake", "--apply"]
+    description: >
+      Rouvre les tickets récurrents dont l'échéance est atteinte (statut de repos →
+      a_faire, checklist et done_ratio remis à zéro). Sans lui, `park` range un
+      ticket et plus rien ne le ressort : la périodicité serait décorative.
+      7 h du matin : le réveil doit être fait quand la journée commence, pas
+      pendant.
+
+  # ── Reporting tokens/temps → Redmine (RM2160) ───────────────────────────────
+  task-report:
+    schedule: "*/30 * * * *"
+    command: ["python3", "scripts/pm-task-report.py", "--all", "--apply"]
+    description: >
+      Pousse vers Redmine (time_entries + CF17) la conso tickée localement par
+      pm-task-tick. Sans lui, le reporting reste invisible côté Redmine tant qu'un
+      humain ne lance pas l'outil. Idempotent (clés de dédup par time_entry).
+
+  # ── Wiki-sync, repli asynchrone (RM2438) ────────────────────────────────────
+  wiki-sync:
+    schedule: "*/10 * * * *"
+    shell: python3 scripts/pm-wiki-sync.py --all --push
+    description: >
+      Capte les édits faits côté Wiki Redmine entre deux push git (fold-back
+      wiki→git + auto-commit, puis push). Le sens git→wiki normal passe par
+      pm-sync-push à la publication ; ce passage rattrape les retouches wiki hors
+      activité git. Verrou par projet côté outil.
+
+  # ── GC des verrous par ressource (RM2551 / T7) ──────────────────────────────
+  lock-gc:
+    schedule: "0 * * * *"
+    command: ["python3", "scripts/pm-lock-gc.py", "--apply"]
+    description: >
+      Nettoie les .lock inertes ET vieux (flock libéré par le noyau à la mort du
+      process → un .lock acquérable est inert), et SIGNALE un verrou tenu
+      anormalement longtemps = détenteur potentiellement pendu. Filet post-crash ;
+      ne touche jamais un verrou vivant.
+
+  # ── Veille tarifaire Anthropic (RM2165) ─────────────────────────────────────
+  pricing-check:
+    schedule: "30 8 * * *"
+    command: ["python3", "scripts/pm-pricing-check.py"]
+    description: >
+      Compare pm.pricing.yml à la doc officielle (extraction headless). En cas
+      d'écart : ticket Redmine tagué pricing-watch, dédupliqué tant qu'un ticket
+      est ouvert. Ne modifie JAMAIS le YAML lui-même.
+
+  # ── Pull des gestionnaires partenaires (RM2655) ─────────────────────────────
+  partner-pull:
+    schedule: "*/30 * * * *"
+    shell: python3 scripts/pm-task-partner.py pull --all
+    description: >
+      Importe dans le .log.md les notes et le statut des tickets rattachés chez un
+      provider SECONDAIRE (lecture seule chez eux ; rien n'est répercuté sur l'état
+      PM). Ne scanne que les tickets ouverts portant un lien — sans projet
+      configuré en partenaire, ne fait rien.
+
+  # ── Ranking ROI hebdomadaire ────────────────────────────────────────────────
+  priority-weekly:
+    schedule: "0 8 * * 1"
+    shell: python3 scripts/priority.py "$PROJECTS_PATH" --top 30
+    description: >
+      Ranking ROI global du lundi matin. Sortie consultable dans le journal du job.
+
+  # ── Orchestrateur (assignation des tâches a_faire) ──────────────────────────
+  orchestrateur:
+    schedule: "*/15 * * * *"
+    timeout: 1800
+    shell: >
+      claude -p "Tu es orchestrateur. Scanne tous les clients et projets,
+      assigne les tâches a_faire éligibles."
+    description: >
+      Scan des tâches a_faire et assignation aux workers. Le seul job qui appelle
+      un agent : d'où le timeout élargi, et l'intérêt du verrou — deux
+      orchestrateurs concurrents s'assigneraient les mêmes tâches.
+
+  # ── Summarizer quotidien ────────────────────────────────────────────────────
+  summarizer:
+    schedule: "0 6 * * *"
+    timeout: 3600
+    shell: >
+      claude -p "Tu es summarizer. Régénère les Changelog, Pistes, Remarques de
+      tous les clients et projets actifs depuis la dernière exécution."
+    description: >
+      Agrégation Pistes / Remarques / Structure de la veille. Rejoué une seule fois
+      après une coupure, jamais une fois par jour manqué.
+
+  # ── Déclarés mais NON exécutés ──────────────────────────────────────────────
+
+  bench-overhead:
+    schedule: "0 7 1 * *"
+    enabled: false      # motif : était déjà commenté dans cron.example.sh — le
+                        # ticket de suivi (BENCH_NOTIFY_RM) doit être choisi par
+                        # instance avant activation.
+    shell: >
+      scripts/pm-bench-overhead.py --compare var/bench/baseline-2026-07-rm2275.json
+      --notify-rm "${BENCH_NOTIFY_RM:-2316}"
+    description: >
+      Mesure mensuelle de la part PM vs baseline (audit RM2275) ; poste le résumé
+      en note sur le ticket de suivi et sort en erreur si la dérive dépasse +2 pts.
+
+  pm-promote:
+    schedule: "15 * * * *"
+    enabled: false      # motif : RETIRÉ par RM2440 — les cores poussent en direct
+                        # sur main (pm-protect push=Developer + rattrapage non-FF
+                        # dans pm_git). Conservé ici comme outil de transition, à
+                        # lancer à la main si une instance en a encore besoin.
+    shell: python3 scripts/pm-promote.py --repo "$PROJECTS_PATH"
+    description: >
+      Promeut par lot les auto-commits pm-* repliés sur `dev` vers `main` du repo
+      de données PM (MR auto-créée et auto-mergée).

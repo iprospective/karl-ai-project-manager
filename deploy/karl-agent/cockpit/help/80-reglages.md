@@ -1,5 +1,21 @@
 # Réglages
 
+## Cinq onglets, un sujet chacun
+
+Les réglages s'ouvrent sur une barre d'onglets. Chaque carte reste une section avec son titre ; les
+onglets ne font que donner un ordre à ce qui s'empilait en une seule colonne.
+
+- **⚙ Instance** — les réglages du serveur (liste blanche) et la sonde mémoire : ce qui vaut pour tout le
+  monde sur cette instance.
+- **🔌 Fournisseurs** — tickets, dépôts, documentation, coffres, modèles de travail.
+- **🧩 Moteurs** — moteurs de session et serveurs de modèles.
+- **🎨 Affichage** — thème, colonne de droite, préférences de sessions, voix. Tout y est local à ce
+  navigateur.
+- **👤 Compte** — connexion et comptes. L'onglet n'apparaît pas tant qu'il n'a rien à montrer.
+
+**Chaque onglet ne charge que son contenu, et une seule fois.** Ouvrir les réglages pour changer le thème
+n'interroge plus npm pour inventorier les moteurs. Le dernier onglet ouvert est retenu par ce navigateur.
+
 **🔧 réglages** (menu du haut) regroupe les préférences du cockpit et de la conf PM.
 Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autres vues.
 

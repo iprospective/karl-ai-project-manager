@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : c9692e66a281f860 (34 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : cc81e140bde71697 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -4214,6 +4214,27 @@ button.mini.soft:hover {
 
 .eg-row button.mini.soft:hover {
   opacity: 1;
+}
+
+.setnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+
+.setnav .chip {
+  font-size: 12.5px;
+}
+
+.setnav-help {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin: 0 0 10px 2px;
+}
+
+#cp-settings .card.setnav-off {
+  display: none !important;
 }
 
 .cn-head {

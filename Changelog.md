@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Onglets et sections dans les réglages** (RM3081) : dix cartes s'empilaient en une seule colonne, sans
+  hiérarchie — on y cherchait un réglage en faisant défiler. Cinq onglets à plat, comme le menu CDC :
+  Instance, Fournisseurs, Moteurs, Affichage, Compte. Chaque carte reste une section avec son titre ; un
+  onglet dont toutes les cartes sont masquées ne s'affiche pas, et le dernier ouvert est retenu par ce
+  navigateur. **Le contenu ne se charge qu'à l'ouverture de son onglet** : ouvrir les réglages pour
+  changer le thème n'interroge plus npm pour inventorier les moteurs. Cockpit 3.11.0.
+
 - **Zone centrale : le split devient une OPTION** (RM3051) : ouvrir un ticket ou un document
   coupait la zone centrale en deux (session en haut, fiche en bas) — comportement que
   personne n'avait demandé. Désormais, par défaut, la fiche **prend la place** de la session

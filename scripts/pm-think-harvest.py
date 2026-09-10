@@ -17,7 +17,10 @@ Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus. Le ticket
 pour le tick de conso (`pm-task-tick.resolve_current_rm_id` : mutation PM du tour, fiche éditée, mention,
 sinon sentinel `CURRENT_TASK`). Sans ticket résolu : rien, silencieusement (RM2440).
 
-  hook   : payload JSON sur stdin ({session_id, transcript_path, cwd}) — jamais d'échec bloquant
+  hook   : payload JSON sur stdin ({session_id, transcript_path, cwd}) — jamais d'échec bloquant.
+           `--full` (RM3098, câblé sur `PreCompact`) relit TOUT le transcript au lieu de reprendre au
+           curseur : c'est le dernier passage avant que la conversation ne devienne un résumé, et le
+           curseur n'a pas à décider ce qu'on relit à ce moment-là
   CLI    : pm-think-harvest --rm <id> [--session <sid>] [--transcript <jsonl>] [--dry-run]
   élagage: pm-think-harvest --prune (--rm <id> | --all) [--dry-run] — les notes en attente qui ne passent pas le
            critère passent ❌ « élaguée (RM3062) », jamais supprimées ; à rejouer après une évolution du critère.
@@ -247,7 +250,7 @@ def run(rm_id, sid, transcript, dry=False, commit=True, incremental=False, cwd=N
     return added
 
 
-def hook_mode() -> int:
+def hook_mode(full: bool = False) -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except ValueError:
@@ -260,7 +263,7 @@ def hook_mode() -> int:
         rid, _why = _tick_module().resolve_current_rm_id(payload.get("cwd") or os.getcwd(), str(tp))
         if rid is None:
             return 0
-        run(rid, sid, tp, incremental=True, cwd=payload.get("cwd"))
+        run(rid, sid, tp, incremental=not full, cwd=payload.get("cwd"))   # RM3098 : --full = passe complète
     except SystemExit:
         pass
     except Exception as e:                       # jamais bloquer un tour pour une moisson
@@ -280,6 +283,9 @@ def main():
     ap.add_argument("--all", action="store_true", help="avec --prune : tous les think du projet courant")
     ap.add_argument("--delete", action="store_true", help="avec --prune : supprimer les lignes (et celles déjà marquées élaguées) au lieu de les marquer ❌")
     ap.add_argument("--tasks-dir", help="avec --prune : dossier des fiches (tests)")
+    ap.add_argument("--full", action="store_true",
+                    help="relire TOUT le transcript sans repartir du curseur — dernier passage avant "
+                         "compaction (hook PreCompact, RM3098)")
     a = ap.parse_args()
     if a.prune:
         cfg = None if a.tasks_dir else PMConfig.load()
@@ -309,7 +315,7 @@ def main():
         print(f"{'(dry) ' if a.dry_run else ''}élagage : {total} note(s) sur {len(thinks)} think")
         return
     if a.rm is None:
-        sys.exit(hook_mode())
+        sys.exit(hook_mode(full=a.full))
     tp = a.transcript or transcript_of(a.session)
     if not tp:
         sys.exit(f"ERREUR : transcript introuvable (session {a.session})")

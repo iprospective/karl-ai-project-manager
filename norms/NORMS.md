@@ -1,9 +1,9 @@
 ---
-schema_version: "2.36.0"
-updated: 2026-09-10
+schema_version: "2.37.0"
+updated: 2026-09-11
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.36.0
+# Normes de gestion des tâches — v2.37.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -43,6 +43,7 @@ updated: 2026-09-10
 | je cherche si un geste a son outil PM, ou l'invocation exacte d'un `pm-*` | `modules/session-tooling-pratique.md` (trous connus, idiomes) | tous les `pm-*` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
 | un événement notable arrive en séance (secret affiché, action refusée, garde-fou déclenché, outil PM en défaut, décision qui bloque) | `modules/session-tooling.md` § « Notifications importantes » | `pm-session-status.py notify` |
+| le contexte se remplit, une compaction approche, ou je rends la main en fin de séance | `modules/session-tooling.md` § « Avant une compaction » | `pm-session-status set --next`, `pm-task-think` |
 | je rends un conseil, le demandeur arbitre, une question reste ouverte, une fonctionnalité prend forme — ou je m'apprête à fermer un ticket | `modules/session-tooling.md` § « Consignation par ticket — le `.think.md` » | `pm-task-think`, `pm-think-merge --check` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
@@ -756,6 +757,27 @@ En cas de doute, note : une note mal classée se trie, une question perdue ne se
 
 **Trous d'outillage connus et idiomes de ligne de commande** : `session-tooling-pratique`. Un trou ne
 dispense de rien — il dit quel geste manuel tient lieu d'outil en attendant (tripwire #1).
+
+## Avant une compaction, avant de rendre la main (RM3098)
+
+Une compaction **remplace la conversation par un résumé**. Ce qui n'a pas été écrit ailleurs n'est
+pas « plus difficile à retrouver » : il n'existe plus. Même chose en fin de séance — 42 transcripts
+ont été perdus le 2026-09-06 (RM2997), avec ce qu'ils portaient.
+
+Le système s'en charge d'abord : le hook `PreCompact` lance une **passe complète** de
+`pm-think-harvest`, et à la reprise `pm-norms-recall` réinjecte le KERNEL, que le résumé n'emporte
+pas (RM3071). Restent trois gestes que **seul l'agent** peut faire, et qu'il fait **avant** de
+rendre la main :
+
+1. **La prochaine étape**, en une phrase qui se comprend sans le fil :
+   `pm-session-status.py set <n> --next "…"`. C'est elle que lit `pm-task-brief --reprise`.
+2. **Ce qui n'est pas tranché** : `pm-task-think <id> --question "…"`. Après compaction, une question
+   restée dans le fil n'a jamais été posée.
+3. **Ce qui vient d'être arbitré** : `pm-task-think <id> --decide "…" --state valide --by M`. Un
+   arbitrage non consigné est un arbitrage qu'on croira consigné, et qu'on re-tranchera autrement.
+
+Le reste (demandes, notifications, MR, statuts) est déjà porté par les scripts. Ce qui ne l'est pas :
+le raisonnement — pourquoi on a choisi cela plutôt qu'autre chose.
 
 ## Registre des demandes (RM2621)
 

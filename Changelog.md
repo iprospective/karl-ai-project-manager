@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Consigner AVANT la compaction** (RM3098, NORMS 2.37.0) : RM3071 réinjecte le KERNEL *après* une
+  compaction ; l'*avant* n'était pas couvert. Le hook `PreCompact` ne faisait qu'un `refresh` du
+  worklog — la moisson n'y était pas câblée, alors que c'est le **dernier moment où les tours existent
+  en clair**. Elle l'est désormais, en passe **complète** (`--full`) : le curseur incrémental n'a pas
+  à décider ce qu'on relit quand le fil va devenir un résumé. NORMS gagne la règle « avant une
+  compaction, avant de rendre la main » — prochaine étape, questions non tranchées, arbitrages
+  récents — et son déclencheur au KERNEL. Ce qui n'est pas consigné là n'est pas plus difficile à
+  retrouver : il n'existe plus (leçon RM2997).
 - **Inventaire des capacités de karl** (RM3048) : un registre **curé par capacité** (`docs/cdc-karl/`,
   123 entrées sur 12 domaines) répond à « qu'est-ce que karl sait faire », là où `docs/cdc/` (dérivé des
   tickets, 603 entrées) répond à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs

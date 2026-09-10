@@ -23,7 +23,8 @@ cockpit/
     styles/             _tokens.scss (couleurs, thèmes), _base.scss, _entities.scss (niveaux .e-row/.e-card/.e-panel/.e-full), main.scss
   src/modules/engines/   panneau Moteurs des réglages (RM3069) : installer / mettre à jour / tester, par recette connue du serveur,
                          en deux portées — « pour moi » (home, sans privilège) et « pour tous » (sudo, administrateur)
-  src/modules/providers/ panneau Fournisseurs des réglages (RM3068) : instances par axe, clés en ÉCRITURE SEULE, affectations par projet
+  src/modules/providers/ panneau Fournisseurs des réglages (RM3068) : instances par axe, clés en ÉCRITURE SEULE, affectations par projet ;
+                         services LLM prédéfinis et modèles demandés au fournisseur (RM3072)
   logo/                 la marque karl (RM3065, variante A4) : karl.svg (currentColor), karl-favicon.svg
   help/                 aide intégrée (markdown, servie par /help, bouton ❓) ; bouton 📋 CDC (à droite du titre) = le CDC vivant du projet en contexte, onglets à plat : fonctionnalités, CDC vivant, puis un par chapitre (roadmap, décisions, questions, notes, dictionnaire…) (/cdc, /cdc-features — modules/cdc, RM3043/RM3044) ; onglet 📂 projets de la colonne de droite (modules/sessproj, RM3045)
   tooling/              outillage de DÉVELOPPEMENT seulement : package.json (sass), npm run build:css

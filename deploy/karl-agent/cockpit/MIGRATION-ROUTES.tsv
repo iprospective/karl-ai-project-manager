@@ -111,5 +111,6 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /pm/providers	L5	settings	/api/pm/providers	1	loadProviders
 /pm/provider-secret	L5	settings	/api/pm/provider-secret	1	saveSecret
 /pm/provider-assign	L5	settings	/api/pm/provider-assign	1	saveAssign
+/pm/llm-models	L5	settings	/api/pm/llm-models	1	loadLlmModels
 /pm/engines	L5	settings	/api/pm/engines	1	loadEngines
 /pm/engine-install	L5	settings	/api/pm/engine-install	1	installEngine

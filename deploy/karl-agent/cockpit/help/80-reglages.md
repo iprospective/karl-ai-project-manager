@@ -100,6 +100,19 @@ servent et avec quel rôle : le même Redmine est primaire chez son client et se
 La déclaration part dans `pm.config.local.yml`, fusionné par-dessus `pm.config.yml` : le fichier commenté
 de référence n'est jamais réécrit par le cockpit.
 
+### Brancher un modèle sans le configurer de mémoire
+
+Pour l'axe **Modèles de travail**, la création d'une instance commence par un **service connu** :
+OpenRouter, Z.ai, Groq, DeepSeek, Mistral, Together, Fireworks, Cerebras, xAI, Gemini, OpenAI, Anthropic,
+Ollama Cloud, et les serveurs locaux (Ollama, Lemonade, LM Studio, vLLM). Le choix pose le type et l'URL ;
+le nom reste modifiable, et rien n'est envoyé tant que vous n'enregistrez pas. Il ne reste que la clé, à
+poser comme les autres, en écriture seule.
+
+**Les modèles ne sont pas listés dans le cockpit.** Une liste écrite dans le code périme sans le dire.
+Le bouton **modèles disponibles** interroge le fournisseur une fois la clé posée et affiche ce qu'il sert
+réellement ; cliquer l'un d'eux l'inscrit dans la déclaration. Un refus s'affiche tel quel, clé absente ou
+route inexistante, plutôt que de se déguiser en liste vide.
+
 ## Moteurs
 
 La carte 🧩 **Moteurs** installe et tient à jour ce qui fait tourner les agents, en deux familles :

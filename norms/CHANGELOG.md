@@ -1,5 +1,13 @@
 # Changelog des normes
 
+## [2.30.2] - 2026-09-10
+
+### Modifié
+- **Le classifieur tourne en local, sur n'importe quel serveur à l'API OpenAI** (`session-tooling`,
+  RM3067) : Lemonade Server (Ryzen AI / Strix Halo), vLLM, LM Studio, llama.cpp — via `LLM_BASE_URL`,
+  pris d'office quand la variable existe. Local à préférer pour une reprise : les transcripts ne
+  quittent pas la machine et la passe ne coûte rien.
+
 ## [2.30.1] - 2026-09-10
 
 ### Modifié

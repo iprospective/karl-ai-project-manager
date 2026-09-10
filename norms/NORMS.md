@@ -1,9 +1,9 @@
 ---
-schema_version: "2.30.1"
+schema_version: "2.30.2"
 updated: 2026-09-09
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.30.1
+# Normes de gestion des tâches — v2.30.2
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -739,9 +739,11 @@ le demandeur écrit et ce que l'agent lui **répond à l'écran**, jamais le rai
 tooling (appels d'outils, résultats, diffs, sorties de commandes) — et rend, pour chacun, `rien` · dette · question · décision ·
 fonctionnalité **avec une reformulation auto-suffisante**. À lancer sur une session avant de livrer
 (`--session`), ou en reprise sur l'historique (`--all --since`) ; `--dry-run` par défaut, rien n'est écrit
-sans `--apply`, et le coût est rapporté à chaque passe. Trois moteurs : **Ollama** (local ou hébergé —
-coût nul, pris d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` existe), l'**API Anthropic**, ou `claude -p`
-(qui refacture son prompt système à chaque appel : gros lots obligatoires).
+sans `--apply`, et le coût est rapporté à chaque passe. Quatre moteurs, **local d'abord** : un serveur
+à l'API OpenAI (`LLM_BASE_URL` — Lemonade Server sur Ryzen AI, vLLM, LM Studio, llama.cpp), **Ollama**
+(`OLLAMA_HOST`), l'**API Anthropic**, ou `claude -p` (qui refacture son prompt système à chaque appel :
+gros lots obligatoires). En local, les transcripts — qui portent le travail des clients — ne quittent
+pas la machine, et la passe ne coûte rien : c'est le mode à préférer pour une reprise d'historique.
 
 **Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
 dans un ticket qui n'est pas du projet du `cwd` de la session : sans cette garde, la conception d'un

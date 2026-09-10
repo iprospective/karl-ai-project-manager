@@ -15,11 +15,17 @@ de texte ne décide pas de ça ; un modèle léger, si — pour ~1 $ par million
   pm-think-classify --all [--since AAAA-MM-JJ] [--limit N] reprise de l'historique
   --apply            écrit dans les `.think.md` (défaut : rapport seul, rien n'est écrit)
   --model <id>       défaut : claude-haiku-4-5-20251001 ; --batch <n> tours par appel (défaut 25)
-  --engine claude|api|ollama
+  --engine claude|api|ollama|openai
                      `claude -p` (pas de clé à gérer) · l'API Anthropic · **Ollama** (local ou hébergé),
                      choisi d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` est posé, puis l'API si sa clé existe.
                      Ollama : `OLLAMA_HOST` (défaut `http://localhost:11434`), `OLLAMA_API_KEY` pour un service
                      hébergé, modèle via `--model` (ex. `qwen3:8b`, `llama3.1:8b`) — coût nul, c'est l'abonnement.
+                     `openai` : tout serveur à l'API OpenAI — **Lemonade Server** (AMD Ryzen AI / Strix Halo),
+                     vLLM, LM Studio, llama.cpp. `LLM_BASE_URL` (ex. `http://strix.lan:8000/api/v1`),
+                     `LLM_API_KEY` si le serveur en demande une, `LLM_MODEL` pour le défaut.
+
+LOCAL ou distant, c'est le même code : rien n'est codé en dur vers un service. En local, les transcripts —
+qui portent le travail des clients — ne quittent pas la machine, et la passe ne coûte rien.
 
 Coût (mesuré le 2026-09-10) : par l'API, ~1 $ par million de jetons d'entrée, soit ~3 $ pour les 276 transcripts.
 Par `claude -p`, le CLI refacture son propre prompt système à chaque appel : compter ~40× plus, et donc réserver
@@ -131,6 +137,8 @@ def appelle(prompt: str, model: str, engine: str) -> tuple:
         return _json_tableau(p.stdout), 0.0
     if engine == "ollama":
         return _ollama(prompt, model)
+    if engine == "openai":
+        return _openai(prompt, model)
     if engine == "api":
         return _api(prompt, model)
     p = subprocess.run(["claude", "-p", prompt, "--model", model, "--output-format", "json"],
@@ -164,6 +172,35 @@ def _ollama(prompt: str, model: str) -> tuple:
     texte = ((d.get("message") or {}).get("content") or "") if isinstance(d, dict) else ""
     items = _json_tableau(texte)
     if not items and texte.strip().startswith("{"):     # `format: json` rend parfois un objet enveloppe
+        try:
+            o = json.loads(texte)
+            for v in (o.values() if isinstance(o, dict) else []):
+                if isinstance(v, list):
+                    items = [x for x in v if isinstance(x, dict)]; break
+        except ValueError:
+            pass
+    return items, 0.0
+
+
+def _openai(prompt: str, model: str) -> tuple:
+    """Tout serveur parlant l'API OpenAI (RM3067) : Lemonade Server (Ryzen AI), vLLM, LM Studio, llama.cpp.
+    `response_format: json_object` quand le serveur le sait ; sinon le parseur tolérant fait le reste."""
+    import urllib.request
+    base = (os.environ.get("LLM_BASE_URL") or "http://localhost:8000/api/v1").rstrip("/")
+    if model == MODEL:
+        model = os.environ.get("LLM_MODEL") or "qwen3-8b"
+    body = json.dumps({"model": model, "temperature": 0, "max_tokens": 2000,
+                       "response_format": {"type": "json_object"},
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    headers = {"content-type": "application/json"}
+    if os.environ.get("LLM_API_KEY"):
+        headers["Authorization"] = "Bearer " + os.environ["LLM_API_KEY"]
+    req = urllib.request.Request(base + "/chat/completions", data=body, headers=headers)
+    with urllib.request.urlopen(req, timeout=600) as r:
+        d = json.loads(r.read().decode())
+    texte = ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    items = _json_tableau(texte)
+    if not items and texte.strip().startswith("{"):
         try:
             o = json.loads(texte)
             for v in (o.values() if isinstance(o, dict) else []):
@@ -250,8 +287,9 @@ def main():
     ap.add_argument("--transcript"); ap.add_argument("--session"); ap.add_argument("--rm", type=int)
     ap.add_argument("--all", action="store_true"); ap.add_argument("--since"); ap.add_argument("--limit", type=int)
     ap.add_argument("--apply", action="store_true"); ap.add_argument("--model", default=MODEL)
-    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api", "ollama"),
-                    default=("ollama" if (os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY"))
+    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api", "ollama", "openai"),
+                    default=("openai" if os.environ.get("LLM_BASE_URL")
+                             else "ollama" if (os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY"))
                              else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()

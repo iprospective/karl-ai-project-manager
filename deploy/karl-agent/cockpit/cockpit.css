@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 00613d0775e1b425 (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 584e8c609c3ff8bf (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3277,6 +3277,19 @@ iframe {
 .mc-unknown {
   background: rgba(127, 127, 127, 0.1);
   border-color: rgba(127, 127, 127, 0.3);
+}
+
+/* RM3089 — les gestes d'une entrée de réflexion, sur la fiche d'un ticket : discrets, ils
+   n'apparaissent qu'au survol et seulement sur les entrées OUVERTES (trancher une question déjà
+   tranchée n'a pas de sens). */
+.thk-acts {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  white-space: nowrap;
+}
+
+.oline:hover .thk-acts, .thk-acts:focus-within {
+  opacity: 1;
 }
 
 .docmodal {

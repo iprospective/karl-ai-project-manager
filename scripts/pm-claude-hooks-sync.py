@@ -57,6 +57,10 @@ PM_HOOKS = [
     # worklog de session (RM2068) : refresh au démarrage et avant compaction
     ("SessionStart", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),
     ("PreCompact", None, "pm-session-status.py", " refresh &>/dev/null || true", 30),
+    # RM3071 : une compaction (ou une reprise) emporte les NORMS mais garde la tâche ; le KERNEL est
+    # réinjecté dans le contexte au moment exact où il vient d'en sortir. Sa sortie EST le rappel :
+    # ce hook ne doit donc pas être silencé, contrairement aux précédents.
+    ("SessionStart", "compact|resume", "pm-norms-recall.py", " --reason compact", 20),
 ]
 
 

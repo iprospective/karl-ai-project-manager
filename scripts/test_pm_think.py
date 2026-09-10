@@ -33,8 +33,19 @@ def check(label, cond, detail=""):
         FAIL.append(label)
 
 
+# RM3076 : sans `subprocess_env()`, les scripts appelés cherchent le `.env` du dépôt courant —
+# vert dans le core (qui l'a), ROUGE dans tout worktree de dev (qui ne l'a pas). Un test doit se
+# suffire à lui-même : le core jetable de `test_support` lui en donne un.
+from test_support import subprocess_env, hermetic_core       # noqa: E402
+
+# … et le core jetable doit être posé AVANT tout import in-process d'un module PM
+# (`pm-think-harvest` tire `pm_git`, qui charge le `.env` au chargement).
+hermetic_core()
+
+
 def run(*args, stdin=None):
-    return subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True, input=stdin)
+    return subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True,
+                          input=stdin, env=subprocess_env())
 
 
 # ── 1. reconnaissance des frères ────────────────────────────────────────────

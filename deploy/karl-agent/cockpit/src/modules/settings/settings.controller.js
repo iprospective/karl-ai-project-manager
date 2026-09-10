@@ -16,10 +16,14 @@ export function mountSettings(el, themeEl, ctx = {}) {
   function paintTheme() {
     if (!themeHandle) return;
     const t = theme.read(store);
-    themeHandle.update(ThemeCard({ local: t.local, hint: theme.hint(t, ctx.effectiveTheme ? ctx.effectiveTheme() : ""), showClientCtx: showClientCtx() }));
+    themeHandle.update(ThemeCard({ local: t.local, hint: theme.hint(t, ctx.effectiveTheme ? ctx.effectiveTheme() : ""), showClientCtx: showClientCtx(), centerSplit: centerSplit() }));
   }
   /** RM3063 : le filtre « Clients » de l'en-tête est masqué par défaut ; l'option locale le réaffiche (le contexte mémorisé reste appliqué). */
   function showClientCtx() { try { return store.getItem("karlShowClientCtx") === "1"; } catch (e) { return false; } }
+  // RM3051 : le split de la zone centrale est porté par la DISPOSITION (elle seule sait
+  // masquer/rendre la session) ; les réglages ne font que l'exposer.
+  function centerSplit() { return ctx.centerSplit ? !!ctx.centerSplit() : false; }
+  function setCenterSplit(on) { if (ctx.setCenterSplit) ctx.setCenterSplit(!!on); paintTheme(); }
   function setShowClientCtx(on) { try { store.setItem("karlShowClientCtx", on ? "1" : "0"); } catch (e) { /* stockage indisponible */ } if (ctx.applyClientCtx) ctx.applyClientCtx(!!on); paintTheme(); }
   function setServerTheme(v) { theme.setServer(store, v); if (ctx.applyTheme) ctx.applyTheme(); paintTheme(); }
   function setLocalTheme(v)  { theme.setLocal(store, v);  if (ctx.applyTheme) ctx.applyTheme(); paintTheme(); }
@@ -43,8 +47,8 @@ export function mountSettings(el, themeEl, ctx = {}) {
       : n.dataset.action === "save" ? save(n.closest("[data-key]"), (n.closest("[data-key]").querySelector("input") || {}).value, n) : undefined],
     ["change", "[data-setting]", (ev, n) => save(n.closest("[data-key]"), n.dataset.setting === "bool" ? n.checked : n.value, n)],
   ] });
-  const themeHandle = themeEl ? mount(themeEl, "", { events: [["change", "[data-theme-local]", (ev, s) => setLocalTheme(s.value)], ["change", "[data-show-clientctx]", (ev, c) => setShowClientCtx(c.checked)]] }) : null;
+  const themeHandle = themeEl ? mount(themeEl, "", { events: [["change", "[data-theme-local]", (ev, s) => setLocalTheme(s.value)], ["change", "[data-show-clientctx]", (ev, c) => setShowClientCtx(c.checked)], ["change", "[data-center-split]", (ev, c) => setCenterSplit(c.checked)]] }) : null;
   paintTheme();
   if (ctx.applyClientCtx) ctx.applyClientCtx(showClientCtx());     // état initial de l'en-tête
-  return Object.assign(handle, { load, setServerTheme, setLocalTheme, paintTheme, showClientCtx, setShowClientCtx, unmountAll() { handle.unmount(); if (themeHandle) themeHandle.unmount(); } });
+  return Object.assign(handle, { load, setServerTheme, setLocalTheme, paintTheme, showClientCtx, setShowClientCtx, centerSplit, setCenterSplit, unmountAll() { handle.unmount(); if (themeHandle) themeHandle.unmount(); } });
 }

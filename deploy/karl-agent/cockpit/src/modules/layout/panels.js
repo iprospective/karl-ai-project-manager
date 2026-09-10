@@ -18,5 +18,9 @@ export function rightPanelReduce(state, action) {
 }
 /** RM2599 : largeur bornée [240, 900] ; défaut si invalide. */
 export function clampWidth(px) { const n = Math.round(Number(px)); if (!isFinite(n)) return R_WIDTH_DEFAULT; return Math.max(240, Math.min(900, n)); }
+/** RM3051 : hauteur du volet central bas (ticket/doc sous la session) quand le SPLIT est
+ *  actif. Bornée pour qu'aucun des deux ne puisse disparaître à la poignée. */
+export const CENTER_H_DEFAULT = 300;
+export function clampCenterH(px) { const n = Math.round(Number(px)); if (!isFinite(n)) return CENTER_H_DEFAULT; return Math.max(120, Math.min(1200, n)); }
 /** RM2579 : l'onglet de démarrage paramétrable — parmi ceux qu'on peut choisir ; « infos » sinon. */
 export function defaultTabOf(t) { return (t === "infos" || t === "tickets" || t === "outline" || t === "state") ? t : "infos"; }

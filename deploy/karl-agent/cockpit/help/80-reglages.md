@@ -108,10 +108,21 @@ La carte 🧩 **Moteurs** installe et tient à jour ce qui fait tourner les agen
 - **Serveurs de modèles** — Ollama, Lemonade Server. Ils ne tiennent aucune session : ils servent les modèles,
   et se déclarent ensuite comme fournisseurs de l'axe « modèles de travail » dans 🔌 Fournisseurs.
 
-Pour chacun : présent ou absent, version installée, version disponible, état du service, et le nombre de
-sessions qui l'utilisent. **La commande exacte est affichée sous l'outil**, et la confirmation la répète :
-le cockpit n'exécute que des recettes qu'il connaît, il n'envoie au serveur qu'un identifiant, jamais une
-commande. L'installation touche le système, elle demande donc sudo et le rôle administrateur.
+Pour chacun : présent ou absent, **où il est installé et pour qui**, version installée, version disponible,
+état du service, et le nombre de sessions qui l'utilisent. **La commande exacte est affichée sous l'outil**,
+et la confirmation la répète : le cockpit n'exécute que des recettes qu'il connaît, il n'envoie au serveur
+qu'un identifiant, une action et une portée, jamais une commande.
+
+### Deux portées : pour moi, pour tous
+
+- **pour moi** — l'outil est posé dans votre espace (`~/.local/bin`, `~/.opencode/bin`…). Aucun privilège
+  n'est requis, et rien n'est touché sur la machine des autres.
+- **pour tous** (⚠) — l'outil est posé sur la machine entière, en `sudo` : réservé aux administrateurs.
+
+Un outil déjà présent chez vous peut, en plus, être posé pour tous : les deux boutons cohabitent. La
+détection ne se fie pas au seul `PATH` du démon — un outil installé par un utilisateur y est absent et
+serait déclaré manquant à tort. Le mode d'installation de karl lui-même, mono ou multi-utilisateur, est
+une question ouverte (RM3070).
 
 **Une mise à jour est refusée tant que des sessions tournent** sur ce moteur : les couper d'abord, ou forcer
 en connaissance de cause. Le bouton « tester » vérifie simplement que l'outil répond.

@@ -10,3 +10,7 @@
 .eg-warn { flex-basis: 100%; font-size: 11px; color: var(--warn); }
 .eg-cfg { flex-basis: 100%; font-size: 11px; color: var(--muted); }
 .eg-out { max-height: 30vh; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 11px; white-space: pre-wrap; }
+
+// portée secondaire (installer ailleurs que là où c'est déjà posé) : proposée, pas mise en avant
+.eg-row button.mini.soft { opacity: .72; }
+.eg-row button.mini.soft:hover { opacity: 1; }

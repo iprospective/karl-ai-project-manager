@@ -17,6 +17,10 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
+
 try:
     import yaml
 except ImportError:  # pragma: no cover
@@ -52,11 +56,9 @@ def write_md(path, fm, body):
 
 
 def append_log(path, source, message):
-    log_path = path.parent / path.name.replace(".md", ".log.md")
-    entry = (f"\n## {_now()} — Hiérarchie ({source})\nTokens : 0 | Durée : 0 min\n\n"
-             f"{message}\n")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    """RM3085 : le FORMAT vit dans pm_task_log — sept variantes le reconstruisaient, dont une sans
+    la ligne « Tokens », donc invisible du parseur et de la feuille de temps."""
+    pm_task_log.append(path, f"Hiérarchie ({source})", message)
 
 
 def child_set_parent_field(cfg, child_id, parent_id, source):

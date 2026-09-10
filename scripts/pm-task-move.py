@@ -28,6 +28,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
 
 from pm_markdown import read_frontmatter
 from pm_output import out
@@ -63,12 +64,8 @@ def task_files(md_path):
 
 
 def append_log(log_path, message):
-    """Journal append-only (NORMS) — format d'entrée imposé."""
-    ts = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    entry = (f"\n## {ts} — Déplacement ({TOOL})\nTokens : 0 | Durée : 0 min\n\n"
-             f"{message}\n")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    """Journal append-only (NORMS) — le format vit dans pm_task_log (RM3085)."""
+    pm_task_log.append(log_path, f"Déplacement ({TOOL})", message)
 
 
 def commit_move(src_files, dst_files, rm_id, src_ref, dst_ref):

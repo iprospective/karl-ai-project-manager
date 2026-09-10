@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Deux sessions sur le même ticket : on le dit** (RM3086, lot L3 de RM3015). RM2818 n'alertait
+  qu'au bouton « nouvelle session » du cockpit ; une prise depuis un terminal (`pm-task-take`,
+  passage en `en_cours`) ne disait rien, et deux agents se disputaient la fiche, la branche et le
+  statut sans le savoir. Cause de fond : le lien ticket ↔ session existait en **trois exemplaires
+  qui s'ignoraient** (worklog local, jonctions locales à la machine, journal du ticket). Le registre
+  **partagé** `var/sessions` (RM2034) gagne un `tickets[]`, alimenté dès qu'une opération PM touche
+  un ticket ; `pm_concurrent` répond à « qui travaille déjà dessus » et l'avertissement est posé à la
+  prise **et** au passage en `en_cours`. Il nomme la session, sa branche et sa machine, propose de la
+  rejoindre — et **n'interdit rien** : reprendre un ticket dont la session est finie est le cas
+  normal, et une session éteinte ne déclenche jamais rien. Le cockpit lit la même source (raison
+  « jonction ») : écran et terminal disent enfin la même chose.
 - **Une question du demandeur est une QUESTION, plus une note** (RM3090, lot L1b de RM3015 ;
   NORMS 2.34.0). La moisson ne créait de `Q` qu'à partir d'un outil de question formelle : tout ce
   que Mathieu écrivait partait en note — y compris ses propres questions, qui n'étaient donc jamais

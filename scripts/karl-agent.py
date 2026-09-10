@@ -5532,7 +5532,10 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
 # La troisième est la seule qui couvre une session lancée sur un slug, qui traite
 # des tickets sans qu'aucune branche ne porte leur numéro : sans elle, la fiche
 # aurait affiché « aucune session » à un ticket en cours de traitement.
-TICKET_SESSION_REASONS = ("ancrage", "registre", "worklog")
+# RM3086 : « jonction » = le registre PARTAGÉ de sessions porte ce ticket (pm_session.tickets[]).
+# C'est la source que le terminal interroge aussi (`pm_concurrent`) : écran et terminal disent enfin
+# la même chose sur « qui travaille dessus ».
+TICKET_SESSION_REASONS = ("ancrage", "jonction", "registre", "worklog")
 
 
 def _sid_sort_key(sid: str):
@@ -5574,6 +5577,8 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
                     if (m := _RM_BRANCH.match(str(b))) and m.group(1) == rm]
         worktrees = [w for w in (reg.get("worktrees") or [])
                      if (m := _RM_WORKTREE.search(str(w))) and m.group(1) == rm]
+        if rm in [str(x) for x in (reg.get("tickets") or [])]:
+            reasons.append("jonction")          # RM3086 : le registre partagé le dit explicitement
         if branches or worktrees:
             reasons.append("registre")
         if ("RM" + rm) in refs.get(sid, ()):
@@ -6325,6 +6330,9 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
                 "created": rec.get("created"),
                 "branches": rec.get("branches") or [],
                 "worktrees": rec.get("worktrees") or [],
+                # RM3086 : les tickets que la session a pris — la jonction ticket ↔ session, dans le
+                # registre PARTAGÉ. Les `tasks/*.json` de karl-agent, eux, sont locaux à la machine.
+                "tickets": [str(x) for x in (rec.get("tickets") or [])],
             }
         if s.get("is_ticket"):
             own_rms.add(s["rm_id"])  # ticket de l'onglet, même sans registre

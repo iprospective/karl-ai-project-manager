@@ -95,6 +95,19 @@ def main():
         out.fail(f"fichier RM{args.rm_id}_*.md introuvable")
     fm = yaml.safe_load(FM_RE.match(md.read_text(encoding="utf-8")).group(1)) or {}
 
+    # RM3086 : avant tout, dire si quelqu'un d'autre travaille DÉJÀ dessus. Avertir, pas interdire —
+    # la reprise d'un ticket dont la session est finie est le cas normal ; c'est l'état VIVANT de
+    # l'autre session qui compte (D020 : le registre partagé est la source).
+    try:
+        import os as _os
+        import pm_concurrent
+        _autres = pm_concurrent.concurrentes(args.rm_id, me=_os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        _txt = pm_concurrent.avertissement(args.rm_id, _autres)
+        if _txt:
+            out.warn(_txt)
+    except Exception:      # noqa: BLE001 — un registre indisponible n'empêche pas de prendre un ticket
+        pass
+
     # 1. statut en_cours (+ auto-assign + hook env-session) — idempotent
     if fm.get("status") == "en_cours":
         out.op("statut", rm=args.rm_id, extra="déjà en_cours (skip)")

@@ -46,6 +46,14 @@ def log_to_session(ref, label=None, status=None, project=None, note=None,
         subprocess.run(cmd, check=False, capture_output=True, timeout=10)
     except Exception:
         pass  # best-effort : jamais bloquant pour l'opération PM
+    # RM3086 : la même information dans le registre PARTAGÉ des sessions — le worklog est local au
+    # home et ne dit rien à qui regarde depuis une autre session. C'est ce registre-là qui répond
+    # à « qui travaille déjà sur ce ticket ? ».
+    try:
+        import pm_session
+        pm_session.record_ticket(str(ref))
+    except Exception:
+        pass  # idem : un registre indisponible ne casse pas l'opération
 
 
 def log_mr_to_session(iid, url=None, repo=None, source=None, target=None,

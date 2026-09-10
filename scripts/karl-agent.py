@@ -5326,7 +5326,36 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "requests_open": [dict(r, n=i + 1) for i, r
                               in enumerate(data.get("requests") or [])
                               if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
+            # RM3088 (D021) : « à trancher » — les questions ouvertes des tickets de la session,
+            # lues dans leur `.think.md`. UN seul canal : la fiche du ticket (RM3089) consomme
+            # celui-ci plutôt que d'aller relire les mêmes fichiers de son côté.
+            "questions_open": _worklog_questions(items),
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
+
+
+def _worklog_questions(items, limite: int = 20) -> list:
+    """[{ref, rm, n}] — les tickets de la session qui ont des questions non tranchées.
+
+    Le compte vient du frontmatter de la fiche (`think:`, posé par la fusion) : le lire là évite
+    d'ouvrir chaque `.think.md` à chaque tick. Une fiche sans compteur ne dit rien plutôt que zéro —
+    « aucune question » et « pas encore mesuré » ne sont pas la même chose."""
+    out = []
+    for it in (items or []):
+        ref = str((it or {}).get("ref") or "").strip()
+        m = _RM_ID_RE.match(ref[2:]) if ref[:2].upper() == "RM" else None
+        if not m:
+            continue
+        tf = _find_task_file(ref[2:])
+        if not tf:
+            continue
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8")) or {}
+        except Exception:      # noqa: BLE001
+            continue
+        n = ((fm.get("think") or {}) if isinstance(fm.get("think"), dict) else {}).get("questions_open")
+        if isinstance(n, int) and n > 0:
+            out.append({"ref": ref, "rm": ref[2:], "n": n})
+    return out[:limite]
 
 
 # ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────

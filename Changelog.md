@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Notifications et demandes rattachées au ticket, et « ❓ à trancher » dans le worklog** (RM3088,
+  lot L4 de RM3015). Une notification `--ref RM<id>` dont le message ne citait pas le numéro était
+  **perdue pour le ticket** : le brief la cherchait par sous-chaîne dans son texte, jamais par sa
+  référence. Et les **demandes** n'étaient pas restituées du tout à la reprise, alors que ce sont
+  elles qui disent ce qui avait été demandé sans avoir encore de suite. Les deux sont corrigés
+  (`rattache()` : la référence d'abord, le texte en repli). Le worklog gagne un bloc **« à
+  trancher »** — les questions ouvertes des tickets de la session, comptées depuis les compteurs
+  `think:` des fiches — à côté de « à traiter », jamais fondu avec : une demande appelle une action,
+  une question un arbitrage. Un seul canal sert cet état (D021). Le cycle de vie des notifications
+  reste à RM2792 (D024).
 - **Deux sessions sur le même ticket : on le dit** (RM3086, lot L3 de RM3015). RM2818 n'alertait
   qu'au bouton « nouvelle session » du cockpit ; une prise depuis un terminal (`pm-task-take`,
   passage en `en_cours`) ne disait rien, et deux agents se disputaient la fiche, la branche et le

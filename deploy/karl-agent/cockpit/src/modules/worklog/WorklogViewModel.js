@@ -18,6 +18,9 @@ export class WorklogViewModel extends EntityViewModel {
       rows: (cycle[g.key] || []).map(m => mrDetail(m, this.ctx)) })).filter(g => g.rows.length);
   }
   requests() { return (this.w.requests_open || []).map(r => ({ n: String(r.n), text: r.text || "", ts: r.ts || "" })); }
+  /** RM3088 : « à trancher » — les questions ouvertes des tickets de la session. Une DEMANDE appelle
+   *  une action, une QUESTION un arbitrage (RM3015-C008) : deux blocs, côte à côte, jamais fondus. */
+  questions() { return (this.w.questions_open || []).map(q => ({ ref: String(q.ref || ""), rm: String(q.rm || ""), n: Number(q.n) || 0 })); }
   get nTickets() { return this.secs.reduce((a, s) => a + s.items.length, 0); }
   /** Rien à montrer — ni ticket, ni document, ni branche. Le message distingue « worklog vide » de « pas de worklog » (la garde legacy `!found` rendait la première formulation inatteignable). */
   get empty() { return !this.nTickets && !this.docs.length && !(this.e.branches || []).length && !this.mrTodo; }

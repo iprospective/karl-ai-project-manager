@@ -99,9 +99,12 @@ def compute_cost_usd(model, input_tk, output_tk, cache_read_tk, cache_creation_t
 
 # Force du signal : 3 = mutation PM explicite (script/skill agissant sur un
 # ticket), 2 = édition d'un fichier de ticket, 1 = simple mention textuelle.
-_PM_SCRIPT_RE  = re.compile(r"(?:pm-task-[a-z-]+|pm-project-[a-z-]+|redmine-[a-z-]+)\.py\b")
+# RM3100 : le wrapper `mmi-pm <verbe>` est la forme COURANTE d'appel des scripts PM — ne pas le
+# reconnaître revenait à n'avoir aucun signal fort sur une session qui ne tape jamais `pm-task-*.py`,
+# et donc à attribuer tour et conso au dernier ticket vu, quel qu'il soit.
+_PM_SCRIPT_RE  = re.compile(r"(?:pm-task-[a-z-]+|pm-project-[a-z-]+|redmine-[a-z-]+)\.py\b|\bmmi-pm\s+[a-z][a-z-]*\b")
 _RMID_FLAG_RE  = re.compile(r"--rm-id[=\s]+(\d{2,6})")
-_RMID_POS_RE   = re.compile(r"\.py\s+(\d{2,6})\b")        # id positionnel juste après le script
+_RMID_POS_RE   = re.compile(r"(?:\.py|\bmmi-pm\s+[a-z][a-z-]*)\s+(\d{2,6})\b")   # id positionnel, juste après le script ou le verbe
 _RMID_TAG_RE   = re.compile(r"\bRM[-\s]?(\d{2,6})\b")
 _RMID_FILE_RE  = re.compile(r"\bRM(\d{2,6})_")
 _LEADING_ID_RE = re.compile(r"^\s*(?:RM[-\s]?)?(\d{2,6})\b")

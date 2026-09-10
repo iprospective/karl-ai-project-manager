@@ -13,6 +13,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **La moisson rend à chaque ticket ce qui est à lui** (RM3100) : `pm-think-harvest` attribuait tout
+  le transcript au ticket courant **au moment où il tournait**. Juste sur une session mono-ticket,
+  faux sur une séance longue — une passe lancée sous RM3099 a versé dans son carnet cinq questions
+  qui appartenaient à RM3015, RM3074 et RM3090, traités plus tôt dans le même fil. Ce n'est pas
+  cosmétique : la garde de clôture refuse ensuite de fermer un ticket sur des questions qui ne sont
+  pas les siennes. Le fil se découpe désormais **par tour**, chacun attribué au ticket qu'il a
+  réellement touché, avec la résolution du tick de conso (mutation PM > fiche éditée > mention). Un
+  tour sans signal continue le précédent ; un ticket seulement **cité** ne détourne rien, sauf si la
+  citation vient du demandeur dans son prompt — là, c'est une consigne ; un identifiant capté au
+  passage (chemin, URL) qui n'est aucun ticket connu est ignoré. Sur le transcript de la séance qui
+  a révélé le défaut : 18 groupes au lieu d'un seul. `--no-split` rend l'ancien comportement, pour
+  rattraper à la main. Au passage, le résolveur reconnaît enfin le **wrapper `mmi-pm <verbe>`** —
+  la forme courante d'appel : l'ignorer, c'était n'avoir aucun signal fort sur une session qui ne
+  tape jamais `pm-task-*.py`, et donc attribuer tour et conso au dernier ticket vu. NORMS 2.40.0.
+
 - **Le navigateur devient testable, donc obligatoire** (RM3036) : nouvel outil
   `tools/browser-check` — charge une URL dans un Chromium headless, exécute le geste, lit la
   console et **constate l'effet dans l'interface**, code retour `0`/`1`. Il comble le trou

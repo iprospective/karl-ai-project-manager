@@ -17,7 +17,8 @@ export function mountCdc(el, ctx = {}) {
   const state = { page: "cdc-features", sort: "id", desc: false, q: "", chapter: null, sec: null, qTimer: null };
   try { const s = ctx.storage && ctx.storage.getItem("karlCdcSort"); if (s) { const [k, d] = s.split(":"); state.sort = k || "id"; state.desc = d === "1"; } const pg = ctx.storage && ctx.storage.getItem("karlCdcPage"); if (isPage(pg)) setPage(pg); } catch (e) { /* stockage indisponible */ }
   const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)], ["input", "[data-action=\"q\"]", (ev, n) => onQuery(n.value)], ["click", "a[href]", (ev, a) => onLink(ev, a)],
-    ["change", "[data-action=\"think-state\"]", (ev, n) => onThinkState(n)], ["change", "[data-action=\"feature-state\"]", (ev, n) => onFeatureState(n)]] });
+    ["change", "[data-action=\"think-state\"]", (ev, n) => onThinkState(n)], ["change", "[data-action=\"feature-state\"]", (ev, n) => onFeatureState(n)],
+    ["change", "[data-action=\"feature-version\"]", (ev, n) => onFeatureVersion(n)]] });
   const confirm = ctx.confirm || (() => true);
   const head = (page) => new CdcHeaderViewModel({ cdcs: svc.cdcs || [], current: svc.current, page, path: state.chapter, error: svc.error });
   const sessionProjects = () => (ctx.sessionProjects ? ctx.sessionProjects() : []);
@@ -32,13 +33,19 @@ export function mountCdc(el, ctx = {}) {
   function setPage(p) { if (p.startsWith("chap:")) { state.chapter = p.slice(5); p = "cdc"; } state.page = p; try { if (ctx.storage) ctx.storage.setItem("karlCdcPage", p === "cdc" && state.chapter ? "chap:" + state.chapter : p); } catch (e) { /* */ } }
   function render() { if (state.page === "cdc-features") return renderFeatures(); return renderChapters(); }
   async function renderFeatures() { h.update(html`chargement…`); try { const data = await svc.features(); if (state.page !== "cdc-features") return; h.update(FeaturesPage(head("cdc-features"), new FeaturesViewModel({ data, sort: state.sort, desc: state.desc, q: state.q }))); } catch (e) { h.update(html`<div class="empty">registre injoignable : ${e.message}</div>`); } }
+  /** Les versions connues, pour le formulaire de la feuille de route et le rattachement d'une ligne.
+   *  Lues du registre, sans appel supplémentaire quand il est déjà en cache. */
+  async function versions() {
+    try { return new FeaturesViewModel({ data: await svc.features() }).versions; } catch (e) { return []; }
+  }
   async function renderChapters() {
     const c = svc.current; if (!c) { h.update(ChaptersPage(head("cdc"), new ChaptersViewModel({}), { md })); return; }
     if (!state.chapter || !(c.chapters || []).some(ch => ch.path === state.chapter)) state.chapter = c.path;
     let text = "";
     try { text = await svc.chapter(state.chapter); } catch (e) { text = "*(chapitre introuvable : " + e.message + ")*"; }
     if (state.page !== "cdc") return;
-    h.update(ChaptersPage(head("cdc"), new ChaptersViewModel({ cdc: c, path: state.chapter, md: text }), { md }));
+    const vmc = new ChaptersViewModel({ cdc: c, path: state.chapter, md: text });
+    h.update(ChaptersPage(head("cdc"), vmc, { md, versions: vmc.isRoadmap ? await versions() : [] }));
     if (state.sec) { const id = state.sec; state.sec = null; later(() => { const n = h.el && h.el.querySelector ? h.el.querySelector("#sec-" + id) : null; if (n && n.scrollIntoView) n.scrollIntoView({ block: "center" }); }, 0); }
   }
   /** Ouvre le CDC (onglet chapitres) sur un chapitre (chemin) et, si donné, une section (D012…) ; `key` change de CDC. */
@@ -51,6 +58,29 @@ export function mountCdc(el, ctx = {}) {
     else if (a === "chapter") { setPage("chap:" + el.dataset.path); state.sec = null; renderChapters(); }
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
     else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }
+    else if (a === "version-save") { versionSave(); }
+    else if (a === "version-drop") { versionDrop(); }
+  }
+  /** RM3060 : le formulaire de la feuille de route, lu au moment du clic. */
+  function vform() {
+    const f = h.el && h.el.querySelector ? h.el.querySelector('[data-role="vform"]') : null;
+    if (!f) return null;
+    const v = (r) => { const n = f.querySelector('[data-role="' + r + '"]'); return n ? String(n.value || "").trim() : ""; };
+    return { id: v("vid"), role: v("vrole"), critere: v("vcritere"), etat: v("vetat") };
+  }
+  async function versionSave() {
+    const f = vform(); if (!f) return;
+    if (!f.id) { notify("donne un identifiant de version (V1, V2…)", true); return; }
+    try {
+      await svc.versionEdit({ action: "add", version: f.id, role: f.role, critere: f.critere, etat: f.etat });
+      notify("version " + f.id + " enregistrée"); await renderChapters();
+    } catch (e) { notify("version refusée : " + e.message, true); }
+  }
+  async function versionDrop() {
+    const f = vform(); if (!f || !f.id) { notify("nomme la version à retirer", true); return; }
+    if (!confirm("Retirer la version " + f.id + " ?\n\nLes fonctionnalités qui la portent sont détachées, aucune n'est supprimée.")) return;
+    try { await svc.versionEdit({ action: "drop", version: f.id }); notify("version " + f.id + " retirée"); await renderChapters(); }
+    catch (e) { notify("retrait impossible : " + e.message, true); }
   }
   // RM3064 : édition d'une entrée depuis le panneau — le geste part vers le script (pm-task-think / pm-cdc-features), jamais vers le fichier
   async function thinkDelete(rm, id) {
@@ -67,6 +97,14 @@ export function mountCdc(el, ctx = {}) {
     const etat = n.value; if (!etat) return;
     try { await svc.featureEdit({ id: n.dataset.id, etat }); notify(n.dataset.id + " → " + etat + " (entrée figée)"); await renderFeatures(); }
     catch (e) { notify("changement d'état impossible : " + e.message, true); }
+  }
+  /** RM3060 : rattacher une fonctionnalité à une version, ou l'en détacher (« - »). */
+  async function onFeatureVersion(n) {
+    const v = n.value; if (!v) return;
+    try {
+      await svc.versionEdit({ action: "attach", id: n.dataset.id, version: v });
+      notify(n.dataset.id + (v === "-" ? " détachée" : " → version " + v)); await renderFeatures();
+    } catch (e) { notify("rattachement impossible : " + e.message, true); }
   }
   function onLink(ev, a) {
     const href = a.getAttribute("href"); const vm = new ChaptersViewModel({ path: state.chapter });

@@ -7,7 +7,8 @@ const settle = () => new Promise(r => setTimeout(r, 5));
 function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}, textContent: "", kids: {}, get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, querySelector(s) { return self.kids[s] || null; }, querySelectorAll() { return []; }, contains() { return true; }, appendChild() {}, replaceChildren(...n) { inner = n.map(x => x.outerHTML || x.textContent || "").join(""); }, addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n, getAttribute: (k) => (data || {})[k], value: "" }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await settle(); },
   async input(value) { const n = { dataset: { action: "q" }, closest: () => n, value }; for (const [t, f] of [...L]) if (t === "input") await f({ target: n, preventDefault() {} }); await settle(); },
-  async link(href) { const n = { getAttribute: () => href, closest: (s) => s === "a[href]" ? n : null, dataset: {} }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await settle(); } }; return self; }
+  async link(href) { const n = { getAttribute: () => href, closest: (s) => s === "a[href]" ? n : null, dataset: {} }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await settle(); },
+  async change(action, data, value) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n, value }; for (const [t, f] of [...L]) if (t === "change") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await settle(); } }; return self; }
 (async () => {
   const S = await import(path.join(DIR, "src/modules/cdc/cdc.service.js"));
   const VM = await import(path.join(DIR, "src/modules/cdc/CdcViewModel.js"));
@@ -100,5 +101,47 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   const n1 = calls.filter(x => x.startsWith("feat:")).length; await ctl3.svc.featureEdit({ id: "F003", etat: "écarté" }); await ctl3.open("cdc-features"); assert(edits.some(e => e[0] === "feature" && e[1].id === "F003" && e[1].etat === "écarté" && e[1].client === "i") && calls.filter(x => x.startsWith("feat:")).length === n1 + 1, "état d'une fonctionnalité → service, registre rechargé");
   ctl3.unmount();
   console.log("✓ CDC contrôleur : contexte de session, sélection mémorisée, tri persistant, filtre, tickets, pages, chapitres, liens, goto, cache");
+  // ── RM3060 : les versions sont des étapes de travail, créées ici, rattachées là ──
+  const dataV = { entrees: [{ id: "F001", libelle: "a", etat: "en cours", version: "V0" }, { id: "F002", libelle: "b", etat: "prévu" }],
+                  domaines: [], jalons: [], versions: [{ id: "V0", role: "alpha", etat: "en cours" }, { id: "V1", role: "multi-utilisateur" }] };
+  const vmV = new VM.FeaturesViewModel({ data: dataV });
+  assert.deepStrictEqual(vmV.versions, ["V0", "V1"], "les versions déclarées sont offertes au rattachement");
+  assert(vmV.hasVersion, "la colonne Version s'affiche dès qu'une version existe, même portée par personne");
+  const vmOrph = new VM.FeaturesViewModel({ data: { entrees: [{ id: "F001", libelle: "a", version: "V9" }], versions: [] } });
+  assert.deepStrictEqual(vmOrph.versions, ["V9"], "une version portée mais non déclarée reste offerte : sinon on ne pourrait plus détacher");
+  const sV = String(V.FeaturesPage(head, vmV));
+  assert(/data-action="feature-version" data-id="F001"/.test(sV), "chaque ligne porte son sélecteur de version");
+  assert(/<option value="V0" selected>/.test(sV), "la version courante est sélectionnée");
+  assert(/— détacher —/.test(sV), "une ligne rattachée peut être détachée");
+  assert(!/\son\w+=/.test(sV), "aucun on* dans la table avec versions");
+
+  const road = new VM.ChaptersViewModel({ path: "x/docs/cdc-roadmap.md", md: "# rm" });
+  assert(road.isRoadmap && !new VM.ChaptersViewModel({ path: "x/docs/cdc-notes.md" }).isRoadmap, "le formulaire n'apparaît que sur la feuille de route");
+  const sR = String(V.ChaptersPage(head, road, { md: mdToHtml, versions: ["V0"] }));
+  assert(/data-role="vform"/.test(sR) && /data-action="version-save"/.test(sR) && /data-action="version-drop"/.test(sR), "créer et retirer une version depuis la feuille de route");
+  assert(/data-role="vrole"/.test(sR) && /data-role="vcritere"/.test(sR), "une version porte un rôle et un critère de passage");
+  assert(!/data-role="vform"/.test(String(V.ChaptersPage(head, new VM.ChaptersViewModel({ path: "x/docs/cdc-notes.md", md: "x" }), { md: mdToHtml }))), "pas de formulaire ailleurs");
+  assert(!/\son\w+=/.test(sR), "aucun on* dans la feuille de route");
+
+  const vedits = []; svc.repo.versionEdit = async (b) => { vedits.push(b); return { ok: true }; };
+  const G = fakeEl("cdcG");
+  G.kids['[data-role="vform"]'] = { querySelector: (s) => ({ '[data-role="vid"]': { value: "V2" }, '[data-role="vrole"]': { value: "multi-utilisateur" },
+    '[data-role="vcritere"]': { value: "deux devs branchés" }, '[data-role="vetat"]': { value: "prévu" } }[s] || null) };
+  let okv = true;
+  const ctl4 = mountCdc(G, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, confirm: () => okv, notify: () => {}, sessionProjects: () => [] });
+  await ctl4.open("cdc-features");
+  await G.change("feature-version", { id: "F002" }, "V1");
+  assert.deepStrictEqual(vedits[vedits.length - 1], { client: "i", project: "pm", action: "attach", id: "F002", version: "V1" }, "rattacher une fonctionnalité part vers le service");
+  await G.change("feature-version", { id: "F002" }, "-");
+  assert.strictEqual(vedits[vedits.length - 1].version, "-", "et on peut la détacher");
+  await G.click("version-save");
+  assert.deepStrictEqual(vedits[vedits.length - 1], { client: "i", project: "pm", action: "add", version: "V2", role: "multi-utilisateur", critere: "deux devs branchés", etat: "prévu" }, "créer une version envoie son rôle et son critère");
+  okv = false; const avant = vedits.length; await G.click("version-drop");
+  assert.strictEqual(vedits.length, avant, "retirer une version sans confirmation ne fait rien");
+  okv = true; await G.click("version-drop");
+  assert.deepStrictEqual(vedits[vedits.length - 1], { client: "i", project: "pm", action: "drop", version: "V2" }, "retrait confirmé → service");
+  ctl4.unmount();
+  console.log("✓ RM3060 : versions créées depuis la feuille de route, fonctionnalités rattachées depuis la table");
+
   console.log("\nLes pages du CDC vivant passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

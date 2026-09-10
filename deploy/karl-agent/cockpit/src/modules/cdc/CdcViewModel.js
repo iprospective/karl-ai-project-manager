@@ -60,7 +60,6 @@ export class CdcHeaderViewModel extends EntityViewModel {
 export class FeaturesViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); this.all = ((this.e.data || {}).entrees || []).map(x => Object.assign({}, x, { tickets: ticketsOf(x) })); }
   get missing() { return !!(this.e.data || {}).missing; }
-  get hasVersion() { return this.all.some(f => versionOf(f)); }
   get cols() { const s = this.e.sort || "id"; return COLS.filter(([k]) => k !== "version" || this.hasVersion).map(([k, l]) => ({ key: k, label: l, on: k === s, arrow: k === s ? (this.e.desc ? " ↓" : " ↑") : "" })); }
   get counts() { const n = {}; for (const f of this.all) { const k = etatKey(f.etat); n[k] = (n[k] || 0) + 1; } return Object.keys(n).sort((a, b) => (ORDRE_ETAT[a] ?? 8) - (ORDRE_ETAT[b] ?? 8)).map(k => ({ etat: k, n: n[k], cls: etatClass(k) })); }
   get query() { return this.e.q || ""; }
@@ -74,6 +73,15 @@ export class FeaturesViewModel extends EntityViewModel {
   get count() { return this.rows().length + " / " + this.all.length; }
   /** RM3064 : les états qu'une ligne peut recevoir depuis le panneau (l'entrée est alors figée). */
   get featureStates() { return FEATURE_STATES; }
+  /** RM3060 : les versions offertes au rattachement — celles déclarées, plus celles déjà portées par une
+   *  entrée (une version portée mais non déclarée existe quand même : la cacher la rendrait indétachable). */
+  get versions() {
+    const decl = ((this.e.data || {}).versions || []).map(v => String(v.id));
+    const portees = this.all.map(versionOf).filter(v => v);
+    return [...new Set(decl.concat(portees))].sort();
+  }
+  /** La colonne Version est offerte dès qu'il y a une version quelque part — déclarée ou portée. */
+  get hasVersion() { return this.versions.length > 0; }
 }
 
 /** e = { cdc, path, md } — les chapitres d'un CDC en sous-onglets, le chapitre courant rendu ; les identifiants D/C/Q/N/F en tête de cellule reçoivent une ancre. */
@@ -81,6 +89,8 @@ export class ChaptersViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get tabs() { const c = this.e.cdc; return c ? (c.chapters || []).map(ch => ({ path: ch.path, title: (ch.title || ch.file).replace(/^\d+\s*[—-]\s*/, ""), on: ch.path === this.e.path })) : []; }
   get md() { return this.e.md || ""; }
+  /** RM3060 : la feuille de route est le seul chapitre où l'on crée des versions — c'est là qu'on les cherche. */
+  get isRoadmap() { return /(^|\/)cdc(-[a-z]+)?-roadmap\.md$/.test(String(this.e.path || "")); }
   /** Ancres : `<td>D012` / `<td><del>Q001` deviennent `<td id="sec-D012">…` ; un `RM1234` nu devient un geste vers la fiche.
    *  RM3064 : une ligne de registre fusionné (`RM3044-D001`) reçoit ses gestes — sélecteur d'état et ✕ — dans une cellule ajoutée. */
   anchored(htmlText) {

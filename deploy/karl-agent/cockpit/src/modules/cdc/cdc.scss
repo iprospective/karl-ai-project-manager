@@ -33,3 +33,11 @@
 .st.wait { color: var(--warn); border-color: currentColor; }
 .st.due { color: var(--danger); border-color: currentColor; }
 .st.pause, .st.off { color: var(--muted); }
+
+// RM3060 : créer une version depuis la feuille de route, rattacher une fonctionnalité depuis la table
+.cdc-vform { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0 10px; }
+.cdc-vrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.cdc-in { padding: 4px 7px; font-size: 12.5px; }
+.cdc-grow { flex: 1 1 14em; min-width: 10em; }
+.cdc-ver { white-space: nowrap; }
+.cdc-ver select.mini { margin-left: 4px; }

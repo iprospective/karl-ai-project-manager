@@ -27,6 +27,7 @@ export const ROUTES = {
   "doc.cdc_feature": { current: "/cdc/feature", target: "/api/doc/cdc-feature", lot: "L5", callers: 1 },
   "doc.cdc_features": { current: "/cdc-features", target: "/api/doc/cdc-features", lot: "L5", callers: 1 },
   "doc.cdc_think": { current: "/cdc/think", target: "/api/doc/cdc-think", lot: "L5", callers: 1 },
+  "doc.cdc_version": { current: "/cdc/version", target: "/api/doc/cdc-version", lot: "L5", callers: 1 },
   "env.env_check": { current: "/env-check", target: "/api/env/env-check", lot: "L5", callers: 1 },
   "env.env_status": { current: "/env-status", target: "/api/env/env-status", lot: "L5", callers: 1 },
   "env.ssh_add": { current: "/vault/ssh-add", target: "/api/env/ssh-add", lot: "L2", callers: 1 },

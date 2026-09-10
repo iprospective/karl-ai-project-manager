@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.34.0] - 2026-09-10
+
+### Ajouté
+- **Les versions d'une feuille de route** (RM3060, module `cdc`) : une version est une ÉTAPE DE TRAVAIL —
+  ce qu'elle doit permettre, et à quoi on sait qu'elle est passée — jamais une copie de la liste des
+  fonctionnalités, qui s'y rattachent par une colonne. Les versions vivent dans le registre et
+  `cdc-roadmap.md` en est GÉNÉRÉ, comme `cdc-features.md` l'est des entrées : `pm-cdc-features --check`
+  refuse les deux si l'une a été éditée à la main. Ajout seul, pas de ledger.
+
 ## [2.33.0] - 2026-09-10
 
 ### Ajouté

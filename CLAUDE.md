@@ -44,8 +44,11 @@ n'étant qu'une fusion :
   questions posées, les réponses retenues et les demandes verbatim) ;
 - `pm-think-merge` régénère `cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`
   (ids `RM<id>-Dnnn`) ; **`pm-think-merge --check` et `pm-cdc-features --check` doivent être verts à la livraison** ;
-- `cdc.md`, `cdc-roadmap.md` (un rôle par version) et `cdc-help.md` (que le LLM complète quand il le peut)
-  restent manuels ; une idée sans ticket attend dans `cdc-notes.md` au-dessus des marqueurs.
+- `cdc-roadmap.md` est **généré** depuis les `versions` du registre (RM3060) : une version = une étape de
+  travail (rôle + critère de passage), les fonctionnalités s'y rattachent par une colonne
+  (`pm-cdc-features --add-version` / `--set-version`, ou le cockpit : onglet CDC → Feuille de route) ;
+- `cdc.md` et `cdc-help.md` (que le LLM complète quand il le peut) restent manuels ; une idée sans ticket
+  attend dans `cdc-notes.md` au-dessus des marqueurs.
 
 Identifiants à trois chiffres, stables, jamais réattribués. Version alpha en plein développement : c'est le
 moment où c'est le plus facile — on ne reconstitue pas un registre après coup. Skill : `mmi-pm-think`.

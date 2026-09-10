@@ -64,6 +64,18 @@ def is_pending(fm):
     return bool(q) and not s and not dismissed_at(fm)
 
 
+def never_queued(fm):
+    """Le ticket n'est JAMAIS entré en file — aucun bloc `client_notify` sur sa fiche.
+
+    Sert au rattrapage à la fermeture (RM3087) : un ticket mis en production sans passer
+    par la transition `en_mep` n'a jamais été proposé au compte-rendu, et fermer ne le
+    proposait pas davantage. Mais on ne peut pas se contenter de `set_queued` là : il ouvre
+    un NOUVEAU cycle dès qu'un envoi a eu lieu, donc un ticket déjà annoncé serait annoncé
+    une seconde fois. D'où cette condition, volontairement plus stricte — « jamais vu »,
+    et non « pas en attente »."""
+    return not ((fm or {}).get(QUEUE_KEY) or {})
+
+
 def set_queued(fm, now):
     """Met le ticket en file (queued_at=now) SI pas déjà en attente. Idempotent : re-jouer
     une transition en_mep ne réinitialise pas une file déjà posée. Un NOUVEAU cycle (déjà

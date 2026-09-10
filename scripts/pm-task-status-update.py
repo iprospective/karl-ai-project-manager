@@ -981,17 +981,28 @@ def main():
     # ici — il l'est en un seul lot par `mmi-pm client-notify send <projet>` quand
     # l'humain estime la MEP finie. Idempotent (set_queued), best-effort : une option
     # illisible ne fait jamais échouer une transition déjà écrite en Redmine.
-    if args.status == "en_mep" and old_status != "en_mep":
+    # RM3087 — la file dépendait d'une TRANSITION, pas d'un ÉTAT : un ticket mis en prod
+    # autrement (recette puis fermeture directe, comme RM3079) n'y entrait jamais, et
+    # fermer ne l'y mettait pas davantage. On rattrape donc aussi à l'entrée en `ferme`,
+    # mais sous une condition PLUS STRICTE : uniquement si le ticket n'a JAMAIS été mis en
+    # file. `set_queued` seul rouvrirait un cycle sur un ticket déjà annoncé — c'est
+    # précisément le double envoi qu'on ne veut pas.
+    _entre_en_mep = (args.status == "en_mep" and old_status != "en_mep")
+    _ferme_jamais_vu = (args.status == "ferme" and old_status != "ferme")
+    if _entre_en_mep or _ferme_jamais_vu:
         try:
             import pm_client_notify as pcn
             _parts = md_path.relative_to(cfg.projects_root).parts
             _pmeta = cfg.project_meta(_parts[1], _parts[3]) or {}
-            if pcn.is_option_active(_pmeta):
+            # à la fermeture, on n'agit que sur un ticket JAMAIS mis en file (cf. ci-dessus)
+            _autorise = pcn.is_option_active(_pmeta) and (_entre_en_mep or pcn.never_queued(fm))
+            if _autorise:
                 fm, _qchanged = pcn.set_queued(fm, now)
                 if _qchanged:
-                    out.info("  notif client : RM{} mis en file MEP (envoi : "
+                    out.info("  notif client : RM{} mis en file {} (envoi : "
                              "mmi-pm client-notify send {}/{})".format(
-                                 args.rm_id, _parts[1], _parts[3]))
+                                 args.rm_id, "MEP" if _entre_en_mep else "à la fermeture",
+                                 _parts[1], _parts[3]))
         except Exception as e:                                  # noqa: BLE001
             out.warn(f"mise en file notif client non effectuée (best-effort) : {e}")
 

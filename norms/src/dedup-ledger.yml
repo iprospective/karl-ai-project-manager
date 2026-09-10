@@ -17,6 +17,87 @@
 removed: []
 
 rewritten:
+  - reason: "RM3037 (budget de contexte) : le tripwire #16 est resserré sans rien perdre — la règle (ne pas conclure sur un incident depuis les seuls logs de la machine), les trois raisons pour lesquelles les logs mentent (service engorgé qui cesse d'écrire, Apache qui journalise en fin de requête, rsyslog affamé qui imite une panne réseau), l'exigence de corroboration par Zabbix et l'incident RM2455 avec sa cause réelle sont tous conservés. Seules les redites de mise en forme sont retirées ; le mode d'emploi de l'API vit dans `knowledge/zabbix/api.md`, déjà pointé."
+    old: |
+      16. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : historique CPU/charge/réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident à partir des seuls logs de la machine** — les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être : un service engorgé cesse d'écrire (Apache journalise en **fin** de requête ; rsyslog affamé n'écrit plus), ce qui **imite une panne réseau**. Un agent local qui « mesure » quelque chose n'est pas une source fiable tant que Zabbix ne le corrobore pas. (incident RM2455, 2026-07-30 : deux diagnostics successifs — coupure amont OVH, puis saturation CPU sur la foi d'un agent local annonçant 97,51 % — **tous deux réfutés** par Zabbix, qui mesurait 14,2 % de CPU max ; la vraie cause — pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers` — a été obtenue en **trois requêtes** Zabbix.) → `knowledge/zabbix/api.md`
+  - reason: "RM3037 (budget de contexte) : le détail du transport forge est déjà dans `git-mep-pratique` § « Remote canonique GitLab », qui est le module ouvert quand on débogue un push. Le module PRÉCHARGÉ garde les trois règles qui doivent être sous les yeux en permanence — identité par dev avec karl en repli, remotes en alias SSH canonique et jamais de conversion HTTPS par dépôt (ça casse les submodules), abstraction `pm_forge` par projet — et renvoie au reste. Aucune règle retirée."
+    old: |
+      ### Identités & transport forge (multi-utilisateur) — v2.0.0
+      
+      En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+      
+      - **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+        secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+        (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+        forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+      - **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+        (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+        **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+        disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+        HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+      - **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+        SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+        par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+  - reason: "RM3037 (budget de contexte) : le tripwire #15 était le plus long du KERNEL (541 tokens portés en permanence par TOUS les rôles) et RM2941 a montré qu'il redit intégralement `structure-reference` § Vocabulaire du demandeur — même arbitrage, mêmes phrases-clés, même incident RM2929. Densifié en gardant toutes les obligations : muet en restitution, exception de l'échec en une ligne, `pm_git` muet sur le nominal, la règle vaut en LECTURE, jamais un `*-core` non nommé, et le pourquoi (elle s'applique au moment où l'on rédige, sans fichier ouvert, donc elle doit rester sous les yeux). Le détail et les incidents datés vivent dans les deux modules pointés en fin de tripwire."
+    old: |
+      15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution à l'utilisateur : ce sont des **process automatiques**, les annoncer gaspille des tokens et noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** — une MR de *code*, elle, se raconte : c'est une livraison. **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne**, sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est muet sur le chemin nominal (`git.verbose: true` pour déboguer). **La règle vaut aussi en LECTURE — dans l'interprétation d'une question.** Une demande non qualifiée (« les tickets sont mergés en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core`. **Le support n'est pas le sujet** : les fiches de tickets sont bien stockées dans le `<Projet>-core`, mais un ticket **porte sur** le code de `repos/` — « le ticket est-il mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a enregistré la fiche (RM2929). L'utilisateur n'en parle **jamais** sauf à le **nommer explicitement** : répondre sur un `*-core` qu'il n'a pas nommé, c'est la même violation vue de l'autre côté, et ça coûte un tour de conversation entier. **Pourquoi c'est un tripwire et pas une ligne-déclencheur** : la règle s'applique au moment où tu **rédiges ta réponse** — moment où tu n'ouvres plus aucun fichier. Elle doit donc être **sous tes yeux en permanence**, sinon elle se viole en silence, et se re-viole après chaque compactage de contexte (incidents répétés : 2026-08-13 en restitution, 2026-09-01 en interprétation — « je ne parle jamais des dépôts pm core, sauf explicitement »). → `agents/worker-common.md`
+  - reason: "RM3037 (budget de contexte) : ces 25 lignes redisaient le tripwire #5, qui est déjà auto-suffisant et TOUJOURS en contexte — « en_cours implique s'assigner, dans le même mouvement ; pas d'en_cours flottant ». Portées en permanence par worker-dev, worker-analyst et l'orchestrateur pour rien. La section est réécrite en six lignes qui gardent ce que le tripwire ne dit pas : la règle vaut aussi hors orchestrateur, c'est la symétrie de la Vérification initiale de worker-common, et pm-task-status-update couple les deux tout seul (--no-assign pour outrepasser). Aucune obligation retirée."
+    old: |
+      ### Prise en charge d'une tâche : `en_cours` ⇒ auto-assignation (obligatoire) — v1.12.0
+      
+      **Règle** : un agent qui commence à travailler sur une tâche doit, dans le **même
+      mouvement** :
+      
+      1. Passer le `status` de la tâche à `en_cours` (côté Redmine + frontmatter MD + log)
+      2. **S'assigner le ticket Redmine** (champ `assigned_to`) si ce n'est pas déjà le cas
+      
+      Les deux opérations sont **indissociables**. Une tâche `en_cours` sans
+      `assigned_to` cohérent est un état invalide : `en_cours` signifie « un agent
+      nommément identifié est en train de faire le travail maintenant ». Pas
+      d'`en_cours` flottant.
+      
+      Cette règle vaut **même hors orchestrateur** (mode interactif Claude Code) : si
+      un humain demande à l'agent de bosser sur RM1234 et que le ticket n'est ni à
+      `en_cours` ni assigné à l'agent, l'agent fait lui-même les deux opérations avant
+      de démarrer le travail effectif.
+      
+      **Symétrie avec la `Vérification initiale` de [worker-common.md](../agents/worker-common.md)** :
+      ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
+      en mode interactif l'établit activement au démarrage.
+      
+      **Implémentation** : `pm-task-status-update.py` **couple** status + assignation —
+      quand la cible est `en_cours`, il auto-assigne au user Redmine de l'agent courant
+      (résolu via `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79). Aucun PUT
+      manuel à faire ; `--no-assign` pour outrepasser.
+  - reason: "RM3037 (budget de contexte) + RM2941 : le tableau de mapping NORMS → Redmine recopiait les libellés de l'instance dans un module PRÉCHARGÉ (858 tokens portés en permanence par worker-dev, worker-analyst et l'orchestrateur). Or ces libellés changent — RM2893 puis RM2926 — et la copie était déjà fausse : `a_mep` y était « Résolu/Validé/A MEP » alors que l'instance dit « Recette OK/A MEP », et `a_mep_prod` (id 23) manquait. RM2941 a tranché : `redmine.reference.yml :: statuses` est la source unique. Le tableau est remplacé par ce renvoi ; aucune information n'est perdue, elle est reprise à sa source vivante, qui porte en plus les deux statuts que la copie ignorait."
+    old: |
+      **Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
+      
+      Statut Redmine (un seul terminal `Fermé`) :
+      
+      | NORMS | Redmine | id |
+      |---|---|---|
+      | `nouveau` | Nouveau | 1 |
+      | `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
+      | `etude_chiffrage_en_cours` | Etude/CDC en cours | 14 |
+      | `etude_chiffrage_a_valider` | Etude/CDC à valider | 21 |
+      | `a_faire` | A Faire | 12 |
+      | `en_cours` | En cours | 2 |
+      | `a_tester_dev` | A tester/vérifier dev | 19 |
+      | `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
+      | `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
+      | `a_mep` | Résolu/Validé/A MEP | 3 |
+      | `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
+      | `en_pause` | Attente retour / en pause | 13 |
+      | `a_corriger` | A corriger/finir | 11 |
+      | `ferme` (toutes raisons) | Fermé | **18** |
+  - reason: "RM2941 (audit de cohérence, 2026-09-10) — cinq réécritures, chacune corrigeant une incohérence PROUVÉE, aucune règle retirée. (1) L'énumération des statuts du KERNEL omettait `nouveau`, `a_tester_preprod` et `a_mep_prod` : trois valeurs pourtant atteignables et câblées (workflow.reference.yml, redmine.reference.yml, pm_worklog_states). La ligne est remplacée par l'énumération complète, plus un renvoi à `redmine.reference.yml :: statuses` comme source unique — les libellés Redmine ne se recopient plus dans NORMS, ils ont changé sous RM2926 sans que NORMS bouge. (2) `session-tooling` déclarait `pm-branch-start.py` en outil de branche, puis « ⚠ trou — aucun outil dédié » quinze lignes plus bas : reliquat pré-RM1923, dans un module préchargé par TOUS les rôles, donc la ligne qui autorisait implicitement le `git checkout -b` manuel interdit par le garde-fou 1. La ligne est scindée : la branche a son outil, le trou restant est le commit+push conventionné, qui lui est réel. (3) et (4) `pm project init` et `pm task create` n'ont jamais existé : il n'y a pas de binaire `pm`. Remplacés par `pm-project-new` et `pm-task-add`, nommés correctement deux lignes plus haut dans le même fichier. (5) « Remote canonique GitLab ci-dessous » pointait une section qui vit dans `git-mep-pratique.md` depuis la scission RM2582 : « ci-dessous » était faux."
+    old: |
+      `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+      | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+      projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
+      1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
+      « Remote canonique GitLab » ci-dessous).
   - reason: "RM2967 (v2.25.0), rattrapage du journal : ces dix lignes ont été RÉÉCRITES par RM2893 (refonte du flux de statuts — `en_mep` redéfini « en prod, dernière vérif avant fermeture », préprod devenue optionnelle) et par les reflows de paragraphe de l'extraction en modules (RM1922), sans qu'aucune entrée ne soit posée ici — d'où un doctor rouge depuis. Vérifié une à une : l'ancien diagramme et les lignes de transition `a_mep`/`en_mep` sont remplacés par leurs équivalents dans `status-workflow.md` (§ « Passage en `en_mep` (RM2893…) ») et `status-workflow-pratique.md` ; les deux lignes de prose (`pm_session_hook.py` ; l'étape 3 du workflow MEP) survivent dans `session-tooling.md` et `status-workflow.md`, fondues dans un paragraphe réécrit. Aucune RÈGLE retirée : seule la formulation d'origine a disparu."
     old: |
       - Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification

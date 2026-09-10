@@ -27,6 +27,8 @@ Modes :
 """
 import argparse
 import re
+import json
+import time
 import sys
 from pathlib import Path
 
@@ -128,7 +130,23 @@ def main():
     ap.add_argument("--with-host", action="store_true")
     ap.add_argument("--check", action="store_true",
                     help="Compare chaque rôle à context.budget_tokens (exit 1 si dépassé)")
+    ap.add_argument("--json", action="store_true",
+                    help="sortie machine : ce que lit la santé du poste (cockpit, famille PM)")
     args = ap.parse_args()
+
+    if args.json:
+        budgets = load_budget()
+        defaut = budgets.get("default")
+        roles = {}
+        for role in ROLES:
+            total = sum(t for _, _, t in components(role))
+            b = budgets.get(role, defaut)
+            roles[role] = {"tokens": total, "budget": b, "ok": (b is None or total <= b)}
+        depasses = sorted([r for r, v in roles.items() if not v["ok"]])
+        print(json.dumps({"ok": not depasses, "budget": defaut, "roles": roles,
+                          "depassements": depasses,
+                          "mesure_le": time.strftime("%Y-%m-%dT%H:%M:%S")}, ensure_ascii=False))
+        return
 
     if args.check or args.all_roles:
         budgets = load_budget() if args.check else {}

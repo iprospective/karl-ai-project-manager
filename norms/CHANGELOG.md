@@ -1,5 +1,45 @@
 # Changelog des normes
 
+## [2.36.0] - 2026-09-10
+
+### Modifié
+- **Budget de contexte : tous les rôles repassent sous le plafond, avec la marge** (RM3037). L'invariant
+  anti-régression RM1943 était cassé depuis des semaines — trois rôles au-dessus de 29 000 tokens, jusqu'à
+  33 600 pour `worker-dev`, alors que la conf annonçait « ~24,2k après RM2582 ». Le pire rôle est ramené de
+  **33 638 à 26 031 tokens**, sous les 26 100 exigés, et plus aucun module préchargé ne dépasse 5 000.
+  Quatre leviers, aucun n'ôte de règle :
+  - **quatre modules `-pratique` créés**, hors précharge, ouverts par un déclencheur du KERNEL :
+    `session-tooling-pratique` (trous d'outillage, idiomes), `structure-reference-pratique` (index des
+    projets, annuaire), `roi-pricing-pratique` (mécanique de mesure, journal), `project-modeling-pratique`
+    (relation d'implémentation). Le mode d'emploi sort, la règle reste ;
+  - **la précharge se resserre** : `environments` et `redmine-hygiene` s'ouvrent à la demande pour
+    `worker-dev` — leur obligation est portée par un tripwire toujours en contexte ;
+  - **`git-mep` perd son mode d'emploi** (actions au déploiement, worktrees multi-tickets) au profit de
+    `git-mep-pratique`, et le détail du transport forge est renvoyé au même endroit ;
+  - **trois redondances densifiées** : la prise en charge redisait le tripwire #5, le mapping Redmine
+    recopiait des libellés déjà faux (RM2941 en a fait `redmine.reference.yml` la source unique), et les
+    tripwires #15 et #16 sont resserrés sans perdre une obligation.
+  Chaque réécriture est inscrite au registre de dédoublonnage : la non-perte reste verte.
+
+## [2.35.0] - 2026-09-10
+
+### Corrigé
+- **Audit de cohérence RM2941** — cinq incohérences prouvées, corrigées :
+  - `git-mep-pratique` § Workflow MEP faisait poser **`en_mep` sur un déploiement PRÉPROD**, alors que
+    RM2893 a redéfini `en_mep` comme « déployé en prod ». Un agent qui suivait ce module sautait
+    `a_tester_preprod` et `a_mep_prod`, déclenchait la réattribution « vérif finale en prod » depuis la
+    préprod, et fermait depuis la préprod. Le flux 3 branches est réécrit sur la sémantique réelle.
+  - **`a_mep_prod` (RM2926) était absent de tout NORMS** alors qu'il est atteignable depuis cinq statuts
+    et câblé dans l'outillage. Ajouté à la machine d'états et à l'énumération du KERNEL, avec
+    `nouveau` et `a_tester_preprod` qui manquaient aussi. `redmine.reference.yml :: statuses` devient la
+    source unique : les libellés Redmine ne se recopient plus dans NORMS.
+  - `session-tooling` déclarait `pm-branch-start.py`, puis « ⚠ trou — aucun outil dédié » quinze lignes
+    plus bas. Dans un module préchargé par **tous** les rôles, c'était la ligne qui autorisait le
+    `git checkout -b` manuel interdit par le garde-fou 1. Le trou restant est le commit+push conventionné.
+  - Le déclencheur « péremption des PAT » envoyait dans `git-mep`, où la règle J-7 ne se trouve pas :
+    elle est dans `git-mep-pratique`. Quatre autres renvois cassés par la scission RM2582 corrigés.
+  - `pm project init` et `pm task create` n'ont jamais existé — il n'y a pas de binaire `pm`.
+
 ## [2.34.0] - 2026-09-10
 
 ### Ajouté

@@ -309,6 +309,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 - Tests : `test_karl_agent_fs.py` (alias, identifiants, gardes, portées session/projet, symlink), `test_cockpit_files.js` (routes distinctes, identifiant → portée, infobulle et URL sans chemin).
 
 ### Outillage PM
+- **Le budget de contexte se regarde, il ne se ticketise plus** (RM3046). Le préchargement des
+  rôles grossit à chaque module ajouté aux normes : `pm-context-budget --check` est passé au rouge,
+  et avec lui `pm-norms-doctor` et deux tests de la suite. Le réflexe — ouvrir un ticket à chaque
+  dépassement — encombre le backlog sans faire baisser un chiffre, et un contrôle rouge en
+  permanence cesse d'être lu. L'indicateur vit désormais là où on le regarde vraiment : une ligne
+  **« budget de contexte »** dans la santé du poste (famille **PM**), qui nomme les rôles au-dessus
+  du plafond et donne la remédiation (alléger le préchargement, en-tête « Préchargé par » des
+  modules). Le niveau est **`warn`, jamais `error`** : rien n'est cassé, une session coûte
+  simplement plus cher qu'annoncé — et la famille PM est volontairement hors des familles à badge,
+  pour qu'un chiffre qui bouge tous les jours ne clignote pas. La mesure se fait à la volée
+  (`pm-context-budget --json`, un comptage d'octets sur des fichiers locaux) : pas de service, pas
+  de timer, pas de fichier d'état de plus.
 - **Par quel bout prendre un travail, et comment mener un CDC complet** (RM2967). Le système
   savait traiter un ticket dans le moindre détail, et ne disait **nulle part** comment attaquer
   un projet neuf, une reprise d'existant ou une migration — chacun repartait de sa mémoire, et

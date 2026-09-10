@@ -60,49 +60,8 @@ human_time_total_minutes: 0           # NEW — temps humain effectif
 ai_time_total_minutes: 0              # NEW — temps wall-clock IA effectif
 ```
 
-### Auto-incrémentation (hook Claude Code Stop)
-
-Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
-réponse Claude. Il :
-
-1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant **par ce que le tour a réellement touché** (RM1823),
-   lu dans le transcript que le hook reçoit déjà — on ne **devine** pas le ticket
-   depuis l'état du projet :
-   - **Signal du tour** (events depuis le dernier prompt humain, celui-ci inclus) :
-     le candidat au signal le plus **fort**, puis le plus **récent**. Force du
-     signal : **3** = commande de mutation PM (`pm-task-*.py`, `redmine-*.py` avec
-     un RM-id), **2** = édition d'un fichier de ticket (`RM<id>_*.md`), **1** =
-     simple mention textuelle (`RM1234`).
-   - **Continuation** : si le tour n'a touché aucun ticket (question, lecture,
-     mise au point), on retombe sur le dernier ticket touché **de la session**.
-   - **Repli** : sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`.
-   - **Le statut n'entre PAS dans la résolution** — sauf la garde `ferme`
-     ci-dessous. Une phase d'`etude_chiffrage_en_cours`, un `a_corriger`, un
-     `a_mep` sont tickés comme un `en_cours` : l'étude et le chiffrage se
-     mesurent aussi. (L'ancienne heuristique « seule tâche `en_cours` du projet »
-     est abandonnée depuis RM1823 : trompeuse — plusieurs tâches `en_cours` dans
-     un projet est le cas NORMAL, comme plusieurs sessions en parallèle ou
-     plusieurs tickets dans une même session.)
-   - **Garde « ticket fermé » (RM2053)** : la cible n'est **jamais** un ticket
-     `status: ferme`. Le résolveur retient le signal le plus fort **parmi les tickets
-     ouverts** ; un tour touchant un ticket ouvert + un fermé ticke l'**ouvert** ; un
-     tour ne touchant que du fermé → **aucune tick** (la conso du tour est perdue,
-     négligeable). Un sentinel `CURRENT_TASK` pointant un ticket clos est ignoré.
-     **Fail-safe** : statut illisible → traité comme ouvert (mieux vaut ticker que
-     perdre). Évite que la cérémonie de clôture / le suivi post-fermeture ne gonfle un
-     ticket déjà fermé.
-3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
-4. Sinon : somme les tokens **de tous les messages assistant du tour** (fenêtre =
-   curseur de session, à défaut dernier prompt humain — jamais tout le transcript,
-   pour ne pas recompter l'historique d'une session reprise), **dédupliqués par
-   `message.id`** (RM2628 : le JSONL écrit une même réponse une fois par bloc de
-   contenu, chaque ligne portant l'usage complet ; sans dédup la conso est
-   multipliée par le nombre de blocs — règle partagée avec le cockpit via
-   `pm_transcript.usage_by_message`), calcule le coût USD via `pm.pricing.yml`,
-   met à jour le frontmatter du MD (atomique avec optimistic locking)
-5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
-   éviter le bruit, sinon silencieux)
+**Comment la conso est mesurée et journalisée** (hook `Stop`, format du journal par commit, champs
+Redmine dédiés) : `roi-pricing-pratique`. Ce qui reste ici : **quand** estimer, **comment** prioriser.
 
 ### Calcul du ROI
 
@@ -161,72 +120,4 @@ revalider via le § « Synchronisation de la configuration Redmine »).
 
 **Cumul effectif → poussé sur le ticket :** CF **17** `Tokens passés` reflète
 `tokens_total` du frontmatter (recalé à chaque mise à jour Redmine).
-
-### Journalisation par commit — temps + tokens consommés (obligatoire) — v1.21.0, convention activités + outillage v1.26.0
-
-Le hook `pm-task-tick` (déclenché à chaque fin de réponse Claude) reste
-**nécessaire** : il mesure et accumule en continu tokens + temps IA dans le
-frontmatter MD — c'est la **base de calcul**. Le commit en est le **point de
-report** vers Redmine.
-
-**Règle** : à chaque commit **de travail** (unité = l'étape significative, cf. §
-« Unité de traçabilité »), reporter sur le ticket Redmine le **delta** consommé
-depuis le commit précédent, sous forme d'une **saisie de temps**
-(`POST /time_entries.json`) :
-
-- `issue_id` = le ticket ; `spent_on` = date du commit
-- `hours` = temps IA wall-clock écoulé depuis le dernier commit (delta de
-  `ai_time_total_minutes` ÷ 60). `hours=0` est **accepté** par l'instance —
-  une étape sans temps mesuré reste donc une saisie datée valide (le tokens du
-  delta, lui, est toujours porté par le CF 16).
-- `activity_id` = **nature** du travail, dérivée du `type` de la tâche selon la
-  **convention canonique ci-dessous** (≠ le tracker, qui encode la *catégorie*
-  de ticket). Résolution outillée : `redmine_utils.activity_for_type(type)`.
-- CF **16** `Tokens` = tokens consommés depuis le dernier commit (delta de
-  `tokens_total`)
-- commentaire = le hash + sujet du commit (lien `git.*`)
-
-**Convention `type` de tâche → activité de temps Redmine** (source unique :
-`redmine.reference.yml :: type_to_activity` ; surchargagle par saisie via
-`pm-task-report.py --activity <id>`) :
-
-| `type` NORMS | Activité Redmine | id | Nature |
-|---|---|---|---|
-| `feature` | `Developpement/Feature` | 31 | écrire une fonctionnalité neuve |
-| `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
-| `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
-| `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
-| `configuration` | `SysAdmin/Conf/Debug` | 13 | paramétrage applicatif / système |
-| `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
-| `assistance` | `Assistance` | 11 | aide / support ponctuel |
-| `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
-
-> La résolution se fait au grain **tâche** (par son `type`). La refacto ou la
-> feature qui vit *dans* un commit d'un ticket d'un autre type ne sera taguée
-> finement qu'avec le futur **mode incrémental par commit**, où chaque commit
-> pourra déclarer sa propre nature (override `--activity` en attendant).
-
-Après le report, le CF **17** `Tokens passés` du ticket est resynchronisé sur
-le cumul, et l'entrée est tracée dans le `.log.md` (cf. § « Référencer un commit »).
-
-**Note Redmine accompagnante.** Ces métriques (temps + tokens du delta) sont
-reprises dans la **note Redmine** du commit, aux côtés du résumé détaillé et de
-la réf du commit. Le *quand* et le *quoi* de cette note sont définis **une seule
-fois**, dans la matrice canonique § « Unité de traçabilité : l'étape
-significative » — ne pas les redéfinir ici.
-
-**Outillage : `scripts/pm-task-report.py`** (RM1819). Lit le frontmatter +
-`.log.md` d'un ticket (`--rm-id`) ou de tous (`--all`), et pousse vers Redmine :
-une **time_entry datée par entrée `Tokens :` du log** (`spent_on`, `hours` =
-temps IA, CF 16 = tokens, `activity_id` selon la convention ci-dessus,
-comments = titre de l'entrée), puis **resync CF 17** = `tokens_total`.
-Idempotent : le `time_entry.id` de chaque saisie est historisé dans le bloc
-`reporting.time_entries[]` du frontmatter (clé de dédup `<ts>#<tokens>`), un
-re-run ne crée pas de doublon. Dry-run par défaut, `--apply` pour exécuter.
-
-> **Reste à outiller (gap résiduel)** : le déclenchement **automatique au
-> commit** (hook `post-commit` calculant le delta depuis le dernier report).
-> Aujourd'hui `pm-task-report.py` se lance à la main / par lot. Le mode
-> incrémental fin (un time_entry par commit, avec nature de travail déclarée
-> par commit) viendra dessus.
 

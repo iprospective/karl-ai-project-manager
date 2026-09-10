@@ -68,11 +68,12 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
 [a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
-[a_tester_preprod]   ──► [en_mep] (RM2920 : instruction « mets en prod » → MEP dans la foulée ; « preprod ok » → a_mep, file de MEP)
+[a_tester_preprod]   ──► [en_mep]      (RM2920 : instruction « mets en prod » → MEP dans la foulée)
+[a_tester_preprod]   ──► [a_mep_prod]  (RM2926 : « préprod ok » → file de MEP PROD, sans déployer encore)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
 
-> **⚙ Refonte RM2893 (en cours de livraison — 2026-08-31).** Le tronçon aval a été
+> **⚙ Sémantique du tronçon aval (RM2893, livrée).** Il a été
 > redéfini pour lever une confusion : le statut ne disait pas *où est le code*. Nouvelle
 > sémantique par environnement :
 >
@@ -80,7 +81,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 > |---|---|---|
 > | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
 > | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
-> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `a_mep` | — | recette demandeur OK, **à mettre en préprod** — pas encore déployé |
+> | `a_mep_prod` (**RM2926**) | — | **préprod OK** (non-régression du lot), **à mettre en prod** — 2ᵉ file, lève le doublon d'`a_mep` ; **sauté** quand le projet n'a pas de préprod |
 > | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
 >
 > Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*
@@ -199,53 +201,22 @@ ia:
 V2 prévue : cascade par projet (`ia.managers:` par `paths.project`) et/ou
 champ `ia_manager:` dans le frontmatter de `project/overview.md`.
 
-### Prise en charge d'une tâche : `en_cours` ⇒ auto-assignation (obligatoire) — v1.12.0
+### Prise en charge d'une tâche : `en_cours` ⇒ auto-assignation
 
-**Règle** : un agent qui commence à travailler sur une tâche doit, dans le **même
-mouvement** :
+Le **tripwire #5** porte la règle, il est toujours en contexte : `en_cours` implique
+s'assigner, dans le même mouvement. Un `en_cours` sans `assigned_to` est un état invalide.
 
-1. Passer le `status` de la tâche à `en_cours` (côté Redmine + frontmatter MD + log)
-2. **S'assigner le ticket Redmine** (champ `assigned_to`) si ce n'est pas déjà le cas
+Ce qu'il faut savoir en plus : la règle vaut **aussi hors orchestrateur** — si on demande à
+un agent interactif de travailler sur un ticket ni `en_cours` ni assigné, il fait lui-même
+les deux avant de commencer. C'est la symétrie de la « Vérification initiale » de
+[worker-common.md](../agents/worker-common.md) : ce qu'un worker orchestré vérifie
+passivement, un agent interactif l'établit activement. `pm-task-status-update.py` couple les
+deux tout seul (`--no-assign` pour outrepasser) ; aucun PUT manuel.
 
-Les deux opérations sont **indissociables**. Une tâche `en_cours` sans
-`assigned_to` cohérent est un état invalide : `en_cours` signifie « un agent
-nommément identifié est en train de faire le travail maintenant ». Pas
-d'`en_cours` flottant.
-
-Cette règle vaut **même hors orchestrateur** (mode interactif Claude Code) : si
-un humain demande à l'agent de bosser sur RM1234 et que le ticket n'est ni à
-`en_cours` ni assigné à l'agent, l'agent fait lui-même les deux opérations avant
-de démarrer le travail effectif.
-
-**Symétrie avec la `Vérification initiale` de [worker-common.md](../agents/worker-common.md)** :
-ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
-en mode interactif l'établit activement au démarrage.
-
-**Implémentation** : `pm-task-status-update.py` **couple** status + assignation —
-quand la cible est `en_cours`, il auto-assigne au user Redmine de l'agent courant
-(résolu via `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79). Aucun PUT
-manuel à faire ; `--no-assign` pour outrepasser.
-
-**Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
-
-Statut Redmine (un seul terminal `Fermé`) :
-
-| NORMS | Redmine | id |
-|---|---|---|
-| `nouveau` | Nouveau | 1 |
-| `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
-| `etude_chiffrage_en_cours` | Etude/CDC en cours | 14 |
-| `etude_chiffrage_a_valider` | Etude/CDC à valider | 21 |
-| `a_faire` | A Faire | 12 |
-| `en_cours` | En cours | 2 |
-| `a_tester_dev` | A tester/vérifier dev | 19 |
-| `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
-| `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
-| `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
-| `en_pause` | Attente retour / en pause | 13 |
-| `a_corriger` | A corriger/finir | 11 |
-| `ferme` (toutes raisons) | Fermé | **18** |
+**Mapping NORMS → Redmine** : `redmine.reference.yml :: statuses` est la **source unique**, et la
+seule à jour — les libellés changent (RM2893, RM2926) et toute copie ment en silence. Le mapping n'est
+donc plus recopié ici. `pm-task-status-update` le lit ; `redmine-config-check` vérifie qu'il colle à
+l'instance live.
 
 > **RM2893 — migration du mapping (2026-08-31).** Les deux statuts Redmine existaient déjà
 > et leurs libellés collent : **aucune création ni renommage**. Seul changement d'id :

@@ -122,5 +122,29 @@ with tempfile.TemporaryDirectory() as tmp:
     check("une feuille de route éditée à la main rend --check rouge", run("--check").returncode != 0)
     check("et --build la remet d'aplomb", run("--build").returncode == 0 and run("--check").returncode == 0)
 
+    # ── RM3048 : un registre CURÉ, tenu à la main, à côté du registre dérivé des tickets ──
+    print("\n[RM3048] registre curé par capacité")
+    r = run("--init", "--prefix", "k", "--no-sync")
+    check("un registre curé se crée vide", r.returncode == 0 and (docs / "cdc-k/fonctionnalites.yml").exists())
+    reg = M.yaml.safe_load((docs / "cdc-k/fonctionnalites.yml").read_text())
+    check("créé vide, il ne contient aucun ticket", not reg.get("entrees"))
+    reg.update({"cure": True, "titre": "Capacités du machin",
+                "entrees": [{"id": "F001", "libelle": "Faire le café", "domaine": "Divers", "etat": "livré",
+                             "date": "2026-09-10", "manuel": True, "type": "feature", "tickets": [10, 12], "rm": 10}]})
+    (docs / "cdc-k/fonctionnalites.yml").write_text(M.dump(reg), encoding="utf-8")
+    r = run("--prefix", "k", "--build")
+    check("--prefix vise CE registre quand le projet en porte plusieurs", r.returncode == 0 and "cdc-k" in r.stdout)
+    chap = (docs / "cdc-k-10-fonctionnalites.md").read_text(encoding="utf-8")
+    check("le chapitre porte le titre du registre, pas celui du projet", chap.startswith("# Capacités du machin"))
+    check("une capacité montre TOUS ses tickets", "RM10, RM12" in chap)
+    r = run("--prefix", "k", "--sync")
+    check("--sync est REFUSÉ sur un registre curé, en disant pourquoi",
+          r.returncode != 0 and "CURÉ" in (r.stdout + r.stderr))
+    reg2 = M.yaml.safe_load((docs / "cdc-k/fonctionnalites.yml").read_text())
+    check("et le registre n'a pas bougé", len(reg2["entrees"]) == 1)
+    check("--check ne compare que le chapitre sur un registre curé", run("--prefix", "k", "--check").returncode == 0)
+    check("l'autre registre, lui, dérive toujours des tickets", run("--prefix", "t", "--check").returncode == 0
+          and len(M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())["entrees"]) > 1)
+
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — pm-cdc-features"))
 sys.exit(1 if fails else 0)

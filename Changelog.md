@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Inventaire des capacités de karl** (RM3048) : un registre **curé par capacité** (`docs/cdc-karl/`,
+  123 entrées sur 12 domaines) répond à « qu'est-ce que karl sait faire », là où `docs/cdc/` (dérivé des
+  tickets, 603 entrées) répond à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs
+  tickets. `pm-cdc-features` gagne `cure: true` (le registre se tient à la main, `--sync` y est refusé en
+  le disant), `--prefix` pour viser un registre quand le projet en porte plusieurs, et un `titre` propre.
+  Le cockpit sert les deux côte à côte, le README pointe le premier.
+
 - **Versions de la feuille de route, et rattachement des fonctionnalités** (RM3060) : la feuille de route
   était un tableau tenu à la main, avec un « V0 (à définir) » qui n'a jamais bougé. Les versions vivent
   maintenant dans le registre et `cdc-roadmap.md` en est **généré**, comme la liste des fonctionnalités.

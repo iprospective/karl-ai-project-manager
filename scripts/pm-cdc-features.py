@@ -8,6 +8,11 @@ reste lue) : une entrée par ticket (identifiant F001… STABLE, jamais réattri
 `cdc-<prefix>-10-fonctionnalites.md`) — deux vues, une donnée. Le bloc entre marqueurs
 `think-merge` (détail des fonctionnalités par ticket, `pm-think-merge`) y est conservé tel quel.
 
+  --prefix <p>          vise CE registre quand le projet en porte plusieurs (`cdc`, `karl`… — RM3048)
+  `cure: true` dans le registre = tenu À LA MAIN, une entrée par CAPACITÉ (RM3048) : `--sync` y est refusé
+  et `--check` ne compare que le chapitre. C'est la forme du CDC de karl (`cdc-karl/`), à côté du registre
+  générique dérivé des tickets (`cdc/`).
+
   --init --prefix <p>   crée le registre (domaines par mots-clés, à ajuster ensuite dans le yml) ; `--no-sync` le laisse vide
                         (registre CURÉ par capacité : entrées manuelles avec `tickets: [RM…]` multiples, ex. cdc-karl)
   --sync                ajoute les tickets nouveaux (tout sauf `nouveau`), met à jour état/date des
@@ -228,7 +233,7 @@ def build_roadmap(reg) -> str:
         if v:
             par_v.setdefault(v, []).append(e)
     rd = reg_dir_name(reg)
-    L = [f"# Feuille de route — projet `{reg['projet']}`", "",
+    L = [f"# Feuille de route — {reg.get('titre') or ('projet `' + reg['projet'] + '`')}", "",
          f"> **Généré** par `pm-cdc-features --build` depuis [`{rd}/fonctionnalites.yml`]({rd}/fonctionnalites.yml) — ne pas éditer ici.",
          "> Une version est une **étape de travail** : ce qu'elle doit permettre, et à quoi on sait qu'elle est passée.",
          "> La liste des fonctionnalités, elle, vit dans [cdc-features.md](cdc-features.md) : la version y est une **colonne**.", ""]
@@ -302,7 +307,7 @@ def build(reg):
     for e in ents:
         k = "écarté" if e["etat"].startswith("écarté") else e["etat"]; cnt[k] = cnt.get(k, 0) + 1
     rd = reg_dir_name(reg)
-    L = [f"# Fonctionnalités du projet `{reg['projet']}`", "",
+    L = [f"# {reg.get('titre') or ('Fonctionnalités du projet `' + reg['projet'] + '`')}", "",
          f"> **Généré** par `pm-cdc-features --build` depuis [`{rd}/fonctionnalites.yml`]({rd}/fonctionnalites.yml) — ne pas éditer ici.",
          "> Une ligne par ticket ; identifiant `F` stable ; l'état suit le statut du ticket. Corrections (bugfix) à part, par domaine.", "",
          "| État | Nombre |", "|---|---|"]
@@ -377,6 +382,12 @@ def main():
             sys.exit(f"registre déjà présent : {reg_path}")
         reg = registre_vide(prefix, projet)
     elif regs:
+        # RM3048 : un projet peut porter PLUSIEURS registres (`cdc/` dérivé des tickets, `cdc-karl/`
+        # curé par capacité). `--prefix` dit lequel ; sans lui, le premier — le générique.
+        if a.prefix:
+            vise = "cdc" if a.prefix == "cdc" else f"cdc-{a.prefix}"
+            regs = [r for r in regs if r.parent.name == vise] or sys.exit(
+                f"aucun registre {vise}/fonctionnalites.yml sous {docs}")
         reg_path = regs[0]; reg = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
         reg.setdefault("entrees", []); reg.setdefault("domaines", [])
     else:
@@ -385,7 +396,10 @@ def main():
         reg["prefix"] = "cdc"
     chap = docs / chapter_name(reg)
     if a.check:
-        avant = dump(reg); sync(reg, lire_tickets(tasks)); apres = dump(reg)   # un registre curé (--no-sync) reste stable : ses tickets sont couverts
+        avant = dump(reg)
+        if not reg.get("cure"):
+            sync(reg, lire_tickets(tasks))     # un registre CURÉ ne dérive pas des tickets : rien à comparer
+        apres = dump(reg)
         ok_reg = avant == apres; ok_chap = chap.exists() and chap.read_text(encoding="utf-8") == compose(reg, chap)
         road = docs / roadmap_name(reg)
         ok_road = road.exists() and road.read_text(encoding="utf-8") == build_roadmap(reg)
@@ -443,6 +457,9 @@ def main():
         if not a.build:
             return
     if a.init or a.sync:
+        if reg.get("cure") and not a.init:
+            sys.exit(f"{reg_path.name} est un registre CURÉ (`cure: true`) : il se tient à la main, "
+                     "une entrée par capacité. `--sync` y déverserait les tickets un à un.")
         ajout, modif = ([], []) if (a.init and a.no_sync) else sync(reg, lire_tickets(tasks))
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ registre {reg_path.relative_to(docs)} : +{len(ajout)} ajoutée(s), {len(modif)} mise(s) à jour, {len(reg['entrees'])} au total")

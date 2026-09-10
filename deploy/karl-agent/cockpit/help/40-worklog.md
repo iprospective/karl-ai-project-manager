@@ -13,14 +13,16 @@ relire la conversation. Chaque zone répond à une question précise :
 |---|---|
 | 🔔 **notifications** | qu'est-ce qui s'est passé de notable, et reste-t-il à traiter ? |
 | 🔀 **MR** (onglet) | qu'est-ce qui est écrit mais pas encore intégré, ni promu ? |
+| ❓ **à trancher** | quelles questions des tickets de la session attendent un arbitrage ? |
 | 📥 **demandes à traiter** | qu'est-ce qui a été demandé et n'a pas encore de ticket ? |
 | **sous-onglets par statut** | que reste-t-il à faire, à tester, à mettre en production ? |
 | 📄 **documents** | qu'est-ce que la session a produit ou consulté ? |
 | 🌿 **branches** | sur quoi le code a-t-il bougé ? |
 
 Ces zones ne se recouvrent pas. Une **demande** appelle une action — souvent
-ouvrir un ticket ; une **notification** raconte un fait ; un **ticket** porte un
-statut. Ce qui est traité **sort** de la liste sans sortir du worklog : la trace
+ouvrir un ticket ; une **question** appelle un **arbitrage** (et un ticket ne se
+ferme pas tant qu'il en reste une ouverte) ; une **notification** raconte un
+fait ; un **ticket** porte un statut. Ce qui est traité **sort** de la liste sans sortir du worklog : la trace
 reste, le backlog s'allège.
 
 ## L'onglet MR

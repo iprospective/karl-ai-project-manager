@@ -159,6 +159,20 @@ def mentions_ticket(text, rm_id):
                      str(text or ""), re.I) is not None
 
 
+def rattache(entree, rm_id) -> bool:
+    """Cette entrée de worklog (notification, demande) concerne-t-elle CE ticket ? RM3088.
+
+    Par sa référence explicite (`ref` d'une notification, `ticket` d'une demande) d'abord ; par une
+    mention dans son texte ensuite. L'ordre compte : avant, seule la mention comptait, et une
+    notification `--ref RM1234` dont le message ne citait pas « 1234 » n'existait pour personne."""
+    e = entree or {}
+    for champ in ("ref", "ticket"):
+        v = str(e.get(champ) or "").strip()
+        if v:
+            return mentions_ticket(v, rm_id)
+    return mentions_ticket(e.get("message") or e.get("text"), rm_id)
+
+
 def worklog_item(wl, rm_id):
     """L'entrée d'un worklog concernant ce ticket, ou None.
 
@@ -209,8 +223,16 @@ def sessions_of_ticket(rm_id):
             "next": (it.get("next") or "").strip(),
             "commit": it.get("commit"),
             "transcript": str(tp) if tp else None,
+            # RM3088 : par `ref` D'ABORD — une notification correctement `--ref RM<id>` dont le
+            # texte ne citait pas le numéro était perdue pour le ticket. La recherche dans le
+            # message reste, en repli, pour celles qu'on a consignées sans référence.
             "notifications": [n.get("message") for n in (wl.get("notifications") or [])
-                              if mentions_ticket(n.get("message"), rm_id)],
+                              if rattache(n, rm_id)],
+            # RM3088 : les DEMANDES rattachées à ce ticket. `pm-task-brief` ne les lisait pas :
+            # une demande enregistrée en séance n'était jamais restituée à la reprise du ticket
+            # qu'elle avait fait naître.
+            "requests": [{"text": r.get("text"), "status": r.get("status", "nouveau")}
+                         for r in (wl.get("requests") or []) if rattache(r, rm_id)],
         })
     found.sort(key=lambda e: e["mtime"], reverse=True)
     return found
@@ -378,6 +400,12 @@ def reprise_lines(data):
                 L.append(f"      commit : {s['commit']}")
             for m in s.get("notifications") or []:
                 L.append(f"      ⚠ {str(m)[:150]}")
+            # RM3088 : les demandes de la séance rattachées à ce ticket — le dossier de reprise
+            # les ignorait, alors que ce sont elles qui disent ce qui avait été demandé et n'a pas
+            # encore de suite.
+            for r in s.get("requests") or []:
+                etat = r.get("status") or "nouveau"
+                L.append(f"      📥 [{etat}] {str(r.get('text'))[:150]}")
             if s["transcript"]:
                 L.append(f"      → reprendre : claude --resume {s['session_id']}")
             else:

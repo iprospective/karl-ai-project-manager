@@ -131,6 +131,26 @@ pms.INDEX_KEEP = 0
 big = {str(i): {} for i in range(30)}
 check("borne à 0 : bornage débrayé", pms._trim(big) is False and len(big) == 30)
 
+
+# ── RM3088 : rattachement par RÉFÉRENCE, pas par texte ──────────────────────
+import importlib.util as _iu
+_spec = _iu.spec_from_file_location("brief", HERE / "pm-task-brief.py")
+_brief = _iu.module_from_spec(_spec); _spec.loader.exec_module(_brief)
+check("une notification --ref RM1234 est rattachée même si son texte ne cite pas le numéro",
+      _brief.rattache({"ref": "RM1234", "message": "secret affiché dans un log"}, 1234) is True)
+check("…et elle ne l'est pas à un AUTRE ticket qui figure dans son texte",
+      _brief.rattache({"ref": "RM1234", "message": "vu pendant RM9999"}, 9999) is False)
+check("sans référence, le texte sert de repli (les anciennes entrées restent trouvables)",
+      _brief.rattache({"message": "problème sur RM777"}, 777) is True)
+check("une demande porte son ticket dans `ticket`", _brief.rattache({"ticket": "RM55", "text": "faire X"}, 55) is True)
+check("rien ne rattache une entrée muette", _brief.rattache({"message": "un fait"}, 1) is False)
+_src_brief = (HERE / "pm-task-brief.py").read_text(encoding="utf-8")
+check("le dossier de reprise restitue les demandes du ticket (il les ignorait)",
+      '"requests": [' in _src_brief and "📥" in _src_brief)
+_ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("le worklog du cockpit sert « questions_open » — un seul canal (D021)",
+      '"questions_open": _worklog_questions(items)' in _ka)
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails)); sys.exit(1)

@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une question du demandeur est une QUESTION, plus une note** (RM3090, lot L1b de RM3015 ;
+  NORMS 2.34.0). La moisson ne créait de `Q` qu'à partir d'un outil de question formelle : tout ce
+  que Mathieu écrivait partait en note — y compris ses propres questions, qui n'étaient donc jamais
+  comptées dans « ce qui n'est pas tranché ». Arbitrage consigné (RM3015-D011) : **une question
+  ouverte est tout ce qui n'est pas tranché, quel qu'en soit l'auteur** ; la ligne de partage avec
+  une demande n'est pas l'auteur mais la nature — une demande appelle une action, une question un
+  arbitrage. Le critère est écrit **une fois**, dans `pm-think-classify` (RM3067, D023), et importé
+  par le hook — qui doit rendre la main tout de suite, d'où sa version sans modèle ; la passe LLM
+  reste le filet. Une question ne passe plus par le critère de la note (elle ne porte pas de dette,
+  elle porte un arbitrage en attente), et `has_text_anywhere` empêche qu'un texte reclassé se
+  retrouve dans deux rubriques.
 - **Versions de la feuille de route, et rattachement des fonctionnalités** (RM3060) : la feuille de route
   était un tableau tenu à la main, avec un « V0 (à définir) » qui n'a jamais bougé. Les versions vivent
   maintenant dans le registre et `cdc-roadmap.md` en est **généré**, comme la liste des fonctionnalités.

@@ -73,3 +73,23 @@
   font-size: 11px; background: var(--accent-soft); border: 1px solid var(--accent);
   border-radius: 6px; color: var(--fg); }
 .ctxbanner button { margin-left: auto; }
+
+/* RM3082 — jauge de contexte d'une session : barre fine + chiffre, en pied de tuile.
+   Pas de couleur de FOND : la tuile en porte déjà une (état, disposition) et deux fonds
+   superposés ne se lisent ni l'un ni l'autre. Rien ne s'affiche sous le premier palier. */
+.runitem { position: relative; }
+.tctx { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
+        gap: 5px; padding: 0 8px 2px; pointer-events: auto; }
+.tctx .tctxbar { flex: 1; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--line) 70%, transparent); overflow: hidden; }
+.tctx .tctxbar i { display: block; height: 100%; border-radius: 2px; background: currentColor; transition: width .4s ease; }
+.tctx .tctxn { font-size: 9.5px; font-family: var(--mono); line-height: 1; opacity: .85; flex: none; }
+.tctx.ctx-warn { color: var(--warn); }
+.tctx.ctx-high { color: color-mix(in srgb, var(--warn) 55%, var(--danger)); }
+.tctx.ctx-crit { color: var(--danger); }
+.tctx.ctx-crit .tctxn { font-weight: 700; opacity: 1; }
+
+/* Le FRANCHISSEMENT d'un palier, et lui seul, bouge : trois pulsations puis silence.
+   Une animation permanente fatigue, puis cesse d'être vue — au moment où elle compterait. */
+@keyframes ctxcross { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.tctx.ctx-cross { animation: ctxcross .55s ease-in-out 3; }
+@media (prefers-reduced-motion: reduce) { .tctx.ctx-cross { animation: none; } }

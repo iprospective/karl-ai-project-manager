@@ -17,9 +17,16 @@ const Badge = (b) => b ? html`<span class="tbadge"${attr("style", b.style)}${att
 const outline = (vm) => vm.selMode && vm.selected ? raw(' style="outline:1px solid var(--accent)"') : "";
 
 /** Tuile d'une session vivante. `pin`/`titleLink` prêtés par le contrôleur. */
+/** RM3082 — la jauge de contexte : une barre (longueur = occupation) et le chiffre. La couleur ne
+ * porte JAMAIS l'information seule — jaune et orange ne se distinguent pas pour tout le monde. */
+export function CtxGauge(g, pulse) {
+  if (!g) return "";
+  return html`<span class="tctx ctx-${g.level}${pulse ? " ctx-cross" : ""}" title="${g.title}"><span class="tctxbar"><i style="width:${String(g.width)}%"></i></span><span class="tctxn">${g.label}</span></span>`;
+}
+
 export function Tile(vm, { pin, titleLink }) {
   const s = vm.s, tag = vm.setTag, q = vm.quiet;
-  return html`<div class="runitem${vm.active ? " active" : ""}" data-action="attach" data-k="${vm.key}" title="${vm.tip}"${outline(vm)}><span class="${vm.dotClass}" data-action="disp" data-k="${vm.key}" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">${vm.idLabel}</span>${raw(pin("session", s.rm_id))}${tag ? html`<span class="tbadge" style="opacity:${tag.opacity}" title="${tag.title}">${tag.text}</span>` : ""}<span class="rmeta">${raw(titleLink(s.rm_id, vm.title))}${vm.age ? (vm.title ? " · " : "") + vm.age : ""}</span>${q ? html`<span class="tquiet" title="${q.title}">${q.text}</span>` : ""}${Badge(vm.badge)}${vm.autoTitle ? html`<span class="tbadge" style="color:var(--ok)" title="${vm.autoTitle}">⏱✔</span>` : ""}${vm.stale ? html`<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>` : ""}${vm.canApprove ? html`<span class="tyes" data-action="approve" data-k="${vm.key}" title="Répondre Oui à la question en attente (sans attacher)">✔</span>` : ""}${vm.canDrop ? html`<span class="tkill tdrop" data-action="drop" data-k="${vm.key}" title="${vm.dropTitle}">⊖</span>` : ""}<span class="tkill" data-action="kill" data-k="${vm.key}" title="Fermer la session (le tmux est tué ; l'entrée reste dans le jeu, en tuile grise)">✕</span></div>`;
+  return html`<div class="runitem${vm.active ? " active" : ""}" data-action="attach" data-k="${vm.key}" title="${vm.tip}"${outline(vm)}><span class="${vm.dotClass}" data-action="disp" data-k="${vm.key}" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">${vm.idLabel}</span>${raw(pin("session", s.rm_id))}${tag ? html`<span class="tbadge" style="opacity:${tag.opacity}" title="${tag.title}">${tag.text}</span>` : ""}<span class="rmeta">${raw(titleLink(s.rm_id, vm.title))}${vm.age ? (vm.title ? " · " : "") + vm.age : ""}</span>${q ? html`<span class="tquiet" title="${q.title}">${q.text}</span>` : ""}${Badge(vm.badge)}${vm.autoTitle ? html`<span class="tbadge" style="color:var(--ok)" title="${vm.autoTitle}">⏱✔</span>` : ""}${vm.stale ? html`<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>` : ""}${vm.canApprove ? html`<span class="tyes" data-action="approve" data-k="${vm.key}" title="Répondre Oui à la question en attente (sans attacher)">✔</span>` : ""}${vm.canDrop ? html`<span class="tkill tdrop" data-action="drop" data-k="${vm.key}" title="${vm.dropTitle}">⊖</span>` : ""}<span class="tkill" data-action="kill" data-k="${vm.key}" title="Fermer la session (le tmux est tué ; l'entrée reste dans le jeu, en tuile grise)">✕</span>${CtxGauge(vm.ctxGauge, vm.ctxPulse)}</div>`;
 }
 
 /** RM2427 : tuile grise d'une session enregistrée non démarrée. */
@@ -39,7 +46,7 @@ export function Group(gvm, tiles) { return html`<div class="rgroup">${GroupHead(
 /** RM2346 : bandeau « à traiter » — attention/choix à place fixe, en tête. */
 export function AttnBand(chips, { titleLink }) {
   if (!chips.length) return "";
-  return html`<div class="attnband"><div class="attnband-h">à traiter (${String(chips.length)})</div>${chips.map(c => html`<div class="attnchip" data-action="attach" data-k="s:${c.s.rm_id}"><span class="tdot st-${c.s.state}"></span><span class="tid">${c.idLabel}</span><span class="rmeta">${c.hasTitle ? raw(titleLink(c.s.rm_id, c.r.title)) : c.fallback}</span>${c.canApprove ? html`<span class="tyes" data-action="approve" data-k="s:${c.s.rm_id}" title="Répondre Oui (sans attacher)">✔</span>` : ""}</div>`)}</div>`;
+  return html`<div class="attnband"><div class="attnband-h">à traiter (${String(chips.length)})</div>${chips.map(c => html`<div class="attnchip" data-action="attach" data-k="s:${c.s.rm_id}"><span class="tdot st-${c.s.state}"></span><span class="tid">${c.idLabel}</span><span class="rmeta">${c.hasTitle ? raw(titleLink(c.s.rm_id, c.r.title)) : c.fallback}</span>${c.canApprove ? html`<span class="tyes" data-action="approve" data-k="s:${c.s.rm_id}" title="Répondre Oui (sans attacher)">✔</span>` : ""}${c.ctxGauge ? html`<span class="tctxn ctx-crit" title="${c.ctxGauge.title}">🧠 ${c.ctxGauge.label}</span>` : ""}</div>`)}</div>`;
 }
 
 /** RM2639 : bannière du contexte client, avec le nombre de groupes masqués et le retour à « tous ». */

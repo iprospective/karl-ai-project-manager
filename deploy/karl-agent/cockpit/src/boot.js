@@ -488,6 +488,7 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
 sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
+  cfg: () => CFG,                                                                          // RM3082 : paliers de la jauge de contexte (context_thresholds)
   sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),

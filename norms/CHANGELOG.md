@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.31.0] - 2026-09-10
+
+### Ajouté
+- **Axe `llm` au registre des providers** (RM3067) : le modèle de travail de karl — celui qu'un script
+  appelle pour un travail machine, à ne pas confondre avec le modèle qui tient la session — se déclare
+  comme les autres providers, avec cascade défaut → client → projet. Types `lemonade` (Ryzen AI),
+  `ollama`, `openai`, `anthropic`, `claude-cli` ; local d'abord. `pm-providers resolve llm`. Ajout seul,
+  pas de ledger.
+
 ## [2.30.2] - 2026-09-10
 
 ### Modifié

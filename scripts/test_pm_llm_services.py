@@ -102,6 +102,26 @@ check("aucun service ne porte de liste de modèles : elle périmerait en silence
       not any(set(v) & {"models", "model", "default_model"} for v in S.SERVICES.values()))
 M._http = vrai
 
+print("\n[RM3080] la clé posée par le cockpit est retrouvée à l'usage")
+import os                                                # noqa: E402
+import pm_secrets                                        # noqa: E402
+check("les préfixes que sait poser pm-provider-secret sont connus de la lecture",
+      {"SECRET__", "LLM__", "REDMINE__", "GITLAB__"} <= set(pm_secrets.CREDS_PREFIXES))
+faux = {"LLM__OLLAMA_STRIX__API_KEY": "clef", "SECRET__VW__CLIENTID": "autre"}
+check("sous le seul SECRET__, une clé de modèle reste introuvable — c'était le défaut",
+      pm_secrets.creds_keys("ollama-strix", env=faux, legacy=False) == [])
+check("sous tous les préfixes, elle est retrouvée",
+      pm_secrets.creds_keys("ollama-strix", env=faux, legacy=False,
+                            prefixes=pm_secrets.CREDS_PREFIXES) == ["API_KEY"])
+check("et un coffre continue d'être lu comme avant",
+      pm_secrets.creds_keys("vw", env=faux, legacy=False) == ["CLIENTID"])
+os.environ["LLM__OLLAMA_TEST__API_KEY"] = "clef-de-test"
+try:
+    check("le lecteur de l'axe llm va la chercher au bon endroit", M._clef("ollama-test") == "clef-de-test")
+    check("une instance sans clé posée rend une chaîne vide, pas une erreur", M._clef("instance-sans-cle") == "")
+finally:
+    os.environ.pop("LLM__OLLAMA_TEST__API_KEY", None)
+
 print("\n[RM3072] résoudre : un service, une instance déclarée, ou du direct")
 u, dial, inst = M.resout(service="zai")
 check("un service prédéfini donne son URL et son dialecte",

@@ -33,10 +33,17 @@ TIMEOUT = 20
 
 def _clef(instance: str) -> str:
     """La clé d'API de l'instance, depuis le `.env`. Vide si aucune n'est posée — un service local n'en
-    veut pas, et un service hébergé répondra 401, ce qui est un diagnostic en soi."""
+    veut pas, et un service hébergé répondra 401, ce qui est un diagnostic en soi.
+
+    Cherche sous TOUS les préfixes que `pm-provider-secret` sait poser : un fournisseur de modèles range
+    sa clé sous `LLM__`, pas sous `SECRET__`, et ne chercher que le second revenait à appeler sans clé en
+    accusant ensuite la clé d'être absente (RM3080)."""
     if not pm_secrets or not instance:
         return ""
     try:
+        prefixes = getattr(pm_secrets, "CREDS_PREFIXES", None)
+        creds = pm_secrets.creds_for(instance, legacy=False, prefixes=prefixes)
+    except TypeError:                                    # pm_secrets antérieur à RM3080
         creds = pm_secrets.creds_for(instance, legacy=False)
     except Exception:
         return ""

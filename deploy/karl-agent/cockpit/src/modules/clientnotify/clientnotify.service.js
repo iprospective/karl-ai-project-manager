@@ -24,6 +24,7 @@ export class ClientNotifyService {
     this.data = null; this.client = null; this.sel = new Set();
     this.protocole = true; this.preview = null; this.error = null;
     this.testTo = "";           // destinataire du dernier envoi de test (mémorisé)
+    this.dem = new Set();       // RM3092 : tickets dont le DEMANDEUR doit être prévenu
   }
   /** Le protocole de test dans l'email est un choix qui se garde d'une fois sur l'autre (RM3052). */
   loadProto() { try { return this.storage ? this.storage.getItem("karlCnProto") !== "0" : true; } catch (e) { return true; } }
@@ -50,11 +51,19 @@ export class ClientNotifyService {
     this.protocole = this.loadProto();
     if (!this.testTo) this.testTo = this.loadTestTo();
     this.sel = new Set(idsOf(this.data, client));
+    this.dem = new Set();
     this.preview = null;
     return this.current();
   }
   toggle(id) { const s = String(id); if (this.sel.has(s)) this.sel.delete(s); else this.sel.add(s); this.preview = null; }
-  all(on) { this.sel = on ? new Set(idsOf(this.data, this.client)) : new Set(); this.preview = null; }
+  /** RM3092 — prévenir aussi le demandeur de CE ticket. */
+  toggleDem(id) { const s = String(id); if (this.dem.has(s)) this.dem.delete(s); else this.dem.add(s); this.preview = null; }
+  /** …ou de tous ceux qui sont cochés, d'un coup. */
+  allDem(on) { this.dem = on ? new Set(this.selected()) : new Set(); this.preview = null; }
+  /** Ne prévenir que pour des tickets RÉELLEMENT envoyés : cocher un demandeur puis
+   *  décocher son ticket ne doit pas lui expédier un email sur un ticket absent du lot. */
+  demSelected() { return this.selected().filter(id => this.dem.has(id)); }
+  all(on) { this.sel = on ? new Set(idsOf(this.data, this.client)) : new Set(); if (!on) { this.dem = new Set(); } this.preview = null; }
   setProto(on) { this.protocole = !!on; this.saveProto(this.protocole); this.preview = null; }
   /** Ordre stable (celui de la file), pour que l'email ne dépende pas de l'ordre des clics. */
   selected() { return idsOf(this.data, this.client).filter(id => this.sel.has(id)); }
@@ -67,7 +76,7 @@ export class ClientNotifyService {
   }
   async send() {
     const rm = this.selected();
-    const r = await this.repo.send({ client: this.client, rm, protocole: this.protocole });
+    const r = await this.repo.send({ client: this.client, rm, protocole: this.protocole, requesters: this.demSelected() });
     await this.load();
     return r;
   }

@@ -35,3 +35,9 @@
 .cn-testlbl { font-size: 12px; font-weight: 600; }
 .cn-testsel { font-size: 12px; max-width: 260px; }
 .cn-testto { font-size: 12px; padding: 3px 6px; min-width: 200px; flex: 0 1 260px; }
+
+// RM3092 — la case « demandeur » vit sur la ligne, à droite du ticket
+.cn-t { justify-content: flex-start; }
+.cn-pick { display: flex; align-items: baseline; gap: 8px; flex: 1 1 auto; cursor: pointer; }
+.cn-dem { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.cn-dem input[disabled] + * { opacity: .5; }

@@ -103,13 +103,29 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/<option value="m@ipro.fr" selected>/.test(fragT), "le contact courant est présélectionné");
   assert(/value="m@ipro.fr"/.test(fragT), "l'adresse saisie est conservée au repeint");
 
+  // — RM3092 : prévenir aussi le DEMANDEUR, ticket par ticket —
+  const vmD = new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025", "2948"]), dem: new Set(["3025"]) });
+  assert.strictEqual(vmD.demCount, 1, "compte les demandeurs à prévenir");
+  assert(!vmD.allDemOn, "…et sait que tous ne le sont pas");
+  assert.strictEqual(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), dem: new Set(["3025"]) }).allDemOn, true, "tous cochés");
+  // un demandeur coché sur un ticket NON sélectionné ne compte pas : on n'écrit à personne
+  // au sujet d'un ticket qui ne part pas.
+  assert.strictEqual(new VM.ClientReportViewModel({ client: cal, sel: new Set(["2948"]), dem: new Set(["3025"]) }).demCount, 0,
+    "demandeur d'un ticket décoché : ignoré");
+  const fragD = String(V.ClientReport(vmD));
+  assert(/data-action="pickdem" data-rm="3025"/.test(fragD), "une case demandeur par ligne");
+  assert(/data-action="alldem"/.test(fragD), "…et une case pour toutes d'un coup");
+  assert(/disabled/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: cal, sel: new Set(), dem: new Set() })))),
+    "ligne non cochée : sa case demandeur est inactive");
+  assert(/demandeur\(s\) seront prévenus séparément/.test(fragD), "l'écran dit ce qui va partir");
+
   // — contrôleur —
   const calls = []; let sendRes = { ok: true, sent: 2, to: ["s@calicote.com"] };
   let queue = DATA();
   const repo = {
     pending: async () => { calls.push("pending"); return queue; },
-    preview: async (b) => { calls.push("preview:" + b.rm.join(",") + ":" + (b.protocole ? "p" : "-")); return { subject: "S" + b.rm.length, body: "corps" }; },
-    send: async (b) => { calls.push("send:" + b.rm.join(",")); queue = { total: 1, clients: [Object.assign({}, DATA().clients[1])] }; return sendRes; },
+    preview: async (b) => { calls.push("preview:" + b.rm.join(",") + ":" + (b.protocole ? "p" : "-") + ":dem=" + ((b.requesters || []).join("|") || "-")); return { subject: "S" + b.rm.length, body: "corps" }; },
+    send: async (b) => { calls.push("send:" + b.rm.join(",") + ":dem=" + ((b.requesters || []).join("|") || "-")); queue = { total: 1, clients: [Object.assign({}, DATA().clients[1])] }; return sendRes; },
     dismiss: async (b) => { calls.push("dismiss:" + b.rm.join(",")); queue = { total: 1, clients: [Object.assign({}, DATA().clients[1])] }; return { ok: true, dismissed: b.rm.length }; },
   };
   const store = { m: {}, getItem(k) { return this.m[k] || null; }, setItem(k, v) { this.m[k] = String(v); } };
@@ -126,17 +142,17 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert.strictEqual(badges[badges.length - 1], "4", "le badge du bandeau porte le total en attente");
   await ctl.open("calicote");
   assert(panels.length === 1 && ctl.count() === 3, "ouvrir un client : le panneau s'ouvre, TOUT est coché par défaut");
-  assert(calls.includes("preview:3025,2948,3042:p"), "l'aperçu est demandé au serveur pour la sélection");
+  assert(calls.some(c => c.startsWith("preview:3025,2948,3042:p")), "l'aperçu est demandé au serveur pour la sélection");
   assert(/Site PrestaShop/.test(el.innerHTML) && /RM3042/.test(el.innerHTML), "les deux projets du client sont rendus");
 
   await el.check("pick", { rm: "2948" });
-  assert(ctl.count() === 2 && calls[calls.length - 1] === "preview:3025,3042:p", "décocher retire du lot et redemande l'aperçu");
+  assert(ctl.count() === 2 && calls[calls.length - 1].startsWith("preview:3025,3042:p"), "décocher retire du lot et redemande l'aperçu");
   await el.click("all", { on: "0" });
   assert(ctl.count() === 0 && !svc.preview, "tout décocher : plus rien à envoyer, plus d'aperçu");
   await el.click("all", { on: "1" });
   assert(ctl.count() === 3, "tout cocher");
   await el.check("proto", {}, false);
-  assert(store.m.karlCnProto === "0" && calls[calls.length - 1].endsWith(":-"), "le protocole est un choix mémorisé, transmis au serveur");
+  assert(store.m.karlCnProto === "0" && /:-:dem=/.test(calls[calls.length - 1]), "le protocole est un choix mémorisé, transmis au serveur");
   await el.check("proto", {}, true);
 
   const before = calls.filter(c => c.startsWith("send:")).length;
@@ -151,6 +167,7 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(!/Confirmer l'envoi/.test(el.innerHTML), "un armement oublié EXPIRE : pas d'envoi au clic suivant");
   await el.click("send"); await el.click("send");
   assert(calls.some(c => c.startsWith("send:2948,3042")), "second clic : envoi de la sélection exacte");
+  assert(calls.some(c => c.startsWith("send:2948,3042") && c.endsWith(":dem=-")), "aucun demandeur coché : aucun n'est prévenu");
   assert(toasts.some(t => /2 ticket\(s\) annoncés/.test(t)), "retour d'envoi affiché");
   assert(calls.filter(c => c === "pending").length >= 2 && badges[badges.length - 1] === "1", "la file est relue après envoi, le badge suit");
 

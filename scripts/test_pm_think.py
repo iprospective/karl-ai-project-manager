@@ -253,7 +253,8 @@ check("aide", "--decide" in run(SCRIPTS / "pm-task-think.py", "--help").stdout)
 print("· garde de clôture")
 src = (SCRIPTS / "pm-task-status-update.py").read_text(encoding="utf-8")
 check("status-update refuse `ferme` avec des Q ouvertes (sauf --ignore-think)", "questions_open" in src and "--ignore-think" in src)
-check("hooks : moisson câblée sur Stop et SessionEnd", (SCRIPTS / "pm-claude-hooks-sync.py").read_text().count("pm-think-harvest.py") == 2)
+check("hooks : moisson câblée sur Stop, SessionEnd et PreCompact (RM3098)",
+      (SCRIPTS / "pm-claude-hooks-sync.py").read_text().count("pm-think-harvest.py") == 3)
 
 print()
 
@@ -396,6 +397,26 @@ check("NORMS porte la définition arbitrée (D011) et la distinction demande / q
       "tout ce qui n'est pas tranché" in (SCRIPTS.parent / "norms/src/modules/session-tooling.md").read_text(encoding="utf-8"))
 
 print("✓ questions du demandeur (RM3090) : critère partagé, moisson, auteur, reprise sans doublon")
+
+# ── RM3098 : avant compaction, on relit TOUT ─────────────────────────────────
+print("· passe complète avant compaction (RM3098)")
+src_h = (SCRIPTS / "pm-think-harvest.py").read_text(encoding="utf-8")
+check("le mode hook accepte une passe complète", "def hook_mode(full: bool = False)" in src_h)
+check("…et c'est elle qui décide de l'incrémental", "incremental=not full" in src_h)
+check("--full existe en CLI", '"--full"' in src_h)
+src_hooks = (SCRIPTS / "pm-claude-hooks-sync.py").read_text(encoding="utf-8")
+check("la moisson est câblée sur PreCompact, en passe complète",
+      '("PreCompact", None, "pm-think-harvest.py", " --full"' in src_hooks)
+check("…et le hook reste borné en temps (une compaction n'attend pas)",
+      '"pm-think-harvest.py", " --full", 90' in src_hooks)
+check("les autres câblages n'ont pas bougé (Stop, SessionEnd)",
+      src_hooks.count('"pm-think-harvest.py"') == 3)
+norms = (SCRIPTS.parent / "norms/src/modules/session-tooling.md").read_text(encoding="utf-8")
+check("NORMS dit ce qu'il faut consigner avant une compaction",
+      "Avant une compaction" in norms and "--next" in norms and "n'existe plus" in norms)
+kernel = (SCRIPTS.parent / "norms/src/NORMS-KERNEL.md").read_text(encoding="utf-8")
+check("…et le KERNEL le déclenche quand le contexte se remplit",
+      "une compaction approche" in kernel)
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

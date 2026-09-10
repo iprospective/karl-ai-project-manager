@@ -13,6 +13,53 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le navigateur devient testable, donc obligatoire** (RM3036) : nouvel outil
+  `tools/browser-check` — charge une URL dans un Chromium headless, exécute le geste, lit la
+  console et **constate l'effet dans l'interface**, code retour `0`/`1`. Il comble le trou
+  d'outillage qui a laissé passer RM3025 : une modif front livrée sans passage navigateur avait
+  cassé l'ajout au panier en prod, sur deux causes qu'aucun test unitaire ne voyait — un endpoint
+  en 500 et un bundle CCC non régénéré. Le verdict vit dans un module **pur** (`lib.js`), testé
+  sans navigateur : sans cette coupure, on ne peut tester l'outil de test qu'en lançant Chromium,
+  donc on ne le teste pas. Trois partis pris tirés de l'incident : une **option mal tapée est une
+  erreur** (un scénario qui « passe » parce qu'un contrôle a été ignoré est pire que rien) ; un
+  **asset 404 est séparé d'un plantage JS** (`--allow-console-errors` ne fait pas taire un
+  déploiement incomplet) ; **aucun navigateur n'est téléchargé** — à défaut de Chromium en cache,
+  l'outil refuse de conclure plutôt que de laisser croire à une validation. playwright-core ou
+  puppeteer-core, indifféremment. Rejoué pour de vrai sur la préprod Calicote (fiche produit →
+  clic « Ajouter » → compteur panier 0→1).
+  Côté conf : `pm-project-config --browser-test true` pose le drapeau `browser_test` au niveau
+  **projet** (un client peut avoir un site public et un back-office interne) ; une valeur douteuse
+  est **rejetée** plutôt que traduite en `false` — une règle de test qui s'éteint en silence ne
+  protège plus rien. Activé sur `calicote/prestashop`. NORMS 2.38.0 : `testing` §7, tripwire #17
+  amendé (le rendu navigateur n'est plus un cas « non automatisable »), runtime KERNEL synchronisé.
+- **Compte-rendu : prévenir aussi le demandeur** (RM3092) : une case **par ticket** dans le
+  panneau, plus une case globale. Le demandeur reçoit **son propre email, limité à ses
+  tickets** — plutôt qu'une copie du compte-rendu complet : il n'a pas à découvrir ce qui a
+  été livré pour les autres. Résolution depuis l'annuaire (`creator` → ref, segment ou
+  prénom) ; **une correspondance multiple n'est pas une correspondance** — on signale au
+  lieu de tirer au sort, et un email envoyé à la mauvaise personne ne se rattrape pas.
+  Aucun doublon : qui est déjà destinataire du compte-rendu n'est pas re-servi, et `sent_to`
+  consigne tout le monde. CLI : `client-notify preview|send --demandeur <RM>` (répétable) ou
+  `--demandeurs`.
+- **Rattrapage de file à la fermeture** (RM3087) : la mise en file ne dépendait que de la
+  transition `en_mep` — un ticket livré puis fermé après recette n'entrait jamais au
+  compte-rendu. Il y entre désormais à sa **fermeture**, mais sous une condition plus
+  stricte (`never_queued`) : uniquement s'il n'a **jamais** été mis en file, pour qu'un
+  ticket déjà annoncé ne le soit pas une seconde fois.
+- **Verbes d'ajout incrémental** (RM3041) : `pm-task-description-update --add-item` /
+  `--add-criterion` et `pm-task-protocol --add-test "SECTION|LIBELLÉ"` ajoutent **une ligne**
+  dans la bonne section sans réécrire la description ni le protocole. Idempotents (casse et
+  espaces ignorés), section créée si absente, gabarit « à définir » remplacé au premier vrai
+  critère, identifiant de test incrémenté (A2 → A3) avec cases d'environnement vides.
+
+- **Consigner AVANT la compaction** (RM3098, NORMS 2.37.0) : RM3071 réinjecte le KERNEL *après* une
+  compaction ; l'*avant* n'était pas couvert. Le hook `PreCompact` ne faisait qu'un `refresh` du
+  worklog — la moisson n'y était pas câblée, alors que c'est le **dernier moment où les tours existent
+  en clair**. Elle l'est désormais, en passe **complète** (`--full`) : le curseur incrémental n'a pas
+  à décider ce qu'on relit quand le fil va devenir un résumé. NORMS gagne la règle « avant une
+  compaction, avant de rendre la main » — prochaine étape, questions non tranchées, arbitrages
+  récents — et son déclencheur au KERNEL. Ce qui n'est pas consigné là n'est pas plus difficile à
+  retrouver : il n'existe plus (leçon RM2997).
 - **Inventaire des capacités de karl** (RM3048) : un registre **curé par capacité** (`docs/cdc-karl/`,
   123 entrées sur 12 domaines) répond à « qu'est-ce que karl sait faire », là où `docs/cdc/` (dérivé des
   tickets, 603 entrées) répond à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs

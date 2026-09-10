@@ -231,6 +231,62 @@ _, hh_sans = cn.compose_client_email_html("C", [{"project": "P", "tickets": [{"i
 check("ticket sans critère ni protocole : pas de section vide",
       "Ce qui change" not in hh_sans and "Comment le vérifier" not in hh_sans)
 
+# ── 7. rattrapage à la FERMETURE (RM3087) — sans jamais annoncer deux fois ───
+# Le défaut : la file se remplissait à la TRANSITION `en_mep`. Un ticket mis en prod
+# autrement (recette puis fermeture directe — le cas RM3079) n'était jamais proposé au
+# compte-rendu. Mais rattraper avec `set_queued` seul rouvrirait un cycle sur un ticket
+# DÉJÀ annoncé : c'est le double envoi que Mathieu a explicitement écarté. D'où une
+# condition plus stricte à la fermeture : « jamais mis en file », et non « pas en attente ».
+check("ticket vierge => à mettre en file à la fermeture", cn.never_queued({}))
+check("frontmatter sans bloc client_notify => idem", cn.never_queued({"title": "x"}))
+_q, _ = cn.set_queued({}, "2026-09-11T09:00")
+check("déjà EN FILE => on ne le remet pas (set_queued est de toute façon idempotent)",
+      not cn.never_queued(_q))
+check("déjà ANNONCÉ => surtout pas de seconde annonce",
+      not cn.never_queued(cn.mark_sent(_q, "2026-09-11T10:00", ["a@x.fr"])))
+check("ÉCARTÉ volontairement => ne revient pas par la fermeture",
+      not cn.never_queued(cn.mark_dismissed(_q, "2026-09-11T10:00")))
+check("bloc vide (fiche bricolée) => traité comme jamais vu, pas comme annoncé",
+      cn.never_queued({cn.QUEUE_KEY: {}}))
+
+# ── 8. le DEMANDEUR du ticket (RM3092) ──────────────────────────────────────
+# `creator` porte un identifiant court, l'annuaire des refs complètes. On accepte la ref
+# exacte, son premier segment, ou le prénom — mais JAMAIS une correspondance multiple :
+# prévenir la mauvaise personne ne se rattrape pas.
+ANN_R = {
+    "iprospective": {"ref": "iprospective", "first_name": "Mathieu", "emails": ["m@ipro.fr"]},
+    "sandrine-roche-pizzo": {"ref": "sandrine-roche-pizzo", "first_name": "Sandrine",
+                             "emails": ["s@calicote.com"]},
+    "yann-dercya": {"ref": "yann-dercya", "first_name": "Yann", "emails": ["y@dercya.com"]},
+    "sans-mail": {"ref": "sans-mail", "first_name": "Bob", "emails": []},
+}
+r = cn.resolve_requester(ANN_R, "iprospective")
+check("ref exacte résolue", r["found"] and r["emails"] == ["m@ipro.fr"])
+r = cn.resolve_requester(ANN_R, "sandrine")
+check("identifiant court => ref complète (sandrine → sandrine-roche-pizzo)",
+      r["found"] and r["ref"] == "sandrine-roche-pizzo")
+r = cn.resolve_requester(ANN_R, "Yann")
+check("casse indifférente, résolution par prénom", r["found"] and r["emails"] == ["y@dercya.com"])
+r = cn.resolve_requester(ANN_R, "inconnu")
+check("demandeur inconnu => non résolu, SIGNALÉ (pas d'email inventé)",
+      not r["found"] and not r["ambiguous"] and r["emails"] == [])
+r = cn.resolve_requester(ANN_R, "bob")
+check("fiche sans email => non résolu plutôt que faussement trouvé", not r["found"])
+AMB = dict(ANN_R, **{"sandrine-durand": {"ref": "sandrine-durand", "first_name": "Sandrine",
+                                         "emails": ["s2@x.fr"]}})
+r = cn.resolve_requester(AMB, "sandrine")
+check("DEUX Sandrine => ambigu, on ne tire pas au sort", r["ambiguous"] and not r["found"])
+check("creator vide toléré", not cn.resolve_requester(ANN_R, "")["found"])
+
+G = cn.group_by_requester([
+    {"id": 1, "creator": "sandrine"}, {"id": 2, "creator": "iprospective"},
+    {"id": 3, "creator": "sandrine"}, {"id": 4, "creator": ""}])
+check("groupement par demandeur, ordre d'apparition conservé",
+      [c for c, _ in G] == ["sandrine", "iprospective", ""])
+check("…chacun ne voit QUE ses tickets",
+      [t["id"] for t in G[0][1]] == [1, 3] and [t["id"] for t in G[1][1]] == [2])
+check("liste vide tolérée", cn.group_by_requester([]) == [])
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

@@ -101,6 +101,42 @@ check("project_id valide accepté", mod._VALIDATORS["redmine.project_id"]("redmi
 check("repo valide accepté", mod._VALIDATORS["gitlab.repo"]("gitlab.repo", "iprospective/ai-project-management") == "iprospective/ai-project-management")
 
 
+# — RM3036 : browser_test, l'option qui rend le test NAVIGATEUR obligatoire —
+# Elle décide si un agent DOIT passer par le navigateur avant de livrer du front. Une
+# valeur douteuse silencieusement traduite en `false` éteindrait la règle sans que
+# personne ne le voie : on exige donc une valeur explicite, et on rejette le reste.
+check("true accepté", mod._v_bool("browser_test", "true") == "true")
+check("oui/on/1 acceptés", all(mod._v_bool("browser_test", v) == "true" for v in ("oui", "on", "1", "YES", " True ")))
+check("false/non/off/0 acceptés", all(mod._v_bool("browser_test", v) == "false" for v in ("false", "non", "off", "0", "NO")))
+check("valeur douteuse REJETÉE plutôt que traduite en false", rejette("browser_test", "peut-être"))
+check("valeur vide rejetée", rejette("browser_test", ""))
+check("browser_test est branché sur _v_bool", mod._VALIDATORS["browser_test"] is mod._v_bool)
+
+out = mod._meta_set(META, [("browser_test", "true")])
+check("browser_test écrit à la RACINE du meta (lisible d'un coup d'œil)", "\nbrowser_test: true" in out)
+check("…sans toucher au reste", "schema_version: 1.7.1" in out and "  repo: iprospective/ai-project-management" in out)
+out2 = mod._meta_set(out, [("browser_test", "false")])
+check("…et il se re-modifie sans se dupliquer",
+      out2.count("browser_test:") == 1 and "browser_test: false" in out2)
+
+# Périmètre : c'est une propriété du SITE, donc du projet — un client peut avoir un site
+# public et un back-office interne, la règle ne se décrète pas à son niveau.
+check("browser_test proposé sur le PROJET", ("browser_test", "browser_test") in mod.PROJECT_FIELDS)
+check("browser_test absent du CLIENT", not any(k == "browser_test" for k, _ in mod.CLIENT_FIELDS))
+
+
+class B:  # faux args : seule l'option navigateur est donnée
+    name = None
+    redmine_project_id = None
+    gitlab_repo = None
+    default_branch = None
+    browser_test = "oui"
+
+
+check("collect projet : « oui » normalisé en « true » dès la collecte",
+      mod._collect_updates(B, mod.PROJECT_FIELDS) == [("browser_test", "true")])
+
+
 # — champs par périmètre : le client n'expose PAS gitlab —
 check("PROJECT_FIELDS a gitlab", any(k.startswith("gitlab.") for k, _ in mod.PROJECT_FIELDS))
 check("CLIENT_FIELDS sans gitlab", not any(k.startswith("gitlab.") for k, _ in mod.CLIENT_FIELDS))

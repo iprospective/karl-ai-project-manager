@@ -136,7 +136,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   n'est plus coupé à la première ligne — deux lignes, puis points de suspension. Les tuiles gagnent
   en hauteur (vivantes comme grises) et leurs pastilles et boutons s'alignent en haut, sinon la
   colonne danse dès qu'un titre passe à deux lignes. La jauge de contexte reste en pied de tuile. Une
-  garde de `test_cockpit_runtime` refuse un retour à `nowrap`.
+  garde de `test_cockpit_runtime` refuse un retour à `nowrap`. **Corrigé à la recette** : le titre
+  restait un item de la ligne, coincé entre le slug et les boutons, si bien que sa seconde ligne se
+  coupait alors qu'il restait de la place sous le slug et sous les boutons. Il occupe désormais une
+  **rangée à lui, sur toute la largeur** de la tuile (`flex-wrap` + `order`) ; le slug rapetisse, le
+  titre respire (`line-height` 1.5), et la pastille de gauche se centre sur la première ligne du
+  titre au lieu de se coller au bord haut.
 - **Fenêtre de contexte : le maximum du modèle** (RM3084, correctif de RM2611/RM3082) : une session
   Opus 5 à 197 k était rapportée à une fenêtre de 200 k — **99 %**, en rouge — alors qu'elle en est à
   **20 %** de sa vraie fenêtre de 1 M. `modelWindow` retenait la plus petite valeur et *devinait* la

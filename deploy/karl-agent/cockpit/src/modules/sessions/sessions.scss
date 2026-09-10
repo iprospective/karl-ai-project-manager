@@ -44,22 +44,35 @@
   font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
 .rghead:hover { color: var(--fg); }
 .rghead .gcnt { font-family: var(--mono); }
-/* RM3093 — la tuile tient sur DEUX lignes de titre. `align-items: flex-start` (et non `center`) :
-   sinon, dès que le titre prend deux lignes, la pastille d'état et les boutons de queue se
-   recentrent verticalement et la colonne se met à danser d'une tuile à l'autre. */
-.runitem { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px 10px; border: 1px solid var(--line);
+/* RM3093 — la tuile tient sur DEUX lignes de titre, et le titre a la tuile ENTIÈRE pour lui.
+   Première version : le titre restait un item de la ligne, coincé entre le slug et les boutons de
+   queue ; ses deux lignes n'avaient qu'une demi-largeur, si bien que la seconde se coupait alors
+   qu'il restait de la place sous le slug et sous les boutons. `flex-wrap` + `order` le renvoient en
+   SECONDE rangée, pleine largeur — c'est là qu'il respire.
+   `--tline` = la hauteur d'UNE ligne de titre : tout ce qui n'occupe qu'une ligne (pastille, slug,
+   badges, boutons) se centre sur elle, jamais sur le haut de la tuile. */
+.runitem { --tline: 17px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 3px 7px;
+  padding: 7px 10px 10px; border: 1px solid var(--line);
   border-radius: 7px; margin-bottom: 6px; background: var(--panel2); cursor: pointer; min-height: 40px; }
-/* les éléments d'une seule ligne restent alignés sur la PREMIÈRE ligne du titre */
-.runitem > .tdot, .runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
-.runitem > .tquiet, .runitem > .helpq { margin-top: 1px; }
+/* la pastille est ronde (8×8) : on la centre au margin, un `min-height` l'étirerait en ellipse */
+.runitem > .tdot { margin-top: calc((var(--tline) - 8px) / 2); }
+/* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark { min-height: var(--tline); display: inline-flex; align-items: center; }
+/* la queue (boutons) est poussée à droite ; le titre passe dessous, sur toute la largeur */
+.runitem::before { content: ""; flex: 1 1 0; order: 1; }
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq { order: 2; }
+.runitem > .rmeta { order: 3; flex: 1 0 100%; }
 .runitem:hover { border-color: var(--accent); }
 .runitem.active { border-color: var(--accent); background: var(--bg); }
-.runitem .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); flex: none; }
+/* le slug de session est un repère, pas un titre : plus petit que le texte qu'il annonce (RM3093) */
+.runitem .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); flex: none; font-size: 11px; }
 /* RM3093 : deux lignes, puis coupe. `line-clamp` coupe au MOT et met les points de suspension ;
-   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas. */
-.runitem .rmeta { color: var(--muted); font-size: 11.5px; flex: 1; min-width: 0;
+   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas.
+   `line-height` desserré : deux lignes collées se lisent comme un pâté. */
+.runitem .rmeta { color: var(--muted); font-size: 11.5px; min-width: 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
-  overflow: hidden; max-height: 2.9em; line-height: 1.35; overflow-wrap: anywhere; }
+  overflow: hidden; max-height: 3.1em; line-height: 1.5; overflow-wrap: anywhere; }
 .tbadge { font-size: 11px; line-height: 1; flex: none; }
 .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; flex: none; }
 .tkill:hover { color: var(--danger); background: var(--danger-soft); }

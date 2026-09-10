@@ -245,8 +245,34 @@ def main():
     else:
         print(f"  {PASS} budget contexte : tous les rôles sous leur plafond")
 
+    # RM3073 : le runtime dense est ce que lisent les agents et ce qui leur est réinjecté après une
+    # compaction — donc ce qui les engage. Il ne se compare pas ligne à ligne à ses sources (rien n'y est
+    # verbatim) : on vérifie ses ANCRES. Informatif tant que le runtime reste l'essai de RM3037 ; le
+    # rendre bloquant est le lot suivant, une fois la première génération faite par un fournisseur.
+    print("  " + _runtime_ligne())
+
     print(f"== {'OK' if rc == 0 else 'ÉCHEC'} ==")
     return rc
+
+
+def _runtime_ligne() -> str:
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("nrt", SCRIPTS / "pm-norms-runtime.py")
+        R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+        man = R.manifeste()
+        if not man:
+            return "· runtime : aucun manifeste (norms/runtime/MANIFEST.yml)"
+        c = R.corpus()
+        perimes = [n for n in man if R.etat(n, man)["stale"]]
+        etat = (f"{c['kept']}/{c['total']} ancres ({100 * c['rate']:.0f} %)"
+                + (f", {len(perimes)} fichier(s) périmé(s)" if perimes else ""))
+        if c["ok"] and not perimes:
+            return f"{PASS} runtime : couvre ses sources — {etat}"
+        return (f"· runtime : {etat} → mmi-pm norms-runtime --check "
+                f"(informatif : RM3073)")
+    except Exception as e:  # noqa: BLE001 — un contrôle informatif ne casse pas le doctor
+        return f"· runtime : non vérifiable ({e})"
 
 
 if __name__ == "__main__":

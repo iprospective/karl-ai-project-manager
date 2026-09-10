@@ -1,9 +1,9 @@
 ---
-schema_version: "2.32.0"
+schema_version: "2.33.0"
 updated: 2026-09-10
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.32.0
+# Normes de gestion des tâches — v2.33.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -4292,6 +4292,23 @@ Le système le répare lui-même, pour **tous les projets**, sans dépendre de l
 Un hook qui n'a rien à dire se tait et rend 0 : il ne casse jamais la session qui reprend. Si le rappel
 n'arrive pas, l'agent relit le KERNEL de lui-même avant d'agir — c'est écrit dans le KERNEL et dans
 `agents/worker-common.md`.
+
+## Le runtime dense (RM3037, RM3073)
+
+`norms/runtime/*.md` est la réécriture dense des normes pour les LLM. C'est elle qui est préchargée et
+réinjectée après une compaction : **c'est donc elle qui engage les agents**, pas la source humaine.
+
+- `norms/runtime/MANIFEST.yml` dit ce que chaque fichier couvre, de quelle version de source il est issu,
+  par quel modèle et quand. Une source plus récente rend son fichier **périmé**, et ça se voit.
+- La production passe par **un fournisseur du registre**, axe `llm` : `mmi-pm norms-runtime --build`.
+  Aucun agent ne réécrit le runtime à la main — c'est ainsi qu'il s'était désynchronisé en silence.
+- **Contrôle de non-perte par ANCRES**, pas par comparaison de lignes : une réécriture dense n'a rien de
+  verbatim, mais elle n'a pas le droit de toucher aux noms de scripts, options, chemins, statuts, champs
+  et variables. Une paraphrase élégante qui perd `--list-next` a perdu ce qui rendait la règle exécutable.
+- Le contrôle porte sur le **corpus**, pas fichier par fichier : déplacer une règle du KERNEL vers un
+  module est le but du découpage, la perdre est le risque.
+- **Rien n'est remplacé par un appel de modèle** : la sortie va dans `norms/runtime/.proposed/`, se
+  compare (`--diff`), et ne prend la place de l'existant qu'au `--apply`, refusé si une ancre manque.
 
 ## Versionning des normes
 

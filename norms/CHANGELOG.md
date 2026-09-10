@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.33.0] - 2026-09-10
+
+### Ajouté
+- **Le runtime dense a sa règle** (RM3073) : le module `governance` décrit ce qu'est `norms/runtime/`,
+  pourquoi c'est lui qui engage les agents (préchargé, et réinjecté après compaction), comment il se
+  produit — par un fournisseur du registre, jamais à la main — et comment il se contrôle : par ancres,
+  au niveau du corpus, avec une proposition qui ne remplace rien tant qu'elle n'est pas appliquée.
+  Ajout seul, pas de ledger.
+
 ## [2.32.0] - 2026-09-10
 
 ### Ajouté

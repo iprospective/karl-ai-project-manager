@@ -156,7 +156,89 @@ def strip_task_frontmatter(text):
     return m.group(4).lstrip("\n"), True
 
 
-def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
+# ── RM3041 : ajout INCRÉMENTAL dans une section (sans réécrire la description) ──
+#
+# Jusqu'ici, ajouter une anomalie ou un critère imposait `--set-from-file`, donc de
+# reconstruire toute la description : fragile, et impossible à scripter proprement. Le
+# déclencheur est concret (RM3025) — trois anomalies signalées l'une après l'autre, trois
+# réécritures intégrales.
+#
+# Les deux fonctions ci-dessous sont PURES : elles prennent un texte, rendent un texte.
+
+# Titres reconnus pour chaque rubrique, dans l'ordre de préférence. Le premier est celui
+# qu'on CRÉE si aucun n'existe ; les suivants sont des variantes déjà rencontrées.
+SECTIONS = {
+    "item": ["Anomalies / À faire", "Anomalies", "À faire", "A faire"],
+    "criterion": ["Critères d'acceptation", "Criteres d'acceptation", "Critères d’acceptation"],
+}
+
+
+def _section_bounds(text, titles):
+    """(début_contenu, fin_contenu, titre_trouvé) de la 1re section portant un de ces titres.
+    Rend (None, None, None) si aucune. La fin est le début du titre suivant de MÊME niveau."""
+    lines = text.split("\n")
+    wanted = [t.strip().lower() for t in titles]
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(#{2,3})\s+(.+?)\s*$", ln)
+        if not m or m.group(2).strip().lower() not in wanted:
+            continue
+        level = len(m.group(1))
+        j = i + 1
+        while j < len(lines):
+            m2 = re.match(r"^(#{1,6})\s+", lines[j])
+            if m2 and len(m2.group(1)) <= level:
+                break
+            j += 1
+        return i + 1, j, m.group(2).strip()
+    return None, None, None
+
+
+def add_checklist_item(desc, kind, texte, checked=False):
+    """Ajoute `- [ ] texte` à la fin de la section voulue, en la créant si besoin.
+
+    Idempotent : un item au texte identique (à la casse et aux espaces près) n'est pas
+    ajouté deux fois — un script qu'on rejoue ne doit pas empiler des doublons.
+    Renvoie (nouveau_texte, ajouté:bool)."""
+    texte = (texte or "").strip()
+    if not texte:
+        return desc, False
+    titles = SECTIONS.get(kind) or SECTIONS["item"]
+    ligne = "- [{}] {}".format("x" if checked else " ", texte)
+    desc = desc or ""
+
+    start, end, _ = _section_bounds(desc, titles)
+    if start is None:
+        # section absente : on l'ajoute à la fin, précédée d'une ligne vide
+        bloc = "## {}\n\n{}\n".format(titles[0], ligne)
+        sep = "" if desc.endswith("\n\n") or not desc.strip() else ("\n" if desc.endswith("\n") else "\n\n")
+        return (desc.rstrip("\n") + "\n\n" + bloc if desc.strip() else bloc), True
+
+    lines = desc.split("\n")
+    corps = lines[start:end]
+    norm = lambda s: re.sub(r"\s+", " ", s).strip().lower()  # noqa: E731
+    for ln in corps:
+        m = CHECK_LINE_RE.match(ln)
+        if m and norm(m.group(3)[1:]) == norm(texte):
+            return desc, False                      # déjà présent : ne pas doublonner
+
+    # Le gabarit « ⚠ À définir — aucun critère posé » n'a plus lieu d'être dès qu'un vrai
+    # item arrive : le laisser au-dessus de la liste donne une section qui se contredit.
+    corps = [ln for ln in corps
+             if not re.match(r"^\s*>?\s*⚠?\s*\*{0,2}À définir\*{0,2}", ln)
+             and not re.match(r"^\s*>\s*⚠", ln)]
+
+    if not any(ln.strip() for ln in corps):
+        corps = ["", ligne]              # section vidée de son gabarit : titre, ligne vide, item
+    else:
+        # insérer après la DERNIÈRE ligne non vide de la section (donc après le dernier item)
+        k = len(corps)
+        while k > 0 and not corps[k - 1].strip():
+            k -= 1
+        corps = corps[:k] + [ligne] + corps[k:]
+    return "\n".join(lines[:start] + corps + lines[end:]), True
+
+
+def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all, adds=None):
     """Calcule la nouvelle description (pure, testable — RM2281).
 
     `file_text` non-None = mode --set-from-file : le fichier devient la
@@ -166,6 +248,21 @@ def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
     Retourne (new_desc, total, checked, changed, note_bits, desc_changed).
     """
     note_bits = []
+    # RM3041 : les ajouts s'appliquent AVANT les coches, pour qu'un `--add-item` suivi d'un
+    # `--check` dans le même appel porte sur la liste réelle (leçon RM2281 sur --set-from-file).
+    added = []
+    for kind, texte in (adds or []):
+        base = file_text if file_text is not None else desc
+        nouveau, ok = add_checklist_item(base, kind, texte)
+        if ok:
+            added.append(texte)
+            if file_text is not None:
+                file_text = nouveau
+            else:
+                desc = nouveau
+    if added:
+        note_bits.append("ajouté : " + " · ".join(added))
+
     if file_text is not None:
         new_desc, total, checked, changed = apply_checks(
             file_text, check_idx, uncheck_idx, check_all)
@@ -175,7 +272,7 @@ def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
     else:
         new_desc, total, checked, changed = apply_checks(
             desc, check_idx, uncheck_idx, check_all)
-        desc_changed = bool(changed)
+        desc_changed = bool(changed) or bool(added)
     if changed:
         cocheds = [str(n) for n, v in changed if v]
         unchecks = [str(n) for n, v in changed if not v]
@@ -205,6 +302,11 @@ def main():
     ap.add_argument("--check-all", action="store_true", help="Coche tous les items de la checklist")
     ap.add_argument("--done-ratio", help="'auto' (depuis la checklist) ou entier 0-100")
     ap.add_argument("--set-from-file", help="Remplace toute la description par le contenu du fichier")
+    # RM3041 : ajout INCRÉMENTAL — ajouter une ligne sans réécrire la description entière
+    ap.add_argument("--add-item", action="append", metavar="TEXTE",
+                    help="Ajoute une ligne à « Anomalies / À faire » (section créée si absente ; répétable ; idempotent)")
+    ap.add_argument("--add-criterion", action="append", metavar="TEXTE",
+                    help="Ajoute un critère d'acceptation (répétable ; idempotent)")
     ap.add_argument("--drop-placeholders", action="store_true",
                     help="Retire les items de checklist qui ne sont que des GABARITS "
                          "(« (à compléter) », « à définir », « TBD ») — le chemin de sortie "
@@ -255,11 +357,13 @@ def main():
         file_text = base
 
     # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
+    adds = ([("item", t) for t in (args.add_item or [])]
+            + [("criterion", t) for t in (args.add_criterion or [])])
     new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(
-        desc, file_text, check_idx, uncheck_idx, args.check_all)
+        desc, file_text, check_idx, uncheck_idx, args.check_all, adds)
     if n_drop:
         note_bits.append(f"retiré {n_drop} gabarit(s) de critère « à compléter »")
-    if file_text is None and not changed and not args.done_ratio and not args.note \
+    if file_text is None and not changed and not adds and not args.done_ratio and not args.note \
             and not args.drop_placeholders:
         sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
                  "et pas de --done-ratio/--note.")
@@ -313,6 +417,8 @@ def main():
     parts = []
     if args.set_from_file and desc_changed:
         parts.append("set")
+    if adds:
+        parts.append("add={}".format(len(adds)))
     cocheds = [str(n) for n, v in changed if v]
     unchecks = [str(n) for n, v in changed if not v]
     if cocheds:
@@ -342,6 +448,13 @@ def main():
             # une checklist périmée. Constaté deux fois (RM2573, RM2305).
             new_body = "\n" + new_desc.strip("\n") + "\n"
         else:
+            # RM3041 : les ajouts s'appliquent AUSSI au corps local. Sans cela, la
+            # description Redmine était enrichie et le MD restait en arrière — constaté en
+            # jouant le verbe pour de vrai sur RM3041 : Redmine à jour, fiche inchangée.
+            # On enrichit chacun de son côté plutôt que d'écraser l'un par l'autre : les
+            # deux peuvent avoir divergé, et écraser ferait perdre le travail local.
+            for _kind, _texte in adds:
+                body, _ = add_checklist_item(body, _kind, _texte)
             new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all)
         if done_ratio is not None:
             fm["completion_pct"] = done_ratio

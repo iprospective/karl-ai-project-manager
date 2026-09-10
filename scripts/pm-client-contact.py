@@ -170,6 +170,7 @@ def print_contacts(client: str, contacts: list, annuaire=None):
 # ── Commandes ────────────────────────────────────────────────────────────────
 def cmd_list(cfg, args):
     clients = [args.client] if args.client else known_clients(cfg)
+    ann = _annuaire(cfg)          # sans lui, `print_contacts(..., ann)` levait un NameError
     total = 0
     for slug in clients:
         if args.client:

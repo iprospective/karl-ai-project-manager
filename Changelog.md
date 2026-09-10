@@ -20,6 +20,44 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   le disant), `--prefix` pour viser un registre quand le projet en porte plusieurs, et un `titre` propre.
   Le cockpit sert les deux côte à côte, le README pointe le premier.
 
+- **La réflexion d'un ticket sur sa fiche** (RM3089, lot L6 de RM3015) : bloc **🧠 Réflexion** —
+  questions ouvertes, décisions et conseils, fonctionnalités, notes — avec le compteur qui **annonce
+  le refus de clôture** au lieu de le laisser découvrir. Deux gestes au survol des entrées **encore
+  ouvertes** seulement (trancher, écarter) ; l'écriture passe par la route de RM3064 (D022), donc une
+  seule validation et une seule refusion des registres. Le serveur sert la réflexion avec la fiche,
+  en lecture bornée (une fiche s'ouvre souvent). En CLI, `pm-task-show` nomme les registres du projet.
+- **Notifications et demandes rattachées au ticket, et « ❓ à trancher » dans le worklog** (RM3088,
+  lot L4 de RM3015). Une notification `--ref RM<id>` dont le message ne citait pas le numéro était
+  **perdue pour le ticket** : le brief la cherchait par sous-chaîne dans son texte, jamais par sa
+  référence. Et les **demandes** n'étaient pas restituées du tout à la reprise, alors que ce sont
+  elles qui disent ce qui avait été demandé sans avoir encore de suite. Les deux sont corrigés
+  (`rattache()` : la référence d'abord, le texte en repli). Le worklog gagne un bloc **« à
+  trancher »** — les questions ouvertes des tickets de la session, comptées depuis les compteurs
+  `think:` des fiches — à côté de « à traiter », jamais fondu avec : une demande appelle une action,
+  une question un arbitrage. Un seul canal sert cet état (D021). Le cycle de vie des notifications
+  reste à RM2792 (D024).
+- **Deux sessions sur le même ticket : on le dit** (RM3086, lot L3 de RM3015). RM2818 n'alertait
+  qu'au bouton « nouvelle session » du cockpit ; une prise depuis un terminal (`pm-task-take`,
+  passage en `en_cours`) ne disait rien, et deux agents se disputaient la fiche, la branche et le
+  statut sans le savoir. Cause de fond : le lien ticket ↔ session existait en **trois exemplaires
+  qui s'ignoraient** (worklog local, jonctions locales à la machine, journal du ticket). Le registre
+  **partagé** `var/sessions` (RM2034) gagne un `tickets[]`, alimenté dès qu'une opération PM touche
+  un ticket ; `pm_concurrent` répond à « qui travaille déjà dessus » et l'avertissement est posé à la
+  prise **et** au passage en `en_cours`. Il nomme la session, sa branche et sa machine, propose de la
+  rejoindre — et **n'interdit rien** : reprendre un ticket dont la session est finie est le cas
+  normal, et une session éteinte ne déclenche jamais rien. Le cockpit lit la même source (raison
+  « jonction ») : écran et terminal disent enfin la même chose.
+- **Une question du demandeur est une QUESTION, plus une note** (RM3090, lot L1b de RM3015 ;
+  NORMS 2.34.0). La moisson ne créait de `Q` qu'à partir d'un outil de question formelle : tout ce
+  que Mathieu écrivait partait en note — y compris ses propres questions, qui n'étaient donc jamais
+  comptées dans « ce qui n'est pas tranché ». Arbitrage consigné (RM3015-D011) : **une question
+  ouverte est tout ce qui n'est pas tranché, quel qu'en soit l'auteur** ; la ligne de partage avec
+  une demande n'est pas l'auteur mais la nature — une demande appelle une action, une question un
+  arbitrage. Le critère est écrit **une fois**, dans `pm-think-classify` (RM3067, D023), et importé
+  par le hook — qui doit rendre la main tout de suite, d'où sa version sans modèle ; la passe LLM
+  reste le filet. Une question ne passe plus par le critère de la note (elle ne porte pas de dette,
+  elle porte un arbitrage en attente), et `has_text_anywhere` empêche qu'un texte reclassé se
+  retrouve dans deux rubriques.
 - **Versions de la feuille de route, et rattachement des fonctionnalités** (RM3060) : la feuille de route
   était un tableau tenu à la main, avec un « V0 (à définir) » qui n'a jamais bougé. Les versions vivent
   maintenant dans le registre et `cdc-roadmap.md` en est **généré**, comme la liste des fonctionnalités.

@@ -345,6 +345,58 @@ with tempfile.TemporaryDirectory() as tmp:
     check("cwd hors projet PM-tracké : le doute laisse passer", harv.meme_projet(fiche, tmp) is True)
     del os.environ["PM_THINK_AUTHOR"]; del os.environ["PM_THINK_HUMAN"]
 
+
+# ── RM3090 : ce que le DEMANDEUR se demande est une question, pas une note ───
+print("· classement des questions du demandeur (RM3090)")
+spec_c = importlib.util.spec_from_file_location("classify", SCRIPTS / "pm-think-classify.py")
+C = importlib.util.module_from_spec(spec_c); spec_c.loader.exec_module(C)
+
+for texte, attendu in [
+    ("est-ce que les demandes du worklog sont reliées aux questions ouvertes ?", "question"),
+    ("pourquoi la jauge affiche 99 % alors que /context dit 20 % ?", "question"),
+    ("faut-il garder le worklog ou le fusionner avec var/sessions ?", "question"),
+    ("fais un ticket pour ça", "dette"),
+    ("go 3015", "dette"),
+    ("ajoute un réglage pour masquer les commandes tmux, ce serait bien", "dette"),
+    ("mets les titres sur deux lignes, tu en penses quoi ?", "dette"),
+]:
+    check("« " + texte[:52] + "… » → " + attendu, C.type_heuristique("M", texte) == attendu,
+          C.type_heuristique("M", texte))
+check("un tour de l'AGENT n'est jamais une question du demandeur",
+      C.type_heuristique("A", "et si on faisait autrement ?") == "dette")
+
+lignes = [json.dumps({"type": "user", "message": {"content": "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"}}),
+          json.dumps({"type": "user", "message": {"content": "ok super"}}),
+          json.dumps({"type": "user", "message": {"content": "fais la MR et merge"}})]
+items = harv.harvest_items(lignes)
+check("la moisson en fait une QUESTION, signée du demandeur",
+      [(k, e.get("by")) for k, _t, e in items] == [("question", "M")], str(items))
+
+# elle ne passe PAS par le critère de la note : une question ne porte pas de dette
+check("le critère de la note l'aurait écartée — c'est bien pour ça qu'on la teste avant",
+      pm_think.note_pertinente("est-ce que les demandes du worklog sont reliées aux questions ouvertes ?")[0] is False)
+
+# reprise : pas de doublon, même si le classement change
+dossier90 = tasks.parent / "t3090"; dossier90.mkdir(exist_ok=True)
+th90 = dossier90 / "RM90_reprise.think.md"
+(dossier90 / "RM90_reprise.md").write_text("---\nredmine_id: 90\ntitle: Reprise\n---\n", encoding="utf-8")
+pm_think.append(th90, "note", "une remarque relue plus tard", rm_id=90)
+p90 = pm_think.load(th90)
+check("un texte déjà consigné en note n'est pas rajouté en question",
+      pm_think.has_text_anywhere(p90, "une remarque relue plus tard") is True)
+check("…et un texte inconnu passe", pm_think.has_text_anywhere(p90, "tout autre chose ici") is False)
+check("rejouer la moisson sur le même transcript n'ajoute rien",
+      harv.apply(th90, 90, [("question", "une remarque relue plus tard", {"by": "M"})]) == [])
+
+# le critère vit à UN endroit
+src_h = (SCRIPTS / "pm-think-harvest.py").read_text(encoding="utf-8")
+check("la moisson IMPORTE le critère, elle ne le recopie pas (D023)",
+      "pm-think-classify.py" in src_h and "_ORDRE" not in src_h and "_INTERRO" not in src_h)
+check("NORMS porte la définition arbitrée (D011) et la distinction demande / question",
+      "tout ce qui n'est pas tranché" in (SCRIPTS.parent / "norms/src/modules/session-tooling.md").read_text(encoding="utf-8"))
+
+print("✓ questions du demandeur (RM3090) : critère partagé, moisson, auteur, reprise sans doublon")
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

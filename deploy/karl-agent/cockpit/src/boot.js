@@ -436,6 +436,9 @@ terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
+  // RM3089 : trancher une entrée de réflexion depuis la fiche passe par le service CDC (D022) —
+  // une seule route d'écriture, une seule refusion du projet.
+  cdc: { thinkEdit: (body) => cdc.thinkEdit(body) },
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
   resolve: () => stores.resolve, cfg: () => CFG,

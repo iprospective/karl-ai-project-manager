@@ -113,5 +113,8 @@ export function mountCdc(el, ctx = {}) {
     if (vm.isDocLink(href)) { ev.preventDefault(); setPage("chap:" + vm.resolve(href)); state.sec = (href.split("#")[1] || "").replace(/^sec-/, "") || null; renderChapters(); }
   }
   function onQuery(q) { state.q = q; if (state.qTimer) return; state.qTimer = later(() => { state.qTimer = null; renderFeatures(); }, 200); }
-  return { open, goto, render, page: () => state.page, select: (k) => svc.select(k), current: () => svc.current, cdcs: () => svc.cdcs || [], state, svc, unmount() { h.unmount(); } };
+  // RM3089 : la fiche d'un ticket tranche ses entrées par ICI (D022) — une seule route d'écriture,
+  // une seule refusion des registres du projet.
+  return { open, goto, render, page: () => state.page, select: (k) => svc.select(k), current: () => svc.current, cdcs: () => svc.cdcs || [],
+    thinkEdit: (body) => svc.thinkEdit(body), state, svc, unmount() { h.unmount(); } };
 }

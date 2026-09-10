@@ -7,6 +7,10 @@ transcript de la session et consigne, sans geste de l'agent :
       répondues  → une décision D « question → réponse » (✅, auteur M) ; la Q ouverte homonyme passe ✅ ;
       sans réponse → une question Q (🕐) ;
   - les PROPOSITIONS et réflexions pertinentes de l'IA (non posées en question outillée) → notes N signées du modèle ;
+  - les QUESTIONS DU DEMANDEUR (RM3090) → questions Q signées de lui : une question ouverte est tout
+    ce qui n'est pas tranché, **quel qu'en soit l'auteur** (RM3015-D011). Elles ne passent PAS par le
+    critère de la note — une question n'a pas à porter une dette pour mériter d'être consignée, c'est
+    justement ce qui n'est pas encore tranché. Critère partagé avec `pm-think-classify` (RM3067, D023) ;
   - les REMARQUES de l'utilisateur qui passent le critère de la note (RM3062 : réflexion, constat, idée —
     jamais une demande immédiate, un accord, un accusé ; `pm_think.note_pertinente`) → notes N verbatim.
 Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus. Le ticket courant est résolu comme
@@ -31,6 +35,21 @@ import pm_git                                   # noqa: E402
 import pm_think                                 # noqa: E402
 from pm_paths import PMConfig                   # noqa: E402
 from pm_transcript import transcript_outline    # noqa: E402
+
+
+def _type_heuristique(role, texte):
+    """RM3090 : LE critère vit dans `pm-think-classify` (RM3067, D023) — importé, jamais recopié.
+    Un hook de fin de tour doit rendre la main tout de suite : c'est la version SANS modèle ; la
+    passe LLM (`pm-think-classify --all`) reste le filet qui complète et corrige.
+    Indisponible : tout retombe en note, comme avant."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "pm_think_classify", Path(__file__).resolve().parent / "pm-think-classify.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        return mod.type_heuristique(role, texte)
+    except Exception:      # noqa: BLE001 — la moisson ne casse jamais un tour
+        return "dette"
 
 MIN_NOTE = 20
 MAX_NOTE = 400
@@ -71,10 +90,17 @@ def harvest_items(lines) -> list:
             # ni commandes, ni enveloppes techniques, ni marqueurs d'interruption
             if len(t) < MIN_NOTE or t.startswith(("/", "<", "[")):
                 continue
-            ok, _motif = pm_think.note_pertinente(t)          # RM3062 : le critère de la note
-            if not ok:
-                continue
-            item = ("note", t[:MAX_NOTE] + ("…" if len(t) > MAX_NOTE else ""), {})
+            texte = t[:MAX_NOTE] + ("…" if len(t) > MAX_NOTE else "")
+            if _type_heuristique("M", t) == "question":
+                # RM3090 : ce que le demandeur DEMANDE est une note, ce qu'il se DEMANDE est une
+                # question. Le critère de la note (dette à faire) l'aurait écartée : une question
+                # ne porte pas de dette, elle porte un arbitrage en attente.
+                item = ("question", texte, {"by": "M"})
+            else:
+                ok, _motif = pm_think.note_pertinente(t)      # RM3062 : le critère de la note
+                if not ok:
+                    continue
+                item = ("note", texte, {})
         else:
             continue
         key = (item[0], pm_think._norm(item[1]))
@@ -111,7 +137,9 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
     added = []
     parsed = pm_think.load(think)
     for kind, text, extra in items:
-        if pm_think.has_text(parsed, kind, text):
+        # RM3090 : déjà consigné, sous CETTE rubrique ou une autre — une remarque relue plus tard
+        # comme une question ne doit pas apparaître deux fois. Reclasser reste un geste explicite.
+        if pm_think.has_text_anywhere(parsed, text):
             continue
         if dry:
             added.append(f"{kind}:{text[:60]}"); continue
@@ -123,8 +151,10 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
                         and pm_think._norm(r["cells"][1]) == pm_think._norm(extra.get("question")):
                     pm_think.set_state(think, r["id"], "valide", dest=rid)
         elif kind == "question":
-            rid = pm_think.append(think, "question", text, rm_id=rm_id, title=title, by="A", state="attente", sid=sid,
-                                  urgence="moyenne")
+            # RM3090 : l'auteur suit la provenance — une question posée PAR l'agent (AskUserQuestion)
+            # reste « A » ; une question que le demandeur se pose est de lui.
+            rid = pm_think.append(think, "question", text, rm_id=rm_id, title=title,
+                                  by=extra.get("by", "A"), state="attente", sid=sid, urgence="moyenne")
         else:
             rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by=extra.get("by", "M"), state="attente", sid=sid)
         added.append(rid)

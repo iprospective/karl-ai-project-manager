@@ -655,6 +655,18 @@ def main():
     if canon_status != args.status:
         out.warn(f"statut déprécié '{args.status}' normalisé → '{canon_status}'")
         args.status = canon_status
+    # RM3086 : prendre un ticket, c'est aussi le passer en_cours à la main — même avertissement,
+    # même source. Silencieux dans tous les autres cas.
+    if args.status == "en_cours":
+        try:
+            import pm_concurrent
+            _txt = pm_concurrent.avertissement(
+                args.rm_id, pm_concurrent.concurrentes(args.rm_id, me=os.environ.get("CLAUDE_CODE_SESSION_ID")))
+            if _txt:
+                out.warn(_txt)
+        except Exception:      # noqa: BLE001
+            pass
+
     if args.status == "ferme" and not args.close_reason:
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
     if args.close_reason and args.close_reason not in VALID_CLOSE_REASONS:

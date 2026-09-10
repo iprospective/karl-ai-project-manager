@@ -5326,7 +5326,36 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "requests_open": [dict(r, n=i + 1) for i, r
                               in enumerate(data.get("requests") or [])
                               if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
+            # RM3088 (D021) : « à trancher » — les questions ouvertes des tickets de la session,
+            # lues dans leur `.think.md`. UN seul canal : la fiche du ticket (RM3089) consomme
+            # celui-ci plutôt que d'aller relire les mêmes fichiers de son côté.
+            "questions_open": _worklog_questions(items),
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
+
+
+def _worklog_questions(items, limite: int = 20) -> list:
+    """[{ref, rm, n}] — les tickets de la session qui ont des questions non tranchées.
+
+    Le compte vient du frontmatter de la fiche (`think:`, posé par la fusion) : le lire là évite
+    d'ouvrir chaque `.think.md` à chaque tick. Une fiche sans compteur ne dit rien plutôt que zéro —
+    « aucune question » et « pas encore mesuré » ne sont pas la même chose."""
+    out = []
+    for it in (items or []):
+        ref = str((it or {}).get("ref") or "").strip()
+        m = _RM_ID_RE.match(ref[2:]) if ref[:2].upper() == "RM" else None
+        if not m:
+            continue
+        tf = _find_task_file(ref[2:])
+        if not tf:
+            continue
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8")) or {}
+        except Exception:      # noqa: BLE001
+            continue
+        n = ((fm.get("think") or {}) if isinstance(fm.get("think"), dict) else {}).get("questions_open")
+        if isinstance(n, int) and n > 0:
+            out.append({"ref": ref, "rm": ref[2:], "n": n})
+    return out[:limite]
 
 
 # ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────
@@ -5532,7 +5561,10 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
 # La troisième est la seule qui couvre une session lancée sur un slug, qui traite
 # des tickets sans qu'aucune branche ne porte leur numéro : sans elle, la fiche
 # aurait affiché « aucune session » à un ticket en cours de traitement.
-TICKET_SESSION_REASONS = ("ancrage", "registre", "worklog")
+# RM3086 : « jonction » = le registre PARTAGÉ de sessions porte ce ticket (pm_session.tickets[]).
+# C'est la source que le terminal interroge aussi (`pm_concurrent`) : écran et terminal disent enfin
+# la même chose sur « qui travaille dessus ».
+TICKET_SESSION_REASONS = ("ancrage", "jonction", "registre", "worklog")
 
 
 def _sid_sort_key(sid: str):
@@ -5574,6 +5606,8 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
                     if (m := _RM_BRANCH.match(str(b))) and m.group(1) == rm]
         worktrees = [w for w in (reg.get("worktrees") or [])
                      if (m := _RM_WORKTREE.search(str(w))) and m.group(1) == rm]
+        if rm in [str(x) for x in (reg.get("tickets") or [])]:
+            reasons.append("jonction")          # RM3086 : le registre partagé le dit explicitement
         if branches or worktrees:
             reasons.append("registre")
         if ("RM" + rm) in refs.get(sid, ()):
@@ -6325,6 +6359,9 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
                 "created": rec.get("created"),
                 "branches": rec.get("branches") or [],
                 "worktrees": rec.get("worktrees") or [],
+                # RM3086 : les tickets que la session a pris — la jonction ticket ↔ session, dans le
+                # registre PARTAGÉ. Les `tasks/*.json` de karl-agent, eux, sont locaux à la machine.
+                "tickets": [str(x) for x in (rec.get("tickets") or [])],
             }
         if s.get("is_ticket"):
             own_rms.add(s["rm_id"])  # ticket de l'onglet, même sans registre
@@ -6771,6 +6808,35 @@ def _test_protocol(tf: Path, body: str):
     return None
 
 
+def _ticket_think(task_file, limite: int = 40) -> dict:
+    """{questions, decisions, notes, features, counts} — les entrées du `.think.md` d'un ticket.
+
+    Lecture seule et bornée : la fiche s'ouvre souvent et le carnet d'un gros ticket peut être long.
+    Les états restent tels quels (valide, invalide, propose, attente, reserve) — c'est le cockpit qui
+    en fait des pastilles. Carnet absent ou illisible : {} plutôt qu'une erreur, la fiche s'ouvre."""
+    try:
+        import pm_think
+        th = pm_think.think_path(Path(task_file))
+        if not th.is_file():
+            return {}
+        parsed = pm_think.load(th)
+    except Exception:      # noqa: BLE001
+        return {}
+
+    def _rows(kind, col):
+        out = []
+        for r in (parsed.get(kind, {}).get("rows") or [])[:limite]:
+            cells = r.get("cells") or []
+            out.append({"id": r.get("id"), "text": cells[col] if col < len(cells) else "",
+                        "state": r.get("state") or "", "closed": bool(r.get("closed")),
+                        "prefix": r.get("prefix") or ""})
+        return out
+
+    return {"questions": _rows("question", 1), "decisions": _rows("decision", 1),
+            "notes": _rows("note", 2), "features": _rows("feature", 1),
+            "counts": pm_think.counters(parsed), "file": th.name}
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -6863,6 +6929,10 @@ def op_resolve(rm_id: str) -> dict:
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
         "project_docs": _project_docs(project_dir),
         "log_tail": _log_tail(tf),
+        # RM3089 : la RÉFLEXION du ticket — questions, décisions, notes, fonctionnalités, avec leur
+        # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
+        # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
+        "think": _ticket_think(tf),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.

@@ -77,6 +77,15 @@ def main():
         print(f"━━━ Réflexion ({think_path.name}) ━━━\n")
         print("\n".join(pm_think.summary(pm_think.load(think_path), limit=8)))
         print()
+    # RM3089 : où vit le distillé de ce ticket — les registres du PROJET. Les nommer ici évite de
+    # les chercher : le carnet du ticket dit le détail, le projet dit l'ensemble.
+    docs = md_path.parent.parent / "docs"
+    presents = [n for n in pm_think.PROJECT_FILES if (docs / n).is_file()]
+    if presents:
+        print("━━━ Registres du projet ━━━\n")
+        print("  " + str(docs))
+        print("  " + " · ".join(presents))
+        print()
 
     if args.fetch_redmine:
         print("━━━ Refresh Redmine (via redmine-fetch-updates.py) ━━━\n")

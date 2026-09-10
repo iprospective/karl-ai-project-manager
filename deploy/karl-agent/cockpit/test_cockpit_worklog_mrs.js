@@ -78,3 +78,21 @@ assert.ok(!/aucun ticket ouvert dans cette session/.test(head),
   "une session qui n'a QUE des MR n'est pas un worklog vide — sinon son onglet MR serait inatteignable");
 
 console.log("✓ onglet MR du worklog (RM3074) : cycle complet, groupe « à promouvoir », détail, compteur, tête allégée");
+
+// ── RM3088 : « ❓ à trancher », distinct de « 📥 à traiter » ─────────────────
+// Une DEMANDE appelle une action, une QUESTION un arbitrage (RM3015-C008) : les fondre ferait
+// perdre le sens des deux colonnes ; les séparer sans les montrer ensemble ferait perdre la vue.
+const wq = { found: true, questions_open: [{ ref: "RM3015", rm: "3015", n: 4 }, { ref: "RM99", rm: "99", n: 1 }],
+             requests_open: [{ n: 1, text: "une demande non ticketée" }], buckets: {}, docs: {} };
+const vmq = new WorklogViewModel({ data: wq, attached: true }, { ago: () => "2min" });
+assert.deepStrictEqual(vmq.questions().map(q => q.ref), ["RM3015", "RM99"]);
+const hq = String(WorklogPane(vmq, { tip: () => "", pin: () => "", linkify: (s) => s }));
+assert.ok(/❓ à trancher \(5\)/.test(hq), "le compteur additionne les questions, pas les tickets");
+assert.ok(/>1<\/span> question sans réponse/.test(hq) && />4<\/span> questions sans réponse/.test(hq),
+  "singulier et pluriel — le nombre est une pastille, la phrase s'accorde avec");
+assert.ok(hq.indexOf("à trancher") < hq.indexOf("demandes à traiter"), "à trancher AVANT à traiter : l'arbitrage débloque le reste");
+assert.ok(/data-action="ticket" data-rm="3015"/.test(hq), "le ticket est cliquable depuis le bloc");
+assert.ok(!/à trancher/.test(String(WorklogPane(new WorklogViewModel({ data: { found: true, buckets: {}, docs: {} }, attached: true }, {}), { tip: () => "", pin: () => "", linkify: (s) => s }))),
+  "aucune question ouverte : pas de bloc vide");
+
+console.log("✓ bloc « à trancher » (RM3088) : compteur, singulier/pluriel, ordre, ticket cliquable");

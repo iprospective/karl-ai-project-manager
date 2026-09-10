@@ -23,10 +23,25 @@ export function StatusMenu(vm) {
 }
 
 const muted = "color:var(--muted)";
+/** RM3089 — la réflexion du ticket sur sa fiche : les quatre rubriques, et le geste qui tranche.
+ *  Les questions d'abord : ce sont elles qui bloquent la clôture, et le chiffre l'explique AVANT
+ *  que le refus ne tombe. L'écriture passe par la route de RM3064 (D022), pas par une seconde. */
+export function ThinkPane(th) {
+  if (!th) return "";
+  const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${e.closed
+    ? html`<span style="opacity:.6;text-decoration:line-through">${e.text}</span>` : e.text}${e.open
+    ? html` <span class="thk-acts"><button class="mini" title="Trancher : validé" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="valide">✅</button><button class="mini" title="Écarter : invalidé (le motif reste au carnet)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="invalide">❌</button></span>` : ""}</div>`;
+  const bloc = (titre, rows, rub) => (rows.length
+    ? html`<div class="ms"><h4>${titre} (${String(rows.length)})</h4>${rows.map(e => ligne(e, rub))}</div>` : "");
+  const c = th.counts || {};
+  return html`<div class="ms"><h4>🧠 Réflexion <span style="${muted};font-weight:normal;font-size:12px">(${th.file})</span></h4><div style="${muted};font-size:11.5px">${String(c.questions_open || 0)} question(s) ouverte(s) · ${String(c.decisions || 0)} décision(s) · ${String(c.features || 0)} fonctionnalité(s) · ${String(c.notes_pending || 0)} note(s) à trier${th.blocking
+    ? html` — <b>la clôture est refusée tant qu'il en reste</b>` : ""}</div></div>${bloc("❓ questions", th.questions, "question")}${bloc("⚖ décisions et conseils", th.decisions, "decision")}${bloc("✳ fonctionnalités", th.features, "feature")}${bloc("📝 notes", th.notes, "note")}`;
+}
+
 export function ReviewPane(vm, { md, titleLink, mcBanner }) {
   const r = vm.r, rm = vm.rm, env = vm.env, envs = vm.environments, v = vm.version;
   return html`<div style="max-width:720px"><h3 style="margin:0 0 4px">🧪 RM${rm}${vm.found ? html` — ${raw(titleLink(rm, r.title))}` : ""}</h3>${vm.found
-    ? html`<div style="${muted};margin-bottom:6px">${r.client + "/" + r.project} · <span class="pill">${r.status || "?"}</span>${r.priority ? html` · <span class="pill">${r.priority}</span>` : ""}${TagPills(vm.tags)}${vm.q && vm.q.branch ? html` · branche <span class="pill" title="${vm.q.branch}">${vm.q.branch}</span>` : ""}${v ? html` · <span title="dernière écriture du ticket : ${v.iso}">version ${v.label}</span>` : ""} <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque" data-action="reload">↻</span></div>${vm.links.length ? html`<div style="margin-bottom:12px">${vm.links.map((l, i) => html`${i ? " · " : ""}<a href="${l.href}" target="_blank">${l.label}</a>`)}</div>` : ""}<div class="ms"><h4>Sessions</h4>${TicketSessions(vm.sessions())}</div>${vm.protocol
+    ? html`<div style="${muted};margin-bottom:6px">${r.client + "/" + r.project} · <span class="pill">${r.status || "?"}</span>${r.priority ? html` · <span class="pill">${r.priority}</span>` : ""}${TagPills(vm.tags)}${vm.q && vm.q.branch ? html` · branche <span class="pill" title="${vm.q.branch}">${vm.q.branch}</span>` : ""}${v ? html` · <span title="dernière écriture du ticket : ${v.iso}">version ${v.label}</span>` : ""} <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque" data-action="reload">↻</span></div>${vm.links.length ? html`<div style="margin-bottom:12px">${vm.links.map((l, i) => html`${i ? " · " : ""}<a href="${l.href}" target="_blank">${l.label}</a>`)}</div>` : ""}<div class="ms"><h4>Sessions</h4>${TicketSessions(vm.sessions())}</div>${ThinkPane(vm.think)}${vm.protocol
       ? html`<div class="ms"><h4>📋 Protocole de test <span style="${muted};font-weight:normal;font-size:12px">(${vm.protocol.source})</span></h4><div style="font-size:13.5px;line-height:1.5;background:rgba(127,127,127,.08);padding:10px 12px;border-radius:8px;max-height:340px;overflow:auto">${raw(md(vm.protocol.text))}</div></div>`
       : html`<div class="ms"><h4>📋 Protocole de test</h4><div style="${muted}">aucune section « À tester » dans la note de livraison ni la description — voir la description ci-dessous. (Norme RM2229 : toute livraison devrait en inclure une.)</div></div>`}${r.description
       ? html`<div class="ms"><details><summary style="cursor:pointer"><b>📝 Description du ticket</b></summary><div style="font-size:13px;line-height:1.45;margin-top:8px;max-height:380px;overflow:auto">${raw(md(r.description))}</div></details></div>` : ""}${r.log_tail

@@ -56,6 +56,25 @@ export class ReviewViewModel extends EntityViewModel {
     if (this.e.tqSize) return { kind: "outside" };
     return { kind: "loading" };
   }
+  /** RM3089 : la réflexion du ticket — les quatre rubriques, prêtes à rendre. `null` si le carnet
+   *  n'existe pas encore : une fiche sans carnet n'affiche pas un bloc vide. */
+  get think() {
+    const th = (this.r || {}).think;
+    if (!th || !th.file) return null;
+    const ICON = { valide: "✅", invalide: "❌", propose: "🟡", attente: "🕐", reserve: "⏸" };
+    const rub = (rows, titre) => (rows || []).map(r => ({
+      id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·",
+      state: String(r.state || ""), closed: !!r.closed, prefix: String(r.prefix || ""),
+      open: !r.closed && r.state !== "valide" && r.state !== "invalide", rubrique: titre }));
+    const c = th.counts || {};
+    return { file: th.file, counts: c,
+      questions: rub(th.questions, "question"), decisions: rub(th.decisions, "decision"),
+      notes: rub(th.notes, "note"), features: rub(th.features, "feature"),
+      openQuestions: rub(th.questions, "question").filter(q => q.open).length,
+      // c'est ce chiffre qui explique le refus de clôture AVANT qu'il ne tombe
+      blocking: (c.questions_open || 0) + (c.notes_pending || 0) };
+  }
+
   get environments() { const r = this.r || {}; return this.found ? { test_url: r.test_url || "", list: (r.environments || []).filter(e => e.url) } : null; }
   get verdicts() { return ticketVerdicts(String((this.found && this.r.status) || "").toLowerCase(), this.e.cfg); }
   get pmActions() { return ((this.e.cfg || {}).actions || []).filter(a => a.ticket_only).map((a, i) => ({ i, label: a.label, title: String(a.text || "").replaceAll("{id}", this.rm) })); }

@@ -142,6 +142,37 @@ def _record(field, entry):
     return _locked(add)
 
 
+def record_ticket(rm_id):
+    """RM3086 — enregistre qu'un ticket est travaillé par la session courante.
+
+    Le lien ticket ↔ session existait en TROIS exemplaires qui s'ignoraient (inventaire RM3015) :
+    `worklog.items[].ref` (hors git, maille session), les jonctions `karl-agent/tasks/*.json`
+    (locales à la machine, jamais partagées) et le `.log.md` (versionné, maille ticket). Aucun ne
+    connaissait les deux autres, si bien que « qui travaille sur ce ticket ? » n'avait pas de
+    réponse fiable — et qu'une seconde session s'ouvrait sur un ticket déjà pris sans un mot.
+
+    Ce registre-ci est celui qui survit (D020) : partagé, sous verrou, dans le repo. No-op hors session."""
+    try:
+        rid = int(str(rm_id).lstrip("Rm").lstrip("M") or 0)
+    except (TypeError, ValueError):
+        return None
+    return _record("tickets", rid) if rid else None
+
+
+def sessions_of_ticket(rm_id, idx=None) -> list:
+    """[{seq, claude_session_id, machine, branches, worktrees}] des sessions qui ont travaillé ce
+    ticket, la plus récente d'abord. Pure vis-à-vis du registre passé (testable sans disque)."""
+    try:
+        rid = int(str(rm_id).lstrip("Rm").lstrip("M"))
+    except (TypeError, ValueError):
+        return []
+    idx = all_records() if idx is None else idx
+    out = [dict(rec, seq=int(s)) for s, rec in (idx or {}).items()
+           if rid in [int(x) for x in (rec.get("tickets") or []) if str(x).isdigit()]]
+    out.sort(key=lambda r: r.get("seq", 0), reverse=True)
+    return out
+
+
 def record_branch(branch: str):
     """Enregistre une branche créée par la session courante. No-op hors session."""
     return _record("branches", branch)

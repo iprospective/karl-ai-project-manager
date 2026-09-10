@@ -11,8 +11,20 @@ permettent d'en changer.
   pour trier, second clic pour inverser ; filtre texte (libellé, domaine, état, `RM…`) ; un ticket ouvre sa fiche.
 - **CDC vivant et chapitres** : chaque chapitre est un onglet ; les liens entre chapitres et les ancres `D012` /
   `Q003` naviguent dans la page ; un `RM1234` dans le texte ouvre la fiche.
-- **Roadmap** : le chapitre `cdc-roadmap.md` — une **version = un rôle** (ce qu'elle doit permettre, critère de
-  passage), jamais une copie des fonctionnalités ; la version est une **colonne** de la table (`version` par entrée).
+- **Feuille de route** : le chapitre `cdc-roadmap.md`, **généré** — une **version = une étape de travail**
+  (ce qu'elle doit permettre, et à quoi on sait qu'elle est passée), jamais une copie des fonctionnalités ;
+  la version est une **colonne** de la table.
+
+### Ajouter une version, y rattacher des fonctionnalités
+
+Sur l'onglet **Feuille de route**, un formulaire crée une version : un identifiant (V1, V2…), son rôle, son
+critère de passage, son état. Nommer une version qui existe déjà la complète plutôt que de la dupliquer.
+« Retirer » l'enlève du registre et **détache** les fonctionnalités qui la portaient, sans en supprimer aucune.
+
+Le rattachement se fait dans l'autre onglet : **Fonctionnalités**, colonne *Version*, un sélecteur par ligne.
+La feuille de route affiche alors, par version, combien de fonctionnalités sont livrées sur le total, puis la
+liste. Les fonctionnalités en cours ou prévues qui ne sont rattachées à rien apparaissent sous « Sans version » :
+c'est ce qui reste à placer.
 
 Dans la colonne de droite, l'onglet **📂 projets** liste les projets touchés par la session attachée avec
 leurs raccourcis : fiche, fichiers, et les mêmes onglets que le panneau pour chaque CDC vivant.

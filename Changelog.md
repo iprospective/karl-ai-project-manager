@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Versions de la feuille de route, et rattachement des fonctionnalités** (RM3060) : la feuille de route
+  était un tableau tenu à la main, avec un « V0 (à définir) » qui n'a jamais bougé. Les versions vivent
+  maintenant dans le registre et `cdc-roadmap.md` en est **généré**, comme la liste des fonctionnalités.
+  Une version est une **étape de travail** — un rôle, un critère de passage — jamais une copie de la liste :
+  les fonctionnalités s'y rattachent par une colonne. Depuis le cockpit, l'onglet Feuille de route crée et
+  retire les versions, la colonne Version de l'onglet Fonctionnalités y rattache une ligne. En ligne de
+  commande : `--add-version`, `--set-version`, `--drop-version`. `pm-cdc-features --check` couvre désormais
+  la feuille de route. Retirer une version détache les fonctionnalités, n'en supprime aucune. Cockpit 3.12.0.
+
 - **Onglets et sections dans les réglages** (RM3081) : dix cartes s'empilaient en une seule colonne, sans
   hiérarchie — on y cherchait un réglage en faisant défiler. Cinq onglets à plat, comme le menu CDC :
   Instance, Fournisseurs, Moteurs, Affichage, Compte. Chaque carte reste une section avec son titre ; un

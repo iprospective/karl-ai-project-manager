@@ -24,6 +24,7 @@ TARGET_TO_CURRENT = {
     "/api/doc/cdc-feature": "/cdc/feature",
     "/api/doc/cdc-features": "/cdc-features",
     "/api/doc/cdc-think": "/cdc/think",
+    "/api/doc/cdc-version": "/cdc/version",
     "/api/env/env-check": "/env-check",
     "/api/env/env-status": "/env-status",
     "/api/env/ssh-add": "/vault/ssh-add",

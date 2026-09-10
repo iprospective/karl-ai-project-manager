@@ -21,6 +21,14 @@ Champs optionnels par entrée : `version` (V0, V1… — RM3015-D018 : la versio
 version ; `--assign-version <V> [--etat livré]` la pose en masse sur les entrées qui n'en ont pas), `jalon` (entier, forme AtomBox),
 `tickets` (liste d'ids couverts par une entrée curée — `--sync` ne les rajoute pas), `manuel: true`.
 
+**Versions (RM3060)** — une version est une ÉTAPE DE TRAVAIL, pas une liste de fonctionnalités : elle porte un
+rôle (ce qu'elle doit permettre) et un critère de passage. Elles vivent dans `versions` du même registre, et
+`cdc-roadmap.md` en est GÉNÉRÉ, comme `cdc-features.md` l'est des entrées — deux vues, une donnée.
+
+  --add-version V1 --role "…" [--critere "…"] [--etat-version prévu]   crée ou complète une version
+  --set-version F001 V1          rattache une fonctionnalité à une version (`--set-version F001 -` la détache)
+  --drop-version V1              retire la version du registre ET des entrées qui la portaient
+
 États (dérivés du statut du ticket) : livré (fermé résolu) · en cours (en_cours, tests, MEP,
 a_corriger) · prévu (a_faire, étude) · en pause · écarté (fermé autre raison).
 """
@@ -55,6 +63,9 @@ DEFAULT_DOMAINES = [
 ]
 AUTRE = "Autre"
 ETATS_MANUELS = ("prévu", "en cours", "en pause", "écarté", "livré")
+#: une version a les mêmes états qu'une fonctionnalité — c'est une étape de travail, elle avance pareil
+ETATS_VERSION = ETATS_MANUELS
+_VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
 ACTIFS = {"en_cours", "a_tester_dev", "a_tester_demandeur", "a_tester_verifier", "a_tester_preprod", "a_mep", "en_mep", "a_corriger"}
 PREVUS = {"a_faire", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider"}
 FM_RE = re.compile(r"\A---\n(.*?)\n---", re.S)
@@ -145,6 +156,111 @@ def sync(reg, tickets):
         if e != avant:
             modif.append(e)
     return ajout, modif
+
+
+def versions_de(reg) -> list:
+    """Les versions déclarées, dans l'ordre du registre. Une version absente du registre mais portée par
+    une entrée est rendue quand même : mieux vaut une roadmap complète qu'une roadmap juste."""
+    decl = [v for v in (reg.get("versions") or []) if isinstance(v, dict) and v.get("id")]
+    connus = {v["id"] for v in decl}
+    orphelines = sorted({str(e.get("version")) for e in reg.get("entrees", [])
+                         if e.get("version") and str(e["version"]) not in connus})
+    return decl + [{"id": v, "role": "", "etat": "", "critere": "", "orpheline": True} for v in orphelines]
+
+
+def ajoute_version(reg, vid, role=None, critere=None, etat=None) -> bool:
+    """Crée la version ou complète ce qui est donné. Rend True si elle a été créée."""
+    if not _VERSION_RE.match(vid or ""):
+        raise ValueError(f"identifiant de version invalide : {vid!r}")
+    if etat and etat not in ETATS_VERSION:
+        raise ValueError(f"état inconnu « {etat} » — admis : {', '.join(ETATS_VERSION)}")
+    reg.setdefault("versions", [])
+    v = next((x for x in reg["versions"] if isinstance(x, dict) and x.get("id") == vid), None)
+    neuve = v is None
+    if neuve:
+        v = {"id": vid, "role": "", "etat": "prévu", "critere": ""}
+        reg["versions"].append(v)
+    if role is not None:
+        v["role"] = role
+    if critere is not None:
+        v["critere"] = critere
+    if etat:
+        v["etat"] = etat
+    return neuve
+
+
+def rattache(reg, fid, vid) -> dict:
+    """Rattache une fonctionnalité à une version (vid `-` ou vide : la détache). Rend l'entrée."""
+    e = next((x for x in reg.get("entrees", []) if x.get("id") == fid), None)
+    if not e:
+        raise KeyError(f"entrée {fid} introuvable")
+    if vid in (None, "", "-"):
+        e.pop("version", None)
+        return e
+    if not _VERSION_RE.match(vid):
+        raise ValueError(f"identifiant de version invalide : {vid!r}")
+    e["version"] = vid
+    return e
+
+
+def retire_version(reg, vid) -> int:
+    """Retire la version du registre et de toutes les entrées. Rend le nombre d'entrées détachées."""
+    reg["versions"] = [v for v in (reg.get("versions") or []) if not (isinstance(v, dict) and v.get("id") == vid)]
+    n = 0
+    for e in reg.get("entrees", []):
+        if str(e.get("version") or "") == vid:
+            e.pop("version", None); n += 1
+    return n
+
+
+def roadmap_name(reg):
+    return "cdc-roadmap.md" if reg_dir_name(reg) == "cdc" else f"cdc-{reg['prefix']}-roadmap.md"
+
+
+def build_roadmap(reg) -> str:
+    """La feuille de route : une ligne par version, son rôle, son état, son critère de passage, et
+    COMBIEN de fonctionnalités s'y rattachent — le lien entre les deux vues, sans les recopier."""
+    vers = versions_de(reg)
+    ents = reg.get("entrees", [])
+    par_v = {}
+    for e in ents:
+        v = str(e.get("version") or (f"V{e['jalon']}" if e.get("jalon") is not None else ""))
+        if v:
+            par_v.setdefault(v, []).append(e)
+    rd = reg_dir_name(reg)
+    L = [f"# Feuille de route — projet `{reg['projet']}`", "",
+         f"> **Généré** par `pm-cdc-features --build` depuis [`{rd}/fonctionnalites.yml`]({rd}/fonctionnalites.yml) — ne pas éditer ici.",
+         "> Une version est une **étape de travail** : ce qu'elle doit permettre, et à quoi on sait qu'elle est passée.",
+         "> La liste des fonctionnalités, elle, vit dans [cdc-features.md](cdc-features.md) : la version y est une **colonne**.", ""]
+    if not vers:
+        L += ["_Aucune version déclarée._ En ajouter une : `pm-cdc-features --add-version V1 --role \"…\" --build`,",
+              "ou depuis le cockpit, onglet CDC → Feuille de route.", ""]
+        return "\n".join(L)
+    L += ["| Version | Rôle | État | Fonctionnalités | Critère de passage |", "|---|---|---|---|---|"]
+    for v in vers:
+        rows = par_v.get(v["id"], [])
+        livres = sum(1 for e in rows if e.get("etat") == "livré")
+        compte = f"{livres}/{len(rows)}" if rows else "—"
+        role = (v.get("role") or "").replace("|", "/") or ("_(version portée par des fonctionnalités, non déclarée)_" if v.get("orpheline") else "_(à définir)_")
+        L.append(f"| {v['id']} | {role} | {v.get('etat') or '—'} | {compte} | {(v.get('critere') or '').replace('|', '/')} |")
+    L.append("")
+    for v in vers:
+        rows = par_v.get(v["id"], [])
+        if not rows:
+            continue
+        L += [f"## {v['id']} — {(v.get('role') or 'sans rôle défini')} ({len(rows)})", ""]
+        for e in sorted(rows, key=lambda x: x.get("id") or ""):
+            tk = f" · RM{e['rm']}" if e.get("rm") else ""
+            L.append(f"- **{e['id']}** {e['libelle'].replace('|', '/')}{tk} — {e.get('etat') or ''}")
+        L.append("")
+    sans = [e for e in ents if not e.get("version") and e.get("jalon") is None and e.get("etat") in ("prévu", "en cours")]
+    if sans:
+        L += [f"## Sans version ({len(sans)})", "",
+              "_Ces fonctionnalités sont en cours ou prévues et ne sont rattachées à aucune étape._", ""]
+        for e in sorted(sans, key=lambda x: x.get("id") or ""):
+            L.append(f"- {e['id']} {e['libelle'].replace('|', '/')} — {e.get('etat') or ''}")
+        L.append("")
+    return "\n".join(L).rstrip() + "\n"
 
 
 def dump(reg):
@@ -245,6 +361,12 @@ def main():
     ap.add_argument("--assign-version", metavar="V", help="pose cette version sur les entrées qui n'en ont pas (filtre --etat)")
     ap.add_argument("--set-etat", nargs=2, metavar=("ID", "ETAT"), help="pose l'état d'une entrée (prévu · en cours · en pause · écarté · livré) et la fige en manuel (RM3064)")
     ap.add_argument("--etat", help="avec --assign-version : seulement les entrées de cet état (ex. livré)")
+    ap.add_argument("--add-version", metavar="V", help="crée ou complète une version (RM3060)")
+    ap.add_argument("--role", help="avec --add-version : ce que la version doit permettre")
+    ap.add_argument("--critere", help="avec --add-version : à quoi on sait qu'elle est passée")
+    ap.add_argument("--etat-version", help="avec --add-version : " + " · ".join(ETATS_VERSION))
+    ap.add_argument("--set-version", nargs=2, metavar=("ID", "V"), help="rattache une fonctionnalité à une version (« - » : détache)")
+    ap.add_argument("--drop-version", metavar="V", help="retire une version du registre et des entrées")
     a = ap.parse_args()
     docs, tasks, projet = resoudre(a)
     regs = sorted(docs.glob("cdc/fonctionnalites.yml")) + sorted(docs.glob("cdc-*/fonctionnalites.yml"))
@@ -265,9 +387,12 @@ def main():
     if a.check:
         avant = dump(reg); sync(reg, lire_tickets(tasks)); apres = dump(reg)   # un registre curé (--no-sync) reste stable : ses tickets sont couverts
         ok_reg = avant == apres; ok_chap = chap.exists() and chap.read_text(encoding="utf-8") == compose(reg, chap)
+        road = docs / roadmap_name(reg)
+        ok_road = road.exists() and road.read_text(encoding="utf-8") == build_roadmap(reg)
         print(f"{'✓' if ok_reg else '✗'} registre à jour ({reg_path.name}, {len(reg['entrees'])} entrées)")
         print(f"{'✓' if ok_chap else '✗'} chapitre à jour ({chap.name})")
-        if not (ok_reg and ok_chap):
+        print(f"{'✓' if ok_road else '✗'} feuille de route à jour ({road.name}, {len(versions_de(reg))} version(s))")
+        if not (ok_reg and ok_chap and ok_road):
             print("  → pm-cdc-features --sync --build"); sys.exit(1)
         return
     if a.set_etat:
@@ -279,6 +404,34 @@ def main():
             sys.exit(f"entrée {fid} introuvable dans {reg_path}")
         e["etat"] = etat; e["manuel"] = True
         reg_path.write_text(dump(reg), encoding="utf-8"); print(f"✓ {fid} → {etat} (entrée figée : manuel)")
+        if not a.build:
+            return
+    if a.add_version:
+        try:
+            neuve = ajoute_version(reg, a.add_version, a.role, a.critere, a.etat_version)
+        except ValueError as e:
+            sys.exit(f"ERREUR : {e}")
+        reg_path.write_text(dump(reg), encoding="utf-8")
+        print(f"✓ version {a.add_version} {'créée' if neuve else 'mise à jour'}")
+        if not a.build:
+            return
+    if a.set_version:
+        fid, vid = a.set_version
+        try:
+            e = rattache(reg, fid, vid)
+        except (KeyError, ValueError) as err:
+            sys.exit(f"ERREUR : {err}")
+        if vid not in (None, "", "-") and not any(v.get("id") == vid for v in (reg.get("versions") or [])):
+            ajoute_version(reg, vid)          # rattacher à une version inconnue la déclare : sinon elle serait invisible
+            print(f"  · version {vid} déclarée au passage")
+        reg_path.write_text(dump(reg), encoding="utf-8")
+        print(f"✓ {fid} → " + (f"version {vid}" if vid not in (None, "", "-") else "sans version"))
+        if not a.build:
+            return
+    if a.drop_version:
+        n = retire_version(reg, a.drop_version)
+        reg_path.write_text(dump(reg), encoding="utf-8")
+        print(f"✓ version {a.drop_version} retirée ({n} entrée(s) détachée(s))")
         if not a.build:
             return
     if a.assign_version:
@@ -296,7 +449,10 @@ def main():
     if a.build:
         chap.write_text(compose(reg, chap), encoding="utf-8")
         print(f"✓ chapitre {chap.name} régénéré ({len(reg['entrees'])} lignes)")
-    if not (a.init or a.sync or a.build):
+        road = docs / roadmap_name(reg)
+        road.write_text(build_roadmap(reg), encoding="utf-8")
+        print(f"✓ feuille de route {road.name} régénérée ({len(versions_de(reg))} version(s))")
+    if not (a.init or a.sync or a.build or a.add_version or a.set_version or a.drop_version):
         ap.print_help()
 
 

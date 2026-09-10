@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Tests RM3043 — pm-cdc-features : init/sync/build/check sur un jeu de tickets temporaire (états, ids stables, manuel, bugfix, check rouge/vert)."""
+"""Tests RM3043 — pm-cdc-features : init/sync/build/check sur un jeu de tickets temporaire (états, ids stables,
+manuel, bugfix, check rouge/vert). RM3060 : les VERSIONS — une étape de travail, son rôle, son critère de
+passage, et les fonctionnalités qui s'y rattachent ; la feuille de route en est générée."""
 import importlib.util
 import pathlib
 import subprocess
@@ -75,5 +77,50 @@ with tempfile.TemporaryDirectory() as tmp:
     chap5 = (docs2 / "cdc-k-10-fonctionnalites.md").read_text()
     check("chapitre : colonne Version (jalon AtomBox rendu V<n>, version telle quelle)", "| Version |" in chap5 and "| V1 | livré |" in chap5)
     check("check vert après assignation", run2("--check").returncode == 0)
+    # ── RM3060 : les versions ──────────────────────────────────────────────
+    print("\n[RM3060] versions : des étapes de travail, pas une copie des fonctionnalités")
+    r = run("--add-version", "V0", "--role", "alpha : ça tourne pour un dev", "--critere", "utilisable au quotidien", "--etat-version", "en cours")
+    reg = M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())
+    v0 = next((v for v in (reg.get("versions") or []) if v["id"] == "V0"), None)
+    check("une version se crée avec son rôle, son critère et son état",
+          r.returncode == 0 and v0 and v0["role"].startswith("alpha") and v0["critere"] and v0["etat"] == "en cours", r.stdout + r.stderr)
+    r = run("--add-version", "V0", "--role", "alpha, reformulé")
+    reg = M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())
+    v0 = next(v for v in reg["versions"] if v["id"] == "V0")
+    check("la recréer la complète sans rien perdre", v0["role"] == "alpha, reformulé" and v0["critere"] and v0["etat"] == "en cours")
+    check("un identifiant de version douteux est refusé", run("--add-version", "V1 ; rm -rf /").returncode != 0)
+
+    fid = reg["entrees"][0]["id"]
+    r = run("--set-version", fid, "V0", "--build")
+    reg = M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())
+    check("une fonctionnalité se rattache à une version",
+          r.returncode == 0 and next(e for e in reg["entrees"] if e["id"] == fid).get("version") == "V0", r.stdout + r.stderr)
+    road = docs / "cdc-t-roadmap.md"
+    txt = road.read_text(encoding="utf-8") if road.is_file() else ""
+    check("la feuille de route est GÉNÉRÉE, pas tenue à la main", road.is_file() and "Généré" in txt)
+    check("elle montre le rôle, l'état et le critère de passage", "alpha, reformulé" in txt and "utilisable au quotidien" in txt)
+    check("elle compte les fonctionnalités rattachées, sans les recopier en tête", "| 0/1 |" in txt or "| 1/1 |" in txt)
+    check("et les liste sous leur version", f"**{fid}**" in txt)
+    check("les fonctionnalités en cours sans version sont signalées", "Sans version" in txt)
+
+    r = run("--set-version", fid, "-", "--build")
+    reg = M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())
+    check("on peut la détacher", r.returncode == 0 and "version" not in next(e for e in reg["entrees"] if e["id"] == fid))
+    check("rattacher à une version inconnue la déclare au passage",
+          run("--set-version", fid, "V9").returncode == 0
+          and any(v["id"] == "V9" for v in M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())["versions"]))
+    check("une entrée inconnue est refusée", run("--set-version", "F999", "V0").returncode != 0)
+
+    r = run("--drop-version", "V9", "--build")
+    reg = M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())
+    check("retirer une version la retire aussi des entrées, sans supprimer aucune fonctionnalité",
+          r.returncode == 0 and not any(v["id"] == "V9" for v in reg["versions"])
+          and not any(e.get("version") == "V9" for e in reg["entrees"])
+          and len(reg["entrees"]) == len(M.yaml.safe_load((docs / "cdc-t/fonctionnalites.yml").read_text())["entrees"]))
+    check("--check couvre désormais la feuille de route", "feuille de route" in run("--check").stdout)
+    road.write_text("édité à la main\n", encoding="utf-8")
+    check("une feuille de route éditée à la main rend --check rouge", run("--check").returncode != 0)
+    check("et --build la remet d'aplomb", run("--build").returncode == 0 and run("--check").returncode == 0)
+
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — pm-cdc-features"))
 sys.exit(1 if fails else 0)

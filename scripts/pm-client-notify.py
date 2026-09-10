@@ -124,6 +124,7 @@ def _queued_tickets(cfg, project_dir, with_protocol=True):
             # quand le protocole est trop interne.
             "protocol": (fm.get("test_protocol") or "") if with_protocol else "",
             "queued_at": pcn.queue_state(fm)[0],
+            "creator": fm.get("creator") or "",      # RM3092 : prévenir aussi le demandeur
         })
     return out
 
@@ -388,6 +389,47 @@ def _proto_override(args):
     return None
 
 
+def _demandeurs_de(cfg, args, rows):
+    """Les envois « demandeur » réclamés par la ligne de commande (--demandeur/--demandeurs)."""
+    if getattr(args, "demandeurs", False):
+        return _requester_mails(cfg, rows)
+    dem = getattr(args, "demandeur", None)
+    if dem:
+        return _requester_mails(cfg, rows, dem)
+    return [], []
+
+
+def _requester_mails(cfg, rows, only_rm=None):
+    """Les envois à faire aux DEMANDEURS : un par personne, avec SES tickets seulement.
+
+    `only_rm` restreint aux tickets dont le demandeur a été coché (le panneau coche ligne
+    par ligne). Un demandeur non résolu ou ambigu n'est pas deviné : il ressort dans
+    `problemes`, à signaler.
+
+    @return (envois, problemes) — envois = [{ref, emails, tickets}], problemes = [texte]
+    """
+    ann = _annuaire(cfg)
+    want = {str(x) for x in (only_rm or [])} if only_rm else None
+    tickets = [t for r in rows for t in r["tickets"]
+               if want is None or str(t["id"]) in want]
+    envois, problemes, par_ref = [], [], {}
+    for creator, lot in pcn.group_by_requester(tickets):
+        info = pcn.resolve_requester(ann, creator)
+        if info["ambiguous"]:
+            problemes.append(f"demandeur « {creator} » ambigu dans l'annuaire — non prévenu")
+            continue
+        if not info["found"]:
+            problemes.append(f"demandeur « {creator or '(vide)'} » sans email connu — non prévenu")
+            continue
+        ref = info["ref"]
+        if ref in par_ref:                      # deux `creator` menant à la même fiche
+            par_ref[ref]["tickets"].extend(lot)
+            continue
+        par_ref[ref] = {"ref": ref, "emails": info["emails"], "tickets": list(lot)}
+        envois.append(par_ref[ref])
+    return envois, problemes
+
+
 def _fail(args, msg):
     """Échec exploitable par l'appelant : en `--json` le message voyage DANS la sortie
     (le panneau l'affiche), sinon sur stderr. Code de retour 1 dans les deux cas."""
@@ -407,9 +449,14 @@ def cmd_preview(cfg, args):
     rows, subject, body, emails, orphans, html = _render_selection(
         cfg, entity, project, getattr(args, "rm", None), _proto_override(args))
     n = sum(len(r["tickets"]) for r in rows)
+    dem_envois, dem_pbs = _demandeurs_de(cfg, args, rows)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "to": emails, "subject": subject, "body": body,
-                          "html": html, "count": n, "orphans": orphans}, ensure_ascii=False))
+                          "html": html, "count": n, "orphans": orphans,
+                          "requesters": [{"ref": e["ref"], "emails": e["emails"],
+                                          "rm": [t["id"] for t in e["tickets"]]}
+                                         for e in dem_envois],
+                          "requester_problems": dem_pbs}, ensure_ascii=False))
         return
     if not n:
         print(f"  {label} : file vide — rien à envoyer.")
@@ -418,8 +465,39 @@ def cmd_preview(cfg, args):
         print(f"  ⚠ ref(s) d'annuaire inconnue(s), ignorée(s) : {', '.join(orphans)}", file=sys.stderr)
     print(f"— À : {', '.join(emails) or '(aucun destinataire résolu)'}")
     print(f"— Sujet : {subject}")
+    for e in dem_envois:
+        print("— Et au demandeur {} ({}) : {} ticket(s) — {}".format(
+            e["ref"], ", ".join(e["emails"]), len(e["tickets"]),
+            ", ".join("RM" + str(t["id"]) for t in e["tickets"])))
+    for pb in dem_pbs:
+        print(f"  ⚠ {pb}", file=sys.stderr)
     print("— Corps :\n")
     print(body)
+
+
+def _envoyer(subject, body, html, emails, dry_run=False, capture=False):
+    """Un envoi via karl-mail-send. Rend (code_retour, stderr)."""
+    cmd = [sys.executable, str(HERE / "karl-mail-send.py"), "--subject", subject, "--body", "-"]
+    for e in emails:
+        cmd += ["--to", e]
+    if dry_run:
+        cmd.append("--dry-run")
+    tmp = None
+    if html:
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="pm-client-notify-", suffix=".html")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        cmd += ["--html-file", tmp]
+    try:
+        r = subprocess.run(cmd, input=body, text=True, capture_output=capture)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return r.returncode, (getattr(r, "stderr", "") or "")
 
 
 def cmd_send(cfg, args):
@@ -463,8 +541,31 @@ def cmd_send(cfg, args):
                 pass
     if r.returncode != 0:
         return _fail(args, f"envoi échoué (exit {r.returncode}) {((r.stderr or '')[-300:]) if getattr(args, 'json', False) else ''}".strip())
+    # RM3092 — puis UN email par demandeur, ne contenant que SES tickets : un demandeur
+    # n'a pas à découvrir ce qui a été livré pour les autres. Les destinataires déjà
+    # servis par le compte-rendu principal sont retirés — pas deux fois le même message.
+    dem_envois, dem_pbs = _demandeurs_de(cfg, args, rows)
+    for pb in dem_pbs:
+        print(f"  ⚠ {pb}", file=sys.stderr)
+    dem_sent = []
+    label_client = _client_label(cfg, entity)
+    for env in dem_envois:
+        cibles = [e for e in env["emails"] if e not in emails]
+        if not cibles:
+            continue                        # déjà destinataire du compte-rendu principal
+        d_subject, d_body = pcn.compose_client_email(label_client, [{"project": label, "tickets": env["tickets"]}])
+        _, d_html = pcn.compose_client_email_html(label_client, [{"project": label, "tickets": env["tickets"]}])
+        rc, err = _envoyer(d_subject, d_body, d_html, cibles, args.dry_run, bool(getattr(args, "json", False)))
+        if rc != 0:
+            print(f"  ⚠ envoi au demandeur {env['ref']} échoué (exit {rc}) {err[-200:]}".strip(), file=sys.stderr)
+            continue
+        dem_sent.extend(cibles)
+        print("✓ demandeur {} prévenu ({}) — {} ticket(s)".format(
+            env["ref"], ", ".join(cibles), len(env["tickets"])))
+
     if not args.dry_run:
-        _mark_all_sent(tickets, datetime.now().strftime("%Y-%m-%dT%H:%M"), emails)   # RM3052 : + sent_to
+        _mark_all_sent(tickets, datetime.now().strftime("%Y-%m-%dT%H:%M"),
+                       emails + [e for e in dem_sent if e not in emails])   # RM3052/3092 : sent_to = TOUS
         pm_git.autocommit([t["path"] for t in tickets],
                           f"pm(notif): {label} {len(tickets)} ticket(s) notifiés client (RM3026)")
     if getattr(args, "json", False):
@@ -645,6 +746,12 @@ def main():
         if name == "test":
             q.add_argument("--to", action="append", metavar="EMAIL", required=True,
                            help="destinataire du test (répétable)")
+        if name in ("preview", "send"):
+            # RM3092 : prévenir aussi le DEMANDEUR du ticket, au choix ticket par ticket
+            q.add_argument("--demandeur", action="append", metavar="ID",
+                           help="prévenir aussi le demandeur de CE ticket (répétable)")
+            q.add_argument("--demandeurs", action="store_true",
+                           help="prévenir les demandeurs de TOUS les tickets de la sélection")
         if name in ("preview", "send", "dismiss", "queue", "test"):
             # RM3052 : le panneau n'agit QUE sur les cases cochées — la sélection peut couvrir
             # plusieurs projets du même client (périmètre `entity`).

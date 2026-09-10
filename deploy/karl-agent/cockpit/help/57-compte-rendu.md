@@ -43,6 +43,18 @@ envoi ; ton choix est mémorisé dans ce navigateur. Le défaut vient du projet
 Quand la sélection couvre plusieurs projets, le corps est **groupé par projet** ; sur
 un seul projet, aucun intitulé d'organisation interne n'apparaît.
 
+## Prévenir aussi le demandeur
+
+Chaque ligne porte une case **« demandeur »** : cochée, la personne qui a demandé le ticket
+reçoit **son propre email**, ne contenant **que ses tickets** — elle n'a pas à découvrir ce
+qui a été livré pour les autres. La case **« prévenir les demandeurs »**, en haut, les coche
+toutes d'un coup.
+
+Le demandeur est résolu depuis l'annuaire à partir du `creator` du ticket. Si son nom est
+introuvable, ou s'il correspond à **plusieurs** fiches, il n'est **pas** prévenu et
+l'écran le dit : on n'écrit pas à quelqu'un dont on n'est pas sûr. Un demandeur déjà
+destinataire du compte-rendu ne reçoit pas deux fois le même message.
+
 ## Se relire avant d'écrire au client
 
 Le bloc **Test d'envoi**, sous les boutons, envoie **le même compte-rendu** à une adresse

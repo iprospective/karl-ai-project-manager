@@ -15,7 +15,7 @@ export class ClientMenuViewModel extends EntityViewModel {
 
 /** e = { client: <fiche client de la file>, sel: Set, protocole, preview, busy, confirm } */
 export class ClientReportViewModel extends EntityViewModel {
-  constructor(e, ctx) { super(e || {}, ctx); this.sel = this.e.sel || new Set(); }
+  constructor(e, ctx) { super(e || {}, ctx); this.sel = this.e.sel || new Set(); this.dem = this.e.dem || new Set(); }
   get client() { return this.e.client || null; }
   get label() { return this.client ? (this.client.label || this.client.client) : ""; }
   get empty() { return !this.client || !this.groups.length; }
@@ -25,6 +25,7 @@ export class ClientReportViewModel extends EntityViewModel {
       tickets: (p.tickets || []).map(t => ({
         id: String(t.id), title: t.title || "", url: t.url || "",
         queued_at: t.queued_at || "", on: this.sel.has(String(t.id)),
+        dem: this.dem.has(String(t.id)),        // RM3092 : prévenir aussi son demandeur
       })),
     }));
   }
@@ -33,6 +34,9 @@ export class ClientReportViewModel extends EntityViewModel {
   get count() { return this.groups.reduce((n, g) => n + g.tickets.filter(t => t.on).length, 0); }
   get total() { return this.groups.reduce((n, g) => n + g.tickets.length, 0); }
   get allOn() { return this.total > 0 && this.count === this.total; }
+  /** RM3092 — combien de demandeurs seront prévenus, parmi les tickets RÉELLEMENT cochés. */
+  get demCount() { return this.groups.reduce((n, g) => n + g.tickets.filter(t => t.on && t.dem).length, 0); }
+  get allDemOn() { return this.count > 0 && this.demCount === this.count; }
   get recipients() { return ((this.client || {}).recipients) || []; }
   get orphans() { return ((this.client || {}).orphans) || []; }
   get protocole() { return this.e.protocole !== false; }

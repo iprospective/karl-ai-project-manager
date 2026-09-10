@@ -158,6 +158,67 @@ def recipient_emails(recipients):
     return out
 
 
+# ── Le DEMANDEUR du ticket (RM3092) ──────────────────────────────────────────
+def resolve_requester(annuaire, creator):
+    """Le demandeur d'un ticket, depuis son `creator`, résolu dans l'annuaire.
+
+    `creator` porte un identifiant court (`sandrine`, `mathieu`, `yann`) là où l'annuaire
+    porte des refs (`sandrine-roche-pizzo`, `yann-dercya`). On accepte donc trois
+    correspondances, de la plus sûre à la moins sûre :
+      1. la ref exacte ;
+      2. le premier segment de la ref (`sandrine-roche-pizzo` → `sandrine`) ;
+      3. le prénom.
+    **Une correspondance MULTIPLE n'est pas une correspondance** : deux Sandrine, et on ne
+    sait pas laquelle prévenir — on rend `ambiguous`, on ne tire pas au sort. Un email
+    envoyé à la mauvaise personne ne se rattrape pas.
+
+    @return {creator, ref|None, emails:[], found:bool, ambiguous:bool}
+    """
+    out = {"creator": creator or "", "ref": None, "emails": [], "found": False, "ambiguous": False}
+    key = str(creator or "").strip().lower()
+    if not key or not annuaire:
+        return out
+
+    exact = [r for r in annuaire if str(r).lower() == key]
+    if len(exact) == 1:
+        cands = exact
+    else:
+        seg = [r for r in annuaire if str(r).lower().split("-")[0] == key]
+        prenom = [r for r, f in annuaire.items()
+                  if str((f or {}).get("first_name") or "").strip().lower() == key]
+        cands = list(dict.fromkeys(seg + prenom))
+
+    if len(cands) > 1:
+        out["ambiguous"] = True
+        return out
+    if not cands:
+        return out
+
+    ref = cands[0]
+    fiche = annuaire.get(ref) or {}
+    out["ref"] = ref
+    out["emails"] = [e for e in (fiche.get("emails") or []) if e]
+    out["found"] = bool(out["emails"])
+    return out
+
+
+def group_by_requester(tickets):
+    """Regroupe des tickets par `creator`, dans l'ordre d'apparition.
+
+    Sert à composer UN email par demandeur, ne contenant que SES tickets : un demandeur
+    n'a pas à découvrir ce qui a été livré pour les autres.
+    @return [(creator, [tickets…]), …]
+    """
+    ordre, par = [], {}
+    for t in tickets or []:
+        c = (t or {}).get("creator") or ""
+        if c not in par:
+            par[c] = []
+            ordre.append(c)
+        par[c].append(t)
+    return [(c, par[c]) for c in ordre]
+
+
 # ── Composition de l'email récap ─────────────────────────────────────────────
 def _plural(n):
     return "s" if n > 1 else ""

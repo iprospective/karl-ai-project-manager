@@ -10757,6 +10757,21 @@ def _cn_rm(payload: dict) -> list:
     return out
 
 
+def _cn_requesters(payload: dict) -> list:
+    """RM3092 — les tickets dont le DEMANDEUR doit être prévenu (cases du panneau).
+    `requesters: true` vaut « tous ceux de la sélection »."""
+    v = (payload or {}).get("requesters")
+    if v is True:
+        return ["--demandeurs"]
+    out = []
+    for x in (v or [])[:200]:
+        sx = str(x).strip()
+        if not sx.isdigit():
+            raise ApiError(400, f"identifiant de demandeur invalide : {sx}")
+        out += ["--demandeur", sx]
+    return out
+
+
 def _cn_proto(payload: dict) -> list:
     """Protocole de test dans l'email : None = suivre l'option du projet (défaut oui)."""
     v = (payload or {}).get("protocole")
@@ -10776,13 +10791,15 @@ def op_client_notify_pending(qs: dict) -> dict:
 
 def op_client_notify_preview(payload: dict) -> dict:
     """Aperçu de l'email pour les tickets cochés — n'écrit rien, n'envoie rien."""
-    return _client_notify(["preview", _cn_client(payload)] + _cn_rm(payload) + _cn_proto(payload))
+    return _client_notify(["preview", _cn_client(payload)] + _cn_rm(payload)
+                          + _cn_proto(payload) + _cn_requesters(payload))
 
 
 def op_client_notify_send(payload: dict) -> dict:
     """Envoi réel au(x) contact(s) du client, puis `sent_at`/`sent_to` sur les tickets."""
     return _client_notify(["send", _cn_client(payload), "--yes"]
-                          + _cn_rm(payload) + _cn_proto(payload), timeout=300)
+                          + _cn_rm(payload) + _cn_proto(payload)
+                          + _cn_requesters(payload), timeout=300)
 
 
 def op_client_notify_test(payload: dict) -> dict:

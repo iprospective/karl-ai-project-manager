@@ -24,7 +24,7 @@ export function mountClientNotify(el, ctx = {}) {
     ["input", "input[data-action=\"testto\"]", (ev, n) => { svc.setTestTo(n.value); }],
   ] });
 
-  function vm() { return new ClientReportViewModel({ client: svc.current(), sel: svc.sel, protocole: svc.protocole, preview: svc.preview, busy: state.busy, confirm: state.confirm, contacts: svc.contacts, testTo: svc.testTo }); }
+  function vm() { return new ClientReportViewModel({ client: svc.current(), sel: svc.sel, protocole: svc.protocole, preview: svc.preview, busy: state.busy, confirm: state.confirm, contacts: svc.contacts, testTo: svc.testTo, dem: svc.dem }); }
   function render() { h.update(ClientReport(vm())); }
 
   /** Relit la file et met à jour le compteur du bandeau — appelée au boot, après chaque geste, et sur demande. */
@@ -109,6 +109,8 @@ export function mountClientNotify(el, ctx = {}) {
     else if (a === "all") { svc.all(node.dataset.on === "1"); state.confirm = null; render(); schedulePreview(); }
     else if (a === "proto") { svc.setProto(node.checked !== false); render(); schedulePreview(); }
     else if (a === "reload") { state.confirm = null; refresh().then(() => { svc.open(svc.client); render(); schedulePreview(0); }); }
+    else if (a === "pickdem") { svc.toggleDem(node.dataset.rm); state.confirm = null; render(); schedulePreview(); }
+    else if (a === "alldem") { svc.allDem(node.checked !== false); state.confirm = null; render(); schedulePreview(); }
     else if (a === "testto") { svc.setTestTo(node.value); render(); }
     else if (a === "testpick") { if (node.value) { svc.setTestTo(node.value); render(); } }
     else if (a === "test") sendTest();

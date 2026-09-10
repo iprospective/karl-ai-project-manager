@@ -19,6 +19,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`notify --ref`) n'atteignait jamais le think du ticket. Import posé, échec désormais journalisé
   (`pm_log`, catégorie `worklog`) en plus de l'avertissement, et `test_pm_session_status_think.py`
   verrouille les deux chemins — plus un contrôle qui voit un nom non résolvable sans jouer le code.
+  Au passage, trois tests du think (`test_pm_think`, `test_pm_think_classify`,
+  `test_karl_agent_providers`) exigeaient le `.env` du dépôt : verts dans le core qui le porte,
+  **rouges dans tout worktree de dev**. Ils posent maintenant le core jetable de `test_support`
+  avant d'importer un module PM — la suite est identique des deux côtés (179 verts).
 - **Le runtime NORMS se génère par un fournisseur, et se contrôle** (RM3073) : `norms/runtime/` portait
   « Généré ⇒ ne pas éditer » alors qu'aucun générateur n'existait — écrit une fois à la main, il se
   désynchronisait de ses sources en silence. `mmi-pm norms-runtime` le produit par l'API d'un fournisseur

@@ -10,6 +10,9 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from test_support import hermetic_core            # noqa: E402
+hermetic_core()   # RM3076 : core jetable AVANT tout import de module PM (le `.env` du dépôt
+                  # n'existe pas dans un worktree de dev — sans ça le test est vert ici, rouge là-bas)
 tmp = tempfile.mkdtemp(prefix="karl-prov-"); base = pathlib.Path(tmp) / "clients"
 os.environ["KARL_AGENT_PROJECTS_BASE"] = str(base); os.environ["KARL_JOURNAL_DIR"] = tmp; os.environ["KARL_JOURNAL_STDERR"] = "0"
 spec = importlib.util.spec_from_file_location("karl_agent", HERE / "karl-agent.py")

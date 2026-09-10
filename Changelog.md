@@ -100,6 +100,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **Fournisseurs configurables depuis les réglages** (RM3068, cockpit 3.8.0) : catalogue de
+  16 types sur 5 axes (Redmine · GitLab, Gogs, GitHub · doc · coffres · modèles de travail),
+  déclaration écrite dans `pm.config.local.yml` (le fichier commenté n'est jamais réécrit),
+  **clés en écriture seule** — `pm-provider-secret` les pose par l'entrée standard, aucune route
+  ne les relit, le journal ne garde que le fait — et vue des **affectations par projet**, où le
+  rôle appartient au couple projet ↔ instance. `.env` du dev connecté, `.env` global ou d'un autre
+  dev par sudo pour un administrateur.
 - **Logo karl** (RM3065, 3.7.7) : le K filaire qui relie une note, une page web et du code
   (variante A4) — marque dans l'en-tête et sur l'écran de connexion, favicon SVG dédié,
   sources dans `deploy/karl-agent/cockpit/logo/`.

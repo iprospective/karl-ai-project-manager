@@ -81,3 +81,21 @@ C'est **informatif** : l'application reste un geste humain au terminal
 
 Le filtre **« Clients »** de l'en-tête (contexte client, pré-filtre global) est **masqué par défaut** ; la case
 « Afficher le filtre Clients dans l'en-tête » de la carte 🎨 le réaffiche. Le contexte mémorisé reste appliqué même masqué (RM3063).
+
+## Fournisseurs
+
+La carte 🔌 **Fournisseurs** déclare ce que karl utilise : les **tickets** (Redmine), les **dépôts** (GitLab,
+Gogs, GitHub), la **documentation**, les **coffres à secrets** et les **modèles de travail** (Lemonade sur
+Ryzen AI, Ollama, serveur compatible OpenAI, API Anthropic). Chaque axe peut porter **plusieurs instances**
+— deux Redmine, par exemple — et l'une d'elles est le défaut.
+
+**Les clés ne se lisent pas, elles se remplacent.** Le panneau dit seulement « posée » ou « non renseignée »,
+et le champ de saisie est vide : il est vidé dès l'enregistrement, et aucune route ne renvoie une valeur.
+La clé va dans le fichier d'environnement de **ton** compte ; un administrateur peut cocher « global » pour
+viser celui de l'instance.
+
+**Le rôle appartient au couple projet ↔ instance.** Le détail d'une instance liste les projets qui s'en
+servent et avec quel rôle : le même Redmine est primaire chez son client et secondaire ailleurs.
+
+La déclaration part dans `pm.config.local.yml`, fusionné par-dessus `pm.config.yml` : le fichier commenté
+de référence n'est jamais réécrit par le cockpit.

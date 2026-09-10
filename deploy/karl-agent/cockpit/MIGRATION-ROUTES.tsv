@@ -107,3 +107,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /cdc/think	L5	doc	/api/doc/cdc-think	1	thinkEdit
 /cdc/feature	L5	doc	/api/doc/cdc-feature	1	featureEdit
 /client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
+/pm/provider-types	L5	settings	/api/pm/provider-types	1	loadProviderTypes
+/pm/providers	L5	settings	/api/pm/providers	1	loadProviders
+/pm/provider-secret	L5	settings	/api/pm/provider-secret	1	saveSecret
+/pm/provider-assign	L5	settings	/api/pm/provider-assign	1	saveAssign

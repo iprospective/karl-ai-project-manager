@@ -58,7 +58,9 @@ from pm_paths import _expand_env  # interpolation ${VAR} / ${VAR:-defaut}, comme
 # Axes livrés d'office. `secret` (vaults) arrive avec RM2682/L1 — cf. CDC RM2662.
 # La liste est un DÉFAUT, pas une limite : `providers.axes` peut l'étendre (un axe
 # `monitoring` ne doit coûter qu'une ligne de conf, pas une modification d'ici).
-DEFAULT_AXES = ("task", "forge", "doc", "secret")
+#: RM3067 : `llm` — les modèles que karl peut appeler pour un travail machine (tri des tours, classification,
+#: résumé) : un serveur LOCAL d'abord (Lemonade sur Ryzen AI, Ollama, vLLM), le cloud en repli.
+DEFAULT_AXES = ("task", "forge", "doc", "secret", "llm")
 
 # Rétro-compat : plusieurs appelants importent `AXES`. Le registre, lui, raisonne
 # sur `Registry.axes` (qui tient compte de `providers.axes`).

@@ -245,6 +245,38 @@ def classe(lot, model=MODEL, engine="claude") -> tuple:
     return out, cout
 
 
+#: type d'instance du registre → moteur du classifieur
+TYPE_MOTEUR = {"lemonade": "openai", "openai": "openai", "vllm": "openai", "lmstudio": "openai",
+               "ollama": "ollama", "anthropic": "api", "claude-cli": "claude"}
+
+
+def moteur_du_registre(project=None):
+    """(engine, model) depuis l'axe `llm` du registre des providers (RM3067), ou (None, None).
+
+    C'est là que se déclare le modèle de travail de karl — local d'abord — avec surcharge par client et
+    par projet, comme les autres axes. Les variables d'environnement priment encore : elles servent à
+    essayer un modèle sans toucher la conf."""
+    try:
+        import yaml
+        from pm_registry import Registry
+        from pm_paths import PMConfig as _C
+        cfg = _C.load()
+        prov = (yaml.safe_load((Path(cfg.pm_dir) / "pm.config.yml").read_text(encoding="utf-8")) or {}).get("providers") or {}
+        reg = Registry.from_config(prov)
+        nom = reg.defaults.get("llm")
+        inst = reg.get(nom) if nom else next(iter(reg.by_axis("llm")), None)
+        if inst is None:
+            return None, None
+        eng = TYPE_MOTEUR.get(str(inst.type or "").lower())
+        if not eng:
+            return None, None
+        if inst.url:
+            os.environ.setdefault("LLM_BASE_URL" if eng == "openai" else "OLLAMA_HOST", str(inst.url))
+        return eng, (inst.options or {}).get("model")
+    except Exception:
+        return None, None
+
+
 def transcript_de(sid):
     return next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None) if sid else None
 
@@ -293,6 +325,13 @@ def main():
                              else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    if not (os.environ.get("LLM_BASE_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY") or "--engine" in sys.argv):
+        eng, mod = moteur_du_registre()            # RM3067 : le modèle de travail vient du registre des providers
+        if eng:
+            a.engine = eng
+            if mod and a.model == MODEL:
+                a.model = mod
 
     cibles = []
     if a.transcript:

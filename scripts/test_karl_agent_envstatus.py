@@ -222,6 +222,23 @@ check("instance age sans clé déclarée → pas de fausse alerte",
 import shutil as _sh
 _sh.rmtree(_d, ignore_errors=True)
 
+# — RM3046 : le budget de contexte se REGARDE (il ne se ticketise plus) —
+_b = ka.budget_contexte_line
+_niv = lambda e: _b(e)[0]
+check("non mesuré → info, avec la commande pour mesurer",
+      _niv(None) == "info" and "pm-context-budget" in _b(None)[2])
+_ok = {"ok": True, "budget": 29000, "depassements": [],
+       "roles": {"worker-dev": {"tokens": 21000, "budget": 29000, "ok": True}}}
+check("sous le plafond → ok, sans remédiation", _niv(_ok) == "ok" and _b(_ok)[2] == "")
+_ko = {"ok": False, "budget": 29000, "depassements": ["worker-dev", "worker-infra"],
+       "roles": {"worker-dev": {"tokens": 33898, "budget": 29000, "ok": False},
+                 "worker-infra": {"tokens": 31018, "budget": 29000, "ok": False}}}
+check("dépassé → warn (rien n'est cassé), les rôles nommés, une remédiation",
+      _niv(_ko) == "warn" and "worker-dev" in _b(_ko)[1] and "worker-infra" in _b(_ko)[1]
+      and "manifest" in _b(_ko)[2])
+check("dépassé n'est jamais une erreur : une session coûte plus cher, elle ne casse pas",
+      _niv(_ko) != "error")
+
 if fails:
     print(f"\n{len(fails)} test(s) en échec : {fails}")
     sys.exit(1)

@@ -1,9 +1,9 @@
 ---
-schema_version: "2.33.0"
+schema_version: "2.34.0"
 updated: 2026-09-10
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.33.0
+# Normes de gestion des tâches — v2.34.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1543,6 +1543,24 @@ les mêmes registres, aux noms génériques (`docs/cdc.md`, `cdc-questions.md`, 
 **régénérés** par `pm-think-merge` depuis les `.think.md` des tickets (`session-tooling` §
 « Consignation par ticket ») ; ce qui est hors marqueurs y survit. Un CDC **par ticket**
 (`cdc-rm<id>-*.md`) reste la référence de son sujet et le `cdc.md` du projet y renvoie.
+
+### Les versions, et ce qu'une feuille de route n'est pas (RM3060)
+
+Une **version est une étape de travail** : ce qu'elle doit permettre (son rôle) et à quoi on sait
+qu'elle est passée (son critère). Elle n'est **jamais** une copie de la liste des fonctionnalités —
+sinon les deux divergent, et c'est la liste qui a raison. Le rattachement se fait dans l'autre sens :
+la version est une **colonne** de `cdc-features.md`.
+
+Les versions vivent dans `versions` du registre `docs/cdc/fonctionnalites.yml`, et `cdc-roadmap.md`
+en est **GÉNÉRÉ** comme `cdc-features.md` l'est des entrées — deux vues, une donnée, et
+`pm-cdc-features --check` refuse les deux si l'une a été éditée à la main.
+
+    pm-cdc-features --add-version V1 --role "…" --critere "…" --build   créer ou compléter
+    pm-cdc-features --set-version F012 V1 --build                       rattacher (« - » détache)
+    pm-cdc-features --drop-version V1 --build                           retirer (les entrées sont détachées, jamais supprimées)
+
+Depuis le cockpit : onglet **CDC → Feuille de route** pour créer une version, colonne **Version** de
+l'onglet Fonctionnalités pour y rattacher une ligne.
 
 ## Deux registres de fonctionnalités — ne pas les confondre
 

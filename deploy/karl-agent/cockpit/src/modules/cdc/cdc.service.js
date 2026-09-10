@@ -31,5 +31,12 @@ export class CdcService {
   /** RM3064 : édition d'une entrée de think ; invalide les chapitres en cache (les registres sont régénérés). */
   async thinkEdit({ rm, id, action, state }) { const r = await this.repo.thinkEdit({ rm, id, action, state }); this._chap = {}; return r; }
   async featureEdit({ id, etat }) { const c = this.current; if (!c) return null; const r = await this.repo.featureEdit({ client: c.client, project: c.project, prefix: c.prefix, id, etat }); delete this._feat[c.key]; this._chap = {}; return r; }
+  /** RM3060 : versions de la feuille de route. Le registre ET les chapitres changent : on vide les deux. */
+  async versionEdit(body) {
+    const c = this.current; if (!c) return null;
+    const r = await this.repo.versionEdit(Object.assign({ client: c.client, project: c.project }, body));
+    delete this._feat[c.key]; this._chap = {};
+    return r;
+  }
   async chapter(path, force) { if (!this._chap[path] || force) this._chap[path] = await this.repo.file(path); return this._chap[path]; }
 }

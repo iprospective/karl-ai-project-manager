@@ -8138,7 +8138,10 @@ def op_cdc_features(client: str, project: str, prefix: str) -> dict:
         raise ApiError(500, f"registre illisible : {e}")
     return {"client": client, "project": project, "prefix": prefix, "projet": reg.get("projet"),
             "domaines": [d.get("nom") for d in (reg.get("domaines") or []) if isinstance(d, dict)],
-            "jalons": reg.get("jalons") or [], "entrees": reg.get("entrees") or []}
+            "jalons": reg.get("jalons") or [], "entrees": reg.get("entrees") or [],
+            # RM3060 : les versions déclarées — étapes de travail, avec leur rôle et leur critère de
+            # passage. C'est ce qui permet de rattacher une fonctionnalité sans retaper un identifiant.
+            "versions": [v for v in (reg.get("versions") or []) if isinstance(v, dict) and v.get("id")]}
 
 # ── Édition du CDC depuis le cockpit (RM3064) : le geste part vers le script, jamais vers le fichier ──
 _THINK_ID_RE = re.compile(r"^(?:RM(\d+)-)?([DCQNF]\d{3}[a-z]?)$")
@@ -8223,6 +8226,48 @@ def op_cdc_feature(payload: dict) -> dict:
         raise ApiError(400, "état inconnu (" + " · ".join(_FEATURE_STATES) + ")")
     out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
     return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
+
+
+_VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
+
+
+def op_cdc_version(payload: dict) -> dict:
+    """Créer une version, la compléter, la retirer, ou y rattacher une fonctionnalité (RM3060).
+
+    Une version est une ÉTAPE DE TRAVAIL — un rôle et un critère de passage — pas une liste de
+    fonctionnalités : celles-ci s'y rattachent par une colonne. Feuille de route régénérée à chaque fois."""
+    client, project = (str(payload.get(k) or "") for k in ("client", "project"))
+    if not (_PART_RE.match(client) and _PART_RE.match(project)):
+        raise ApiError(400, "client/projet invalides")
+    geste = str(payload.get("action") or "").strip()
+    vid = str(payload.get("version") or "").strip()
+    args = ["--project", f"{client}/{project}"]
+    if geste == "attach":
+        fid = str(payload.get("id") or "").strip()
+        if not re.match(r"^F\d{3}[a-z]?$", fid):
+            raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
+        if vid and vid != "-" and not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide")
+        args += ["--set-version", fid, vid or "-"]
+    elif geste in ("add", "update"):
+        if not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide (lettres, chiffres, . et -)")
+        args += ["--add-version", vid]
+        for cle, opt in (("role", "--role"), ("critere", "--critere")):
+            v = payload.get(cle)
+            if v is not None:
+                args += [opt, str(v)[:400]]
+        etat = str(payload.get("etat") or "").strip()
+        if etat:
+            args += ["--etat-version", etat]
+    elif geste == "drop":
+        if not _VERSION_RE.match(vid):
+            raise ApiError(400, "identifiant de version invalide")
+        args += ["--drop-version", vid]
+    else:
+        raise ApiError(400, "action inconnue (add · update · attach · drop)")
+    out = _pm_script("pm-cdc-features.py", args + ["--build"])
+    return {"ok": True, "action": geste, "version": vid, "out": out.strip().splitlines()[-3:]}
 
 # ── Fournisseurs : déclaration, secrets, affectations (RM3068) ───────────────
 # La déclaration est PUBLIQUE (nom, type, url, modèle) et va dans `pm.config.local.yml`, fusionné
@@ -12211,6 +12256,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_cdc_think(payload))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
                 return self._send_json(200, op_cdc_feature(payload))
+            if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
+                return self._send_json(200, op_cdc_version(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

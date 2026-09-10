@@ -249,6 +249,44 @@ check("ÉCARTÉ volontairement => ne revient pas par la fermeture",
 check("bloc vide (fiche bricolée) => traité comme jamais vu, pas comme annoncé",
       cn.never_queued({cn.QUEUE_KEY: {}}))
 
+# ── 8. le DEMANDEUR du ticket (RM3092) ──────────────────────────────────────
+# `creator` porte un identifiant court, l'annuaire des refs complètes. On accepte la ref
+# exacte, son premier segment, ou le prénom — mais JAMAIS une correspondance multiple :
+# prévenir la mauvaise personne ne se rattrape pas.
+ANN_R = {
+    "iprospective": {"ref": "iprospective", "first_name": "Mathieu", "emails": ["m@ipro.fr"]},
+    "sandrine-roche-pizzo": {"ref": "sandrine-roche-pizzo", "first_name": "Sandrine",
+                             "emails": ["s@calicote.com"]},
+    "yann-dercya": {"ref": "yann-dercya", "first_name": "Yann", "emails": ["y@dercya.com"]},
+    "sans-mail": {"ref": "sans-mail", "first_name": "Bob", "emails": []},
+}
+r = cn.resolve_requester(ANN_R, "iprospective")
+check("ref exacte résolue", r["found"] and r["emails"] == ["m@ipro.fr"])
+r = cn.resolve_requester(ANN_R, "sandrine")
+check("identifiant court => ref complète (sandrine → sandrine-roche-pizzo)",
+      r["found"] and r["ref"] == "sandrine-roche-pizzo")
+r = cn.resolve_requester(ANN_R, "Yann")
+check("casse indifférente, résolution par prénom", r["found"] and r["emails"] == ["y@dercya.com"])
+r = cn.resolve_requester(ANN_R, "inconnu")
+check("demandeur inconnu => non résolu, SIGNALÉ (pas d'email inventé)",
+      not r["found"] and not r["ambiguous"] and r["emails"] == [])
+r = cn.resolve_requester(ANN_R, "bob")
+check("fiche sans email => non résolu plutôt que faussement trouvé", not r["found"])
+AMB = dict(ANN_R, **{"sandrine-durand": {"ref": "sandrine-durand", "first_name": "Sandrine",
+                                         "emails": ["s2@x.fr"]}})
+r = cn.resolve_requester(AMB, "sandrine")
+check("DEUX Sandrine => ambigu, on ne tire pas au sort", r["ambiguous"] and not r["found"])
+check("creator vide toléré", not cn.resolve_requester(ANN_R, "")["found"])
+
+G = cn.group_by_requester([
+    {"id": 1, "creator": "sandrine"}, {"id": 2, "creator": "iprospective"},
+    {"id": 3, "creator": "sandrine"}, {"id": 4, "creator": ""}])
+check("groupement par demandeur, ordre d'apparition conservé",
+      [c for c, _ in G] == ["sandrine", "iprospective", ""])
+check("…chacun ne voit QUE ses tickets",
+      [t["id"] for t in G[0][1]] == [1, 3] and [t["id"] for t in G[1][1]] == [2])
+check("liste vide tolérée", cn.group_by_requester([]) == [])
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

@@ -13,6 +13,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Compte-rendu : prévenir aussi le demandeur** (RM3092) : une case **par ticket** dans le
+  panneau, plus une case globale. Le demandeur reçoit **son propre email, limité à ses
+  tickets** — plutôt qu'une copie du compte-rendu complet : il n'a pas à découvrir ce qui a
+  été livré pour les autres. Résolution depuis l'annuaire (`creator` → ref, segment ou
+  prénom) ; **une correspondance multiple n'est pas une correspondance** — on signale au
+  lieu de tirer au sort, et un email envoyé à la mauvaise personne ne se rattrape pas.
+  Aucun doublon : qui est déjà destinataire du compte-rendu n'est pas re-servi, et `sent_to`
+  consigne tout le monde. CLI : `client-notify preview|send --demandeur <RM>` (répétable) ou
+  `--demandeurs`.
+- **Rattrapage de file à la fermeture** (RM3087) : la mise en file ne dépendait que de la
+  transition `en_mep` — un ticket livré puis fermé après recette n'entrait jamais au
+  compte-rendu. Il y entre désormais à sa **fermeture**, mais sous une condition plus
+  stricte (`never_queued`) : uniquement s'il n'a **jamais** été mis en file, pour qu'un
+  ticket déjà annoncé ne le soit pas une seconde fois.
+- **Verbes d'ajout incrémental** (RM3041) : `pm-task-description-update --add-item` /
+  `--add-criterion` et `pm-task-protocol --add-test "SECTION|LIBELLÉ"` ajoutent **une ligne**
+  dans la bonne section sans réécrire la description ni le protocole. Idempotents (casse et
+  espaces ignorés), section créée si absente, gabarit « à définir » remplacé au premier vrai
+  critère, identifiant de test incrémenté (A2 → A3) avec cases d'environnement vides.
+
 - **Consigner AVANT la compaction** (RM3098, NORMS 2.37.0) : RM3071 réinjecte le KERNEL *après* une
   compaction ; l'*avant* n'était pas couvert. Le hook `PreCompact` ne faisait qu'un `refresh` du
   worklog — la moisson n'y était pas câblée, alors que c'est le **dernier moment où les tours existent

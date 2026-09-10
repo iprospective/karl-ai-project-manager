@@ -8,8 +8,11 @@ export function ClientMenu(vm) {
   return html`${vm.items.map(i => html`<button data-action="client" data-client="${i.client}" title="Ouvrir le compte-rendu de ${i.label}">${i.text}</button>`)}`;
 }
 
-const Ticket = (t) => html`<label class="cn-t${t.on ? " on" : ""}"><input type="checkbox" data-action="pick" data-rm="${t.id}"${t.on ? " checked" : ""}>
-  <span class="cn-rm">RM${t.id}</span><span class="cn-title">${t.title}</span><span class="cn-since" title="En file depuis le passage en production">${t.queued_at}</span></label>`;
+const Ticket = (t) => html`<div class="cn-t${t.on ? " on" : ""}">
+  <label class="cn-pick"><input type="checkbox" data-action="pick" data-rm="${t.id}"${t.on ? " checked" : ""}>
+    <span class="cn-rm">RM${t.id}</span><span class="cn-title">${t.title}</span></label>
+  <label class="cn-dem" title="Prévenir aussi le DEMANDEUR de ce ticket : il reçoit un email à part, ne contenant que ses tickets"><input type="checkbox" data-action="pickdem" data-rm="${t.id}"${t.dem ? " checked" : ""}${t.on ? "" : " disabled"}> demandeur</label>
+  <span class="cn-since" title="En file depuis le passage en production">${t.queued_at}</span></div>`;
 
 export function ClientReport(vm) {
   if (!vm.client) return html`<h2>✉ Compte-rendu client</h2><div class="empty">Choisissez un client dans le menu ✉ du bandeau.</div>`;
@@ -21,12 +24,14 @@ export function ClientReport(vm) {
       <div class="cn-opts">
         <button class="chip" data-action="all" data-on="${vm.allOn ? "0" : "1"}">${vm.allOn ? "Tout décocher" : "Tout cocher"}</button>
         <label class="chip" title="Inclure, pour chaque ticket, le protocole de test — « comment le vérifier » côté client"><input type="checkbox" data-action="proto"${vm.protocole ? " checked" : ""}> protocoles de test</label>
+        <label class="chip" title="Prévenir le demandeur de CHAQUE ticket coché (chacun reçoit un email limité à ses tickets)"><input type="checkbox" data-action="alldem"${vm.allDemOn ? " checked" : ""}> prévenir les demandeurs</label>
         <button class="chip" data-action="reload" title="Relire la file">↻</button>
       </div>
     </div>
     ${vm.inactives.length ? html`<div class="cn-warn cn-note">Notification inactive sur : ${vm.inactives.join(", ")} — ces tickets n'ont pas de destinataire (<code>pm-client-notify config</code>).</div>` : ""}
     ${vm.groups.map(g => html`<div class="cn-group"><h3>${g.label}${g.actif ? "" : html` <span class="cn-warn">(option inactive)</span>`}</h3>${g.tickets.map(Ticket)}</div>`)}
     ${vm.multi ? html`<div class="cn-note">La sélection couvre plusieurs projets : <b>un seul email</b> partira, les évolutions groupées par projet.</div>` : ""}
+    ${vm.demCount ? html`<div class="cn-note">${vm.demCount} demandeur(s) seront prévenus séparément — chacun ne reçoit que ses propres tickets.</div>` : ""}
     <div class="cn-actions">
       <button class="cn-send" data-action="send"${vm.canSend ? "" : " disabled"}>${vm.sendLabel}</button>
       <button data-action="dismiss"${vm.canDismiss ? "" : " disabled"} title="Sortir ces tickets de la file sans prévenir le client">${vm.dismissLabel}</button>

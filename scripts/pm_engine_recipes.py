@@ -15,64 +15,85 @@ servent tous les utilisateurs de la machine, et c'est ce qui justifie le privil�
 """
 import re
 
-#: chaque commande est une LISTE (jamais une chaîne passée au shell) ; `sudo` est explicite et signalé.
+#: chaque commande est une LISTE (jamais une chaîne passée au shell). Deux PORTÉES, au choix (RM3069) :
+#:   `user`   — dans l'espace du développeur (aucun privilège) : c'est ainsi qu'opencode arrive dans
+#:              ~/.opencode/bin, et que `npm -g` écrit dans le préfixe personnel ;
+#:   `system` — pour tous les utilisateurs de la machine, donc `sudo`, et c'est ce qui le justifie.
+#: Un outil peut donc être présent pour un seul utilisateur : la détection le dit, elle ne l'ignore pas.
 RECETTES = {
     "claude": {
         "kind": "engine", "label": "Claude Code", "bin": "claude",
         "version": ["claude", "--version"], "version_re": r"(\d+\.\d+\.\d+)",
         "latest": ["npm", "view", "@anthropic-ai/claude-code", "version"],
-        "install": ["sudo", "-n", "npm", "install", "-g", "@anthropic-ai/claude-code"],
-        "update": ["sudo", "-n", "npm", "update", "-g", "@anthropic-ai/claude-code"],
-        "sudo": True, "config": "compte Claude (`claude` puis /login) ou ANTHROPIC_API_KEY",
+        "install": {"user": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
+                    "system": ["sudo", "-n", "npm", "install", "-g", "--prefix", "/usr/local", "@anthropic-ai/claude-code"]},
+        "update": {"user": ["npm", "update", "-g", "@anthropic-ai/claude-code"],
+                   "system": ["sudo", "-n", "npm", "update", "-g", "--prefix", "/usr/local", "@anthropic-ai/claude-code"]},
+        "config": "compte Claude (`claude` puis /login) ou ANTHROPIC_API_KEY",
         "note": "moteur par défaut des sessions PM",
     },
     "opencode": {
         "kind": "engine", "label": "opencode", "bin": "opencode",
         "version": ["opencode", "--version"], "version_re": r"(\d+\.\d+\.\d+)",
         "latest": ["npm", "view", "opencode-ai", "version"],
-        "install": ["sudo", "-n", "npm", "install", "-g", "opencode-ai"],
-        "update": ["sudo", "-n", "npm", "update", "-g", "opencode-ai"],
-        "sudo": True, "config": "fournisseur et modèle dans ~/.config/opencode",
+        "install": {"user": ["sh", "-c", "curl -fsSL https://opencode.ai/install | bash"],
+                    "system": ["sudo", "-n", "npm", "install", "-g", "--prefix", "/usr/local", "opencode-ai"]},
+        "update": {"user": ["sh", "-c", "curl -fsSL https://opencode.ai/install | bash"],
+                   "system": ["sudo", "-n", "npm", "update", "-g", "--prefix", "/usr/local", "opencode-ai"]},
+        "extra_paths": ["~/.opencode/bin"],
+        "config": "fournisseur et modèle dans ~/.config/opencode/opencode.jsonc",
     },
     "vibe": {
         "kind": "engine", "label": "Mistral vibe", "bin": "vibe",
         "version": ["vibe", "--version"], "version_re": r"(\d+\.\d+\.\d+)",
         "latest": ["npm", "view", "@mistralai/vibe", "version"],
-        "install": ["sudo", "-n", "npm", "install", "-g", "@mistralai/vibe"],
-        "update": ["sudo", "-n", "npm", "update", "-g", "@mistralai/vibe"],
-        "sudo": True, "config": "MISTRAL_API_KEY",
+        "install": {"user": ["npm", "install", "-g", "@mistralai/vibe"],
+                    "system": ["sudo", "-n", "npm", "install", "-g", "--prefix", "/usr/local", "@mistralai/vibe"]},
+        "update": {"user": ["npm", "update", "-g", "@mistralai/vibe"],
+                   "system": ["sudo", "-n", "npm", "update", "-g", "--prefix", "/usr/local", "@mistralai/vibe"]},
+        "config": "MISTRAL_API_KEY",
     },
     "ollama": {
         "kind": "server", "label": "Ollama (serveur de modèles)", "bin": "ollama",
         "version": ["ollama", "--version"], "version_re": r"(\d+\.\d+\.\d+)",
         "latest": None,
-        "install": ["sudo", "-n", "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
-        "update": ["sudo", "-n", "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+        "install": {"system": ["sudo", "-n", "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"]},
+        "update": {"system": ["sudo", "-n", "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"]},
         "service": ["systemctl", "is-active", "ollama"],
-        "sudo": True, "provider_type": "ollama",
-        "note": "sert les modèles ; se déclare ensuite comme fournisseur de l'axe « llm »",
+        "provider_type": "ollama",
+        "note": "sert les modèles ; se déclare ensuite comme fournisseur de l'axe « llm ». Un service système : pas d'installation par utilisateur.",
     },
     "lemonade": {
         "kind": "server", "label": "Lemonade Server (Ryzen AI)", "bin": "lemonade-server",
         "version": ["lemonade-server", "--version"], "version_re": r"(\d+\.\d+\.\d+)",
         "latest": ["pip", "index", "versions", "lemonade-sdk"],
-        "install": ["sudo", "-n", "pip", "install", "--break-system-packages", "lemonade-sdk[dev]"],
-        "update": ["sudo", "-n", "pip", "install", "--break-system-packages", "-U", "lemonade-sdk[dev]"],
-        "sudo": True, "provider_type": "lemonade",
+        "install": {"user": ["pip", "install", "--user", "lemonade-sdk[dev]"],
+                    "system": ["sudo", "-n", "pip", "install", "--break-system-packages", "lemonade-sdk[dev]"]},
+        "update": {"user": ["pip", "install", "--user", "-U", "lemonade-sdk[dev]"],
+                   "system": ["sudo", "-n", "pip", "install", "--break-system-packages", "-U", "lemonade-sdk[dev]"]},
+        "extra_paths": ["~/.local/bin"],
+        "provider_type": "lemonade",
         "note": "API compatible OpenAI, accélérée sur Ryzen AI ; se déclare ensuite à l'axe « llm »",
     },
 }
+
+PORTEES = ("user", "system")
+#: où chercher un binaire au-delà du PATH du démon : un outil posé par un utilisateur n'y est pas
+CHEMINS = ["~/.local/bin", "~/.opencode/bin", "~/.bun/bin", "~/.npm-global/bin", "~/bin",
+           "/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"]
 
 ACTIONS = ("install", "update", "test")
 
 
 def catalogue() -> dict:
-    """Les recettes en JSON, familles séparées. Les commandes sont rendues **pour affichage** :
-    c'est ce que le panneau montre avant d'agir ; il ne les renvoie jamais au serveur."""
+    """Les recettes en JSON, familles séparées, **une entrée par portée disponible**. Les commandes sont
+    rendues pour AFFICHAGE : le panneau les montre avant d'agir, il ne les renvoie jamais au serveur."""
     def vue(nom, r):
-        return {"id": nom, "kind": r["kind"], "label": r["label"], "bin": r["bin"], "sudo": bool(r.get("sudo")),
+        return {"id": nom, "kind": r["kind"], "label": r["label"], "bin": r["bin"],
+                "scopes": [s for s in PORTEES if s in r["install"]],
                 "config": r.get("config", ""), "note": r.get("note", ""), "provider_type": r.get("provider_type", ""),
-                "install_cmd": " ".join(r["install"]), "update_cmd": " ".join(r["update"])}
+                "cmds": {s: {"install": " ".join(r["install"][s]), "update": " ".join(r.get("update", {}).get(s, []))}
+                         for s in PORTEES if s in r["install"]}}
     return {"engines": [vue(n, r) for n, r in sorted(RECETTES.items()) if r["kind"] == "engine"],
             "servers": [vue(n, r) for n, r in sorted(RECETTES.items()) if r["kind"] == "server"]}
 
@@ -81,9 +102,9 @@ def recette(nom: str) -> dict:
     return RECETTES.get(str(nom or "").strip(), {})
 
 
-def commande(nom: str, action: str) -> list:
-    """La commande d'une recette pour une action — la SEULE façon d'obtenir une commande.
-    Le client n'en propose jamais : il nomme une recette et une action, connues d'ici."""
+def commande(nom: str, action: str, portee: str = "user") -> list:
+    """La commande d'une recette, pour une action et une PORTÉE — la seule façon d'obtenir une commande.
+    Le client n'en propose jamais : il nomme une recette, une action et une portée, connues d'ici."""
     r = recette(nom)
     if not r:
         raise KeyError(f"recette inconnue : {nom}")
@@ -91,10 +112,21 @@ def commande(nom: str, action: str) -> list:
         raise ValueError(f"action inconnue : {action}")
     if action == "test":
         return list(r["version"])
-    cmd = r.get(action)
+    if portee not in PORTEES:
+        raise ValueError(f"portée inconnue : {portee}")
+    cmd = (r.get(action) or {}).get(portee)
     if not cmd:
-        raise ValueError(f"{nom} : pas de recette pour « {action} »")
+        dispo = ", ".join(s for s in PORTEES if s in r.get(action, {}))
+        raise ValueError(f"{nom} : pas de recette « {action} » en portée « {portee} »"
+                         + (f" (disponible : {dispo})" if dispo else ""))
     return list(cmd)
+
+
+def demande_sudo(nom: str, action: str, portee: str) -> bool:
+    try:
+        return "sudo" in commande(nom, action, portee)[:1]
+    except (KeyError, ValueError):
+        return False
 
 
 def version_de(sortie: str, nom: str) -> str:

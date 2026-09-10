@@ -28,16 +28,17 @@ export function mountEngines(el, ctx = {}) {
         notify(id + (r.ok ? " répond" : " ne répond pas"), !r.ok); render(); return;
       }
       if (a !== "run") return;
-      const act = n.dataset.act || "install";
+      const act = n.dataset.act || "install", scope = n.dataset.scope || "user";
       // la commande vient du serveur, jamais d'ici : on la RÉCUPÈRE pour la montrer, puis on n'envoie que l'identifiant
-      const apercu = await svc.run({ recipe: id, action: act, dry_run: true });
-      if (!ask((act === "update" ? "Mettre à jour " : "Installer ") + id + " ?\n\n" + apercu.cmd
-               + "\n\nCette commande touche le système.")) return;
+      const apercu = await svc.run({ recipe: id, action: act, scope, dry_run: true });
+      const ou = scope === "system" ? "pour tous les utilisateurs de la machine" : "pour vous seul";
+      if (!ask((act === "update" ? "Mettre à jour " : "Installer ") + id + " " + ou + " ?\n\n" + apercu.cmd
+               + (scope === "system" ? "\n\nCette commande touche le système (sudo)." : ""))) return;
       state.busy = id; render();
-      let r = await svc.run({ recipe: id, action: act });
+      let r = await svc.run({ recipe: id, action: act, scope });
       if (!r.ok && r.blocked && r.blocked.length
           && ask(r.error + "\n\nForcer quand même ? Les sessions en cours peuvent être coupées.")) {
-        r = await svc.run({ recipe: id, action: act, force: true });
+        r = await svc.run({ recipe: id, action: act, scope, force: true });
       }
       state.busy = null;
       state.journal = r.cmd + "\n" + (r.out || r.err || r.error || "").slice(-1200);

@@ -8413,22 +8413,29 @@ def op_engines() -> dict:
 
 
 def op_engine_install(payload: dict, auth_ctx=None) -> dict:
-    """Installe, met à jour ou teste — par IDENTIFIANT de recette. Aucune commande ne vient du client.
-    L'installation touche le système (sudo) : réservée aux administrateurs, et jamais implicite."""
+    """Installe, met à jour ou teste — par IDENTIFIANT de recette et par PORTÉE. Aucune commande ne
+    vient du client. La portée `user` reste dans l'espace du développeur et n'a besoin d'aucun droit ;
+    la portée `system` touche la machine entière (sudo) : réservée aux administrateurs, jamais implicite."""
     R, E = _engines_mod()
     nom = str(payload.get("recipe") or "").strip()
     action = str(payload.get("action") or "test").strip()
+    portee = str(payload.get("scope") or "user").strip()
     if not R.recette(nom):
         raise ApiError(400, f"recette inconnue : {nom}")
     if action not in R.ACTIONS:
         raise ApiError(400, f"action inconnue : {action}")
-    if action in ("install", "update") and not bool((auth_ctx or {}).get("admin")):
-        raise ApiError(403, "installer ou mettre à jour touche le système : réservé aux administrateurs")
+    if portee not in R.PORTEES:
+        raise ApiError(400, f"portée inconnue : {portee}")
+    if action in ("install", "update") and portee == "system" and not bool((auth_ctx or {}).get("admin")):
+        raise ApiError(403, "installer pour toute la machine touche le système : réservé aux "
+                            "administrateurs — l'installation « pour moi » reste ouverte")
     try:
-        r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")))
+        r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")),
+                      portee=portee)
     except (KeyError, ValueError) as e:
         raise ApiError(400, str(e))
-    _jlog("env", "info", f"moteur {nom} : {action}" + (" (simulation)" if payload.get("dry_run") else ""),
+    _jlog("env", "info", f"moteur {nom} : {action} ({portee})"
+          + (" (simulation)" if payload.get("dry_run") else ""),
           by=str((auth_ctx or {}).get("user") or ""), ok=bool(r.get("ok")))
     return r
 

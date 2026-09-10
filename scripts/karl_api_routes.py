@@ -54,6 +54,8 @@ TARGET_TO_CURRENT = {
     "/api/outline/approve": "/approve",
     "/api/outline/scroll": "/scroll",
     "/api/pm/commands": "/pm/commands",
+    "/api/pm/engine-install": "/pm/engine-install",
+    "/api/pm/engines": "/pm/engines",
     "/api/pm/provider-assign": "/pm/provider-assign",
     "/api/pm/provider-secret": "/pm/provider-secret",
     "/api/pm/provider-types": "/pm/provider-types",

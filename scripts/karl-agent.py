@@ -8395,6 +8395,43 @@ def op_provider_assign(payload: dict, auth_ctx=None) -> dict:
     tmp.replace(meta)
     return {"ok": True, "client": client, "project": projet, "axis": axe, "entries": liste}
 
+# ── Moteurs et serveurs de modèles : état, installation, mise à jour (RM3069) ─
+def _engines_mod():
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import importlib.util
+    import pm_engine_recipes as R
+    spec = importlib.util.spec_from_file_location("pm_engine_install", REPO_ROOT / "scripts" / "pm-engine-install.py")
+    E = importlib.util.module_from_spec(spec); spec.loader.exec_module(E)
+    return R, E
+
+
+def op_engines() -> dict:
+    """Le catalogue et l'état réel : présent, version installée, version disponible, sessions en cours.
+    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas."""
+    R, E = _engines_mod()
+    return {"catalogue": R.catalogue(), "etats": E.etats()}
+
+
+def op_engine_install(payload: dict, auth_ctx=None) -> dict:
+    """Installe, met à jour ou teste — par IDENTIFIANT de recette. Aucune commande ne vient du client.
+    L'installation touche le système (sudo) : réservée aux administrateurs, et jamais implicite."""
+    R, E = _engines_mod()
+    nom = str(payload.get("recipe") or "").strip()
+    action = str(payload.get("action") or "test").strip()
+    if not R.recette(nom):
+        raise ApiError(400, f"recette inconnue : {nom}")
+    if action not in R.ACTIONS:
+        raise ApiError(400, f"action inconnue : {action}")
+    if action in ("install", "update") and not bool((auth_ctx or {}).get("admin")):
+        raise ApiError(403, "installer ou mettre à jour touche le système : réservé aux administrateurs")
+    try:
+        r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")))
+    except (KeyError, ValueError) as e:
+        raise ApiError(400, str(e))
+    _jlog("env", "info", f"moteur {nom} : {action}" + (" (simulation)" if payload.get("dry_run") else ""),
+          by=str((auth_ctx or {}).get("user") or ""), ok=bool(r.get("ok")))
+    return r
+
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
@@ -11640,6 +11677,8 @@ class Handler(BaseHTTPRequestHandler):
             data = op_help_get(path[len("/help/"):])
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
+        if path == "/pm/engines":            # RM3069 : catalogue + état des moteurs et serveurs
+            return self._send_json(200, op_engines())
         if path == "/pm/provider-types":     # RM3068 : catalogue des types de fournisseurs
             return self._send_json(200, op_provider_types())
         if path == "/pm/providers":          # RM3068 : instances, défauts, ÉTAT des clés, affectations
@@ -12042,6 +12081,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_client_notify_test(payload))
             if path == "/client-notify/dismiss":
                 return self._send_json(200, op_client_notify_dismiss(payload))
+            if path == "/pm/engine-install":    # RM3069 : installer / mettre à jour / tester, par recette
+                return self._send_json(200, op_engine_install(payload, self.auth_ctx))
             if path == "/pm/providers":         # RM3068 : déclarer / modifier / supprimer une instance
                 return self._send_json(200, op_provider_save(payload, self.auth_ctx))
             if path == "/pm/provider-secret":   # RM3068 : écrire une clé (jamais la relire)

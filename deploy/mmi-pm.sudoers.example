@@ -39,3 +39,8 @@
 # La VALEUR n'est jamais un argument : elle arrive sur l'entrée standard, donc rien n'en transpire dans
 # `ps`, ni dans le journal sudo (qui n'enregistre que la ligne de commande).
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/pm-provider-secret.py *
+
+# RM3069 — installation SYSTÈME des moteurs d'agents et des serveurs de modèles depuis le cockpit.
+# Le script n'accepte qu'un IDENTIFIANT de recette : les commandes vivent dans pm_engine_recipes.py,
+# aucune ne vient du navigateur. C'est lui qui appelle npm/pip/sh en root, jamais le démon directement.
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/pm-engine-install.py *

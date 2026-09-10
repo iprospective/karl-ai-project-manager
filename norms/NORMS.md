@@ -1,9 +1,9 @@
 ---
-schema_version: "2.38.0"
+schema_version: "2.39.0"
 updated: 2026-09-11
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.38.0
+# Normes de gestion des tâches — v2.39.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1681,6 +1681,33 @@ les mêmes registres, aux noms génériques (`docs/cdc.md`, `cdc-questions.md`, 
 **régénérés** par `pm-think-merge` depuis les `.think.md` des tickets (`session-tooling` §
 « Consignation par ticket ») ; ce qui est hors marqueurs y survit. Un CDC **par ticket**
 (`cdc-rm<id>-*.md`) reste la référence de son sujet et le `cdc.md` du projet y renvoie.
+
+### Une fonctionnalité, des tickets en référence (RM3099)
+
+Une fonctionnalité est **ce que le système sait faire**. Elle existe pour elle-même, se dit en
+langage d'**usage**, et cite **0, 1 ou plusieurs tickets** : le ticket est une trace de travail,
+pas la définition. Il n'y a **qu'un registre par projet**, `docs/cdc/fonctionnalites.yml`.
+
+Le projet PM en a porté deux (`cdc/` dérivé des tickets, `cdc-karl/` curé à la main, RM3048) :
+deux `F001` différents pour le même projet, deux feuilles de route, deux taxonomies, un lien déjà
+faux entre les deux. La leçon tient en une phrase : **une seconde vue d'une même donnée est un
+fichier généré, jamais un second registre.** Si un projet en a hérité un,
+`pm-cdc-features --absorb <yml> --sync --build` le verse dans l'autre — ids neufs (ceux déjà
+publiés ne bougent pas), entrées dérivées absorbées dès que leur ticket est cité ailleurs, aucune
+référence perdue.
+
+| Champ | ce qu'il porte |
+|---|---|
+| `tickets` | les tickets qui l'ont construite — **éventuellement aucun** |
+| `domaine` | le domaine d'**usage** : c'est lui, et lui seul, qui groupe le chapitre |
+| `domaine_technique` | quelle partie du système est touchée — une **étiquette**, jamais un second plan |
+| `manuel: true` | libellé et domaine tenus à la main (`--sync` ne les réécrit plus) |
+| `etat_manuel: true` | état posé à la main (`--set-etat`) — **distinct** de `manuel` |
+
+**L'état se dérive des tickets cités, et c'est le plus avancé qui l'emporte.** Une capacité
+utilisable reste « livré » quand un ticket d'évolution s'ouvre à côté d'elle ; l'inverse ferait
+retomber « en cours » une capacité qui marche depuis des mois. Ce qui reste ouvert est **compté**
+(`restants`, rendu « livré · 2 en cours »), pas dissimulé.
 
 ### Les versions, et ce qu'une feuille de route n'est pas (RM3060)
 

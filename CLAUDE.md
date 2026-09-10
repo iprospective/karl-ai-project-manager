@@ -44,10 +44,12 @@ n'étant qu'une fusion :
   questions posées, les réponses retenues et les demandes verbatim) ;
 - `pm-think-merge` régénère `cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`
   (ids `RM<id>-Dnnn`) ; **`pm-think-merge --check` et `pm-cdc-features --check` doivent être verts à la livraison** ;
-- **deux registres de fonctionnalités, deux questions** : `docs/cdc/` dérive des **tickets** (« quel ticket
-  a fait quoi ») ; `docs/cdc-karl/` est **curé par capacité** (« qu'est-ce que karl sait faire », RM3048,
-  `cure: true` — `--sync` y est refusé, `--prefix karl` le vise). Une capacité livrée s'ajoute au second
-  dans la MÊME livraison que le code ;
+- **un seul registre de fonctionnalités par projet** : `docs/cdc/fonctionnalites.yml` (RM3099). Une
+  fonctionnalité est ce que le système sait faire ; elle cite **0, 1 ou plusieurs tickets** en
+  référence — elle n'a pas besoin d'un ticket pour exister. Le plan suit le domaine d'**usage** ;
+  `domaine_technique` reste en étiquette. Une capacité livrée s'ajoute au registre dans la MÊME
+  livraison que le code (`pm-cdc-features --sync --build`, ou une entrée à la main avec
+  `manuel: true`) ;
 - `cdc-roadmap.md` est **généré** depuis les `versions` du registre (RM3060) : une version = une étape de
   travail (rôle + critère de passage), les fonctionnalités s'y rattachent par une colonne
   (`pm-cdc-features --add-version` / `--set-version`, ou le cockpit : onglet CDC → Feuille de route) ;

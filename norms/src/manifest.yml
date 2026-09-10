@@ -10,6 +10,7 @@ sources:
   - modules/structure-reference-pratique.md   # RM3037 : index projets + annuaire, hors précharge
   - modules/session-tooling.md
   - modules/session-tooling-pratique.md   # RM3037 : trous d'outillage + idiomes, hors précharge
+  - modules/scheduler.md      # RM2792 : travaux périodiques + registre, hors précharge
   - modules/project-modeling.md
   - modules/project-modeling-pratique.md   # RM3037 : relation d'implémentation, hors précharge
   - modules/project-creation.md

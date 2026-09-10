@@ -1,9 +1,9 @@
 ---
-schema_version: "2.37.0"
+schema_version: "2.38.0"
 updated: 2026-09-11
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.37.0
+# Normes de gestion des tâches — v2.38.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -34,6 +34,7 @@ updated: 2026-09-11
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
+| je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
@@ -102,7 +103,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
     **Pourquoi c'est un tripwire** : la règle s'applique au moment où tu **rédiges**, quand tu n'ouvres plus aucun fichier. Elle doit donc être sous tes yeux en permanence, sinon elle se viole en silence — et se re-viole après chaque compactage (incidents 2026-08-13 en restitution, 2026-09-01 en interprétation). → `agents/worker-common.md`, `structure-reference` § Vocabulaire du demandeur
 16. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : CPU, charge, réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident depuis les seuls logs de la machine** : ils disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être — un service engorgé cesse d'écrire, Apache journalise en FIN de requête, un rsyslog affamé imite une panne réseau. Un agent local qui « mesure » n'est pas fiable tant que Zabbix ne corrobore pas (incident RM2455 : deux diagnostics réfutés, cause réelle — pool PHP saturé → workers Apache épuisés → `MaxRequestWorkers` — trouvée en 3 requêtes Zabbix). → `knowledge/zabbix/api.md`
 
-17. **Tests au fil de l'eau.** Coder = **livrer les tests avec le code**, pas après : TDD par défaut sur la logique, tests **unitaires** + **fonctionnels/workflow** anticipés dès la conception, **tous les cas** couverts (tests auto ET protocole de test, complémentaires). `mmi-pm test` **vert avant livraison** (front/cockpit ⇒ tests node même MR). Non automatisable (rendu navigateur, intégration tierce) ⇒ recette humaine + **justification tracée** ; jamais « pas de test ». → `modules/testing.md`
+17. **Tests au fil de l'eau.** Coder = **livrer les tests avec le code**, pas après : TDD par défaut sur la logique, tests **unitaires** + **fonctionnels/workflow** anticipés dès la conception, **tous les cas** couverts (tests auto ET protocole de test, complémentaires). `mmi-pm test` **vert avant livraison** (front/cockpit ⇒ tests node même MR). Projet `browser_test: true` (site public) ⇒ **validation NAVIGATEUR obligatoire** avant toute livraison front, sur l'env du ticket (`tools/browser-check`) — le rendu navigateur n'est PLUS un cas « non automatisable » (RM3036). Non automatisable (intégration tierce, matériel, envoi réel) ⇒ recette humaine + **justification tracée** ; jamais « pas de test ». → `modules/testing.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -3364,6 +3365,57 @@ mail/SMS). Dans ces cas **uniquement** : **protocole de recette humaine** + **ju
 tracée** (dans le ticket : quoi, pourquoi non automatisable). Jamais « pas de test » tout
 court. « C'est dur à tester » n'est pas une justification — c'est un signal de refactor
 (§2). La justification décrit une **impossibilité technique réelle**, pas une difficulté.
+
+### 7. Site PUBLIC : le navigateur n'est pas optionnel (RM3036)
+
+Sur un projet dont le meta porte **`browser_test: true`** — un site public, exposé à des
+clients — **toute modification du rendu front se valide au NAVIGATEUR avant livraison**.
+Pas « si on a le temps » : avant.
+
+Ce n'est pas une précaution théorique. Le 2026-09-08 (RM3025), une modification front est
+partie en production sans passage navigateur et **a cassé l'ajout au panier**. Deux causes,
+qu'un seul chargement de page aurait attrapées : un endpoint en erreur 500 (classe appelée
+en nom court, exception non rattrapée) et un **bundle CCC non régénéré** — le nouveau JS
+n'était pas servi. Aucun test unitaire ne pouvait les voir : l'un ne se produit qu'à
+l'exécution HTTP réelle, l'autre n'existe que dans l'assemblage des assets.
+
+Ce que « validé au navigateur » exige, au minimum :
+
+1. la page se **charge** sur l'environnement de recette (code HTTP 200, pas seulement
+   « le fichier est déployé ») ;
+2. le **geste** modifié est réellement exécuté (cliquer le bouton, soumettre le formulaire),
+   pas seulement observé dans le source ;
+3. la **console** du navigateur est lue : une erreur JS ne remonte nulle part ailleurs ;
+4. l'**effet** est constaté dans l'interface (le panier passe de 0 à 1, le prix change),
+   pas déduit de la base ;
+5. après déploiement, la **purge du cache** et la régénération des assets sont vérifiées —
+   sinon on teste l'ancien code sans le savoir.
+
+Un pilotage **headless** satisfait ces cinq points et se rejoue : c'est la forme à
+privilégier, et elle transforme la recette en test conservable. À défaut, recette humaine
+tracée — mais sur un site public, l'absence de tout passage navigateur n'est **pas** une
+option, et ne se couvre pas par la clause de pragmatisme du §6.
+
+**L'outil existe, il n'y a plus d'excuse d'outillage** :
+
+```bash
+cd tools/browser-check && npm i          # une fois par machine
+node tools/browser-check/browser-check.js --url <URL> \
+     --expect-selector "<css>" --click "<css>" --expect-change "<css>"
+```
+
+Il rend `0`/`1`, cite l'erreur fautive, et **distingue un asset 404 d'un plantage JS** —
+la distinction qui manquait sur RM3025. Détail : `tools/browser-check/README.md`.
+
+**Sur quel environnement** : celui du ticket, monté par `pm-task-take`, seul dont on
+sache qu'il porte exactement la branche testée. **Ne pas rsyncer vers une préprod
+partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `calicote-presta-2.test`
+a été altérée, et l'environnement de recette d'un autre ticket avec. La préprod sert à la
+recette d'intégration, après fusion.
+
+L'option se pose avec `pm-project-config --client <c> --project <p> --browser-test true`,
+et se lit dans le meta du projet : un agent qui livre du front sur un tel projet doit
+vérifier ce drapeau **avant** de conclure que ses tests suffisent.
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 

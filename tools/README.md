@@ -31,3 +31,13 @@ Suppression conditionnée à 3 critères cumulatifs (nom charabia **ET** absent 
 **ET** aucune commande), backup intégral systématique, modes `plan` (dry-run) /
 `apply --yes`. Point d'entrée : `brevo-cleaner/brevo_cleaner.py <env> plan|apply`.
 Détails : voir `brevo-cleaner/README.md`.
+
+## browser-check/
+
+**Validation NAVIGATEUR** d'une page avant de livrer du front, imposée par NORMS `testing` §7
+sur les projets `browser_test: true` (sites publics). Charge une URL dans un Chromium headless
+déjà présent en cache, exécute un geste, lit la console et **constate l'effet dans l'interface** ;
+sort en `0`/`1`, donc s'écrit tel quel dans un protocole de test. Verdict en logique **pure**
+(`lib.js`, testé sans navigateur) séparé de l'observation. Point d'entrée :
+`browser-check/browser-check.js --url <URL> [--click …] [--expect-change …]`.
+Détails : voir `browser-check/README.md`.

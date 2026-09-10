@@ -13,6 +13,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le navigateur devient testable, donc obligatoire** (RM3036) : nouvel outil
+  `tools/browser-check` — charge une URL dans un Chromium headless, exécute le geste, lit la
+  console et **constate l'effet dans l'interface**, code retour `0`/`1`. Il comble le trou
+  d'outillage qui a laissé passer RM3025 : une modif front livrée sans passage navigateur avait
+  cassé l'ajout au panier en prod, sur deux causes qu'aucun test unitaire ne voyait — un endpoint
+  en 500 et un bundle CCC non régénéré. Le verdict vit dans un module **pur** (`lib.js`), testé
+  sans navigateur : sans cette coupure, on ne peut tester l'outil de test qu'en lançant Chromium,
+  donc on ne le teste pas. Trois partis pris tirés de l'incident : une **option mal tapée est une
+  erreur** (un scénario qui « passe » parce qu'un contrôle a été ignoré est pire que rien) ; un
+  **asset 404 est séparé d'un plantage JS** (`--allow-console-errors` ne fait pas taire un
+  déploiement incomplet) ; **aucun navigateur n'est téléchargé** — à défaut de Chromium en cache,
+  l'outil refuse de conclure plutôt que de laisser croire à une validation. playwright-core ou
+  puppeteer-core, indifféremment. Rejoué pour de vrai sur la préprod Calicote (fiche produit →
+  clic « Ajouter » → compteur panier 0→1).
+  Côté conf : `pm-project-config --browser-test true` pose le drapeau `browser_test` au niveau
+  **projet** (un client peut avoir un site public et un back-office interne) ; une valeur douteuse
+  est **rejetée** plutôt que traduite en `false` — une règle de test qui s'éteint en silence ne
+  protège plus rien. Activé sur `calicote/prestashop`. NORMS 2.38.0 : `testing` §7, tripwire #17
+  amendé (le rendu navigateur n'est plus un cas « non automatisable »), runtime KERNEL synchronisé.
 - **Compte-rendu : prévenir aussi le demandeur** (RM3092) : une case **par ticket** dans le
   panneau, plus une case globale. Le demandeur reçoit **son propre email, limité à ses
   tickets** — plutôt qu'une copie du compte-rendu complet : il n'a pas à découvrir ce qui a

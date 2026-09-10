@@ -83,6 +83,40 @@ Réponds UNIQUEMENT par un tableau JSON, un objet par tour, sans texte autour :
 Les tours "rien" peuvent être omis."""
 
 
+# ── RM3090 : LE critère, en version heuristique ──────────────────────────────
+# La moisson (`pm-think-harvest`) tourne à CHAQUE fin de tour, en hook : elle doit rendre la main
+# tout de suite, donc sans appeler de modèle. Elle applique donc la même règle de partage que la
+# consigne ci-dessus, en version pauvre — et le classificateur LLM reste la passe de fond qui
+# complète et corrige (`--all`).
+#
+# La règle vient d'un arbitrage de Mathieu (2026-09-10, RM3015-D011) : une question ouverte est
+# TOUT ce qui n'est pas tranché, **quel qu'en soit l'auteur** — y compris ce que le demandeur se
+# demande à lui-même. La moisson ne créait de question que depuis un outil de question formelle ;
+# tout le reste devenait une note, et la question posée ce jour-là a fini en note.
+#
+# En cas de doute : note. Une note mal classée se trie ; une question perdue ne se retrouve pas.
+_ORDRE = re.compile(r"^\s*(fais|fait|ajoute|cr[ée]e|corrige|livre|merge|pousse|lance|refais|relance|"
+                    r"mets?|met |applique|supprime|renomme|d[ée]place|continue|reprends?|go\b|ok\b|"
+                    r"consigne|note |ticket|traite|termine|finis)", re.I)
+_INTERRO = re.compile(r"(?:^|[\s(])(est-ce que|pourquoi|comment|combien|qui |quoi|quel(?:le|s|les)?\b|"
+                      r"faut-il|peut-on|doit-on|serait-il|y a-t-il|à quoi|dans quel)", re.I)
+
+
+def type_heuristique(role: str, texte: str) -> str:
+    """`question` ou `dette` (→ note) pour un tour, SANS modèle. Pure, testée.
+
+    Une question est reconnue à deux marques conjointes : une forme interrogative et l'absence
+    d'ordre en tête. « fais-moi X, tu en penses quoi ? » est un ordre : il appelle une action, pas
+    un arbitrage — c'est la distinction demande / question de RM3015-C008."""
+    txt = " ".join(str(texte or "").split())
+    if role != "M" or not txt:
+        return "dette"
+    if _ORDRE.match(txt):
+        return "dette"
+    interro = txt.rstrip().endswith("?") or bool(_INTERRO.search(txt))
+    return "question" if interro else "dette"
+
+
 def tours(lines) -> list:
     """[(role, texte)] — les tours de CONVERSATION seulement. Le tooling n'y entre jamais. Pure, testée."""
     out = []

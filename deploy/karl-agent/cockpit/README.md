@@ -240,11 +240,12 @@ change ; un front seul se recharge avec Ctrl+F5 (l'avertissement de version le d
 
 ## Ce que karl sait faire
 
-L'inventaire complet des capacités, par domaine et avec les tickets qui les ont apportées, vit dans le CDC
-de karl : `docs/cdc-karl-10-fonctionnalites.md` du projet PM (registre curé
-`docs/cdc-karl/fonctionnalites.yml`, RM3048). Il se lit aussi depuis le cockpit, bouton **📋 CDC**, en
-choisissant le CDC « karl ».
+L'inventaire complet des capacités, par domaine d'usage et avec les tickets qui les ont apportées, vit dans
+`docs/cdc-features.md` du projet PM (registre `docs/cdc/fonctionnalites.yml`, RM3048 puis RM3099). Il se lit
+aussi depuis le cockpit, bouton **📋 CDC**.
 
-C'est un registre **par capacité**, tenu à la main : une capacité couvre souvent plusieurs tickets. Ne pas
-le confondre avec `docs/cdc/fonctionnalites.yml`, dérivé des tickets, qui répond à « quel ticket a fait
-quoi ». Une capacité livrée s'y ajoute dans la même livraison que le code — comme le reste de la doc vivante.
+C'est **un seul registre pour tout le projet** : une entrée = une capacité, qui cite 0, 1 ou plusieurs
+tickets. Le plan suit le domaine d'**usage** ; la colonne *Technique* dit quelle partie du système est
+touchée. Une capacité livrée s'y ajoute dans la même livraison que le code — comme le reste de la doc
+vivante. (Jusqu'à RM3099, deux registres cohabitaient et se marchaient dessus : `cdc-karl/` a été absorbé,
+libellés et tickets conservés.)

@@ -60,12 +60,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   compaction, avant de rendre la main » — prochaine étape, questions non tranchées, arbitrages
   récents — et son déclencheur au KERNEL. Ce qui n'est pas consigné là n'est pas plus difficile à
   retrouver : il n'existe plus (leçon RM2997).
-- **Inventaire des capacités de karl** (RM3048) : un registre **curé par capacité** (`docs/cdc-karl/`,
-  123 entrées sur 12 domaines) répond à « qu'est-ce que karl sait faire », là où `docs/cdc/` (dérivé des
-  tickets, 603 entrées) répond à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs
-  tickets. `pm-cdc-features` gagne `cure: true` (le registre se tient à la main, `--sync` y est refusé en
-  le disant), `--prefix` pour viser un registre quand le projet en porte plusieurs, et un `titre` propre.
-  Le cockpit sert les deux côte à côte, le README pointe le premier.
+- **Inventaire des capacités de karl** (RM3048, **absorbé par RM3099**) : un registre curé par capacité
+  (123 entrées sur 12 domaines d'usage) répond à « qu'est-ce que karl sait faire », là où le registre
+  dérivé des tickets répondait à « quel ticket a fait quoi ». Une capacité couvre souvent plusieurs
+  tickets. RM3099 a fondu les deux : les 123 libellés écrits à la main vivent désormais dans le registre
+  unique du projet, avec leurs tickets en référence.
+- **Un seul registre de fonctionnalités par projet** (RM3099) : le projet portait deux `F001` différents,
+  deux feuilles de route, deux taxonomies, et un lien déjà faux de l'une vers l'autre. Arbitrage du
+  demandeur : « les fonctionnalités n'ont pas besoin d'un ticket pour exister… avec mention d'un ticket
+  s'il y en a un, ou même plusieurs ». Il n'y a donc plus **une** notion de fonctionnalité, décrite pour
+  elle-même, qui **cite** ses tickets — éventuellement aucun. `pm-cdc-features --absorb` verse un registre
+  dans un autre : ids neufs pour les entrées versées (ceux déjà publiés ne bougent pas), entrées dérivées
+  **absorbées** dès que leur ticket est cité ailleurs, aucune référence perdue (123 versées, 140
+  absorbées, 592 au total). Le plan suit le domaine d'**usage** (`domaine`) ; le domaine technique reste
+  une **étiquette** (`domaine_technique`), une colonne du chapitre et du cockpit, jamais un second plan.
+  L'état d'une entrée se dérive de ses tickets et **le plus avancé l'emporte** — une capacité livrée reste
+  livrée quand un ticket d'évolution s'ouvre ; ce qui reste ouvert est compté (« livré · 2 en cours »).
+  `--prefix` et `cure:` disparaissent, `manuel` (libellé) et `etat_manuel` (état) se séparent, `rm:` se
+  fond dans `tickets:`. NORMS 2.39.0 : § « Une fonctionnalité, des tickets en référence ».
 
 - **La réflexion d'un ticket sur sa fiche** (RM3089, lot L6 de RM3015) : bloc **🧠 Réflexion** —
   questions ouvertes, décisions et conseils, fonctionnalités, notes — avec le compteur qui **annonce

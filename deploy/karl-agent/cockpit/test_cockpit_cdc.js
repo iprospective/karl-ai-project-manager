@@ -28,15 +28,21 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
     { id: "F002", rm: 11, libelle: "Bug porcelain", domaine: "Outillage", type: "bugfix", etat: "livré", date: "2026-08-02" },
     { id: "F003", rm: 12, libelle: "Truc en cours", domaine: "Cockpit", type: "feature", etat: "en cours", date: "2026-09-01", parent: 5 },
     { id: "F004", libelle: "Capacité curée", domaine: "Karl", type: "feature", etat: "prévu", date: "2026-09-02", tickets: [20, 21], manuel: true },
+    { id: "F006", libelle: "Capacité sans ticket", domaine: "Karl", domaine_technique: "Outillage PM", type: "feature", etat: "livré", date: "2026-09-03", manuel: true },
     { id: "F005", rm: 13, libelle: "Abandonné", domaine: "Cockpit", type: "feature", etat: "écarté (abandonne)", date: "2026-07-01" },
   ], domaines: ["Cockpit", "Outillage", "Karl"], jalons: [] };
   let f = new VM.FeaturesViewModel({ data, sort: "id" });
-  assert.deepStrictEqual(f.rows().map(r => r.id), ["F001", "F002", "F003", "F004", "F005"]); assert(!f.hasVersion && f.cols.every(c => c.key !== "version"), "pas de colonne version sans version");
-  assert.deepStrictEqual(f.counts.map(c => c.etat + ":" + c.n), ["livré:2", "en cours:1", "prévu:1", "écarté:1"], "comptes par état, écarté regroupé");
+  assert.deepStrictEqual(f.rows().map(r => r.id), ["F001", "F002", "F003", "F004", "F005", "F006"]); assert(!f.hasVersion && f.cols.every(c => c.key !== "version"), "pas de colonne version sans version");
+  // RM3099 : le domaine d'USAGE classe, le domaine TECHNIQUE est une étiquette — une colonne, pas un second plan.
+  assert(f.cols.some(c => c.key === "domaine_technique"), "colonne Technique (domaine technique en étiquette)");
+  assert.strictEqual(f.rows()[5].tech, "Outillage PM", "le domaine technique remonte dans la ligne");
+  assert.deepStrictEqual(f.rows()[5].tickets, [], "une fonctionnalité peut n'avoir AUCUN ticket (RM3099-D001)");
+  assert.deepStrictEqual(new VM.FeaturesViewModel({ data, q: "outillage pm" }).rows().map(r => r.id), ["F006"], "le filtre porte aussi sur le domaine technique");
+  assert.deepStrictEqual(f.counts.map(c => c.etat + ":" + c.n), ["livré:3", "en cours:1", "prévu:1", "écarté:1"], "comptes par état, écarté regroupé");
   assert.deepStrictEqual(f.rows()[3].tickets, [20, 21], "tickets multiples d'une entrée curée"); assert.strictEqual(f.rows()[2].parent, 5);
   f = new VM.FeaturesViewModel({ data, sort: "etat", desc: true }); assert.strictEqual(f.rows()[0].id, "F005", "tri par état inversé : écarté d'abord");
   f = new VM.FeaturesViewModel({ data, sort: "date" }); assert.strictEqual(f.rows()[0].id, "F005", "tri par date");
-  f = new VM.FeaturesViewModel({ data, q: "rm21" }); assert.deepStrictEqual(f.rows().map(r => r.id), ["F004"], "filtre sur un RM couvert"); assert.strictEqual(f.count, "1 / 5");
+  f = new VM.FeaturesViewModel({ data, q: "rm21" }); assert.deepStrictEqual(f.rows().map(r => r.id), ["F004"], "filtre sur un RM couvert"); assert.strictEqual(f.count, "1 / 6");
   f = new VM.FeaturesViewModel({ data: { entrees: [{ id: "F001", libelle: "x", etat: "livré", jalon: 1 }, { id: "F002", libelle: "y", etat: "prévu", version: "V2" }, { id: "F003", libelle: "z", etat: "prévu" }] }, sort: "version" }); assert(f.hasVersion && f.rows().map(r => r.version).join("|") === "V1|V2|", "version : `version` ou `jalon` → V<n>, colonne présente, tri (vides en dernier)");
   // — ChaptersViewModel —
   const c = new VM.ChaptersViewModel({ cdc: cdcs[0], path: cdcs[0].chapters[1].path, md: "| # | Objet |\n|---|---|\n| D001 | Un choix (RM3013) |\n| ~~Q002~~ | fermée |\n" });

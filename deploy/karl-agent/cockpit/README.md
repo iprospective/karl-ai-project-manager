@@ -237,3 +237,14 @@ teste la mesure elle-même.
 MR ticket → `dev` → `main` (`mmi-pm mr create` / `mr merge`), puis `mmi-pm core-update` (sudo demandé)
 sur l'instance. `systemctl --user restart karl-agent` **seulement** si `scripts/karl-agent.py`
 change ; un front seul se recharge avec Ctrl+F5 (l'avertissement de version le dit).
+
+## Ce que karl sait faire
+
+L'inventaire complet des capacités, par domaine et avec les tickets qui les ont apportées, vit dans le CDC
+de karl : `docs/cdc-karl-10-fonctionnalites.md` du projet PM (registre curé
+`docs/cdc-karl/fonctionnalites.yml`, RM3048). Il se lit aussi depuis le cockpit, bouton **📋 CDC**, en
+choisissant le CDC « karl ».
+
+C'est un registre **par capacité**, tenu à la main : une capacité couvre souvent plusieurs tickets. Ne pas
+le confondre avec `docs/cdc/fonctionnalites.yml`, dérivé des tickets, qui répond à « quel ticket a fait
+quoi ». Une capacité livrée s'y ajoute dans la même livraison que le code — comme le reste de la doc vivante.

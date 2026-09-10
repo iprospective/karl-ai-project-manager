@@ -122,3 +122,13 @@ autres types.
 
 La carte **« Nouveau ticket (saisie éclair) »** du panneau gauche reste là pour noter
 une idée en trois secondes.
+
+## Un ticket à la place de la session, ou sous elle ?
+
+Par défaut, ouvrir un ticket ou un document **remplace** la session dans la zone centrale :
+la fiche a toute la place, et la session revient telle quelle quand tu la fermes.
+
+Dans **🔧 réglages → Thème & affichage**, l'option *« Afficher les tickets et documents sous
+la session »* coupe la zone en deux : la session en haut, la fiche en dessous, avec une
+**barre de séparation** qu'on fait glisser (double-clic : hauteur par défaut). La hauteur est
+mémorisée dans ce navigateur, et la bascule s'applique immédiatement, même ticket ouvert.

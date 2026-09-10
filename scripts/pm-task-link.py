@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
@@ -163,11 +164,7 @@ def touch_updated(fm):
 
 
 def append_log(md_path, message):
-    log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
-    ts = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    entry = f"\n## {ts} — Lien (pm-task-link)\nTokens : 0 | Durée : 0 min\n\n{message}\n"
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    pm_task_log.append(md_path, "Lien (pm-task-link)", message)   # RM3085 : format partagé
 
 
 def autocommit_tasks(args, md_paths, message):

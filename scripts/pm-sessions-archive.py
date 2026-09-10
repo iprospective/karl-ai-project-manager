@@ -38,13 +38,13 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import pm_stores  # RM3085 : stores de session résolus une seule fois
 
 STORE = Path(os.environ.get("PM_SESSIONS_ARCHIVE_REPO")
              or (os.environ.get("KARL_AGENT_CLAUDE_STORES") or "").split(":")[0]
              or "~/.claude/projects").expanduser()
 HISTORY = Path(os.environ.get("PM_CLAUDE_HISTORY") or "~/.claude/history.jsonl").expanduser()
-WORKLOGS = Path(os.environ.get("PM_SESSION_WORKLOG_DIR")
-                or "~/.claude/session-worklogs").expanduser()
+WORKLOGS = pm_stores.worklog_dir()
 LOG = Path(os.environ.get("PM_SESSIONS_ARCHIVE_LOG")
            or "~/.local/log/pm-sessions-archive.log").expanduser()
 

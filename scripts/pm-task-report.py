@@ -45,6 +45,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_task_log  # RM3085 : le format du journal de ticket est écrit une seule fois
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
@@ -141,10 +142,9 @@ def save_fm(path, fm, m):
                     encoding="utf-8")
 
 
-def append_log(md_path, line):
-    log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(line)
+def append_log(md_path, source, message):
+    """RM3085 : l'en-tête était composé chez l'appelant — le format vit désormais dans pm_task_log."""
+    pm_task_log.append(md_path, source, message)
 
 
 def parse_log_entries(log_path):
@@ -456,8 +456,7 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
     if note_status == "posted":
         parts.append(f"note (commit {commit_hash[:8]})")
     if parts:
-        append_log(md_path,
-                   f"## {now} — report → Redmine\n{' ; '.join(parts)}\n\n")
+        append_log(md_path, "report → Redmine", " ; ".join(parts))
 
     res["created"] = len(created)
     res["status"] = "error" if (errors or cf_err) else "pushed"

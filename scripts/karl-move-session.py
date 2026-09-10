@@ -29,6 +29,7 @@ Usage :
 """
 import argparse, json, os, re, socket, sys
 from pathlib import Path
+import pm_stores  # RM3085
 
 # RM2810 : la garde « session vivante » vit dans pm_proclive, partagée avec
 # karl-agent. Deux copies donneraient deux verdicts sur la seule question qui
@@ -38,18 +39,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_proclive import live_session_pids  # noqa: E402
 
 SID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-PROJECTS = Path.home() / ".claude" / "projects"
-STATE = Path(os.environ.get("KARL_AGENT_STATE_DIR")
-             or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local/state")) / "karl-agent"))
+# RM3085 : ces trois résolutions étaient locales — dont STATE, SANS son repli sur
+# KARL_AGENT_LOG_DIR : sur un poste qui n'utilise que celle-là, l'outil visait un store vide et
+# l'ancrage échouait en silence (le symptôme même de RM2391, qu'il est censé réparer).
+STATE = pm_stores.state_dir()
+
+
+def projects_dirs():
+    return pm_stores.claude_stores()
 
 
 def slug_of(path: str) -> str:
-    """Nom de dossier projet claude pour un cwd (schéma observé : '/' et '.' -> '-')."""
-    return re.sub(r"[/.]", "-", path.rstrip("/") or path)
+    """Nom de dossier projet claude pour un cwd — règle unique (`pm_stores.cwd_slug`)."""
+    return pm_stores.cwd_slug(path.rstrip("/") or path)
 
 
 def find_transcript(sid: str) -> Path | None:
-    return next((p for p in PROJECTS.glob(f"*/{sid}.jsonl")), None)
+    return pm_stores.transcript(sid)
 
 
 def session_is_live(sid: str, engine: str = "claude") -> list:
@@ -87,10 +93,10 @@ def main() -> int:
 
     jf = find_transcript(sid)
     if not jf:
-        print(f"✗ transcript introuvable sous {PROJECTS}/*/{sid}.jsonl", file=sys.stderr); return 4
+        print(f"✗ transcript introuvable sous {'/'.join(str(d) for d in projects_dirs())}/*/{sid}.jsonl", file=sys.stderr); return 4
     old_slug = jf.parent.name
     new_slug = slug_of(str(target))
-    new_dir = PROJECTS / new_slug
+    new_dir = projects_dirs()[0] / new_slug
     new_jf = new_dir / f"{sid}.jsonl"
     store = STATE / "sessions" / a.engine / f"{sid}.json"
 
@@ -117,7 +123,7 @@ def main() -> int:
     if jf != new_jf:
         jf.unlink()
     # nettoyer d'éventuels doublons du sid dans d'autres dossiers projet
-    for dup in PROJECTS.glob(f"*/{sid}.jsonl"):
+    for dup in (d for root in projects_dirs() if root.is_dir() for d in root.glob(f"*/{sid}.jsonl")):
         if dup != new_jf:
             dup.unlink()
     print(f"✓ transcript -> {new_jf} (cwd réécrits)")

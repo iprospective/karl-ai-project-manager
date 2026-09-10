@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_stores  # RM3085 : stores de session résolus une seule fois
 from pm_paths import PMConfig
 import pm_roles
 from pm_output import out
@@ -138,8 +139,7 @@ def unread_redmine(fm, rm_id, live):
 # conversation a survécu — seulement ce qui a été écrit ailleurs et subsiste :
 # le worklog de séance, l'historique des demandes, le journal, le dépôt.
 
-WORKLOG_DIR = Path(os.environ.get("PM_SESSION_WORKLOG_DIR")
-                   or "~/.claude/session-worklogs").expanduser()
+WORKLOG_DIR = pm_stores.worklog_dir()
 # `history.jsonl` n'est PAS dans le périmètre du nettoyage de Claude Code :
 # c'est ce qui reste quand le transcript a disparu.
 HISTORY_FILE = Path(os.environ.get("PM_CLAUDE_HISTORY")

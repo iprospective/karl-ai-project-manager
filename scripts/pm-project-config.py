@@ -45,6 +45,19 @@ def _v_repo(field, v):
     return v if (len(v) <= 200 and _REPO_RE.match(v)) else _bad(field, "chemin/branche [A-Za-z0-9._/-]")
 
 
+def _v_bool(field, v):
+    """RM3036 — `browser_test` : un booléen écrit en clair dans le meta, donc lisible.
+    On accepte les formes qu'un humain tape, et on REFUSE le reste plutôt que de traduire
+    une valeur douteuse en `false` — une règle de test qui s'éteint en silence ne protège
+    plus rien."""
+    t = str(v).strip().lower()
+    if t in ("1", "true", "oui", "yes", "on"):
+        return "true"
+    if t in ("0", "false", "non", "no", "off"):
+        return "false"
+    return _bad(field, "true|false (ou oui/non, on/off, 1/0)")
+
+
 _VALIDATORS = {
     "name": lambda f, v: v if (v and "\n" not in v and "\r" not in v and len(v) <= 200)
             else _bad(f, "1–200 car., sans saut de ligne"),
@@ -52,12 +65,14 @@ _VALIDATORS = {
     "redmine.default_project_id": _v_id,
     "gitlab.repo": _v_repo,
     "gitlab.default_branch": _v_repo,
+    "browser_test": _v_bool,
 }
 
 # Champs éditables par périmètre : (clé_pointée meta.yml, nom d'attribut args).
 # Projet : redmine.project_id (id du projet Redmine). Client : redmine.default_project_id
 # (projet Redmine PARENT du client — schéma client réel, RM1994).
-PROJECT_FIELDS = [("name", "name"), ("redmine.project_id", "redmine_project_id"),
+PROJECT_FIELDS = [("name", "name"), ("browser_test", "browser_test"),
+                  ("redmine.project_id", "redmine_project_id"),
                   ("gitlab.repo", "gitlab_repo"), ("gitlab.default_branch", "default_branch")]
 CLIENT_FIELDS = [("name", "name"), ("redmine.default_project_id", "redmine_project_id")]
 
@@ -169,6 +184,9 @@ def main():
     ap.add_argument("--redmine-project-id", dest="redmine_project_id")
     ap.add_argument("--gitlab-repo", dest="gitlab_repo")
     ap.add_argument("--default-branch", dest="default_branch")
+    ap.add_argument("--browser-test", dest="browser_test", metavar="true|false",
+                    help="RM3036 : site PUBLIC — toute modification du rendu front exige une "
+                         "validation NAVIGATEUR avant livraison (projet seulement)")
     ap.add_argument("--porcelain", action="store_true", help="imprime le seul chemin écrit")
     args = ap.parse_args()
 

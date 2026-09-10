@@ -1,0 +1,13 @@
+{
+  "name": "browser-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RM3036 — validation NAVIGATEUR d'une page avant livraison front (NORMS testing § 7)",
+  "bin": { "browser-check": "./browser-check.js" },
+  "scripts": { "test": "node test_browser_check.js" },
+  "comment": "Les deux pilotes sont acceptés ; playwright-core est préféré car c'est son cache (~/.cache/ms-playwright) qui est déjà présent sur les postes de recette. Aucun navigateur n'est téléchargé.",
+  "dependencies": {
+    "playwright-core": "^1.63.0",
+    "puppeteer-core": "^25.10.0"
+  }
+}

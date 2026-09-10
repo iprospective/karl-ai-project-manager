@@ -68,3 +68,54 @@ mail/SMS). Dans ces cas **uniquement** : **protocole de recette humaine** + **ju
 tracée** (dans le ticket : quoi, pourquoi non automatisable). Jamais « pas de test » tout
 court. « C'est dur à tester » n'est pas une justification — c'est un signal de refactor
 (§2). La justification décrit une **impossibilité technique réelle**, pas une difficulté.
+
+### 7. Site PUBLIC : le navigateur n'est pas optionnel (RM3036)
+
+Sur un projet dont le meta porte **`browser_test: true`** — un site public, exposé à des
+clients — **toute modification du rendu front se valide au NAVIGATEUR avant livraison**.
+Pas « si on a le temps » : avant.
+
+Ce n'est pas une précaution théorique. Le 2026-09-08 (RM3025), une modification front est
+partie en production sans passage navigateur et **a cassé l'ajout au panier**. Deux causes,
+qu'un seul chargement de page aurait attrapées : un endpoint en erreur 500 (classe appelée
+en nom court, exception non rattrapée) et un **bundle CCC non régénéré** — le nouveau JS
+n'était pas servi. Aucun test unitaire ne pouvait les voir : l'un ne se produit qu'à
+l'exécution HTTP réelle, l'autre n'existe que dans l'assemblage des assets.
+
+Ce que « validé au navigateur » exige, au minimum :
+
+1. la page se **charge** sur l'environnement de recette (code HTTP 200, pas seulement
+   « le fichier est déployé ») ;
+2. le **geste** modifié est réellement exécuté (cliquer le bouton, soumettre le formulaire),
+   pas seulement observé dans le source ;
+3. la **console** du navigateur est lue : une erreur JS ne remonte nulle part ailleurs ;
+4. l'**effet** est constaté dans l'interface (le panier passe de 0 à 1, le prix change),
+   pas déduit de la base ;
+5. après déploiement, la **purge du cache** et la régénération des assets sont vérifiées —
+   sinon on teste l'ancien code sans le savoir.
+
+Un pilotage **headless** satisfait ces cinq points et se rejoue : c'est la forme à
+privilégier, et elle transforme la recette en test conservable. À défaut, recette humaine
+tracée — mais sur un site public, l'absence de tout passage navigateur n'est **pas** une
+option, et ne se couvre pas par la clause de pragmatisme du §6.
+
+**L'outil existe, il n'y a plus d'excuse d'outillage** :
+
+```bash
+cd tools/browser-check && npm i          # une fois par machine
+node tools/browser-check/browser-check.js --url <URL> \
+     --expect-selector "<css>" --click "<css>" --expect-change "<css>"
+```
+
+Il rend `0`/`1`, cite l'erreur fautive, et **distingue un asset 404 d'un plantage JS** —
+la distinction qui manquait sur RM3025. Détail : `tools/browser-check/README.md`.
+
+**Sur quel environnement** : celui du ticket, monté par `pm-task-take`, seul dont on
+sache qu'il porte exactement la branche testée. **Ne pas rsyncer vers une préprod
+partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `calicote-presta-2.test`
+a été altérée, et l'environnement de recette d'un autre ticket avec. La préprod sert à la
+recette d'intégration, après fusion.
+
+L'option se pose avec `pm-project-config --client <c> --project <p> --browser-test true`,
+et se lit dans le meta du projet : un agent qui livre du front sur un tel projet doit
+vérifier ce drapeau **avant** de conclure que ses tests suffisent.

@@ -1,5 +1,27 @@
 # Changelog des normes
 
+## [2.38.0] - 2026-09-11
+
+### Ajouté
+- **Site PUBLIC : le navigateur n'est pas optionnel** (RM3036, module `testing` §7). Sur un projet
+  portant `browser_test: true`, **toute modification du rendu front se valide au NAVIGATEUR avant
+  livraison**. Déclencheur : l'incident du 2026-09-08 (RM3025) — une modif front livrée sans passage
+  navigateur a cassé l'ajout au panier en production. Deux causes qu'aucun test unitaire ne pouvait
+  voir : un endpoint en **500** (il faut exécuter la requête HTTP) et un **bundle CCC non régénéré**
+  (le fichier était déployé, la page ne le chargeait pas). Un seul chargement de page les attrapait.
+  La règle exige cinq choses : page en 200, geste réellement exécuté, console lue, effet constaté
+  **dans l'UI**, purge de cache / régénération des assets vérifiée. Elle se joue sur **l'env du
+  ticket** — pas par rsync vers une préprod partagée, c'est ainsi que `calicote-presta-2.test` a été
+  abîmée pendant RM3025.
+
+### Modifié
+- **Le rendu navigateur n'est plus un cas « non automatisable »** (RM3036, tripwire #17). Le KERNEL
+  le citait en exemple à côté de l'intégration tierce : c'était l'échappatoire exacte par laquelle
+  RM3025 est passé, et elle n'était plus vraie une fois l'outil écrit. Les exemples restants
+  (intégration tierce, matériel, envoi réel) décrivent de vraies impossibilités. Un déclencheur
+  dédié pointe désormais `testing` §7, et le runtime KERNEL est synchronisé — c'est lui que lisent
+  les agents.
+
 ## [2.36.0] - 2026-09-10
 
 ### Modifié

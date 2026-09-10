@@ -23,13 +23,53 @@ export function worklogDocs(docsMap) {
   return out;
 }
 /** RM2610 : un onglet par bucket NON VIDE, « à faire » créé pour des branches orphelines, « documents » s'il y en a. */
-export function worklogTabList(secs, docsCount, orphanCount) {
+export function worklogTabList(secs, docsCount, orphanCount, mrCount) {
   const tabs = [];
   for (const s of secs || []) tabs.push({ key: s.key, label: s.icon + " " + s.label, n: s.items.length });
   if (orphanCount && !tabs.some(t => t.key === "todo")) tabs.unshift({ key: "todo", label: "⏳ reste à faire", n: 0 });
+  // RM3074 : le compteur ne compte QUE ce qui appelle un geste (à merger, à promouvoir) — une MR
+  // promue reste consultable dans l'onglet, mais gonfler le compteur avec elle rendrait le chiffre muet.
+  if (mrCount) tabs.push({ key: "mrs", label: "🔀 MR", n: mrCount });
   if (docsCount) tabs.push({ key: "documents", label: "📄 documents", n: docsCount });
   return tabs;
 }
+
+/** RM3074 — les MR d'une session, groupées par ÉTAPE du cycle. Pure.
+ *
+ * Trois groupes, dans l'ordre où ils appellent un geste : à merger dans l'intégration · mergées,
+ * en attente de promotion · promues en production. Le second est celui qui n'existait nulle part :
+ * le worklog ne listait que les MR ouvertes, si bien qu'une MR mergée dans `dev` disparaissait de
+ * l'écran alors que le travail n'était pas en production. Les fermées sans merge sont écartées :
+ * elles ne disent rien du cycle. */
+export function mrCycle(mrs, integration) {
+  const dev = String(integration || "dev");
+  const groups = { open: [], integration: [], prod: [] };
+  for (const m of (mrs || [])) {
+    const state = String((m || {}).state || "opened").toLowerCase();
+    if (state === "closed" || state === "declined") continue;
+    const target = String(m.target || "").trim();
+    const stage = (state === "opened" || state === "open" || state === "reopened") ? "open"
+      : (target && target !== dev) ? "prod" : "integration";
+    groups[stage].push(Object.assign({}, m, { stage }));
+  }
+  for (const k of Object.keys(groups)) groups[k].sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+  return groups;
+}
+
+/** Combien de MR appellent encore un geste (à merger + à promouvoir). Pure. */
+export function mrTodoCount(mrs, integration) {
+  const g = mrCycle(mrs, integration);
+  return g.open.length + g.integration.length;
+}
+
+export const MR_GROUPS = [
+  { key: "open", icon: "⇥", label: "à merger dans l'intégration",
+    hint: "la MR du ticket est ouverte : elle attend d'être mergée" },
+  { key: "integration", icon: "✓", label: "mergées — à promouvoir en production",
+    hint: "le travail est dans l'intégration ; la promotion se fait par LOT (dev → main), pas MR par MR" },
+  { key: "prod", icon: "★", label: "promues en production",
+    hint: "plus rien à faire côté MR" },
+];
 /** RM2466 volet 1 : gravité d'un événement — le niveau reste écrit à côté de l'icône. */
 export function notifyDecor(level) {
   if (level === "critical") return { icon: "🔴", cls: "oq ounres", label: "critical" };

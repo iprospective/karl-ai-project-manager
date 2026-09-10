@@ -11,11 +11,30 @@ export function sinceLabel(iso, now) {
   if (h < 24) return "il y a " + h + " h";
   return "il y a " + Math.floor(h / 24) + " j";
 }
-/** Fenêtre de contexte d'un modèle (RM2611) : override pricing.yml, sinon déduite (>200k ⇒ 1M), sinon 200k pour claude. */
+/** RM3084 — fenêtres MAXIMALES connues, par famille de modèle. « Maximales » est le point : un même
+ *  modèle est servi en 200k ou en 1M et bascule d'une variante à l'autre EN COURS de session. Annoncer
+ *  la plus grande fait au pire croire à un peu trop de marge ; annoncer la plus petite affiche 99 %
+ *  quand on en est à 20 %, déclenche une compaction inutile et brûle la crédibilité du signal.
+ *  La source de vérité reste `pm.pricing.yml` (`context_window`) ; cette table est le repli. */
+export const MODEL_WINDOWS = [
+  [/opus-5|fable-5|mythos-5|sonnet-5/i, 1000000],
+  [/opus-4|sonnet-4|haiku-4/i, 200000],
+];
+
+/** Fenêtre de contexte d'un modèle (RM2611, corrigée RM3084) : le PLUS GRAND entre ce que disent les
+ *  tarifs et ce que la table sait de la famille. `null` si le modèle est inconnu — aucun pourcentage
+ *  vaut mieux qu'un pourcentage faux. */
 export function modelWindow(model, rates, contextLast) {
-  if (rates && rates.context_window) return Number(rates.context_window);
-  if (Number(contextLast) > 200000) return 1000000;
-  return (model && /claude/i.test(model)) ? 200000 : null;
+  const name = String(model || "");
+  const declared = rates && rates.context_window ? Number(rates.context_window) : 0;
+  const known = /\[1m\]/i.test(name) ? 1000000
+    : (MODEL_WINDOWS.find(([rx]) => rx.test(name)) || [null, 0])[1];
+  const best = Math.max(declared, known);
+  if (best) return best;
+  // Modèle jamais vu : au moins ne pas rapporter une occupation à une fenêtre plus petite qu'elle.
+  const seen = Number(contextLast) || 0;
+  if (seen > 200000) return 1000000;
+  return /claude/i.test(name) ? 200000 : null;
 }
 export function ctxPct(contextLast, window) { if (!window || !contextLast) return null; return Math.round((Number(contextLast) / Number(window)) * 100); }
 /** Débit moyen depuis la création : {tpm, uph} ou null si durée < 30 s. */

@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Fenêtre de contexte : le maximum du modèle** (RM3084, correctif de RM2611/RM3082) : une session
+  Opus 5 à 197 k était rapportée à une fenêtre de 200 k — **99 %**, en rouge — alors qu'elle en est à
+  **20 %** de sa vraie fenêtre de 1 M. `modelWindow` retenait la plus petite valeur et *devinait* la
+  variante 1M seulement une fois les 200 k dépassés, si bien que le pourcentage sautait en cours de
+  session. Il retient désormais **le plus grand** entre la fenêtre configurée (`context_window`,
+  ajouté dans `pm.pricing.yml`) et celle que la table connaît de la famille ; un modèle inconnu
+  n'affiche toujours aucun pourcentage. Corrige du même coup l'encart **infos** et la jauge des
+  tuiles, qui partagent cette fonction. Et le **contexte apparaît au survol de la tuile**, quel qu'il
+  soit : `contexte : 197k / 1M (20 %) · opus-5`.
 - **Onglet MR du worklog** (RM3074) : les merge requests de la session quittent le bandeau de tête
   pour un **sous-onglet dédié**, groupées par étape du cycle — à merger dans l'intégration · mergées,
   **à promouvoir en production** · promues. Ce groupe du milieu ne s'affichait nulle part : le worklog

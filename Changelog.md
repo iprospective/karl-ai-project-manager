@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le KERNEL NORMS revient après une compaction** (RM3071) : une compaction garde la tâche et perd les
+  normes ; l'agent continuait avec le souvenir qu'il avait des garde-fous. `mmi-pm norms-recall` rend le
+  KERNEL à réinjecter (la version dense de `norms/runtime/` si elle existe, la source sinon), et il est
+  câblé dans le bloc de hooks canonique sur `SessionStart` `compact|resume` — donc posé à l'installation,
+  re-posé à chaque `pm-core-update`, et vu par `pm-claude-hooks-sync --check`. Sa sortie n'est pas silencée :
+  c'est elle, le rappel. Sans KERNEL trouvable, il se tait et rend 0 plutôt que de casser la reprise.
+- **Moteurs : deux portées d'installation** (RM3069) : « pour moi » (dans le home, sans privilège) et
+  « pour tous » (sudo, administrateur). La détection ne se limite plus au PATH du démon — Claude Code,
+  opencode et vibe étaient déclarés absents alors qu'ils sont installés chez le développeur. Le panneau dit
+  où l'outil est posé et pour qui. Cockpit 3.9.1.
+
 - **`pm-core-update` provisionne aussi l'utilisateur de l'instance** (RM3054) : étape 7 — hooks
   Claude Code manquants posés par `pm-claude-hooks-sync` (ajout seulement) et symlinks
   `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement

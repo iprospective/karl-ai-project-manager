@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [2.32.0] - 2026-09-10
+
+### Ajouté
+- **Les normes reviennent après une compaction** (RM3071) : une compaction garde la tâche et perd les
+  normes ; l'agent poursuivait avec le souvenir qu'il avait des garde-fous, sans que rien ne le signale.
+  Le KERNEL porte désormais l'obligation de se relire après compaction ou reprise, `agents/worker-common.md`
+  la reprend, et le module `governance` décrit le mécanisme qui la tient : `mmi-pm norms-recall` réinjecte
+  le KERNEL, câblé en hook `SessionStart` `compact|resume` par `pm-claude-hooks-sync`, posé à l'installation
+  et re-posé à chaque `pm-core-update`. Ajout seul, pas de ledger.
+
 ## [2.31.0] - 2026-09-10
 
 ### Ajouté

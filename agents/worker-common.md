@@ -18,7 +18,9 @@ ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héri
 
 1. `agents/worker-common.md` — ce fichier
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
-3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout)
+3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout).
+   **À relire après chaque compaction ou reprise** (le résumé garde la tâche, perd les normes) : le
+   système le réinjecte seul (`mmi-pm norms-recall`), sinon relis-le avant d'agir — RM3071
 4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
 5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` ;
    côté `{docs_dir}` : lire **`docs/INDEX.md`** (1 ligne par doc), puis ouvrir

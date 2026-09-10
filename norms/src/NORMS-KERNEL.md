@@ -1,6 +1,9 @@
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
-> **Tu lis ce fichier en ENTIER, à chaque session.** Il est court par conception. Il
+> **Tu lis ce fichier en ENTIER, à chaque session — et de nouveau après chaque
+> compaction ou reprise** (elles gardent la tâche et perdent les normes : il ne t'en
+> reste qu'un souvenir). Le système te le redonne seul (`mmi-pm norms-recall`) ; sinon
+> relis-le avant d'agir. Il est court par conception. Il
 > contient deux choses : (1) les **tripwires** — règles à respecter en permanence — et
 > (2) la **table des déclencheurs** — *quand* ouvrir *quel* module pour le détail.
 >

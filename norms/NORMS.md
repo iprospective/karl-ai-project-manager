@@ -1,13 +1,16 @@
 ---
-schema_version: "2.31.0"
-updated: 2026-09-09
+schema_version: "2.32.0"
+updated: 2026-09-10
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.31.0
+# Normes de gestion des tâches — v2.32.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
-> **Tu lis ce fichier en ENTIER, à chaque session.** Il est court par conception. Il
+> **Tu lis ce fichier en ENTIER, à chaque session — et de nouveau après chaque
+> compaction ou reprise** (elles gardent la tâche et perdent les normes : il ne t'en
+> reste qu'un souvenir). Le système te le redonne seul (`mmi-pm norms-recall`) ; sinon
+> relis-le avant d'agir. Il est court par conception. Il
 > contient deux choses : (1) les **tripwires** — règles à respecter en permanence — et
 > (2) la **table des déclencheurs** — *quand* ouvrir *quel* module pour le détail.
 >
@@ -4269,6 +4272,26 @@ la branche par son sujet (`glossaire-one-off`).
 
 En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
 réversible, pas ce qui mérite d'être retrouvé plus tard.
+
+## Les normes après une compaction (RM3071)
+
+Une compaction remplace la conversation par un résumé : la tâche y survit, les normes non. L'agent qui
+continue ne travaille plus avec le KERNEL mais avec le souvenir qu'il en a — et les garde-fous tombent un
+par un, sans que rien ne le signale.
+
+Le système le répare lui-même, pour **tous les projets**, sans dépendre de la vigilance de l'agent :
+
+- `mmi-pm norms-recall` rend le KERNEL à réinjecter (la version dense de `norms/runtime/` si elle existe,
+  la source humaine sinon), précédé de la raison de son retour ;
+- il est câblé dans le bloc de hooks canonique de `pm-claude-hooks-sync` sur `SessionStart` de matcher
+  `compact|resume` : sa sortie est versée au contexte de la session qui reprend. Elle n'est donc **pas**
+  silencée, contrairement aux autres hooks PM ;
+- il est posé à l'installation comme les autres hooks, et re-posé à chaque `pm-core-update` (étape 7) sur
+  le profil de chaque utilisateur ; `pm-claude-hooks-sync --check` le voit manquer.
+
+Un hook qui n'a rien à dire se tait et rend 0 : il ne casse jamais la session qui reprend. Si le rappel
+n'arrive pas, l'agent relit le KERNEL de lui-même avant d'agir — c'est écrit dans le KERNEL et dans
+`agents/worker-common.md`.
 
 ## Versionning des normes
 

@@ -1,5 +1,6 @@
-# NORMS·runtime KERNEL — seul fichier NORMS préchargé ; lire EN ENTIER chaque session
+# NORMS·runtime KERNEL — seul fichier NORMS préchargé ; lire EN ENTIER chaque session, ET après chaque compaction/reprise
 Réécriture dense pour LLM (RM3037, essai) de `norms/src/` ; source humaine `norms/src/NORMS-KERNEL.md`. Généré ⇒ ne pas éditer.
+Compaction/reprise = normes perdues, tâche gardée : ce qui te reste des garde-fous est un souvenir, pas une règle. Réinjection auto (hook `SessionStart` `compact|resume` → `mmi-pm norms-recall`) ; pas arrivée ⇒ relire avant d'agir.
 Contenu : (A) garde-fous permanents, (B) index mots-clés → module à ouvrir quand le cas se présente. Module = détail, fait foi ; KERNEL = obligation d'y aller. Modules runtime : `norms/runtime/<nom>.md`.
 
 ## A. Garde-fous permanents

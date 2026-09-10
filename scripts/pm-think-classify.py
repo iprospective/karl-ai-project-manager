@@ -15,7 +15,11 @@ de texte ne décide pas de ça ; un modèle léger, si — pour ~1 $ par million
   pm-think-classify --all [--since AAAA-MM-JJ] [--limit N] reprise de l'historique
   --apply            écrit dans les `.think.md` (défaut : rapport seul, rien n'est écrit)
   --model <id>       défaut : claude-haiku-4-5-20251001 ; --batch <n> tours par appel (défaut 25)
-  --engine claude|api  `claude -p` (pas de clé à gérer) ou l'API ; **api par défaut si ANTHROPIC_API_KEY existe**
+  --engine claude|api|ollama
+                     `claude -p` (pas de clé à gérer) · l'API Anthropic · **Ollama** (local ou hébergé),
+                     choisi d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` est posé, puis l'API si sa clé existe.
+                     Ollama : `OLLAMA_HOST` (défaut `http://localhost:11434`), `OLLAMA_API_KEY` pour un service
+                     hébergé, modèle via `--model` (ex. `qwen3:8b`, `llama3.1:8b`) — coût nul, c'est l'abonnement.
 
 Coût (mesuré le 2026-09-10) : par l'API, ~1 $ par million de jetons d'entrée, soit ~3 $ pour les 276 transcripts.
 Par `claude -p`, le CLI refacture son propre prompt système à chaque appel : compter ~40× plus, et donc réserver
@@ -125,6 +129,8 @@ def appelle(prompt: str, model: str, engine: str) -> tuple:
     if cmd:
         p = subprocess.run(cmd, shell=True, input=prompt, capture_output=True, text=True, timeout=300)
         return _json_tableau(p.stdout), 0.0
+    if engine == "ollama":
+        return _ollama(prompt, model)
     if engine == "api":
         return _api(prompt, model)
     p = subprocess.run(["claude", "-p", prompt, "--model", model, "--output-format", "json"],
@@ -136,6 +142,36 @@ def appelle(prompt: str, model: str, engine: str) -> tuple:
     except ValueError:
         return _json_tableau(p.stdout), 0.0
     return _json_tableau(d.get("result", "")), float(d.get("total_cost_usd") or 0.0)
+
+
+def _ollama(prompt: str, model: str) -> tuple:
+    """Ollama, local ou hébergé (RM3067). Coût nul : c'est l'abonnement ou la machine. `format: json`
+    contraint la sortie, ce que les petits modèles rendent volontiers bavarde autrement."""
+    import urllib.request
+    host = (os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+    if not host.startswith("http"):
+        host = "https://" + host
+    if model == MODEL:                      # le défaut Anthropic n'a pas de sens ici
+        model = os.environ.get("OLLAMA_MODEL") or "qwen3:8b"
+    body = json.dumps({"model": model, "stream": False, "format": "json", "options": {"temperature": 0},
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    headers = {"content-type": "application/json"}
+    if os.environ.get("OLLAMA_API_KEY"):
+        headers["Authorization"] = "Bearer " + os.environ["OLLAMA_API_KEY"]
+    req = urllib.request.Request(host + "/api/chat", data=body, headers=headers)
+    with urllib.request.urlopen(req, timeout=600) as r:
+        d = json.loads(r.read().decode())
+    texte = ((d.get("message") or {}).get("content") or "") if isinstance(d, dict) else ""
+    items = _json_tableau(texte)
+    if not items and texte.strip().startswith("{"):     # `format: json` rend parfois un objet enveloppe
+        try:
+            o = json.loads(texte)
+            for v in (o.values() if isinstance(o, dict) else []):
+                if isinstance(v, list):
+                    items = [x for x in v if isinstance(x, dict)]; break
+        except ValueError:
+            pass
+    return items, 0.0
 
 
 def _api(prompt: str, model: str) -> tuple:
@@ -214,7 +250,9 @@ def main():
     ap.add_argument("--transcript"); ap.add_argument("--session"); ap.add_argument("--rm", type=int)
     ap.add_argument("--all", action="store_true"); ap.add_argument("--since"); ap.add_argument("--limit", type=int)
     ap.add_argument("--apply", action="store_true"); ap.add_argument("--model", default=MODEL)
-    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api"), default=("api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
+    ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api", "ollama"),
+                    default=("ollama" if (os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY"))
+                             else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 

@@ -22,6 +22,21 @@
   dédié pointe désormais `testing` §7, et le runtime KERNEL est synchronisé — c'est lui que lisent
   les agents.
 
+## [2.37.0] - 2026-09-11
+
+### Ajouté
+- **Avant une compaction, avant de rendre la main** (RM3098, module `session-tooling`, + déclencheur au
+  KERNEL). Une compaction remplace la conversation par un résumé : ce qui n'a pas été écrit ailleurs
+  n'existe plus. Le système en fait deux (passe complète de `pm-think-harvest` sur `PreCompact` ;
+  réinjection du KERNEL par `pm-norms-recall` à la reprise, RM3071) ; restent trois gestes que seul
+  l'agent peut faire avant de rendre la main : poser la **prochaine étape**
+  (`pm-session-status set --next`), consigner **ce qui n'est pas tranché** (`pm-task-think --question`)
+  et **ce qui vient d'être arbitré** (`pm-task-think --decide`). Déclencheur : les 42 transcripts perdus
+  le 2026-09-06 (RM2997).
+
+> Entrée écrite après coup (RM3104) : le bump 2.37.0 était parti sans elle, et `pm-norms-changes --since`
+> enjambait donc la version en silence — une session en retard n'aurait jamais su que cette règle existait.
+
 ## [2.36.0] - 2026-09-10
 
 ### Modifié

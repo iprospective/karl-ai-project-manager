@@ -20,6 +20,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   navigateur. **Le contenu ne se charge qu'à l'ouverture de son onglet** : ouvrir les réglages pour
   changer le thème n'interroge plus npm pour inventorier les moteurs. Cockpit 3.11.0.
 
+- **Zone centrale : le split devient une OPTION** (RM3051) : ouvrir un ticket ou un document
+  coupait la zone centrale en deux (session en haut, fiche en bas) — comportement que
+  personne n'avait demandé. Désormais, par défaut, la fiche **prend la place** de la session
+  le temps de la consultation, et celle-ci **revient à l'identique** à la fermeture (ce qui
+  était masqué le reste). Le split se réactive dans **🔧 réglages → Thème & affichage**, avec
+  une **poignée** pour régler la hauteur (double-clic : défaut) ; hauteur bornée et mémorisée
+  par navigateur. La bascule marche **à chaud**, ticket ouvert.
+
+- **Le pont session → `.think.md` écrit vraiment** (RM3076, correctif de RM3053) : `_think_note()`
+  appelait `pm_git.autocommit` sans que `pm_git` soit importé ; son `except` transformait la
+  `NameError` en avertissement console, et aucune demande (`request --ticket`) ni notification
+  (`notify --ref`) n'atteignait jamais le think du ticket. Import posé, échec désormais journalisé
+  (`pm_log`, catégorie `worklog`) en plus de l'avertissement, et `test_pm_session_status_think.py`
+  verrouille les deux chemins — plus un contrôle qui voit un nom non résolvable sans jouer le code.
+  Au passage, trois tests du think (`test_pm_think`, `test_pm_think_classify`,
+  `test_karl_agent_providers`) exigeaient le `.env` du dépôt : verts dans le core qui le porte,
+  **rouges dans tout worktree de dev**. Ils posent maintenant le core jetable de `test_support`
+  avant d'importer un module PM — la suite est identique des deux côtés (179 verts).
 - **Le runtime NORMS se génère par un fournisseur, et se contrôle** (RM3073) : `norms/runtime/` portait
   « Généré ⇒ ne pas éditer » alors qu'aucun générateur n'existait — écrit une fois à la main, il se
   désynchronisait de ses sources en silence. `mmi-pm norms-runtime` le produit par l'API d'un fournisseur

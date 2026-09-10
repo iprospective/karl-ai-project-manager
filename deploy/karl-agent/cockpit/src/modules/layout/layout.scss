@@ -79,3 +79,10 @@ html[data-layout="mobile"] {
   .mnav-btn .nbadge { position: absolute; top: 2px; right: 10px; }
   .foot { display: none; }
 }
+
+// RM3051 — split de la zone centrale (option) : le ticket/document occupe une hauteur
+// réglée à la poignée, la session garde le reste. Sans split, `#reviewpane` reste en
+// `flex:1` et prend toute la zone : la session est masquée le temps de la consultation.
+#reviewpane.split { flex: 0 0 var(--reviewpane-h, 300px); }
+.chandle { flex: 0 0 6px; cursor: row-resize; background: var(--line); border: 0; }
+.chandle:hover, .chandle:active { background: var(--accent); }

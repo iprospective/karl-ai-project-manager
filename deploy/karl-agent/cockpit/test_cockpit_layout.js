@@ -88,4 +88,53 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     stM.setItem("karlLayout", "desktop"); const lay3 = ML({ main: mk("main3") }, { storage: stM, root: null, media: { matches: true }, search: "" }); lay3.restore(); assert(!lay3.isMobile(), "la préférence karlLayout=desktop gagne sur la largeur");
     lay.unmount(); assert.strictEqual(media.L.length, 0, "unmount retire l'écouteur de media query");
     console.log("✓ gabarit mobile (RM3003) — contrôleur : détection et bascule à chaud, pages, hooks centre/droite/panneaux, barre du bas, forçages"); }
+  // — RM3051 : le split de la zone centrale — une OPTION, pas un fait acquis —
+  //
+  // Ce qu'on protège : par défaut, ouvrir un ticket ne doit PAS couper la zone centrale
+  // (personne ne l'avait demandé) ; et quand on active le split, la session doit revenir
+  // exactement dans l'état où elle était — un terminal déjà masqué reste masqué.
+  { const { mountLayout: ML } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
+    const el = (id, display = "") => ({ id, style: { display }, classList: { c: {}, toggle(n, on) { this.c[n] = !!on; } }, getBoundingClientRect: () => ({ right: 0, bottom: 600 }), addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [] });
+    const st = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
+    const props = {}; const root = { documentElement: { dataset: {}, style: { setProperty(k, v) { props[k] = v; }, removeProperty(k) { delete props[k]; } } }, addEventListener() {}, removeEventListener() {} };
+    const h = { reviewpane: el("reviewpane", "none"), centerhandle: el("centerhandle", "none"), termhost: el("termhost"), term: el("term", "none"), composer: el("composer"), main: el("main") };
+    const L = ML(h, { storage: st, root, media: { matches: false }, search: "" });
+
+    assert.strictEqual(L.centerSplit(), false, "défaut : PAS de split (l'option s'active exprès)");
+    L.showCenter(true);
+    assert(h.reviewpane.style.display === "" && h.termhost.style.display === "none" && h.composer.style.display === "none",
+      "sans split : le ticket prend la zone, la session est masquée");
+    assert.strictEqual(h.term.style.display, "none", "ce qui était DÉJÀ masqué le reste");
+    assert.strictEqual(h.centerhandle.style.display, "none", "pas de poignée sans split");
+    L.showCenter(false);
+    assert(h.termhost.style.display === "" && h.composer.style.display === "" && h.reviewpane.style.display === "none",
+      "à la fermeture, la session revient");
+    assert.strictEqual(h.term.style.display, "none", "…et ce qui était masqué avant ne réapparaît pas");
+
+    L.setCenterSplit(true);
+    assert(L.centerSplit() && st.d.karlCenterSplit === "1", "l'option est mémorisée dans ce navigateur");
+    L.showCenter(true);
+    assert(h.termhost.style.display === "" && h.reviewpane.style.display === "" && h.centerhandle.style.display === "",
+      "avec split : les deux cohabitent, la poignée apparaît");
+    assert(h.reviewpane.classList.c.split === true, "le volet bas prend sa hauteur réglable");
+
+    // bascule à CHAUD, ticket ouvert : la session doit revenir sans refermer le ticket
+    L.setCenterSplit(false);
+    assert(h.termhost.style.display === "none" && h.reviewpane.style.display === "" && h.centerhandle.style.display === "none",
+      "désactiver le split pendant la consultation : la session se retire, le ticket reste");
+    L.setCenterSplit(true);
+    assert(h.termhost.style.display === "" && h.composer.style.display === "", "réactiver le rend à nouveau");
+
+    // hauteur : bornée, mémorisée, réinitialisable
+    L.showCenter(true);
+    h.centerhandle.style.display = "";
+    L.state.center.resizing = true; L.state.center.bottom = 600;
+    assert.strictEqual(typeof L.resetCenterH, "function");
+    st.setItem("karlCenterH", "250"); L.applyCenter();
+    assert.strictEqual(props["--reviewpane-h"], "250px", "la hauteur mémorisée est appliquée");
+    st.setItem("karlCenterH", "5"); L.applyCenter();
+    assert.strictEqual(props["--reviewpane-h"], "120px", "une hauteur aberrante est bornée (rien ne disparaît)");
+    L.resetCenterH();
+    assert(props["--reviewpane-h"] === undefined && st.d.karlCenterH === undefined, "double-clic : retour au défaut CSS");
+    console.log("✓ split de la zone centrale (RM3051) : OFF par défaut, session masquée puis rendue à l'identique, bascule à chaud, hauteur bornée et mémorisée"); }
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

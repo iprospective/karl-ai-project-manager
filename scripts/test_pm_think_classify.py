@@ -11,6 +11,9 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from test_support import hermetic_core            # noqa: E402
+hermetic_core()   # RM3076 : core jetable AVANT tout import de module PM (le `.env` du dépôt
+                  # n'existe pas dans un worktree de dev — sans ça le test est vert ici, rouge là-bas)
 import pm_think                                     # noqa: E402
 spec = importlib.util.spec_from_file_location("classify", HERE / "pm-think-classify.py")
 C = importlib.util.module_from_spec(spec); spec.loader.exec_module(C)

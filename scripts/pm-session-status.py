@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout
 from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
 import pm_events   # RM3006 : le worklog change → le cockpit l'apprend sans attendre son tick
+import pm_git     # RM3076 : le pont session → .think.md committe ce qu'il écrit (RM3013)
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -936,7 +937,16 @@ def _think_note(ref, text, sid):
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
         pm_git.autocommit([think, sheet], f"pm(think): RM{m.group(1)} +{rid} (session)")
     except Exception as e:                       # noqa: BLE001 — jamais bloquer l'enregistrement
+        # RM3076 : l'avertissement console seul avait laissé passer un `pm_git` non importé
+        # pendant toute la vie du pont — un « best-effort » muet est un pont mort. Le journal
+        # structuré garde la trace même quand personne ne lit la console (hooks, cockpit).
         pmout.warn("think non mis à jour : %s" % e)
+        try:
+            from pm_log import log as _jlog
+            _jlog("worklog", "warn", "pont session → think en échec : %s" % e,
+                  ref=str(ref or ""), sid=sid, err=type(e).__name__)
+        except Exception:                        # noqa: BLE001 — le journal ne bloque jamais
+            pass
 
 
 def cmd_notify(data, args):

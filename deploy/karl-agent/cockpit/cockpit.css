@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 305303ae5fbaa97d (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : cc81e140bde71697 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -970,6 +970,21 @@ html[data-layout=mobile] .mnav-btn .nbadge {
 }
 html[data-layout=mobile] .foot {
   display: none;
+}
+
+#reviewpane.split {
+  flex: 0 0 var(--reviewpane-h, 300px);
+}
+
+.chandle {
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: var(--line);
+  border: 0;
+}
+
+.chandle:hover, .chandle:active {
+  background: var(--accent);
 }
 
 /* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */

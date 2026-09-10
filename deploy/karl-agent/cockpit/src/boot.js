@@ -144,7 +144,9 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
 // domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
 // les contrôleurs à l'appel, jamais au montage).
-const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
+const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
+  // RM3051 : les surfaces de la zone centrale — la disposition les montre ou les masque selon l'option de split
+  reviewpane: byId("reviewpane"), centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
   // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
   media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
@@ -232,6 +234,8 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
+  // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)
+  centerSplit: () => layout.centerSplit(), setCenterSplit: (on) => layout.setCenterSplit(on),
 });
 
 // RM3081 : les réglages en onglets. Chaque onglet dit ce qu'il faut charger pour lui, et rien d'autre
@@ -430,7 +434,7 @@ review = mountReview(byId("reviewpane"), {
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
   resolve: () => stores.resolve, cfg: () => CFG,
-  show: (on) => show("reviewpane", on),
+  show: (on) => layout.showCenter(on),   // RM3051 : c'est la disposition qui décide — à la place de la session, ou sous elle
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
   noteOpened: (rm) => tickets.noteOpened(rm), showRight: layout.showRight, refreshSessions: (() => refreshCtl.refreshSessions()),
   filesEnsure: () => { if (layout.rightVisible("files")) files.ensure(); },

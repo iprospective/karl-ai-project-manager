@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : fa8d0759249551f6 (35 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 00613d0775e1b425 (35 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1143,16 +1143,26 @@ html[data-layout=mobile] .foot {
   font-family: var(--mono);
 }
 
+/* RM3093 — la tuile tient sur DEUX lignes de titre. `align-items: flex-start` (et non `center`) :
+   sinon, dès que le titre prend deux lignes, la pastille d'état et les boutons de queue se
+   recentrent verticalement et la colonne se met à danser d'une tuile à l'autre. */
 .runitem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px 10px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   margin-bottom: 6px;
   background: var(--panel2);
   cursor: pointer;
+  min-height: 40px;
+}
+
+/* les éléments d'une seule ligne restent alignés sur la PREMIÈRE ligne du titre */
+.runitem > .tdot, .runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tquiet, .runitem > .helpq {
+  margin-top: 1px;
 }
 
 .runitem:hover {
@@ -1171,14 +1181,21 @@ html[data-layout=mobile] .foot {
   flex: none;
 }
 
+/* RM3093 : deux lignes, puis coupe. `line-clamp` coupe au MOT et met les points de suspension ;
+   le repli (navigateur sans la propriété) borne la hauteur pour que la tuile ne s'étire pas. */
 .runitem .rmeta {
   color: var(--muted);
   font-size: 11.5px;
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  max-height: 2.9em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .tbadge {
@@ -1270,6 +1287,85 @@ html[data-layout=mobile] .foot {
   margin-left: auto;
 }
 
+/* RM3082 — jauge de contexte d'une session : barre fine + chiffre, en pied de tuile.
+   Pas de couleur de FOND : la tuile en porte déjà une (état, disposition) et deux fonds
+   superposés ne se lisent ni l'un ni l'autre. Rien ne s'affiche sous le premier palier. */
+.runitem {
+  position: relative;
+}
+
+.tctx {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 3px;
+  pointer-events: auto;
+}
+
+.tctx .tctxbar {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: hidden;
+}
+
+.tctx .tctxbar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transition: width 0.4s ease;
+}
+
+.tctx .tctxn {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  line-height: 1;
+  opacity: 0.85;
+  flex: none;
+}
+
+.tctx.ctx-warn {
+  color: var(--warn);
+}
+
+.tctx.ctx-high {
+  color: color-mix(in srgb, var(--warn) 55%, var(--danger));
+}
+
+.tctx.ctx-crit {
+  color: var(--danger);
+}
+
+.tctx.ctx-crit .tctxn {
+  font-weight: 700;
+  opacity: 1;
+}
+
+/* Le FRANCHISSEMENT d'un palier, et lui seul, bouge : trois pulsations puis silence.
+   Une animation permanente fatigue, puis cesse d'être vue — au moment où elle compterait. */
+@keyframes ctxcross {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.tctx.ctx-cross {
+  animation: ctxcross 0.55s ease-in-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tctx.ctx-cross {
+    animation: none;
+  }
+}
 /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
 #authgate {
   position: fixed;
@@ -1508,6 +1604,13 @@ iframe {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+/* RM3094 — le bloc des commandes de panes tmux : `display: contents` pour que la barre le traverse
+   comme si les quatre contrôles y étaient restés (aucun changement d'espacement quand il est
+   affiché) ; masqué, il ne laisse ni trou ni bouton orphelin. */
+.monbox {
+  display: contents;
 }
 
 /* RM2744 : ce conteneur DÉFILE et centre son contenu — combinaison qui coupe.
@@ -2137,6 +2240,71 @@ iframe {
   padding: 1px 6px;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* RM3074 — l'onglet MR : une ligne par MR, groupée par étape du cycle. Deux lignes plutôt qu'une
+   très longue : le trajet et l'état ne se lisent pas en diagonale quand tout est sur un rang. */
+.mrgroup {
+  margin: 0 0 10px;
+}
+
+.mrghead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 2px 4px;
+}
+
+.mrrow {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 7px;
+  margin-bottom: 5px;
+}
+
+.mrrow.oq {
+  border-color: var(--warn);
+}
+
+.mrhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+}
+
+.mrfoot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.mrpath {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.mrage {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.mrnudge {
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.mrnudge:hover {
+  color: var(--accent);
 }
 
 /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
@@ -3163,6 +3331,29 @@ iframe {
 .helpq:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* RM3075 — repère d'aide POSÉ sur une zone (registre helpSpots) : plus discret qu'un bouton de
+   panneau, il ne doit pas concurrencer le contenu. Il s'efface tant qu'on ne survole pas la zone. */
+.hspot {
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.hspot:hover, .hspot:focus-visible {
+  opacity: 1;
+}
+
+h2 .hspot, summary .hspot {
+  vertical-align: middle;
+}
+
+.rnav .hspot, #hcnt .hspot, #composer .hspot {
+  margin-right: 6px;
+}
+
+*:hover > .hspot {
+  opacity: 0.75;
 }
 
 .docbox {

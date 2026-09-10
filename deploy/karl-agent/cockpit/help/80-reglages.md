@@ -23,6 +23,27 @@ Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autre
 
 - **Thème** : `dark`, `light` ou `auto` (suit le système).
 
+## Commandes de moniteur tmux
+
+Une case de **Thème & affichage** montre ou masque, d'un bloc, les quatre commandes
+de **panes** de la barre du terminal : le moniteur à ajouter, **➕ Moniteur**,
+**✕ Moniteur** et la **disposition des panes**. Utiles quand on découpe le
+terminal, elles occupent quatre places le reste du temps.
+
+Elles sont **affichées par défaut**. Les masquer ne débranche rien : les gestes
+restent câblés et les panes déjà ouverts ne bougent pas. La préférence est propre
+à **ce navigateur**.
+
+## Repères d'aide « ? »
+
+Une case de **Thème & affichage** pose un petit **?** sur chaque zone du cockpit :
+la liste des sessions, le worklog, les onglets de droite, le composer, le CDC, le
+journal, les panneaux de tickets. Au **survol**, une phrase dit à quoi la zone
+sert ; au **clic**, la page d'aide correspondante s'ouvre, à la bonne section.
+
+Ils sont affichés par défaut — c'est leur raison d'être — et se décochent quand
+l'écran est devenu familier. La préférence est propre à **ce navigateur**.
+
 ## Dictée
 
 - **Langue** de la reconnaissance vocale (français par défaut) et choix du mode
@@ -59,6 +80,15 @@ volontairement large : ~20× la consommation normale d'une session (160–440 Mo
 Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
 (`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` / `KARL_AGENT_MEM_SWAP`) : elle
 s'édite alors dans le `.env`, suivi d'un redémarrage de karl-agent.
+
+## Sessions — paliers de contexte
+
+Trois seuils, en pourcentage de la fenêtre du modèle, décident quand la **jauge de
+contexte** d'une tuile de session s'allume (jaune), passe à l'orange, puis au rouge.
+Défauts : 50, 75 et 90. Ils sont remis en ordre s'ils sont saisis à l'envers.
+
+Le rouge vise le moment où Claude Code s'apprête à **compacter** la conversation :
+c'est là qu'il faut consigner ce qui doit survivre. Voir l'aide « sessions ».
 
 ## Sonde mémoire (ce navigateur)
 

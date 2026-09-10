@@ -69,6 +69,7 @@ import { mountSetnav } from "./modules/setnav/setnav.controller.js";          //
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
+import { mountHelpSpots } from "./modules/doc/helpspots.controller.js";   // RM3075
 import { PmService } from "./modules/pm/pm.service.js";
 import { ago } from "./modules/sessions/sessions.js";
 import { entryLabel } from "./modules/sets/sets.js";
@@ -229,9 +230,13 @@ const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard
 // RM3068 : le panneau Fournisseurs vit dans les réglages ; il charge à la première ouverture du panneau
 const providers = mountProviders(byId("providerscard"), { notify: notify.toast, confirm: (m) => window.confirm(m) });
 const engines = mountEngines(byId("enginescard"), { notify: notify.toast, confirm: (m) => window.confirm(m) });
+let helpSpotsCtl = null;                       // RM3075 : monté plus bas (il a besoin de `doc`), lu ici par les réglages
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
+  helpSpots: { enabled: () => (helpSpotsCtl ? helpSpotsCtl.enabled() : true), toggle: (on) => (helpSpotsCtl ? helpSpotsCtl.toggle(on) : on) },
   // RM3063 : filtre « Clients » masqué par défaut — appelé au montage, AVANT la déclaration de `show` (TDZ) : DOM direct
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
+  // RM3094 : les commandes de panes tmux, montrées ou masquées d'un bloc — les gestes restent câblés
+  applyMonitor: (on) => { const el = document.getElementById("monbox"); if (el) el.style.display = on ? "" : "none"; },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
   // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)
@@ -488,6 +493,7 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
 sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
+  cfg: () => CFG,                                                                          // RM3082 : paliers de la jauge de contexte (context_thresholds)
   sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),
@@ -532,6 +538,8 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
   center, review, project, newticket, terminal, layout, meta, outline: outlineCtl, worklog: worklogCtl, git, files, actions, dashboard, refresh: refreshCtl,
 });
 // les boutons statiques de la page (en-tête, aides des panneaux, barre du terminal) : `data-cmd` → geste
+// RM3075 : les repères « ? » sur les zones du cockpit (registre unique, préférence de ce navigateur)
+helpSpotsCtl = mountHelpSpots(document, { storage: (typeof localStorage !== "undefined" ? localStorage : null), openHelp: (topic) => doc.openHelp(topic) });
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),

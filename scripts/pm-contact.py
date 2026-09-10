@@ -172,7 +172,7 @@ def cmd_add(cfg, args):
          "internal": bool(args.internal) or (pc.is_internal_email(email) if email else False),
          "redmine_user_id": args.redmine_user_id, "note": args.note}
     chemin = write_fiche(cfg, p, args.dry_run)
-    out.ok(f"{'(dry-run) ' if args.dry_run else ''}fiche {ref} → {chemin}")
+    out.info(f"{'(dry-run) ' if args.dry_run else ''}fiche {ref} → {chemin}")
     if args.porcelain:
         print(ref)
     return 0
@@ -204,7 +204,7 @@ def cmd_set(cfg, args):
     if args.internal is not None:
         p["internal"] = args.internal
     write_fiche(cfg, p, args.dry_run)
-    out.ok(f"{'(dry-run) ' if args.dry_run else ''}fiche {args.ref} mise à jour")
+    out.info(f"{'(dry-run) ' if args.dry_run else ''}fiche {args.ref} mise à jour")
     return 0
 
 
@@ -239,7 +239,7 @@ def cmd_merge(cfg, args):
     if not args.dry_run:
         write_fiche(cfg, fusion)
         (contacts_dir(cfg) / f"{args.absorbe}.yml").unlink(missing_ok=True)
-    out.ok(f"{'(dry-run) ' if args.dry_run else ''}{args.absorbe} absorbée dans "
+    out.info(f"{'(dry-run) ' if args.dry_run else ''}{args.absorbe} absorbée dans "
            f"{args.garde} · {len(touches)} client(s) réaiguillé(s)"
            + (" : " + ", ".join(touches) if touches else ""))
     return 0
@@ -305,7 +305,7 @@ def cmd_migrate(cfg, args):
         data["contacts"] = nouveaux
         m.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
                      encoding="utf-8")
-    out.ok(f"{len(personnes)} fiche(s) écrites, {len(liens)} client(s) rattachés")
+    out.info(f"{len(personnes)} fiche(s) écrites, {len(liens)} client(s) rattachés")
     return 0
 
 

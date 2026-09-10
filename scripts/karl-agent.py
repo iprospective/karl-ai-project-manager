@@ -3101,7 +3101,8 @@ def _transcript_jsonl(session_id: str | None):
 
 
 def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
-    """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes}.
+    """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes},
+    plus {context, model} depuis RM3082 (occupation de contexte du dernier tour).
     `/sessions` est polled en continu et chaque entrée de jeu demandait déjà son
     marqueur puis son titre — soit deux globs par session et par appel. Une
     lecture unique, mise en cache 30 s, sert les trois usages (marqueur, nom,
@@ -3157,7 +3158,10 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
             m = _MARK_RE.match(raw)
             info = {"mark": _mark_key(m),
                     "title": _MARK_RE.sub("", raw).strip() or None,
-                    "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
+                    "mtime": meta.get("mtime"), "bytes": jf.stat().st_size,
+                    # RM3082 : lu dans la même passe que le titre — le cache 30 s
+                    # de cette fonction est ce qui rend la jauge gratuite par tuile.
+                    "context": meta.get("context"), "model": meta.get("model")}
         except OSError:
             info = {}
     _DONE_CACHE["map"][ckey] = info
@@ -3257,6 +3261,16 @@ def _transcript_title(session_id: str | None) -> str | None:
     sujet Redmine du ticket (seul libellé qu'affichait la tuile grise) n'existe
     pas pour une session ancrée sur un slug."""
     return _transcript_info(session_id).get("title")
+
+
+def _transcript_context(session_id: str | None, engine: str | None = None) -> dict:
+    """RM3082 — {context, model} du dernier tour, ou {} : ce que la jauge de la
+    tuile consomme. Sert le pourcentage SANS le calculer : la fenêtre du modèle
+    est une règle de présentation (`modelWindow`, front), déjà écrite une fois
+    pour l'encart méta — la dupliquer ici ferait deux vérités sur « 76 % »."""
+    info = _transcript_info(session_id, engine)
+    ctx = info.get("context")
+    return {"context": ctx, "model": info.get("model")} if ctx else {}
 
 
 def _transcript_age(session_id: str | None):
@@ -3519,8 +3533,16 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
     """Méta d'un transcript claude, extraite de son DERNIER segment (lecture
     bornée : les fichiers font parfois des centaines de Mo) : titre (dernier
     `custom-title`, sinon dernier `ai-title` — même logique que /session-mark),
-    cwd et mtime. Le CLI ré-émet son custom-title à chaque tour → il est
-    toujours dans la fenêtre de fin."""
+    cwd, mtime, et (RM3082) l'OCCUPATION DE CONTEXTE du dernier tour + le modèle.
+
+    Le CLI ré-émet son custom-title à chaque tour → il est toujours dans la
+    fenêtre de fin. Le dernier tour assistant aussi, par construction : d'où le
+    contexte pris ICI plutôt que par `/usage/<id>`, qui relit le fichier ENTIER
+    (inacceptable par tuile, à chaque tick — RM2763). Même formule que
+    `_transcript_usage` : entrée non cachée + cache lu + cache écrit ; un tour
+    sans contexte (sortie seule, ligne synthétique) ne remplace pas le dernier
+    connu. Hors fenêtre de fin → `context` vaut None : aucun indicateur vaut
+    mieux qu'un chiffre faux."""
     st = path.stat()
     key = str(path)
     hit = _tail_cache.get(key)
@@ -3532,8 +3554,10 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
             fh.readline()  # saute la ligne probablement tronquée
         data = fh.read().decode("utf-8", "replace")
     title = ai_title = cwd = None
+    context = model = None
     for line in data.splitlines():
-        if '"custom-title"' not in line and '"ai-title"' not in line and '"cwd"' not in line:
+        if ('"custom-title"' not in line and '"ai-title"' not in line
+                and '"cwd"' not in line and '"usage"' not in line):
             continue
         try:
             obj = json.loads(line)
@@ -3546,7 +3570,17 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
             ai_title = obj["aiTitle"]
         if obj.get("cwd"):
             cwd = obj["cwd"]
-    meta = {"title": title or ai_title, "cwd": cwd, "mtime": int(st.st_mtime)}
+        if t == "assistant":                    # RM3082 : occupation de contexte du dernier tour
+            msg = obj.get("message") or {}
+            u = msg.get("usage")
+            if isinstance(u, dict):
+                ctx = ((u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+                       + (u.get("cache_creation_input_tokens") or 0))
+                if ctx:
+                    context = ctx
+                    model = msg.get("model") or model
+    meta = {"title": title or ai_title, "cwd": cwd, "mtime": int(st.st_mtime),
+            "context": context, "model": model}
     _tail_cache[key] = (st.st_mtime, meta)
     return meta
 
@@ -5246,7 +5280,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [],
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
+             "integration": _integration_branch(),
              "requests_open": []}
     if not session_id:
         return empty
@@ -5280,6 +5315,13 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "notifications_done": [n for n in (data.get("notifications") or [])
                                    if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM3074 : l'onglet MR montre le CYCLE complet, pas seulement ce qui reste à merger —
+            # ce qui est mergé dans l'intégration mais pas encore promu en production était le seul
+            # état qu'aucune vue ne nommait. Bornées aux 40 dernières : au-delà, c'est de l'archive.
+            "mrs_all": [m for m in (data.get("mrs") or []) if isinstance(m, dict)][-40:],
+            # …et la branche d'intégration, pour que le front n'ait pas à SUPPOSER « dev » : un projet
+            # peut la nommer autrement, et une liste en dur se tromperait en silence sur celui-là.
+            "integration": _integration_branch(),
             # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
             # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
             "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),
@@ -6257,6 +6299,19 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         title = _transcript_title(s.get("session_id"))
         if title:
             s["title"] = title
+        # RM3082 : occupation de contexte du dernier tour — même lecture (cachée
+        # 30 s) que le titre ci-dessus, donc rien de plus à payer. Le front en
+        # fait un pourcentage avec la fenêtre du modèle.
+        cx = _transcript_context(s.get("session_id"), s.get("engine"))
+        if cx:
+            s["context"] = cx["context"]
+            s.setdefault("model", cx.get("model"))
+            # RM3084 : la fenêtre CONFIGURÉE du modèle (pm.pricing.yml) voyage avec la tuile. Le front
+            # garde la décision — il retient le plus grand entre cette valeur et ce qu'il sait de la
+            # famille — mais il ne doit pas IGNORER une fenêtre posée à la main dans les tarifs.
+            win = (_pricing_models().get(cx.get("model") or "") or {}).get("context_window")
+            if win:
+                s["rates"] = {"context_window": win}
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():
@@ -10758,6 +10813,18 @@ _PM_SETTINGS_CONF = [
      "label": "Mémoire — plafond dur, GiB (0 = illimité)",
      "group": "Sessions", "type": "number", "path": ["sessions", "memory_max_gib"],
      "min": 0, "max": 512},
+    # RM3082 — paliers de la jauge de contexte des tuiles de session, en % de la
+    # fenêtre du modèle. Réglables parce qu'ils dépendent de l'usage : sur un
+    # modèle 1M, 50 % laisse encore de quoi travailler une journée.
+    {"key": "conf:sessions.context_warn_pct", "label": "Contexte — palier d'attention (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_warn_pct"],
+     "default": 50, "min": 1, "max": 100},
+    {"key": "conf:sessions.context_high_pct", "label": "Contexte — palier élevé (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_high_pct"],
+     "default": 75, "min": 1, "max": 100},
+    {"key": "conf:sessions.context_critical_pct", "label": "Contexte — palier critique (%)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "context_critical_pct"],
+     "default": 90, "min": 1, "max": 100},
     # Le swap inverse la convention : 0 = aucun swap (plafond réel), -1 = illimité.
     {"key": "conf:sessions.memory_swap_gib", "mem_kind": "swap",
      "label": "Mémoire — swap autorisé, GiB (0 = aucun, -1 = illimité)",
@@ -10851,6 +10918,23 @@ def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
     return spec["value"] if spec else "auto"
+
+
+def _context_thresholds() -> dict:
+    """RM3082 — les trois paliers de la jauge de contexte, lus de la whitelist.
+    Ordonnés de force : des seuils croisés (90/50/75) rendraient la jauge
+    incompréhensible sans jamais lever d'erreur."""
+    vals = {}
+    for name, key, dflt in (("warn", "conf:sessions.context_warn_pct", 50),
+                            ("high", "conf:sessions.context_high_pct", 75),
+                            ("crit", "conf:sessions.context_critical_pct", 90)):
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        try:
+            vals[name] = int(spec["value"]) if spec and spec.get("value") is not None else dflt
+        except (TypeError, ValueError):
+            vals[name] = dflt
+    w, h, c = sorted((vals["warn"], vals["high"], vals["crit"]))
+    return {"warn": w, "high": h, "crit": c}
 
 
 def op_pm_settings_set(payload: dict) -> dict:
@@ -11808,6 +11892,10 @@ class Handler(BaseHTTPRequestHandler):
                 # Route publique : une préférence de thème n'est pas sensible, et
                 # le front en a besoin AVANT l'authentification (écran de login).
                 "ui_theme": _ui_theme(),
+                # RM3082 : paliers de la jauge de contexte (route publique — un
+                # seuil d'affichage n'est pas une donnée sensible, et le front en
+                # a besoin au premier rendu de la liste des sessions).
+                "context_thresholds": _context_thresholds(),
             })
         if not authed:
             return self._send_auth_required()

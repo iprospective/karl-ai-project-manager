@@ -22,6 +22,51 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   commande : `--add-version`, `--set-version`, `--drop-version`. `pm-cdc-features --check` couvre désormais
   la feuille de route. Retirer une version détache les fonctionnalités, n'en supprime aucune. Cockpit 3.12.0.
 
+- **Commandes de moniteur tmux masquables** (RM3094) : `monpreset`, ➕/✕ Moniteur et la disposition
+  des panes sont regroupés dans un bloc de la barre du terminal, qu'une case de Réglages ▸ Thème &
+  affichage montre ou masque à chaud. Affichées par défaut (masquer d'office changerait le
+  comportement d'une instance sans le dire) ; masquées, les gestes restent câblés et les panes
+  ouverts ne bougent pas. Le bloc est en `display: contents` : la barre garde exactement le même
+  espacement qu'avant quand il est visible.
+- **Titres de session sur deux lignes** (RM3093) : dans le panneau de gauche, le titre d'une tuile
+  n'est plus coupé à la première ligne — deux lignes, puis points de suspension. Les tuiles gagnent
+  en hauteur (vivantes comme grises) et leurs pastilles et boutons s'alignent en haut, sinon la
+  colonne danse dès qu'un titre passe à deux lignes. La jauge de contexte reste en pied de tuile. Une
+  garde de `test_cockpit_runtime` refuse un retour à `nowrap`.
+- **Fenêtre de contexte : le maximum du modèle** (RM3084, correctif de RM2611/RM3082) : une session
+  Opus 5 à 197 k était rapportée à une fenêtre de 200 k — **99 %**, en rouge — alors qu'elle en est à
+  **20 %** de sa vraie fenêtre de 1 M. `modelWindow` retenait la plus petite valeur et *devinait* la
+  variante 1M seulement une fois les 200 k dépassés, si bien que le pourcentage sautait en cours de
+  session. Il retient désormais **le plus grand** entre la fenêtre configurée (`context_window`,
+  ajouté dans `pm.pricing.yml`) et celle que la table connaît de la famille ; un modèle inconnu
+  n'affiche toujours aucun pourcentage. Corrige du même coup l'encart **infos** et la jauge des
+  tuiles, qui partagent cette fonction. Et le **contexte apparaît au survol de la tuile**, quel qu'il
+  soit : `contexte : 197k / 1M (20 %) · opus-5`.
+- **Onglet MR du worklog** (RM3074) : les merge requests de la session quittent le bandeau de tête
+  pour un **sous-onglet dédié**, groupées par étape du cycle — à merger dans l'intégration · mergées,
+  **à promouvoir en production** · promues. Ce groupe du milieu ne s'affichait nulle part : le worklog
+  ne listait que les MR ouvertes, si bien qu'« aucune MR » et « mergée, pas encore en production » se
+  confondaient. Chaque ligne montre le ticket (cliquable), le **dépôt**, `source → cible`, l'**état**,
+  l'**âge** et le bouton merger quand il a un sens. La tête ne garde qu'un rappel d'une ligne, qui
+  mène à l'onglet. Le compteur ne compte que ce qui appelle un geste. La branche d'intégration vient
+  de la configuration du projet, servie au front avec le bloc worklog — plus de « dev » supposé.
+- **Repères d'aide « ? » sur les zones du cockpit** (RM3075) : une case dans Réglages ▸ Thème &
+  affichage pose un **?** discret sur douze zones (liste des sessions, worklog, onglets de droite,
+  composer, CDC, journal, panneaux de tickets…). Au survol, une phrase dit à quoi la zone **sert** ;
+  au clic, sa page d'aide s'ouvre, **à la bonne section**. Un registre unique
+  (`src/modules/doc/helpSpots.js`) porte zone → phrase → page → ancre, et une garde de test lit les
+  vrais `help/*.md` : un repère qui pointerait une page ou une section disparue casse la suite.
+  Affichés par défaut, décochables (préférence de ce navigateur), reposés après les rendus.
+  `help/40-worklog.md` présente désormais le worklog comme **le tableau de bord de la session**,
+  zone par zone. `core/dom.js` gagne `prepend`, symétrique d'`append`.
+- **Jauge de contexte par session** (RM3082) : sous chaque tuile de la liste de gauche, une barre
+  fine et un pourcentage disent l'occupation de la fenêtre du modèle, **à partir du premier palier
+  seulement** (50 / 75 / 90 % par défaut, réglables dans Réglages ▸ Sessions). Le franchissement d'un
+  palier pulse trois fois puis se tait — pas de couleur de fond qui oscille : la tuile en porte déjà
+  une, et une animation permanente cesse d'être vue. Au palier rouge, la session rejoint le bandeau
+  « à traiter » avec le geste utile (consigner, repartir sur une session neuve). La donnée sort de
+  `_jsonl_tail_meta` — la lecture de queue déjà faite et cachée pour le titre — et non de
+  `/usage/<id>`, qui relit le transcript entier : coût marginal nul par tuile et par tick.
 - **Onglets et sections dans les réglages** (RM3081) : dix cartes s'empilaient en une seule colonne, sans
   hiérarchie — on y cherchait un réglage en faisant défiler. Cinq onglets à plat, comme le menu CDC :
   Instance, Fournisseurs, Moteurs, Affichage, Compte. Chaque carte reste une section avec son titre ; un

@@ -9,6 +9,13 @@
 .helpbody { font-size: 14px; line-height: 1.55; }
 .helpq { cursor: pointer; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 50%; width: 18px; height: 18px; line-height: 15px; font-size: 12px; padding: 0; margin-left: 6px; vertical-align: middle; }
 .helpq:hover { color: var(--accent); border-color: var(--accent); }
+/* RM3075 — repère d'aide POSÉ sur une zone (registre helpSpots) : plus discret qu'un bouton de
+   panneau, il ne doit pas concurrencer le contenu. Il s'efface tant qu'on ne survole pas la zone. */
+.hspot { opacity: .35; transition: opacity .15s ease; }
+.hspot:hover, .hspot:focus-visible { opacity: 1; }
+h2 .hspot, summary .hspot { vertical-align: middle; }
+.rnav .hspot, #hcnt .hspot, #composer .hspot { margin-right: 6px; }
+*:hover > .hspot { opacity: .75; }
 .docbox { width: min(900px, 92vw); height: min(80vh, 800px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; }
 .docbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
 #doccontent { margin: 0; padding: 16px; overflow: auto; font-size: 12.5px; color: var(--fg); flex: 1; }

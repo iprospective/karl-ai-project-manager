@@ -34,6 +34,14 @@ console.log("✓ aucun handler inline dans la page");
   const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8"); const m = /empreinte des sources scss : ([0-9a-f]{16}) \((\d+) fichiers\)/.exec(css);
   assert(m, "cockpit.css doit porter l'empreinte de ses sources (npm run build:css)");
   assert.strictEqual(m[1], h.digest("hex").slice(0, 16), "cockpit.css est PÉRIMÉ par rapport à src/**/*.scss — relance `npm run build:css` (deploy/karl-agent/cockpit/tooling)");
+  // RM3093 : le titre d'une session tient sur DEUX lignes. Un remaniement du style qui repasserait
+  // `.rmeta` en `nowrap` remettrait les titres longs à trois mots, sans que rien ne le signale.
+  const rmeta = /\.runitem \.rmeta \{([^}]*)\}/.exec(css);
+  assert(rmeta, ".runitem .rmeta doit exister dans le style compilé");
+  assert(/line-clamp:\s*2/.test(rmeta[1]), "le titre d'une session s'affiche sur deux lignes (line-clamp: 2)");
+  assert(!/white-space:\s*nowrap/.test(rmeta[1]), "…donc plus de `nowrap` : il couperait le titre à la première ligne");
+  assert(/align-items:\s*flex-start/.test(/\.runitem \{([^}]*)\}/.exec(css)[1]),
+    "les pastilles et boutons restent alignés en haut : centrés, ils dansent dès qu'un titre passe à deux lignes");
   assert(!/<style>/.test(html) && /<link rel="stylesheet" href="\/static\/cockpit\.css">/.test(html), "la page charge cockpit.css, sans <style> inline");
   assert(scss.length >= 20 && fs.existsSync(path.join(DIR, "src/styles/main.scss")), "un fichier scss par module + tokens + base + main");
   console.log("✓ cockpit.css à jour (" + scss.length + " sources scss, empreinte " + m[1] + ")"); }

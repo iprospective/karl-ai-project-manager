@@ -1,5 +1,7 @@
 // models/sessions/sessions — la liste des sessions « en cours » : groupement, compteurs, tri, repli, silences. RM2889.
 // Fonctions PURES déplacées d'index.html (marqueurs >>> <<< historiques) : aucun DOM ici, tout est testé sous node nu.
+import { modelWindow as _MW, ctxPct as _PCT, fmtWin as _FW } from "../ticket/ticketFormat.js";   // RM3084
+
 
 /** RM2445 : préfixe des groupes « vivantes d'un autre jeu » (RM2537 : suivi du chantier). */
 export const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
@@ -146,7 +148,22 @@ export function tabTip(s, r) {
   else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";
   else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
   (s.registry_conflicts || []).forEach(c => { t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", "); });
+  const ctx = contextLine(s);            // RM3084 : le contexte se lit au survol, même loin de tout palier
+  if (ctx) t += "\n" + ctx;
   return t;
+}
+
+/** RM3084 — « contexte : 197k / 1M (20 %) · opus-5 », ou "" si le transcript n'en dit rien.
+ *  Les fonctions de format sont injectées (mêmes que la jauge et l'encart infos : une seule vérité). */
+export function contextLine(s, fns) {
+  const f = fns || {};
+  const ctx = Number((s || {}).context || 0);
+  if (!ctx) return "";
+  const win = (f.modelWindow || _MW)(s.model, s.rates, ctx);
+  const pct = (f.ctxPct || _PCT)(ctx, win);
+  const fw = f.fmtWin || _FW;
+  return "contexte : " + fw(ctx) + (win ? " / " + fw(win) : "") + (pct != null ? " (" + pct + " %)" : "")
+    + (s.model ? " · " + String(s.model).replace(/^claude-/, "") : "");
 }
 
 /** Infobulle d'une tuile grise (RM2427/RM2949 : dire l'état réel de la conversation et ce que le clic fera). */
@@ -165,4 +182,41 @@ export function approveAllMessage(r) {
 /** Message du toast après « ✔ Oui » sur une session. */
 export function approveMessage(rmId, r) {
   return "✔ Oui envoyé à " + (/^\d+$/.test(String(rmId)) ? "RM" + rmId : rmId) + ((r || {}).sent === "y" ? " (y + Entrée)" : " (option 1)");
+}
+
+/** RM3082 — jauge de contexte d'une session : ce que la tuile a besoin de savoir, ou `null`.
+ *
+ * Le pourcentage se lit contre la FENÊTRE DU MODÈLE (`modelWindow`, la règle de l'encart méta —
+ * une seule vérité sur « 76 % »). Sous le premier palier : `null`, donc silence total — un signal
+ * permanent qui parle tout le temps ne se lit plus quand il compte.
+ *
+ * `thresholds` = { warn, high, crit } en % (réglables, cf. conf sessions.context_*_pct).
+ * Rend { pct, level: "warn"|"high"|"crit", label, title, width }.
+ */
+export function contextGauge(session, thresholds, ctxPctFn, modelWindowFn, fmtWinFn) {
+  const s = session || {}, ctx = Number(s.context || 0);
+  if (!ctx) return null;                                   // pas de tour lu dans la queue : rien, jamais de chiffre faux
+  const win = modelWindowFn(s.model, s.rates, ctx);
+  const pct = ctxPctFn(ctx, win);
+  if (pct == null) return null;                            // modèle inconnu → pas de fenêtre → pas de jauge
+  const th = thresholds || {};
+  const warn = Number(th.warn || 50), high = Number(th.high || 75), crit = Number(th.crit || 90);
+  const level = pct >= crit ? "crit" : pct >= high ? "high" : pct >= warn ? "warn" : "";
+  if (!level) return null;
+  const quoi = level === "crit" ? "la conversation va être compactée : consigne (think) puis repars sur une session neuve"
+    : level === "high" ? "il reste peu de marge avant compaction"
+    : "la moitié de la fenêtre est occupée";
+  return { pct, level, label: pct + " %", width: Math.min(100, pct),
+    title: "contexte : " + fmtWinFn(ctx) + " / " + fmtWinFn(win) + " (" + pct + " %)"
+      + (s.model ? "\nmodèle : " + s.model : "") + "\n" + quoi };
+}
+
+/** RM3082 — le palier a-t-il MONTÉ depuis le dernier rendu ? C'est ce franchissement, et lui seul,
+ * qui mérite une animation : l'état permanent se lit sans bouger. Pure ; `seen` est muté (Map). */
+export function contextCrossed(rmId, level, seen) {
+  const RANK = { "": 0, warn: 1, high: 2, crit: 3 };
+  const key = String(rmId), before = seen.get(key) || "";
+  if (RANK[level] === RANK[before]) return false;
+  seen.set(key, level);
+  return RANK[level] > RANK[before] && !!level;
 }

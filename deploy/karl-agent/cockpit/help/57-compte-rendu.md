@@ -53,6 +53,11 @@ Un test **n'écrit rien** : pas de `sent_at`, pas de `sent_to`, la file ne bouge
 peux en envoyer autant que tu veux avant le vrai envoi. En ligne de commande :
 `mmi-pm client-notify test calicote --rm 3025 --to moi@exemple.fr`.
 
+La liste déroulante propose **tout l'annuaire**, pas seulement les contacts du client : elle
+ne dépend donc pas des destinataires configurés sur le projet. C'est voulu — un intervenant
+doit pouvoir se relire sur n'importe quel projet sans figurer parmi les destinataires réels
+du compte-rendu.
+
 ## Quand ça ne part pas
 
 | Ce que tu vois | Pourquoi |

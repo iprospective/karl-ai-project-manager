@@ -136,6 +136,24 @@ cnt = pm_think.counters(pm_think.load(th))
 check("compteurs après ajouts", cnt == {"questions_open": 1, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
 check("set_counters écrit le bloc think:", pm_think.set_counters(sheet43, cnt) and "think:\n  questions_open: 1\n" in sheet43.read_text())
 check("set_counters idempotent", not pm_think.set_counters(sheet43, cnt))
+
+# RM3091 — mettre à jour les compteurs ne doit RIEN emporter d'autre.
+# Le bug : `re.sub(r"(?ms)^think:\n(?:[ \t]+.*\n?)*", …)` — avec DOTALL, « . » matche les
+# sauts de ligne, donc `[ \t]+.*` avalait tout le frontmatter situé APRÈS le bloc think.
+# Constaté sur RM3079 : `test_protocol` disparu en local (le CF Redmine intact), et le
+# protocole de test absent de l'email de compte-rendu client. Perte SILENCIEUSE.
+sheet_after = tasks / "RM9101_apres.md"
+sheet_after.write_text(
+    "---\nredmine_id: 9101\ntitle: 'T'\nstatus: ferme\n"
+    "think:\n  questions_open: 0\n  notes_pending: 3\n  decisions: 0\n  features: 0\n"
+    'test_protocol: "1. Ouvrir la fiche\\\n  \\ 2. Vérifier le prix"\n'
+    "tags:\n- palier\nreporting:\n  notes: []\n---\ncorps\n", encoding="utf-8")
+pm_think.set_counters(sheet_after, {"questions_open": 0, "notes_pending": 2, "decisions": 0, "features": 0})
+_after = sheet_after.read_text(encoding="utf-8")
+check("compteurs mis à jour", "notes_pending: 2" in _after)
+check("…sans effacer test_protocol (RM3091)", "test_protocol:" in _after)
+check("…ni les clés suivantes (tags, reporting)", "tags:" in _after and "reporting:" in _after)
+check("…et le corps est intact", _after.rstrip().endswith("corps"))
 check("set_counters remplace sans dupliquer", pm_think.set_counters(sheet43, {**cnt, "features": 2})
       and sheet43.read_text().count("think:") == 1 and "features: 2" in sheet43.read_text()
       and "updated: 2026-09-09T10:00" in sheet43.read_text())

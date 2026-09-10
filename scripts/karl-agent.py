@@ -6808,6 +6808,35 @@ def _test_protocol(tf: Path, body: str):
     return None
 
 
+def _ticket_think(task_file, limite: int = 40) -> dict:
+    """{questions, decisions, notes, features, counts} — les entrées du `.think.md` d'un ticket.
+
+    Lecture seule et bornée : la fiche s'ouvre souvent et le carnet d'un gros ticket peut être long.
+    Les états restent tels quels (valide, invalide, propose, attente, reserve) — c'est le cockpit qui
+    en fait des pastilles. Carnet absent ou illisible : {} plutôt qu'une erreur, la fiche s'ouvre."""
+    try:
+        import pm_think
+        th = pm_think.think_path(Path(task_file))
+        if not th.is_file():
+            return {}
+        parsed = pm_think.load(th)
+    except Exception:      # noqa: BLE001
+        return {}
+
+    def _rows(kind, col):
+        out = []
+        for r in (parsed.get(kind, {}).get("rows") or [])[:limite]:
+            cells = r.get("cells") or []
+            out.append({"id": r.get("id"), "text": cells[col] if col < len(cells) else "",
+                        "state": r.get("state") or "", "closed": bool(r.get("closed")),
+                        "prefix": r.get("prefix") or ""})
+        return out
+
+    return {"questions": _rows("question", 1), "decisions": _rows("decision", 1),
+            "notes": _rows("note", 2), "features": _rows("feature", 1),
+            "counts": pm_think.counters(parsed), "file": th.name}
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -6900,6 +6929,10 @@ def op_resolve(rm_id: str) -> dict:
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
         "project_docs": _project_docs(project_dir),
         "log_tail": _log_tail(tf),
+        # RM3089 : la RÉFLEXION du ticket — questions, décisions, notes, fonctionnalités, avec leur
+        # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
+        # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
+        "think": _ticket_think(tf),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.

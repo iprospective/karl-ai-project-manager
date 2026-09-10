@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **La réflexion d'un ticket sur sa fiche** (RM3089, lot L6 de RM3015) : bloc **🧠 Réflexion** —
+  questions ouvertes, décisions et conseils, fonctionnalités, notes — avec le compteur qui **annonce
+  le refus de clôture** au lieu de le laisser découvrir. Deux gestes au survol des entrées **encore
+  ouvertes** seulement (trancher, écarter) ; l'écriture passe par la route de RM3064 (D022), donc une
+  seule validation et une seule refusion des registres. Le serveur sert la réflexion avec la fiche,
+  en lecture bornée (une fiche s'ouvre souvent). En CLI, `pm-task-show` nomme les registres du projet.
 - **Notifications et demandes rattachées au ticket, et « ❓ à trancher » dans le worklog** (RM3088,
   lot L4 de RM3015). Une notification `--ref RM<id>` dont le message ne citait pas le numéro était
   **perdue pour le ticket** : le brief la cherchait par sous-chaîne dans son texte, jamais par sa

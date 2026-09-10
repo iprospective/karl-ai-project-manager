@@ -192,6 +192,7 @@ import hmac
 import json
 import secrets
 import os
+import pwd
 import re
 import shlex
 import stat
@@ -8174,6 +8175,226 @@ def op_cdc_feature(payload: dict) -> dict:
     out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
     return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
 
+# ── Fournisseurs : déclaration, secrets, affectations (RM3068) ───────────────
+# La déclaration est PUBLIQUE (nom, type, url, modèle) et va dans `pm.config.local.yml`, fusionné
+# par-dessus `pm.config.yml` — le fichier commenté de référence n'est jamais réécrit par une machine.
+# Le SECRET, lui, ne transite que dans un sens : il s'écrit (entrée standard de `pm-provider-secret`),
+# il ne se relit jamais. Aucune route ne rend une valeur, même masquée (garde-fou 11).
+PROVIDER_LOCAL = "pm.config.local.yml"
+
+
+def _yaml():
+    import yaml
+    return yaml
+
+
+def _providers_local() -> dict:
+    f = REPO_ROOT / PROVIDER_LOCAL
+    if not f.is_file():
+        return {}
+    return _yaml().safe_load(f.read_text(encoding="utf-8")) or {}
+
+
+def _providers_ecrit_local(cfg: dict) -> None:
+    f = REPO_ROOT / PROVIDER_LOCAL
+    tete = ("# Surcharge locale de pm.config.yml — ÉCRIT PAR LE COCKPIT (RM3068).\n"
+            "# Fusionné par-dessus pm.config.yml (pm_paths). Ne contient JAMAIS de secret :\n"
+            "# les clés vivent dans un .env, posées par pm-provider-secret, et rien ne les relit.\n")
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(tete + _yaml().safe_dump(cfg, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    tmp.replace(f)
+    try:
+        subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "pm-post-commit.py"), "--noop"],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
+def _user_unix(auth_ctx) -> str:
+    """Le compte système du dev connecté au cockpit. Le nom d'utilisateur du cockpit fait foi ;
+    à défaut, le compte qui fait tourner le démon (mono-utilisateur)."""
+    u = str((auth_ctx or {}).get("user") or "").strip().lower()
+    if u and re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", u):
+        try:
+            pwd.getpwnam(u)
+            return u
+        except KeyError:
+            pass
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
+    """Lance pm-provider-secret, au besoin par sudo (autre dev, ou .env global). La valeur part
+    par l'ENTRÉE STANDARD : jamais un argument, donc jamais dans `ps` ni dans le journal sudo."""
+    script = REPO_ROOT / "scripts" / "pm-provider-secret.py"
+    if not script.is_file():
+        raise ApiError(500, "script introuvable : pm-provider-secret.py")
+    cmd = [sys.executable, str(script)] + args
+    if as_user and as_user != pwd.getpwuid(os.getuid()).pw_name:
+        cmd = ["sudo", "-n", "-u", as_user] + cmd
+    p = subprocess.run(cmd, input=(valeur if valeur is not None else ""), capture_output=True, text=True, timeout=30)
+    if p.returncode != 0:
+        raise ApiError(400, f"secret : {(p.stderr or p.stdout or '').strip()[-200:]}")
+    return p.stdout.strip()
+
+
+def op_provider_types() -> dict:
+    """Le catalogue : axes, types, champs, et le NOM des clés attendues — jamais leur valeur."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    return PT.catalogue()
+
+
+def op_providers(auth_ctx=None) -> dict:
+    """Instances déclarées, défauts par axe, ÉTAT des clés (posée / vide), affectations par projet."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    from pm_paths import PMConfig
+    cfg = PMConfig.load()
+    brut = _yaml().safe_load((Path(cfg.pm_dir) / "pm.config.yml").read_text(encoding="utf-8")) or {}
+    prov = brut.get("providers") or {}
+    fusion = _providers_local().get("providers") or {}
+    servers = dict(prov.get("servers") or {}); servers.update(fusion.get("servers") or {})
+    defauts = dict(prov.get("defaults") or {}); defauts.update(fusion.get("defaults") or {})
+    user = _user_unix(auth_ctx)
+    etats = {}
+    try:
+        for ligne in _secret_cmd(["--status"], as_user=user).splitlines():
+            nom, _, etat = ligne.partition("\t")
+            etats[nom.strip()] = (etat.strip() == "posée")
+    except ApiError:
+        etats = {}
+    out = []
+    for nom, d in sorted(servers.items()):
+        if not isinstance(d, dict):
+            continue
+        typ = str(d.get("type") or "")
+        cles = [{"key": k, "var": f"{PT.prefixe_de(typ)}__{re.sub(r'[^A-Za-z0-9]', '_', nom).upper()}__{k}",
+                 "label": lb} for k, lb in PT.type_de(typ).get("secrets", [])]
+        for c in cles:
+            c["set"] = bool(etats.get(c["var"]))          # l'ÉTAT, jamais la valeur
+        out.append({"name": nom, "axis": d.get("axis") or PT.type_de(typ).get("axis", ""), "type": typ,
+                    "local": nom in (fusion.get("servers") or {}),
+                    "fields": {k: v for k, v in d.items() if k not in ("axis", "type")}, "secrets": cles})
+    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "defaults": defauts,
+            "instances": out, "assignments": _provider_assignments()}
+
+
+def _provider_assignments() -> list:
+    """Qui utilise quoi : [{client, project, axis, instance, role, params}] — le rôle appartient au
+    couple projet ↔ instance (RM3068), jamais à l'instance."""
+    out = []
+    for meta in sorted(PROJECTS_BASE.glob("*/projects/*/meta.yml")):
+        try:
+            d = _yaml().safe_load(meta.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        prov = d.get("providers") or {}
+        client, projet = meta.parent.parent.parent.name, meta.parent.name
+        for axe, v in prov.items():
+            for e in (v if isinstance(v, list) else [v]):
+                if isinstance(e, dict) and e.get("instance"):
+                    out.append({"client": client, "project": projet, "axis": axe, "instance": e["instance"],
+                                "role": e.get("role") or "primary",
+                                "params": {k: x for k, x in e.items() if k not in ("instance", "role")}})
+    return out
+
+
+def op_provider_save(payload: dict, auth_ctx=None) -> dict:
+    """Déclare ou modifie une instance (jamais un secret), ou pose le défaut d'un axe."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    local = _providers_local()
+    prov = local.setdefault("providers", {})
+    if payload.get("default_for"):
+        axe = str(payload["default_for"]); nom = str(payload.get("name") or "")
+        if axe not in PT.AXES:
+            raise ApiError(400, f"axe inconnu : {axe}")
+        prov.setdefault("defaults", {})[axe] = nom
+        _providers_ecrit_local(local)
+        return {"ok": True, "defaults": prov["defaults"]}
+    nom = str(payload.get("name") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,40}", nom):
+        raise ApiError(400, "nom d'instance invalide (minuscules, chiffres, . _ -)")
+    if payload.get("delete"):
+        prov.setdefault("servers", {}).pop(nom, None)
+        _providers_ecrit_local(local)
+        return {"ok": True, "deleted": nom}
+    typ = str(payload.get("type") or "")
+    d = PT.type_de(typ)
+    if not d:
+        raise ApiError(400, f"type inconnu : {typ}")
+    champs = {k: v for k, v in (payload.get("fields") or {}).items() if k in PT.champs_admis(typ) and v not in (None, "")}
+    manquants = [f[0] for f in d["fields"] if f[2] and not champs.get(f[0])]
+    if manquants:
+        raise ApiError(400, "champ(s) requis : " + ", ".join(manquants))
+    if "ssh_aliases" in champs and isinstance(champs["ssh_aliases"], str):
+        champs["ssh_aliases"] = [x.strip() for x in champs["ssh_aliases"].split(",") if x.strip()]
+    prov.setdefault("servers", {})[nom] = {"axis": d["axis"], "type": typ, **champs}
+    _providers_ecrit_local(local)
+    return {"ok": True, "name": nom, "axis": d["axis"], "type": typ}
+
+
+def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
+    """Pose, remplace ou efface une clé. La valeur ARRIVE ici et n'en ressort jamais."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_provider_types as PT
+    nom = str(payload.get("name") or "").strip()
+    cle = str(payload.get("key") or "").strip().upper()
+    typ = str(payload.get("type") or "")
+    if not (re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,40}", nom) and cle in PT.cles_attendues(typ)):
+        raise ApiError(400, "instance ou clé inattendue pour ce type")
+    portee = "global" if payload.get("scope") == "global" else "user"
+    admin = bool((auth_ctx or {}).get("admin"))
+    cible_user = str(payload.get("user") or "").strip() or None
+    if (portee == "global" or cible_user) and not admin:
+        raise ApiError(403, "réservé aux administrateurs : le .env global et celui d'un autre développeur")
+    args = ["--instance", nom, "--key", cle, "--type", typ, "--scope", portee]
+    if payload.get("unset"):
+        args.append("--unset")
+        valeur = None
+    else:
+        valeur = str(payload.get("value") or "")
+        if not valeur.strip():
+            raise ApiError(400, "valeur vide (utiliser « effacer »)")
+    comme = cible_user or (_user_unix(auth_ctx) if portee == "user" else "root")
+    if portee == "global":
+        args += []                      # le script vise le .env de l'instance ; sudo -u root ci-dessous
+    _secret_cmd(args, valeur=valeur, as_user=comme)
+    _jlog("auth", "info", f"clé {cle} de {nom} {'effacée' if payload.get('unset') else 'enregistrée'}",
+          scope=portee, by=str((auth_ctx or {}).get("user") or ""))     # le fait, jamais la matière
+    return {"ok": True, "name": nom, "key": cle, "scope": portee, "set": not payload.get("unset")}
+
+
+def op_provider_assign(payload: dict, auth_ctx=None) -> dict:
+    """Affecte une instance à un PROJET, avec son rôle : le rôle appartient au couple, pas à l'instance."""
+    client, projet = str(payload.get("client") or ""), str(payload.get("project") or "")
+    if not (_PART_RE.match(client) and _PART_RE.match(projet)):
+        raise ApiError(400, "client/projet invalides")
+    meta = PROJECTS_BASE / client / "projects" / projet / "meta.yml"
+    if not meta.is_file():
+        raise ApiError(404, "meta.yml introuvable pour ce projet")
+    axe, inst = str(payload.get("axis") or ""), str(payload.get("instance") or "")
+    role = str(payload.get("role") or "primary")
+    if role not in ("primary", "secondary"):
+        raise ApiError(400, "rôle : primary ou secondary")
+    d = _yaml().safe_load(meta.read_text(encoding="utf-8")) or {}
+    liste = d.setdefault("providers", {}).get(axe)
+    liste = [liste] if isinstance(liste, dict) else (list(liste) if isinstance(liste, list) else [])
+    liste = [e for e in liste if isinstance(e, dict) and e.get("instance") != inst]
+    if not payload.get("delete"):
+        entree = {"instance": inst, "role": role}
+        entree.update({k: v for k, v in (payload.get("params") or {}).items() if v not in (None, "")})
+        liste = ([entree] + liste) if role == "primary" else (liste + [entree])
+    if liste:
+        d["providers"][axe] = liste
+    else:
+        d["providers"].pop(axe, None)
+    tmp = meta.with_suffix(".tmp")
+    tmp.write_text(_yaml().safe_dump(d, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    tmp.replace(meta)
+    return {"ok": True, "client": client, "project": projet, "axis": axe, "entries": liste}
+
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
 # Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
@@ -11419,6 +11640,10 @@ class Handler(BaseHTTPRequestHandler):
             data = op_help_get(path[len("/help/"):])
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
+        if path == "/pm/provider-types":     # RM3068 : catalogue des types de fournisseurs
+            return self._send_json(200, op_provider_types())
+        if path == "/pm/providers":          # RM3068 : instances, défauts, ÉTAT des clés, affectations
+            return self._send_json(200, op_providers(self.auth_ctx))
         if path == "/cdc":                   # RM3043 : sommaires des CDC vivants
             return self._send_json(200, op_cdc_list())
         if path.startswith("/cdc-features/"):   # RM3044 : registre des fonctionnalités d'un CDC
@@ -11817,6 +12042,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_client_notify_test(payload))
             if path == "/client-notify/dismiss":
                 return self._send_json(200, op_client_notify_dismiss(payload))
+            if path == "/pm/providers":         # RM3068 : déclarer / modifier / supprimer une instance
+                return self._send_json(200, op_provider_save(payload, self.auth_ctx))
+            if path == "/pm/provider-secret":   # RM3068 : écrire une clé (jamais la relire)
+                return self._send_json(200, op_provider_secret(payload, self.auth_ctx))
+            if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
+                return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
                 return self._send_json(200, op_cdc_think(payload))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre

@@ -108,7 +108,7 @@ def etat_cles(path: Path, instance: str = None) -> list:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--instance", required=True)
+    ap.add_argument("--instance", help="requis sauf avec --status, qui liste alors toutes les clés")
     ap.add_argument("--key"); ap.add_argument("--prefix"); ap.add_argument("--type"); ap.add_argument("--axis")
     ap.add_argument("--scope", choices=("user", "global"), default="user")
     ap.add_argument("--user", help="le .env d'un AUTRE développeur (administrateur, par sudo)")
@@ -121,12 +121,12 @@ def main():
         sys.exit(f"ERREUR : utilisateur inconnu : {a.user}")
 
     if a.status:
-        for variable, posee in etat_cles(path, a.instance):
+        for variable, posee in etat_cles(path, a.instance if a.instance not in (None, "", "*") else None):
             print(f"{variable}\t{'posée' if posee else 'vide'}")
         return 0
 
-    if not a.key:
-        sys.exit("ERREUR : --key requis (ou --status)")
+    if not (a.instance and a.key):
+        sys.exit("ERREUR : --instance et --key requis (ou --status)")
     prefixe = a.prefix or TYPE_PREFIXES.get((a.type or "").lower()) or PREFIXES.get((a.axis or "").lower())
     if not prefixe:
         sys.exit("ERREUR : --prefix, --type ou --axis requis pour nommer la variable")

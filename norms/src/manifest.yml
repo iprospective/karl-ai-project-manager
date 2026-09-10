@@ -7,8 +7,11 @@ sources:
   - NORMS-KERNEL.md          # KERNEL : déclencheurs + tripwires + colonne vertébrale
   # --- structure & mise en place ---
   - modules/structure-reference.md
+  - modules/structure-reference-pratique.md   # RM3037 : index projets + annuaire, hors précharge
   - modules/session-tooling.md
+  - modules/session-tooling-pratique.md   # RM3037 : trous d'outillage + idiomes, hors précharge
   - modules/project-modeling.md
+  - modules/project-modeling-pratique.md   # RM3037 : relation d'implémentation, hors précharge
   - modules/project-creation.md
   - modules/audits.md          # RM2913 : routage des audits, hors précharge
   - modules/methodes-travail.md   # RM2967 : quatre natures de travail, hors précharge
@@ -25,6 +28,7 @@ sources:
   - modules/testing.md            # RM3028 : discipline de tests (TDD, unitaires, fonctionnels/workflow au fil de l'eau)
   # --- métriques, liens, traçabilité ---
   - modules/roi-pricing.md
+  - modules/roi-pricing-pratique.md   # RM3037 : mécanique de mesure et journal, hors précharge
   - modules/task-links.md
   - modules/traceability.md
   # --- environnements ---

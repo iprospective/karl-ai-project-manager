@@ -52,22 +52,17 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
-### Identités & transport forge (multi-utilisateur) — v2.0.0
+### Identités & transport forge (multi-utilisateur)
 
-En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+Trois règles, le détail est dans `git-mep-pratique` § « Remote canonique » :
 
-- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
-  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
-  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
-  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
-- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
-  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
-  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
-  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
-  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
-- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
-  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
-  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+- **Identité par dev, karl en repli.** Le jeton forge se résout par la cascade des secrets — jeton perso
+  du dev (`~/.config/mmi-pm/.env`) d'abord, karl ensuite. L'auteur d'une MR ou d'une branche est le **dev**.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique** (`.gitmodules`
+  inclus). **Ne jamais** convertir un remote en HTTPS par dépôt : ça casse les submodules, et l'`insteadOf`
+  global obtient le même transport token.
+- **Abstraction forge.** GitLab, Gogs (sans API de MR) et GitHub passent par `pm_forge` ; le backend se
+  choisit par projet (`git config pm.forge`).
 
 ### Workflow de développement (par ticket)
 
@@ -94,59 +89,6 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
-
-#### Actions au déploiement = la procédure de MEP du ticket — v2.10.0 (RM2563)
-
-Le § *Workflow de développement* ci-dessus décrit la MEP **générique** : MR vers
-`integration_branch`, puis `preprod`, puis `prod_branch`. Ce qu'il ne peut pas dire,
-c'est ce que **ce ticket-là** exige en propre — migration à jouer et dans quel ordre,
-constante à créer avant le premier passage, cron à (ré)installer, service à recharger,
-dépôt A à déployer avant le dépôt B, jeu de données à recalculer après coup.
-
-`deploy_actions` **est cette procédure** : la suite **ordonnée** d'étapes que suit la
-personne qui met en production. Pas un pense-bête d'extras — un **runbook**. L'ordre de
-la liste **est** l'ordre d'exécution.
-
-**Où ça vit.** Champ canonique : le CF Redmine **8 « Actions au déploiement »** ; miroir
-local dans le frontmatter `deploy_actions` (liste, une étape par ligne). Outil :
-**`pm-task-deploy`** (`--add` / `--set` / `--clear`, et `--pull` quand la saisie a été
-faite directement dans l'UI web). Le passage en `a_mep` **affiche la procédure** à qui
-déploie : une procédure que personne ne relit au bon moment ne sert à rien.
-
-**Rédaction au fil de l'eau, pas à la livraison.** C'est au moment où on écrit la
-migration qu'on sait qu'il faudra la jouer — pas trois semaines plus tard devant la
-prod. Une étape ajoutée après coup est une étape déjà à moitié oubliée.
-
-**Ce qu'on y met, et ce qu'on n'y met pas.**
-
-| | |
-|---|---|
-| **Oui** | les étapes **propres à ce ticket**, dans l'ordre ; la **cible** de chacune quand elle n'est pas évidente (quel env, quel dépôt, quelle machine) ; le **point de non-retour** s'il y en a un ; le **rollback** de ce ticket s'il ne se réduit pas à revenir au commit précédent. |
-| **Non** | ce qui est **systématique pour l'environnement** — c'est `environments[].post_deploy` (§ *Modèle d'environnements*), déclaré une fois par env, pas recopié dans chaque ticket ; ce qui est **générique au workflow** (créer la MR, merger, `git pull`), déjà normé ci-dessus. |
-
-Un ticket qui n'exige rien de particulier laisse la liste **vide** — c'est une réponse,
-pas un oubli. Le remplissage de complaisance (« déployer le code ») coûte la crédibilité
-du champ : le jour où il contient vraiment quelque chose, plus personne ne le lit.
-
-**Sécurité prod.** La procédure ne dispense d'aucune garde : chaque commande qui modifie
-la prod exige le **consentement humain explicite pour cette action précise** (tripwire
-*Sécurité prod*), et le **point de restauration préalable** (snapshot ZFS du conteneur
-depuis l'hôte, sur infra opensvc/LXC/ZFS) reste dû — son nom se logue avec la procédure
-de rollback. Écrire la procédure ne l'autorise pas à s'exécuter : comme
-`environments[].post_deploy`, `deploy_actions` est **déclaratif, jamais auto-exécuté**.
-
-**Synchronisation.** PM → Redmine à chaque écriture (`pm-task-deploy` pousse le CF).
-Redmine → PM automatiquement à chaque `pm-task-sync`, pour rattraper une saisie faite
-dans l'UI web. Un CF **vide** ne remet **jamais** le miroir local à zéro : « vide côté
-Redmine » veut dire « pas d'information », pas « efface ». Le vidage volontaire passe par
-`pm-task-deploy --clear`, qui écrit les deux côtés.
-
-> Le champ `deploy_actions` et le CF 8 coexistaient depuis l'origine **sans être reliés**
-> — le champ n'était qu'initialisé à `[]`, jamais lu ni poussé. RM2563 ferme le circuit ;
-> avant lui, ce qui y était écrit ne ressortait nulle part. **L'existant a été repris**
-> (21 procédures remontées vers le CF 8), via `pm-cf-mirror-backfill` — dry-run par
-> défaut, ne remplace jamais du contenu par du vide, et **signale les désaccords au lieu
-> de trancher**.
 
 #### Commit + push systématique (obligatoire)
 
@@ -272,30 +214,13 @@ tâche). Exemple : `1762-etransactions-historique`.
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.
 
-#### Plusieurs tickets dans une session : bonne branche, bon worktree — v1.20.5
+#### Actions au déploiement = la procédure de MEP du ticket
 
-Une session peut légitimement toucher **plusieurs tickets à la fois** (correctifs
-groupés, dépendances croisées, lot de validation…). Le risque concret — **déjà
-survenu** : committer le travail d'un ticket sur la **branche d'un autre** parce
-que le working tree était resté checké out dessus (ex. un commit « dashboard
-RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
+Un ticket qui touche un env porte **sa** procédure de MEP dans `deploy_actions` : ce qui doit être
+fait au déploiement, dans l'ordre, avec la commande exacte. La rédiger fait partie de la **livraison**,
+pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Actions au déploiement.**
 
-- **Avant chaque commit, vérifier la branche courante** (`git branch --show-current`)
-  et qu'elle correspond bien au ticket dont on commite le travail. Un seul working
-  tree + bascules de branche = source d'erreur quand on jongle.
-- **Un worktree par ticket plutôt que des `checkout` successifs.** Quand on mène
-  plusieurs tickets en parallèle, créer un **git worktree dédié** par ticket via
-  **`pm-branch-start <RMid> --worktree`** (RM2034) : il crée le worktree
-  `<repo>-<RMid>-s<seq>`, une branche **discriminée par session**
-  `<RMid>-<slug>-m<PMid>-s<seq>`, et **enregistre** branche + worktree dans le
-  registre de session. Chaque ticket a sa branche dans son propre dossier : on ne
-  se trompe plus de cible et on ne réécrit pas le working tree d'une autre tâche.
-  Ménage à la livraison : **`pm-worktree remove <path>`** (git worktree remove +
-  purge du registre).
-- **Mapper branche/worktree ↔ session.** L'id de session court (`s<seq>`, alloué
-  une fois sous flock — RM2034) + l'id machine (`m<PMid>`, `PM_MACHINE_ID` du
-  `.env`) **discriminent** la branche/worktree pour que **deux sessions sur le même
-  ticket ne se marchent pas dessus**. Le registre `var/sessions/` mémorise les
-  branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
-  courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
+#### Plusieurs tickets dans une session : bonne branche, bon worktree
 
+Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
+tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**

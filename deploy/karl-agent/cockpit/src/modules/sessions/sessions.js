@@ -1,5 +1,7 @@
 // models/sessions/sessions — la liste des sessions « en cours » : groupement, compteurs, tri, repli, silences. RM2889.
 // Fonctions PURES déplacées d'index.html (marqueurs >>> <<< historiques) : aucun DOM ici, tout est testé sous node nu.
+import { modelWindow as _MW, ctxPct as _PCT, fmtWin as _FW } from "../ticket/ticketFormat.js";   // RM3084
+
 
 /** RM2445 : préfixe des groupes « vivantes d'un autre jeu » (RM2537 : suivi du chantier). */
 export const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
@@ -146,7 +148,22 @@ export function tabTip(s, r) {
   else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";
   else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
   (s.registry_conflicts || []).forEach(c => { t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", "); });
+  const ctx = contextLine(s);            // RM3084 : le contexte se lit au survol, même loin de tout palier
+  if (ctx) t += "\n" + ctx;
   return t;
+}
+
+/** RM3084 — « contexte : 197k / 1M (20 %) · opus-5 », ou "" si le transcript n'en dit rien.
+ *  Les fonctions de format sont injectées (mêmes que la jauge et l'encart infos : une seule vérité). */
+export function contextLine(s, fns) {
+  const f = fns || {};
+  const ctx = Number((s || {}).context || 0);
+  if (!ctx) return "";
+  const win = (f.modelWindow || _MW)(s.model, s.rates, ctx);
+  const pct = (f.ctxPct || _PCT)(ctx, win);
+  const fw = f.fmtWin || _FW;
+  return "contexte : " + fw(ctx) + (win ? " / " + fw(win) : "") + (pct != null ? " (" + pct + " %)" : "")
+    + (s.model ? " · " + String(s.model).replace(/^claude-/, "") : "");
 }
 
 /** Infobulle d'une tuile grise (RM2427/RM2949 : dire l'état réel de la conversation et ce que le clic fera). */

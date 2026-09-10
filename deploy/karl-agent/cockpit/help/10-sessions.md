@@ -28,9 +28,15 @@ d'être lu quand il compte.
 | 75 % | orange | il reste peu de marge avant compaction |
 | 90 % | rouge | la conversation va être **compactée** — consigne (`think`), puis repars sur une session neuve |
 
-Le pourcentage se lit **contre la fenêtre du modèle** : 250 k jetons valent 25 %
-sur un modèle à 1 M et bien davantage sur un modèle à 200 k. L'infobulle donne
-les deux nombres et nomme le modèle.
+Le pourcentage se lit **contre la fenêtre du modèle**, et c'est toujours la
+**plus grande** connue pour lui qui fait foi : un même modèle est servi en 200 k
+ou en 1 M et bascule d'une variante à l'autre en cours de session. Retenir la
+petite ferait afficher « 99 % » à une session qui en est à 20 %, et déclencherait
+une compaction inutile. La fenêtre configurée vit dans `pm.pricing.yml`.
+
+Le **contexte se lit au survol de la tuile**, avec les autres informations, et
+**quel qu'il soit** — pas seulement au-delà d'un palier : `contexte : 197k / 1M
+(20 %) · opus-5`.
 
 Au **franchissement** d'un palier, la jauge pulse trois fois puis se tait : le
 mouvement attire l'œil au moment utile, l'état permanent se lit sans bouger. Une

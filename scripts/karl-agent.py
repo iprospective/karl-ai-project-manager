@@ -6306,6 +6306,12 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if cx:
             s["context"] = cx["context"]
             s.setdefault("model", cx.get("model"))
+            # RM3084 : la fenêtre CONFIGURÉE du modèle (pm.pricing.yml) voyage avec la tuile. Le front
+            # garde la décision — il retient le plus grand entre cette valeur et ce qu'il sait de la
+            # famille — mais il ne doit pas IGNORER une fenêtre posée à la main dans les tarifs.
+            win = (_pricing_models().get(cx.get("model") or "") or {}).get("context_window")
+            if win:
+                s["rates"] = {"context_window": win}
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():

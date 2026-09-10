@@ -1,9 +1,9 @@
 ---
-schema_version: "2.34.0"
+schema_version: "2.35.0"
 updated: 2026-09-10
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.34.0
+# Normes de gestion des tâches — v2.35.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -61,7 +61,7 @@ updated: 2026-09-10
 | j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
 | je diagnostique un incident / il me faut l'historique de charge d'une machine du parc | **tripwire #16** + `knowledge/zabbix/api.md` | API JSON-RPC, `ZABBIX_API_TOKEN` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
-| début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
+| début de session PM : péremption des PAT GitLab | `modules/git-mep-pratique.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | une tâche est dans le mauvais projet PM (ou déplacée côté Redmine) | `modules/session-tooling.md` | `pm-task-move` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
@@ -210,7 +210,10 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+
+Liste exhaustive et **source unique** : `redmine.reference.yml :: statuses`. Ne pas recopier
+les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en silence.
 
 `a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
 `a_tester_demandeur`, normalisé par les scripts.
@@ -334,7 +337,7 @@ Corollaire de méthode : **borner le périmètre avant d'inspecter**, pas après
 les `*-core` « pour être exhaustif » puis en rapporter l'état, ce n'est pas de la rigueur
 — c'est répondre à côté, et noyer la réponse utile sous de la plomberie.
 
-La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
+La colonne « protection » est posée par `pm-protect` (cf. `git-mep-pratique` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
 régime, l'historique ne peut que croître.
 
@@ -686,7 +689,8 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
-| **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+| **Branches / repos / submodules** | créer la branche d'un ticket (+ CF GIT Branche) | `pm-branch-start.py` (livré RM1923 ; `--worktree`, `--take`) |
+| **Commit + push conventionné** | message conventionné, push immédiat, base de version | **⚠ trou — pas de script dédié** : geste manuel encadré (cf. § « Commit + push systématique ») |
 
 ## Notifications importantes de session (RM2466)
 
@@ -1027,7 +1031,7 @@ Exemple :
 ### Création d'un projet PM ↔ Redmine
 
 À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
-projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
+projet PM et projet Redmine. Étapes (à automatiser dans `pm-project-new`) :
 
 1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
 2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
@@ -1075,7 +1079,7 @@ core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (dro
 token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
 La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
 pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
-protection conforme sans en être une (cf. `git-mep` § Enforcement).
+protection conforme sans en être une (cf. `git-mep-pratique` § Enforcement).
 
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
@@ -1168,7 +1172,7 @@ Deux flux supportés :
 3. Le worker assigné prend la tâche en charge
 
 **b) Création depuis CLI dans le workspace projet** (`pm-task-add.py` / skill `mmi-pm-task-add`)
-1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
+1. Depuis le workspace de code, l'utilisateur lance `pm-task-add --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
 3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
    `paths.project`)
@@ -1684,7 +1688,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
 [a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
-[a_tester_preprod]   ──► [en_mep] (RM2920 : instruction « mets en prod » → MEP dans la foulée ; « preprod ok » → a_mep, file de MEP)
+[a_tester_preprod]   ──► [en_mep]      (RM2920 : instruction « mets en prod » → MEP dans la foulée)
+[a_tester_preprod]   ──► [a_mep_prod]  (RM2926 : « préprod ok » → file de MEP PROD, sans déployer encore)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
 
@@ -1696,7 +1701,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 > |---|---|---|
 > | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
 > | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
-> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `a_mep` | — | recette demandeur OK, **à mettre en préprod** — pas encore déployé |
+> | `a_mep_prod` (**RM2926**) | — | **préprod OK** (non-régression du lot), **à mettre en prod** — 2ᵉ file, lève le doublon d'`a_mep` ; **sauté** quand le projet n'a pas de préprod |
 > | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
 >
 > Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*
@@ -2734,7 +2740,7 @@ git approprié. La règle s'applique à **deux périmètres** :
    Tout fichier modifié dans ce workspace (code, conf, docs internes) doit être
    commit+push dans le repo applicatif du workspace lui-même (remote GitLab
    canonique `git:`/`gitlab:iprospective/<...>`, **pas** ai-projects ; cf.
-   « Remote canonique GitLab » ci-dessous).
+   `git-mep-pratique` § « Remote canonique GitLab »).
 
 **Règles communes aux deux périmètres** :
 - Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
@@ -2884,11 +2890,17 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 `preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
 (jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
 
-1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
+1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets **`a_tester_preprod`**.
 2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
-3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
+3. Si OK ⇒ tickets **`a_mep_prod`** (« préprod OK, à mettre en prod » — file de MEP prod).
+4. **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets **`en_mep`**
+   (déployé en prod, dernière vérification avant fermeture), puis `ferme`
    (`close_reason: resolu`).
    - Régression preprod ⇒ `a_corriger` (note obligatoire).
+
+> ⚠ **`en_mep` = déployé en PROD**, depuis RM2893 — pas « en préprod ». Le statut dit *où
+> est le code*. La recette préprod, c'est `a_tester_preprod` ; la file d'attente de la MEP
+> prod, c'est `a_mep_prod`. Détail et machine d'états : `status-workflow` § Refonte RM2893.
 
 **Deux modes de promotion :**
 - **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
@@ -3186,8 +3198,8 @@ AU FIL DE L'EAU** — pendant le dev, pas comme une dette à solder à la livrai
 changement livré **sans** les tests qui lui correspondent est incomplet.
 
 Ce module détaille le **tripwire #17**. Il complète, sans les remplacer, le
-protocole de test humain (`pm-task-protocol`, cf. `modules/redmine-hygiene.md`) et les
-tests du cockpit exigés côté front (cf. `modules/git-mep.md`).
+protocole de test humain (`pm-task-protocol`, cf. `modules/status-workflow-pratique.md`) et les
+tests du cockpit exigés côté front (cf. `modules/testing.md` § Front et cockpit).
 
 ### 1. TDD par défaut (quand c'est applicable)
 

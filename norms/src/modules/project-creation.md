@@ -4,7 +4,7 @@
 ### Création d'un projet PM ↔ Redmine
 
 À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
-projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
+projet PM et projet Redmine. Étapes (à automatiser dans `pm-project-new`) :
 
 1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
 2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
@@ -52,7 +52,7 @@ core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (dro
 token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
 La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
 pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
-protection conforme sans en être une (cf. `git-mep` § Enforcement).
+protection conforme sans en être une (cf. `git-mep-pratique` § Enforcement).
 
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
@@ -145,7 +145,7 @@ Deux flux supportés :
 3. Le worker assigné prend la tâche en charge
 
 **b) Création depuis CLI dans le workspace projet** (`pm-task-add.py` / skill `mmi-pm-task-add`)
-1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
+1. Depuis le workspace de code, l'utilisateur lance `pm-task-add --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
 3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
    `paths.project`)

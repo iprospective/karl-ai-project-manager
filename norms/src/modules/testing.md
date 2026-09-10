@@ -9,8 +9,8 @@ AU FIL DE L'EAU** — pendant le dev, pas comme une dette à solder à la livrai
 changement livré **sans** les tests qui lui correspondent est incomplet.
 
 Ce module détaille le **tripwire #17**. Il complète, sans les remplacer, le
-protocole de test humain (`pm-task-protocol`, cf. `modules/redmine-hygiene.md`) et les
-tests du cockpit exigés côté front (cf. `modules/git-mep.md`).
+protocole de test humain (`pm-task-protocol`, cf. `modules/status-workflow-pratique.md`) et les
+tests du cockpit exigés côté front (cf. `modules/testing.md` § Front et cockpit).
 
 ### 1. TDD par défaut (quand c'est applicable)
 

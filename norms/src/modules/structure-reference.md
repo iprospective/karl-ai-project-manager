@@ -77,7 +77,7 @@ Corollaire de méthode : **borner le périmètre avant d'inspecter**, pas après
 les `*-core` « pour être exhaustif » puis en rapporter l'état, ce n'est pas de la rigueur
 — c'est répondre à côté, et noyer la réponse utile sous de la plomberie.
 
-La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
+La colonne « protection » est posée par `pm-protect` (cf. `git-mep-pratique` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
 régime, l'historique ne peut que croître.
 

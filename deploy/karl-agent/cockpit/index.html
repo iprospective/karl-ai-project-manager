@@ -437,12 +437,16 @@ if (window.matchMedia) {
           title="Dicter une consigne (langue : panneau 🔧 réglages, fr par défaut) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
         <button class="mini" id="readbtn" data-cmd="voice-read"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
-        <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
-        <button class="mini" id="monbtn" data-action="monitor-add">➕ Moniteur</button>
-        <button class="mini" id="unmonbtn" data-action="monitor-remove" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
-        <select class="mini" id="layoutsel" title="Disposition des panes">
-          <option value="">Disposition…</option>
-        </select>
+        <!-- RM3094 : les commandes de PANES tmux, en un seul bloc — masquables d'un réglage
+             (Thème & affichage) sans toucher aux gestes, qui restent câblés. -->
+        <span id="monbox" class="monbox">
+          <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
+          <button class="mini" id="monbtn" data-action="monitor-add">➕ Moniteur</button>
+          <button class="mini" id="unmonbtn" data-action="monitor-remove" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
+          <select class="mini" id="layoutsel" title="Disposition des panes">
+            <option value="">Disposition…</option>
+          </select>
+        </span>
         <!-- RM2631 : « 📋 Copier » / « 📥 Copie » déplacés dans la barre du composer -->
         <button class="mini" id="reattach" data-cmd="reattach" title="Recharger le terminal">↻</button>
       </div>

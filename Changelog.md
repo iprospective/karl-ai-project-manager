@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Commandes de moniteur tmux masquables** (RM3094) : `monpreset`, ➕/✕ Moniteur et la disposition
+  des panes sont regroupés dans un bloc de la barre du terminal, qu'une case de Réglages ▸ Thème &
+  affichage montre ou masque à chaud. Affichées par défaut (masquer d'office changerait le
+  comportement d'une instance sans le dire) ; masquées, les gestes restent câblés et les panes
+  ouverts ne bougent pas. Le bloc est en `display: contents` : la barre garde exactement le même
+  espacement qu'avant quand il est visible.
 - **Titres de session sur deux lignes** (RM3093) : dans le panneau de gauche, le titre d'une tuile
   n'est plus coupé à la première ligne — deux lignes, puis points de suspension. Les tuiles gagnent
   en hauteur (vivantes comme grises) et leurs pastilles et boutons s'alignent en haut, sinon la

@@ -100,6 +100,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `.jsonl`) quand ni le store ni la queue n'ont le bon slug, et **répare le store**
   (`cwd_before_fix` conservé, journal `session`/warn). Avant : `claude --resume` relancé
   dans le sous-dossier → « No conversation found » → 502 (session atombox).
+- **Installer les moteurs depuis le cockpit** (RM3069, cockpit 3.9.0) : panneau 🧩 Moteurs —
+  moteurs de session (Claude Code, opencode, Mistral vibe) et serveurs de modèles (Ollama,
+  Lemonade), avec version installée, version disponible, état du service et sessions en cours.
+  Le cockpit n'envoie qu'un **identifiant de recette** : les commandes vivent dans
+  `pm_engine_recipes`, la commande exacte est affichée avant d'agir, l'installation est système
+  (sudo, administrateur), et une mise à jour est refusée tant que des sessions tournent dessus.
 - **Fournisseurs configurables depuis les réglages** (RM3068, cockpit 3.8.0) : catalogue de
   16 types sur 5 axes (Redmine · GitLab, Gogs, GitHub · doc · coffres · modèles de travail),
   déclaration écrite dans `pm.config.local.yml` (le fichier commenté n'est jamais réécrit),

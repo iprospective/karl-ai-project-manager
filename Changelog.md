@@ -13,6 +13,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un fil de notifications pour l'instance** (RM2792, lot 2) : trois canaux disaient déjà des choses,
+  chacun dans son coin — le journal trace tout, le worklog retient ce qui est notable dans **une**
+  session, l'ordonnanceur garde l'historique de ses travaux. Aucun ne répondait à « qu'est-ce qui demande
+  mon attention, toutes sources confondues ». `mmi-pm notify` est cette réponse : une **file**, pas une
+  trace — chaque entrée est `neuf`, puis `lu`, puis `traite`, et sort de la vue. **L'anti-répétition vient
+  de l'identifiant** : c'est l'empreinte du contenu, donc un travail qui échoue toutes les heures produit
+  une ligne avec un compteur, pas vingt-quatre lignes. Alimenté par l'ordonnanceur (échec ou débordement)
+  et par les notifications de session. Servi par `/notifications`, marqué par `/notifications/mark`. La
+  garde de taille est **molle par conception** : elle n'oublie que des entrées traitées, jamais ce qui
+  attend — un fil qui jette du travail pour tenir une taille est pire qu'un fil trop long.
+
+- **Le journal du démon écrivait dans le vide, en silence** (RM3095) : il visait la racine du **code**,
+  qui appartient à root sur une instance verrouillée. Chaque écriture échouait, l'échec était compté et
+  jamais dit, et le panneau « journal » du cockpit ne montrait que le navigateur — depuis des semaines.
+  Le journal suit maintenant la racine déclarée `roots.log_dir` (« auto » = `{pm_dir}/var/log`, accessible
+  au groupe en production), **éprouve** l'emplacement à la configuration et bascule sur l'état de
+  l'utilisateur s'il faut, en le disant une fois. `/health` expose sa santé : un journal muet se voit.
+- **Un objet de journal, pour l'utiliser partout** (RM3095) : `pm_log.journal("<source>", "<catégorie>")`
+  porte la source et un contexte (`rm`, `sid`…) qui suivent chaque entrée, avec `.info/.warn/.error` et un
+  `with journal.step("…")` qui mesure la durée, journalise l'échec avec un traceback court et le relance.
+  Câblé là où un geste change un état : création et merge de merge request, changement de statut, création
+  de branche de ticket, création de ticket, exécution d'un travail périodique. Chaque script survit à
+  l'absence du module — un journal ne doit jamais casser ce qu'il observe.
+
 - **La moisson rend à chaque ticket ce qui est à lui** (RM3100) : `pm-think-harvest` attribuait tout
   le transcript au ticket courant **au moment où il tournait**. Juste sur une session mono-ticket,
   faux sur une séance longue — une passe lancée sous RM3099 a versé dans son carnet cinq questions

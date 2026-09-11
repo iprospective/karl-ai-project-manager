@@ -21,6 +21,8 @@ export const ROUTES = {
   "clientnotify.test": { current: "/client-notify/test", target: "/api/clientnotify/test", lot: "L4", callers: 1 },
   "core.update_status": { current: "/core/update-status", target: "/api/core/update-status", lot: "L0", callers: 1 },
   "dashboard.alerts": { current: "/alerts", target: "/api/dashboard/alerts", lot: "L4", callers: 1 },
+  "dashboard.notifications": { current: "/notifications", target: "/api/dashboard/notifications", lot: "L4", callers: 1 },
+  "dashboard.notifications_mark": { current: "/notifications/mark", target: "/api/dashboard/notifications-mark", lot: "L4", callers: 1 },
   "dashboard.overview": { current: "/overview", target: "/api/dashboard/overview", lot: "L4", callers: 2 },
   "dashboard.snooze": { current: "/alerts/snooze", target: "/api/dashboard/snooze", lot: "L4", callers: 1 },
   "doc.cdc": { current: "/cdc", target: "/api/doc/cdc", lot: "L5", callers: 1 },

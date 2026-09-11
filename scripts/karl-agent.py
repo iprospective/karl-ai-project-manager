@@ -8301,6 +8301,42 @@ def op_cdc_feature(payload: dict) -> dict:
 _VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
 
 
+def op_notifications(qs: dict) -> dict:
+    """Le fil de l'instance : ce qui attend, toutes sources confondues (RM2792).
+
+    Le journal (RM3010) trace tout et se cherche après coup ; ce fil-ci est une FILE, il se vide."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_notify
+    etat = (qs.get("etat") or "ouvert").strip() or "ouvert"
+    try:
+        limite = int(qs.get("limit") or 100)
+    except ValueError:
+        limite = 100
+    return {"feed": pm_notify.feed(etat=None if etat == "tout" else etat,
+                                   origine=qs.get("origin"), niveau=qs.get("level"), limit=limite),
+            "counts": pm_notify.counts(),
+            "origins": list(pm_notify.ORIGINES), "levels": list(pm_notify.NIVEAUX)}
+
+
+def op_notifications_mark(payload: dict, auth_ctx=None) -> dict:
+    """Marque des entrées « lu » ou « traité ». Rien ne se supprime : une notification traitée sort de
+    la vue, elle ne disparaît pas de l'historique tant que la garde de taille ne l'a pas oubliée."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_notify
+    etat = str(payload.get("etat") or "lu").strip()
+    if etat not in pm_notify.ETATS:
+        raise ApiError(400, "état inconnu (" + " · ".join(pm_notify.ETATS) + ")")
+    ids = payload.get("ids") or ([] if not payload.get("id") else [payload["id"]])
+    if payload.get("all"):
+        ids = [e["id"] for e in pm_notify.feed(etat="ouvert", limit=1000)]
+    ids = [str(i) for i in ids if str(i).strip()]
+    if not ids:
+        raise ApiError(400, "aucune notification désignée (ids, id, ou all)")
+    n = pm_notify.mark(ids, etat)
+    _jlog("system", "info", f"{n} notification(s) → {etat}", by=str((auth_ctx or {}).get("user") or ""))
+    return {"ok": True, "marked": n, "etat": etat, "counts": pm_notify.counts()}
+
+
 def op_cdc_version(payload: dict) -> dict:
     """Créer une version, la compléter, la retirer, ou y rattacher une fonctionnalité (RM3060).
 
@@ -12038,12 +12074,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"entries": _jtail(qs.get("category"), qs.get("level"), qs.get("since"), limit, qs.get("q")),
                                              "categories": sorted(_JCATS), "stats": _jstats()})
             if path == "/health":
+                # RM3095 : la santé du JOURNAL en fait partie. Un journal qui n'écrit pas se
+                # taisait par construction ; il se voit maintenant de l'extérieur.
+                try:
+                    import pm_log as _pl
+                    jr = _pl.stats()
+                    jsante = {"path": jr["path"], "written": jr["written"], "errors": jr["errors"],
+                              "healthy": jr["healthy"], "refused": jr["refused"]}
+                except Exception:
+                    jsante = {"healthy": False, "errors": -1, "path": "", "refused": []}
                 return self._send_json(200, {
                     "status": "ok",
                     "sessions": len(_list_sessions()),
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
+                    "journal": jsante,
                 })
+            if path == "/notifications":     # RM2792 : le fil de l'instance, toutes sources
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_notifications(qs))
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
@@ -12384,6 +12433,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_cdc_feature(payload))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
                 return self._send_json(200, op_cdc_version(payload))
+            if path == "/notifications/mark":   # RM2792 : lu / traité
+                return self._send_json(200, op_notifications_mark(payload, self.auth_ctx))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

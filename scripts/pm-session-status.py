@@ -986,6 +986,15 @@ def cmd_notify(data, args):
             "ref": args.ref, "message": args.message}
     data["notifications"] = notify_trim(notes + [note])
     save(data)
+    # RM2792 : ce qui est notable dans une session l'est pour l'instance. Le canal de session garde le
+    # détail et son fil de lecture ; le fil d'instance retient qu'il y a quelque chose à traiter, même
+    # quand la session est close depuis longtemps.
+    try:
+        import pm_notify
+        pm_notify.add("session", note["level"] if note["level"] in pm_notify.NIVEAUX else "warn",
+                      args.message, sid=data.get("session_id"), ref=args.ref, kind=kind)
+    except Exception:
+        pass
     pmout.op("worklog", extra="notification %s [%s] %s" % (
         NOTIFY_ICON.get(note["level"], "•"), note["level"], args.message[:60]))
     _think_note(args.ref, "[notification %s/%s] %s" % (note["level"], kind, args.message), data["session_id"])

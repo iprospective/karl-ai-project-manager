@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un fil de notifications pour l'instance** (RM2792, lot 2) : trois canaux disaient déjà des choses,
+  chacun dans son coin — le journal trace tout, le worklog retient ce qui est notable dans **une**
+  session, l'ordonnanceur garde l'historique de ses travaux. Aucun ne répondait à « qu'est-ce qui demande
+  mon attention, toutes sources confondues ». `mmi-pm notify` est cette réponse : une **file**, pas une
+  trace — chaque entrée est `neuf`, puis `lu`, puis `traite`, et sort de la vue. **L'anti-répétition vient
+  de l'identifiant** : c'est l'empreinte du contenu, donc un travail qui échoue toutes les heures produit
+  une ligne avec un compteur, pas vingt-quatre lignes. Alimenté par l'ordonnanceur (échec ou débordement)
+  et par les notifications de session. Servi par `/notifications`, marqué par `/notifications/mark`. La
+  garde de taille est **molle par conception** : elle n'oublie que des entrées traitées, jamais ce qui
+  attend — un fil qui jette du travail pour tenir une taille est pire qu'un fil trop long.
+
 - **Le journal du démon écrivait dans le vide, en silence** (RM3095) : il visait la racine du **code**,
   qui appartient à root sur une instance verrouillée. Chaque écriture échouait, l'échec était compté et
   jamais dit, et le panneau « journal » du cockpit ne montrait que le navigateur — depuis des semaines.

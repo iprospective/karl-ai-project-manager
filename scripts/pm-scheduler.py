@@ -379,11 +379,21 @@ def cmd_run(cfg, args):
                 if args.dry_run:
                     continue
                 append_history(cfg, entry)
+                ok = entry.get("status") == "ok"
                 if journal:
-                    ok = entry.get("status") == "ok"
                     (journal.info if ok else journal.warn)(
                         f"travail périodique « {jid} » : {entry.get('status')}",
                         job=jid, rc=entry.get("rc"), ms=round((entry.get("duration_s") or 0) * 1000))
+                if not ok:
+                    # le journal trace, le fil INTERPELLE : un travail qui échoue en boucle ne doit pas
+                    # produire une ligne par passage, d'où l'empreinte qui fait remonter la même entrée
+                    try:
+                        import pm_notify
+                        pm_notify.add("scheduler", "warn",
+                                      f"travail périodique « {jid} » : {entry.get('status')}",
+                                      job=jid, rc=entry.get("rc"))
+                    except Exception:
+                        pass
                 st["last_start"] = entry["started"]
                 st["status"] = entry["status"]
                 st["rc"] = entry["rc"]

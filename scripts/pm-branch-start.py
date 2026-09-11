@@ -47,6 +47,12 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:                                       # RM3095 : journal structuré, jamais bloquant
+    import pm_log
+    journal = pm_log.journal("pm-branch-start", "pm")
+except ImportError:                        # pm_log absent (clone partiel) : on continue muet
+    journal = None
+
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
@@ -300,6 +306,8 @@ def main():
         out.info(f"✓ branche existante '{branch}' checkée out ({root.name})")
     else:
         _git(root, "checkout", "-b", branch, base)
+        if journal:
+            journal.info("branche de ticket créée", branche=branch, base=base, repo=root.name)
         out.info(f"✓ branche '{branch}' créée depuis '{base}' et checkée out ({root.name})")
 
     # CF Redmine « GIT Branche »

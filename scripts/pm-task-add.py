@@ -37,6 +37,12 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:                                       # RM3095 : journal structuré, jamais bloquant
+    import pm_log
+    journal = pm_log.journal("pm-task-add", "issue")
+except ImportError:                        # pm_log absent (clone partiel) : on continue muet
+    journal = None
+
 from pm_paths import PMConfig
 from pm_output import out
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
@@ -368,6 +374,9 @@ def main():
     log_path.write_text(render_log(rm_id, now), encoding="utf-8")
 
     # ligne dense unique (contrat T1 RM2316) : ✓ add RM<id> <slug>
+    if journal:
+        journal.info("ticket créé", rm=rm_id, slug=slug, type=getattr(args, "type", None),
+                     projet=getattr(args, "project", None))
     out.op("add", rm=rm_id, extra=slug)
     out.info(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
     out.info(f"  {md_path.relative_to(cfg.projects_root)}")

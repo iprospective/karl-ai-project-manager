@@ -51,6 +51,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:                                       # RM3095 : journal structuré, jamais bloquant
+    import pm_log
+    journal = pm_log.journal("pm-scheduler", "system")
+except ImportError:                        # pm_log absent (clone partiel) : on continue muet
+    journal = None
+
 import pm_paths
 from pm_lock import LockTimeout, atomic_write, resource_lock
 from pm_output import out
@@ -373,6 +379,11 @@ def cmd_run(cfg, args):
                 if args.dry_run:
                     continue
                 append_history(cfg, entry)
+                if journal:
+                    ok = entry.get("status") == "ok"
+                    (journal.info if ok else journal.warn)(
+                        f"travail périodique « {jid} » : {entry.get('status')}",
+                        job=jid, rc=entry.get("rc"), ms=round((entry.get("duration_s") or 0) * 1000))
                 st["last_start"] = entry["started"]
                 st["status"] = entry["status"]
                 st["rc"] = entry["rc"]

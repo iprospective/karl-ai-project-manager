@@ -13,6 +13,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le journal du démon écrivait dans le vide, en silence** (RM3095) : il visait la racine du **code**,
+  qui appartient à root sur une instance verrouillée. Chaque écriture échouait, l'échec était compté et
+  jamais dit, et le panneau « journal » du cockpit ne montrait que le navigateur — depuis des semaines.
+  Le journal suit maintenant la racine déclarée `roots.log_dir` (« auto » = `{pm_dir}/var/log`, accessible
+  au groupe en production), **éprouve** l'emplacement à la configuration et bascule sur l'état de
+  l'utilisateur s'il faut, en le disant une fois. `/health` expose sa santé : un journal muet se voit.
+- **Un objet de journal, pour l'utiliser partout** (RM3095) : `pm_log.journal("<source>", "<catégorie>")`
+  porte la source et un contexte (`rm`, `sid`…) qui suivent chaque entrée, avec `.info/.warn/.error` et un
+  `with journal.step("…")` qui mesure la durée, journalise l'échec avec un traceback court et le relance.
+  Câblé là où un geste change un état : création et merge de merge request, changement de statut, création
+  de branche de ticket, création de ticket, exécution d'un travail périodique. Chaque script survit à
+  l'absence du module — un journal ne doit jamais casser ce qu'il observe.
+
 - **La moisson rend à chaque ticket ce qui est à lui** (RM3100) : `pm-think-harvest` attribuait tout
   le transcript au ticket courant **au moment où il tournait**. Juste sur une session mono-ticket,
   faux sur une séance longue — une passe lancée sous RM3099 a versé dans son carnet cinq questions

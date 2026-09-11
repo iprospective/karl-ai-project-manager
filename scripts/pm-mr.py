@@ -42,6 +42,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:                                       # RM3095 : journal structuré, jamais bloquant
+    import pm_log
+    journal = pm_log.journal("pm-mr", "pm")
+except ImportError:                        # pm_log absent (clone partiel) : on continue muet
+    journal = None
+
 from pm_paths import PMConfig  # charge aussi .env
 from pm_output import out
 from pm_forge import get_forge, get_forge_from_pr_url, ForgeError
@@ -237,6 +243,8 @@ def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None)
     forge.merge_pr(project, iid, token, squash=squash, keep_source=True)
     _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
              state="merged")           # RM2583 : sort des « à merger »
+    if journal:
+        journal.info("MR mergée", iid=iid, src=pr.source, target=pr.target, repo=project.path)
     out.op("merge", extra=f"!{iid} → {pr.target} (branche {pr.source} conservée)")
 
 
@@ -386,6 +394,9 @@ def cmd_create(args, forge, token):
         out.info(f"→ PR à ouvrir (forge sans API PR) : {pr.web_url}")
         out.op("mr", extra=f"compare {src}→{tgt} {pr.web_url}")
 
+    if journal:
+        journal.info("MR créée", iid=getattr(pr, "iid", None), src=src, target=tgt,
+                     repo=project.path, rm=None if args.no_ticket else args.rm_id, url=pr.web_url)
     if not args.no_ticket:
         # Sans ticket, il n'y a ni CF Redmine à poser ni frontmatter où mémoriser l'URL.
         _post_git_cf(args.rm_id, src, pr.web_url)

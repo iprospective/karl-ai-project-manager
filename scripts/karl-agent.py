@@ -12038,11 +12038,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"entries": _jtail(qs.get("category"), qs.get("level"), qs.get("since"), limit, qs.get("q")),
                                              "categories": sorted(_JCATS), "stats": _jstats()})
             if path == "/health":
+                # RM3095 : la santé du JOURNAL en fait partie. Un journal qui n'écrit pas se
+                # taisait par construction ; il se voit maintenant de l'extérieur.
+                try:
+                    import pm_log as _pl
+                    jr = _pl.stats()
+                    jsante = {"path": jr["path"], "written": jr["written"], "errors": jr["errors"],
+                              "healthy": jr["healthy"], "refused": jr["refused"]}
+                except Exception:
+                    jsante = {"healthy": False, "errors": -1, "path": "", "refused": []}
                 return self._send_json(200, {
                     "status": "ok",
                     "sessions": len(_list_sessions()),
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
+                    "journal": jsante,
                 })
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}

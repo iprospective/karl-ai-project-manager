@@ -21,6 +21,7 @@ n'écrit à la main que le conseil et l'arbitrage.
 """
 import argparse
 import os
+import pathlib
 import sys
 from pathlib import Path
 
@@ -32,6 +33,24 @@ import pm_think                               # noqa: E402
 
 KIND_FLAGS = (("note", "note"), ("question", "question"), ("decide", "decision"),
               ("advise", "decision"), ("feature", "feature"))
+
+
+def _resync_questions(rm_id, sheet, kind=None):
+    """RM3116 : la section « Questions ouvertes » de la description suit le think, au fil de l'eau.
+
+    Poser une question ou la trancher change ce qu'un lecteur du ticket doit voir — attendre une
+    commande de plus, c'est accepter que la description mente entre-temps. Localement seulement :
+    pousser vers Redmine à chaque geste ferait un appel réseau par consignation, et le sync de la
+    description a son propre moment (livraison, `--check`)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_qs", pathlib.Path(__file__).resolve().parent / "pm-task-questions.py")
+        Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q)
+        from pm_paths import PMConfig
+        Q.une(int(rm_id), PMConfig.load(), local=True)
+    except Exception:
+        pass                    # une section de description ne doit jamais casser une consignation
 
 
 def main():
@@ -96,6 +115,7 @@ def main():
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        _resync_questions(a.rm_id, sheet)
         pmout.op("think", extra=f"RM{a.rm_id} {a.set} → {pm_think.STATE_ICON[a.state]}")
         if not a.no_commit:
             pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.set} {a.state}")
@@ -128,6 +148,8 @@ def main():
                           when=a.when, sid=a.sid, bloque=a.bloque, urgence=a.urgence, domaine=a.domaine,
                           version=a.version, origine=a.origine, lot=a.lot, dest=a.dest)
     pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+    if kind == "question":
+        _resync_questions(a.rm_id, sheet, kind)      # une question posée se voit tout de suite
     pmout.op("think", extra=f"RM{a.rm_id} +{rid} [{kind}] {text[:80]}")
     if not a.no_commit:
         pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} +{rid}")

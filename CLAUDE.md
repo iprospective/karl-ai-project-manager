@@ -42,6 +42,9 @@ n'étant qu'une fusion :
 - tout se consigne dans le **`RM<id>_<slug>.think.md`** du ticket concerné : `pm-task-think <id>
   --advise|--decide|--question|--feature "…"` (le hook `pm-think-harvest` y met déjà, tout seul, les
   questions posées, les réponses retenues et les demandes verbatim) ;
+- les **questions ouvertes d'un ticket** apparaissent dans sa **description** (section régénérée entre
+  marqueurs par `mmi-pm task-questions`, RM3116) : cochées quand elles sont tranchées, avec la décision
+  qui a répondu. Une coche posée à la main dans Redmine est signalée, jamais prise pour une réponse ;
 - `pm-think-merge` régénère `cdc-questions.md`, `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md`
   (ids `RM<id>-Dnnn`) ; **`pm-think-merge --check` et `pm-cdc-features --check` doivent être verts à la livraison** ;
 - **un seul registre de fonctionnalités par projet** : `docs/cdc/fonctionnalites.yml` (RM3099). Une

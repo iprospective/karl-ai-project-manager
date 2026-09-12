@@ -7,7 +7,7 @@ n'en corriger qu'un ou deux ne suffit pas) :
 
   1. Le transcript          ~/.claude/projects/<slug>/<sid>.jsonl   -> déplacé
   2. Les `cwd` internes     dans le transcript                     -> réécrits
-  3. Le store karl-agent    ~/.local/state/karl-agent/sessions/<engine>/<sid>.json
+  3. Le store karl-agent    <var PM>/karl-agent/sessions/<engine>/<sid>.json   (RM2992)
                             (champ `cwd`)                          -> réécrit  ← le CRITIQUE
 
 Le point 3 est celui que `op_resume` lit pour relancer `claude --resume` au bon

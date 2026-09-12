@@ -10,7 +10,7 @@ temps IA. On encadre donc l'attente pour la SOUSTRAIRE ensuite (pm-task-tick).
   PreToolUse  -> `pm-turn-wait.py start` : pose wait_start = now.
   PostToolUse -> `pm-turn-wait.py stop`  : human_wait_seconds += now - wait_start.
 
-Écrit dans le même fichier de tour que pm-turn-start (~/.claude/logs/turn-start-<sid>.json).
+Écrit dans le même fichier de tour que pm-turn-start (<var PM>/turns/turn-start-<sid>.json).
 Non-bloquant : n'échoue JAMAIS (ne doit pas casser un appel d'outil).
 """
 import json

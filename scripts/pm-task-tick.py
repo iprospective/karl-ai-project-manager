@@ -19,7 +19,7 @@ Deux modes :
                    [--human-minutes M] [--ai-minutes M]
 
 Si aucun ticket n'est identifié en mode hook, log dans
-~/.claude/logs/pm-task-tick-untracked.jsonl et exit propre (jamais d'erreur
+<var PM>/turns/pm-task-tick-untracked.jsonl et exit propre (jamais d'erreur
 côté hook pour ne pas bloquer Claude Code).
 """
 import argparse

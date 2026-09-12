@@ -35,8 +35,10 @@ def _now() -> str:
 
 
 def sessions_dir() -> Path:
-    cfg = PMConfig.load()
-    d = cfg.state_dir / "sessions"
+    """RM2992 : le chemin vient de `pm_stores`, comme les autres stores — il était calculé ici, donc
+    impossible à déplacer sans toucher ce fichier (`PM_SESSIONS_DIR` le surcharge)."""
+    import pm_stores
+    d = pm_stores.sessions_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 

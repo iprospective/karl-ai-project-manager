@@ -438,10 +438,9 @@ MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapM
 # RM3085 : ces `karl-<slug>.log` n'avaient AUCUNE purge — 130+ fichiers sur ce poste, dont ceux de
 # sessions éteintes depuis des mois. Rétention en jours, débrayable par 0.
 TMUX_LOG_KEEP_DAYS = int(os.environ.get("KARL_TMUX_LOG_KEEP_DAYS") or 30)
-LOG_DIR = Path(
-    os.environ.get("KARL_AGENT_LOG_DIR")
-    or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "karl-agent")
-)
+# RM2992 : le chemin vient de `pm_stores` — il était calculé ici, donc invisible au déplacement des
+# stores vers le `var/` du repo PM (et il ignorait `PM_STATE_DIR`).
+LOG_DIR = pm_stores.log_dir()
 
 # État de session partageable (RM2385) — distinct des logs d'instance. Le store
 # sessions⇄tickets (keys/, sessions/, tasks/) est une donnée d'ÉTAT que plusieurs
@@ -450,7 +449,7 @@ LOG_DIR = Path(
 # /outline — cf. pm-cockpit-test-env). Les LOGS d'instance (pipe-pane, pm-runs,
 # answers) restent, eux, sous LOG_DIR. Défaut : STATE_DIR = LOG_DIR ⇒ comportement
 # prod strictement inchangé.
-STATE_DIR = Path(os.environ.get("KARL_AGENT_STATE_DIR") or LOG_DIR)
+STATE_DIR = pm_stores.state_dir()
 
 # ── Store sessions ⇄ tickets (RM1939) — instance-local, JAMAIS committé ──────
 # Modèle n-m : une session traverse plusieurs tickets, un ticket est repris dans
@@ -3794,7 +3793,7 @@ def sid_match(session_id: str, mot: str) -> bool:
 def _archived_worklogs(mots: list, connus: set) -> list:
     """Sessions dont le worklog PM correspond mais dont le TRANSCRIPT a disparu.
 
-    Le worklog survit au transcript : `~/.claude/session-worklogs/` garde la
+    Le worklog survit au transcript : `<var PM>/session-worklogs/` garde la
     trace d'un travail dont la conversation a été purgée. La question « dans
     quelle session ce ticket a-t-il été traité ? » a donc une réponse là où
     « reprendre » n'en a plus. Les taire ferait mentir la recherche ; les

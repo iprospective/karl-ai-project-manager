@@ -2,7 +2,7 @@
 """pm-turn-start — hook UserPromptSubmit : pose le timestamp de début de tour.
 
 Quand tu envoies un message, Claude démarre un « tour ». Ce hook écrit l'instant
-de départ (epoch) dans ~/.claude/logs/turn-start-<session_id>.json. À la fin du
+de départ (epoch) dans <var PM>/turns/turn-start-<session_id>.json (RM2992). À la fin du
 tour, le hook Stop (`pm-task-tick`) lit ce fichier, calcule le temps IA wall-clock
 écoulé, l'ajoute à `ai_time_total_minutes` du ticket courant, puis efface le fichier.
 

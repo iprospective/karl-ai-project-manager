@@ -13,6 +13,33 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les données de session quittent le home** (RM2992) : worklogs, état de karl-agent, curseurs de
+  tour et registre des sessions vivent désormais sous **`var/` du repo PM**, communs à tous les
+  agents de la machine. Ils étaient dans `~` « par défaut d'avoir choisi », et c'est le home qui
+  décidait de qui voyait quoi : un agent ne voyait pas le travail d'un autre, et le régime de
+  partage dépendait du hasard des montages (`~/.claude` partagé hôte↔conteneur, `~/.local/state`
+  non — RM2391 s'était fait piéger dessus). Demande du 2026-09-05, débloquée le 2026-09-12 :
+  « partagé, depuis le début ». `pm_stores` porte la racine (`PM_STATE_DIR`), chaque store garde sa
+  variable, **`var/sessions` en gagne une** (`PM_SESSIONS_DIR` — le dossier bougera sans doute), et
+  chacun conserve son **repli d'hier** là où la config PM ne se charge pas : résoudre un chemin ne
+  doit jamais faire échouer l'appelant. Nouveau `mmi-pm stores-migrate` : idempotent, **ne remplace
+  jamais** un fichier déjà à destination, ne déplace que nos fichiers dans les dossiers partagés
+  avec Claude Code, laisse derrière les stores morts (`answers.jsonl`) et pose une trace dans
+  l'ancien dossier ; `mmi-pm core update` l'appelle après le redémarrage de karl-agent. Mesuré ici :
+  **683 fichiers, 167 Mo**. Les transcripts et `history.jsonl` ne bougent pas — Claude Code les
+  écrit, nous les lisons. Quatre scripts qui recopiaient un chemin d'état à la main passent par
+  `pm_stores` (`karl-agent`, `karl-mail-fetch`, `pm-cockpit-test-env`, `pm-gitlab-push-check`,
+  `pm_notify`), et une garde de test refuse désormais tout script qui vise un store sans lui.
+  NORMS 2.42.0 § « Où vivent les données de session ».
+- **La garde de livraison était cassée hors du core** (RM2992, en marge) : `PMConfig.load()` **sort**
+  (`sys.exit`) quand le `.env` canonique manque — le cas d'un clone de dev — et `SystemExit`
+  n'héritant pas d'`Exception`, les `except Exception` des bibliothèques la laissaient remonter et
+  tuer le programme. **17 tests rouges** sur `main` dans tout worktree, avec pour seul symptôme un
+  message d'aide sur le `.env` et aucun nom de test. Trois occurrences corrigées ici
+  (`pm_log._declared_dir`, `pm_notify._state_dir`, `pm_monitor._local_path`) : **12 tests
+  repassent au vert**. Le défaut de fond — une fonction de bibliothèque qui peut tuer son appelant —
+  est ticketé à part (RM3119).
+
 - **Les questions ouvertes d'un ticket sont dans sa description** (RM3116) : elles gouvernaient déjà des
   choses sérieuses — un ticket ne se ferme pas avec une question en attente — mais ne se voyaient nulle
   part où l'on lit un ticket. `mmi-pm task-questions` régénère une section **❓ Questions ouvertes** dans

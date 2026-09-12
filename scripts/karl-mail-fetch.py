@@ -33,7 +33,7 @@ Configuration (`.env` du repo PM ou variables d'environnement) :
     KARL_MAIL_TRUSTED_FOLDERS   csv des dossiers de confiance (défaut : INBOX.Clients, Clients)
     KARL_MAIL_EXCLUDE_FOLDERS   csv des dossiers jamais relevés (Sent, Junk, virtual.*, …)
     KARL_MAIL_MACHINE_SENDERS   csv de motifs additionnels d'expéditeurs machine
-    KARL_AGENT_STATE_DIR        racine d'état (défaut : ~/.local/state/karl-agent)
+    KARL_AGENT_STATE_DIR        racine d'état (défaut : <var PM>/karl-agent — RM2992)
 
 Pré-requis : vault déverrouillé (`scripts/unlock-vault.sh`) — sauf `--queue` et
 `--list-folders --dry-run`.
@@ -102,7 +102,14 @@ RM_SUBJECT_RE = re.compile(r"\[RM(\d{1,6})\]")
 
 # ── Chemins d'état (hors git) ────────────────────────────────────────────────
 def state_dir() -> Path:
-    root = os.environ.get("KARL_AGENT_STATE_DIR") or os.environ.get("KARL_AGENT_LOG_DIR")
+    # RM2992 : la résolution vient de `pm_stores` — recopiée ici, elle continuait de viser le home
+    # après le déplacement des stores, et ce script écrivait donc seul dans son coin.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_stores
+        root = pm_stores.state_dir()
+    except Exception:      # noqa: BLE001 — ce script doit tourner même hors arbre PM
+        root = os.environ.get("KARL_AGENT_STATE_DIR") or os.environ.get("KARL_AGENT_LOG_DIR")
     if not root:
         base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
         root = Path(base) / "karl-agent"

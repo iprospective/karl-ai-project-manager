@@ -55,11 +55,20 @@ CATALOGUE = {
                   "secrets": [("API_KEY", "Clé d'API")], "prefix": "LLM"},
     "claude-cli": {"axis": "llm", "label": "Claude Code (claude -p)", "fields": [_MODEL], "secrets": [], "prefix": "LLM",
                    "note": "aucun secret ; le CLI refacture son prompt système à chaque appel"},
+    # ── axe monitoring : l'OBSERVATEUR du parc (RM3112) ──────────────────────
+    # Il ne décide de rien, il rapporte : hôtes supervisés, alertes actives, sévérités. Ce qu'on en
+    # fait — ouvrir un ticket chez le bon client — est le travail du PM, pas le sien.
+    "zabbix": {"axis": "monitoring", "label": "Zabbix", "fields": [_URL,
+               ("hosts_hint", "Domaines du parc", False,
+                "domaines qui servent à proposer le client d'un hôte, séparés par des virgules")],
+               "secrets": [("API_TOKEN", "Jeton d'API (lecture)")], "prefix": "ZABBIX",
+               "note": "lecture seule depuis le PM ; aucune écriture vers Zabbix dans ce lot"},
 }
 
-AXES = ("task", "forge", "doc", "secret", "llm")
+AXES = ("task", "forge", "doc", "secret", "llm", "monitoring")
 AXE_LABEL = {"task": "Tickets", "forge": "Dépôts de code", "doc": "Documentation",
-             "secret": "Coffres à secrets", "llm": "Modèles de travail"}
+             "secret": "Coffres à secrets", "llm": "Modèles de travail",
+             "monitoring": "Observateurs"}
 
 
 def catalogue() -> dict:

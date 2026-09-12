@@ -128,5 +128,45 @@ for f, msg in attendu.items():
 ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
 check("la santé du journal est exposée par /health", '"journal": jsante' in ka)
 
+# Un appel de journal vit sur un chemin RAREMENT emprunté (l'échec, le cas limite) : une variable qui
+# n'existe pas à cet endroit ne se voit qu'au pire moment. C'est arrivé (`rm_id` pour `args.rm_id` dans
+# pm-task-status-update, découvert en changeant un statut). Ce contrôle statique l'attrape à froid.
+import ast                                               # noqa: E402
+
+
+def _noms_visibles(tree, lineno):
+    glob = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+    glob |= {t.id for n in tree.body if isinstance(n, ast.Assign) for t in ast.walk(n) if isinstance(t, ast.Name)}
+    glob |= {a.asname or a.name.split(".")[0] for n in ast.walk(tree)
+             if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        fin = max((getattr(x, "lineno", fn.lineno) for x in ast.walk(fn)), default=fn.lineno)
+        if fn.lineno <= lineno <= fin:
+            loc = {a.arg for a in fn.args.args + fn.args.kwonlyargs}
+            loc |= {t.id for x in ast.walk(fn) for t in ast.walk(x)
+                    if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
+            return glob | loc
+    return glob
+
+
+mauvais = []
+for f in sorted(HERE.glob("pm-*.py")):
+    try:
+        arbre = ast.parse(f.read_text(encoding="utf-8"))
+    except SyntaxError:
+        continue
+    for n in ast.walk(arbre):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name) and n.func.value.id in ("journal", "pm_notify")):
+            continue
+        vis = _noms_visibles(arbre, n.lineno) | set(__builtins__.__dict__)
+        used = {x.id for k in n.keywords if k.value is not None for x in ast.walk(k.value) if isinstance(x, ast.Name)}
+        used |= {x.id for a in n.args for x in ast.walk(a) if isinstance(x, ast.Name)}
+        absents = sorted(u for u in used if u not in vis)
+        if absents:
+            mauvais.append(f"{f.name}:{n.lineno} → {', '.join(absents)}")
+check("aucun appel de journal n'utilise un nom qui n'existe pas là où il est écrit",
+      not mauvais, " · ".join(mauvais[:4]))
+
 print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm_log (RM3095)"))
 sys.exit(1 if FAIL else 0)

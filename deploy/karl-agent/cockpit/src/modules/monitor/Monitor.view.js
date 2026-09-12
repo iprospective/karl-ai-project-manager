@@ -34,7 +34,7 @@ export function MonitorCard(vm) {
   if (vm.page === "hosts") {
     return html`${titre}${Head(vm)}
       <div class="cdc-hint">L'association d'un hôte à un client se <b>propose</b> (par le nom de domaine) et se <b>confirme</b> à la main. Une association proposée est affichée en clair : tant qu'elle n'est pas confirmée, elle peut se tromper de client. Confirmer une association la fige : aucune règle ne la réécrit ensuite.</div>
-      <div class="cdc-tablewrap"><table class="cdc-table"><thead><tr><th>Hôte</th><th>Client / projet</th><th>Origine</th><th></th></tr></thead>
+      <div class="cdc-tablewrap"><table class="cdc-table mon-hosts"><thead><tr><th>Hôte</th><th>Client / projet</th><th>Origine</th><th></th></tr></thead>
       <tbody>${vm.hostRows.map(h => Hote(vm, h))}</tbody></table></div>`;
   }
   if (vm.empty) return html`${titre}${Head(vm)}<div class="empty">rien à signaler à ce seuil.</div>`;

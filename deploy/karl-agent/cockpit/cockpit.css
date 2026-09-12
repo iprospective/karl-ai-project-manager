@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : b63d337c40734a01 (36 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 3be4d84352ecf061 (36 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -4540,6 +4540,56 @@ button.mini.soft:hover {
   width: 8em;
   padding: 3px 6px;
   font-size: 11.5px;
+}
+
+#cp-monitor {
+  max-width: none;
+}
+
+#cp-monitor .cdc-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+#cp-monitor .cdc-table th:nth-child(1) {
+  width: 7.5em;
+}
+
+#cp-monitor .cdc-table th:nth-child(2) {
+  width: 15em;
+}
+
+#cp-monitor .cdc-table th:nth-child(4) {
+  width: 5em;
+}
+
+#cp-monitor .cdc-table th:nth-child(5) {
+  width: 13em;
+}
+
+#cp-monitor .cdc-table th:nth-child(6) {
+  width: 7em;
+}
+
+#cp-monitor .cdc-table td {
+  overflow-wrap: anywhere;
+}
+
+.mon-host {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#cp-monitor .cdc-table.mon-hosts th:nth-child(1) {
+  width: 20em;
+}
+
+#cp-monitor .cdc-table.mon-hosts th:nth-child(2) {
+  width: 14em;
+}
+
+#cp-monitor .cdc-table.mon-hosts th:nth-child(3) {
+  width: 16em;
 }
 
 .cn-head {

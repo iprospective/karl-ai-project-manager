@@ -94,11 +94,18 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
   // (personne ne l'avait demandé) ; et quand on active le split, la session doit revenir
   // exactement dans l'état où elle était — un terminal déjà masqué reste masqué.
   { const { mountLayout: ML } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
-    const el = (id, display = "") => ({ id, style: { display }, classList: { c: {}, toggle(n, on) { this.c[n] = !!on; } }, getBoundingClientRect: () => ({ right: 0, bottom: 600 }), addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [] });
+    const el = (id, display = "") => ({ id, style: { display },
+      classList: { c: {}, toggle(n, on) { this.c[n] = !!on; }, contains(n) { return !!this.c[n]; }, add(n) { this.c[n] = true; }, remove(n) { delete this.c[n]; } },
+      getBoundingClientRect: () => ({ right: 1200, bottom: 600 }), addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [] });
     const st = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
-    const props = {}; const root = { documentElement: { dataset: {}, style: { setProperty(k, v) { props[k] = v; }, removeProperty(k) { delete props[k]; } } }, addEventListener() {}, removeEventListener() {} };
+    const props = {}; const poses = [];
+    const root = { documentElement: { dataset: {}, style: { setProperty(k, v) { props[k] = v; }, removeProperty(k) { delete props[k]; } } },
+      body: { appendChild(n) { poses.push(n); }, removeChild(n) { const i = poses.indexOf(n); if (i >= 0) poses.splice(i, 1); } },
+      createElement: () => ({ className: "", style: {}, parentNode: null, remove() { const i = poses.indexOf(this); if (i >= 0) poses.splice(i, 1); } }),
+      addEventListener() {}, removeEventListener() {} };
     const h = { reviewpane: el("reviewpane", "none"), viewpane: el("viewpane", "none"), panelpane: el("panelpane", "none"),
-                centerhandle: el("centerhandle", "none"), termhost: el("termhost"), term: el("term", "none"), composer: el("composer"), main: el("main") };
+                centerhandle: el("centerhandle", "none"), termhost: el("termhost"), term: el("term", "none"), composer: el("composer"), main: el("main"),
+                rpanel: el("rpanel"), rhandle: el("rhandle") };   // RM3123 : la poignée a besoin de son panneau
     const L = ML(h, { storage: st, root, media: { matches: false }, search: "" });
 
     assert.strictEqual(L.centerSplit(), false, "défaut : PAS de split (l'option s'active exprès)");
@@ -147,6 +154,27 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     L.showSurface("viewpane", false);
     assert(h.termhost.style.display === "" && h.composer.style.display === "",
       "la session ne revient qu'une fois la DERNIÈRE surface fermée");
+
+    // RM3123 : le terminal est une IFRAME, qui avale les événements de souris. Sans bouclier, tirer la
+    // poignée vers la gauche — au-dessus du terminal — perdait le geste : la colonne ne pouvait plus
+    // que rétrécir au retour. Le bouclier n'existe QUE pendant le glisser.
+    assert.strictEqual(poses.length, 0, "aucun bouclier au repos");
+    L.startResize({ preventDefault() {} });
+    assert(poses.length === 1 && poses[0].className === "resize-shield", "un bouclier est posé au début du glisser");
+    assert.strictEqual(poses[0].style.cursor, "col-resize", "et il garde le curseur de redimensionnement");
+    L.endResize();
+    assert.strictEqual(poses.length, 0, "il disparaît au relâchement");
+    L.startResize({ preventDefault() {} }); L.startResize({ preventDefault() {} });
+    assert.strictEqual(poses.length, 1, "deux débuts de glisser ne posent pas deux boucliers");
+    L.endResize();
+
+    // la poignée du split glisse au-dessus du MÊME terminal : elle a le même besoin
+    L.setCenterSplit(true); L.showCenter(true);
+    L.startCenterResize({ preventDefault() {} });
+    assert(poses.length === 1 && poses[0].style.cursor === "row-resize", "le split pose aussi son bouclier, en curseur vertical");
+    L.endCenterResize();
+    assert.strictEqual(poses.length, 0, "et le retire à la fin");
+    L.setCenterSplit(false); L.showCenter(false);
 
     // hauteur : bornée, mémorisée, réinitialisable
     L.showCenter(true);

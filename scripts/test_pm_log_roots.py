@@ -91,7 +91,10 @@ with tempfile.TemporaryDirectory() as tmp:
     j.info("une action", cible="x")
     rec = L.tail(limit=1)[0]
     check("la source et le contexte suivent chaque entrée",
-          rec["src"] == "mon-script" and rec["rm"] == 42 and rec["cible"] == "x")
+          rec["tool"] == "mon-script" and rec["rm"] == 42 and rec["cible"] == "x")
+    j.info("avec un champ métier nommé src", src="une-branche")
+    check("un champ métier « src » ne heurte plus la source de l'entrée",
+          L.tail(limit=1)[0]["src"] == "une-branche" and L.tail(limit=1)[0]["tool"] == "mon-script")
     k = j.bind(sid="s1")
     k.warn("un souci")
     check("bind ajoute du contexte sans toucher à l'original",

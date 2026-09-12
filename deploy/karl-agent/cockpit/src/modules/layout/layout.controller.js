@@ -14,7 +14,7 @@ import { paint } from "../../core/dom.js";
 export function mountLayout(hosts = {}, ctx = {}) {
   const h = hosts, svc = ctx.service || new LayoutService({ storage: ctx.storage });
   const root = ctx.root || (typeof document !== "undefined" ? document : null);
-  const state = { right: { tab: "infos", collapsed: true, manual: false }, left: false, resizing: false, rightEdge: 0, panel: null, loaded: {}, mobile: { layout: "desktop", page: "left" },
+  const state = { right: { tab: "infos", collapsed: true, manual: false }, left: false, resizing: false, rightEdge: 0, panel: null, loaded: {}, shield: null, mobile: { layout: "desktop", page: "left" },
     center: { shown: false, hidden: null, resizing: false, bottom: 0 } };   // RM3051 : split de la zone centrale
   const cls = (el, c, on) => { if (el && el.classList) el.classList.toggle(c, !!on); };
   const all = (sel) => (h.rpanel && h.rpanel.querySelectorAll ? [...h.rpanel.querySelectorAll(sel)] : []);
@@ -100,11 +100,12 @@ export function mountLayout(hosts = {}, ctx = {}) {
    *  session, ou sous elle si le split est activé. */
   const showSurface = (nom, on) => showCenter(on, nom);
   const setVarH = (px) => { if (root && root.documentElement) root.documentElement.style.setProperty("--reviewpane-h", clampCenterH(px) + "px"); };
-  function startCenterResize(e) { if (!centerSplit() || !state.center.shown) return; state.center.resizing = true; state.center.bottom = h.reviewpane && h.reviewpane.getBoundingClientRect ? h.reviewpane.getBoundingClientRect().bottom : 0; if (e && e.preventDefault) e.preventDefault(); }
+  function startCenterResize(e) { if (!centerSplit() || !state.center.shown) return; state.center.resizing = true; bouclier(true); state.center.bottom = h.reviewpane && h.reviewpane.getBoundingClientRect ? h.reviewpane.getBoundingClientRect().bottom : 0; if (state.shield) state.shield.style.cursor = "row-resize"; if (e && e.preventDefault) e.preventDefault(); }
   function doCenterResize(e) { if (!state.center.resizing) return; setVarH(state.center.bottom - e.clientY); }   // le volet grandit vers le haut
   function endCenterResize() {
     if (!state.center.resizing) return;
     state.center.resizing = false;
+    bouclier(false);
     const v = root && root.documentElement && typeof getComputedStyle === "function" ? getComputedStyle(root.documentElement).getPropertyValue("--reviewpane-h").trim() : "";
     if (v) svc.saveCenterH(parseInt(v, 10));
   }
@@ -113,9 +114,30 @@ export function mountLayout(hosts = {}, ctx = {}) {
   const setVar = (px) => { if (root && root.documentElement) root.documentElement.style.setProperty("--rpanel-w", clampWidth(px) + "px"); };
   function setRightWidth(px) { setVar(px); }
   function resetWidth() { if (root && root.documentElement) root.documentElement.style.removeProperty("--rpanel-w"); svc.resetWidth(); if (ctx.onResized) ctx.onResized(); }   // RM2952 : on RETIRE la variable, pas 330 en dur
-  function startResize(e) { if (!h.rpanel || (h.rpanel.classList && h.rpanel.classList.contains("collapsed"))) return; state.resizing = true; state.rightEdge = h.rpanel.getBoundingClientRect ? h.rpanel.getBoundingClientRect().right : 0; cls(h.rpanel, "resizing", true); if (e && e.preventDefault) e.preventDefault(); }
+  // RM3123 : le terminal est une IFRAME, et une iframe avale tous les événements de souris qui passent
+  // au-dessus d'elle. Agrandir la colonne de droite veut dire tirer vers la GAUCHE, donc au-dessus du
+  // terminal : le document ne recevait plus rien, la largeur cessait de suivre, et au retour elle ne
+  // pouvait plus que rétrécir. Un bouclier plein écran posé le temps du glisser reçoit les événements
+  // à la place de ce qu'il couvre.
+  function bouclier(on) {
+    if (!root || !root.body) return;
+    if (on) {
+      if (state.shield) return;
+      const d = root.createElement ? root.createElement("div") : null;
+      if (!d) return;
+      d.className = "resize-shield";
+      d.style.cursor = "col-resize";
+      root.body.appendChild(d);
+      state.shield = d;
+    } else if (state.shield) {
+      if (state.shield.remove) state.shield.remove();
+      else if (state.shield.parentNode) state.shield.parentNode.removeChild(state.shield);
+      state.shield = null;
+    }
+  }
+  function startResize(e) { if (!h.rpanel || (h.rpanel.classList && h.rpanel.classList.contains("collapsed"))) return; state.resizing = true; state.rightEdge = h.rpanel.getBoundingClientRect ? h.rpanel.getBoundingClientRect().right : 0; cls(h.rpanel, "resizing", true); bouclier(true); if (e && e.preventDefault) e.preventDefault(); }
   function doResize(e) { if (!state.resizing) return; setVar(state.rightEdge - e.clientX); }                                          // le panneau grandit vers la gauche
-  function endResize() { if (!state.resizing) return; state.resizing = false; cls(h.rpanel, "resizing", false); const w = root && root.documentElement && typeof getComputedStyle === "function" ? getComputedStyle(root.documentElement).getPropertyValue("--rpanel-w").trim() : ""; if (w) svc.saveWidth(parseInt(w, 10)); if (ctx.onResized) ctx.onResized(); }
+  function endResize() { if (!state.resizing) return; state.resizing = false; bouclier(false); cls(h.rpanel, "resizing", false); const w = root && root.documentElement && typeof getComputedStyle === "function" ? getComputedStyle(root.documentElement).getPropertyValue("--rpanel-w").trim() : ""; if (w) svc.saveWidth(parseInt(w, 10)); if (ctx.onResized) ctx.onResized(); }
   // ── colonne gauche : panneaux commutables (RM2283 ; RM2816 : pm/réglages n'y sont plus) ──
   const qa = (el, sel) => (el && el.querySelectorAll ? [...el.querySelectorAll(sel)] : []);
   function switchPanel(name) {
@@ -174,6 +196,8 @@ export function mountLayout(hosts = {}, ctx = {}) {
   if (media && media.addEventListener) listen(media, "change", () => detectMobile());
   return { dispatch, switchRight, showRight, toggleRight, collapseRight, rightVisible, toggleLeft, restore, setRightWidth, resetWidth, switchPanel, restorePanel, panel: () => state.panel, right: () => state.right, left: () => state.left, state,
     showCenter, showSurface, centerSplit, setCenterSplit, resetCenterH, applyCenter,
+    // RM3123 : exposés pour le test — le bouclier du glisser ne se voit qu'en les appelant
+    startResize, doResize, endResize, startCenterResize, endCenterResize,
     mobile: () => Object.assign({}, state.mobile), isMobile, mobileGo, centerShown, refreshMobileNav, detectMobile,
     unmount() { disposers.forEach(d => d()); disposers.length = 0; } };
 }

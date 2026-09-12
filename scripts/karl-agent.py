@@ -9080,6 +9080,97 @@ def op_list_projects() -> list:
     return out
 
 
+def _monitor_mod():
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_monitor
+    return pm_monitor
+
+
+def op_monitor_alerts(qs: dict) -> dict:
+    """Les alertes de l'observateur, chacune avec le client/projet PROPOSÉ pour son hôte (RM3112).
+
+    La proposition dit toujours sa source et sa confiance : une association devinée en silence
+    enverrait un ticket chez le mauvais client, ce qui est pire que pas de proposition."""
+    M = _monitor_mod()
+    try:
+        sev = int(qs.get("severity") or 0)
+    except ValueError:
+        sev = 0
+    try:
+        limite = int(qs.get("limit") or 200)
+    except ValueError:
+        limite = 200
+    try:
+        alertes = M.alertes_situees(limit=limite, severite_min=sev)
+    except M.MonitorError as e:
+        raise ApiError(502, str(e))
+    graves = sum(1 for a in alertes if a.get("grave"))
+    return {"alerts": alertes, "counts": {"total": len(alertes), "grave": graves,
+                                          "sans_cible": sum(1 for a in alertes if not a["cible"]["client"])},
+            "severities": M.SEVERITES, "seuil_grave": M.GROS_SOUCI}
+
+
+def op_monitor_hosts() -> dict:
+    """Les hôtes supervisés et leur association — la page où l'on corrige ce que la proposition a deviné."""
+    M = _monitor_mod()
+    try:
+        hotes = M.hotes()
+    except M.MonitorError as e:
+        raise ApiError(502, str(e))
+    connus = M._clients_connus()
+    return {"hosts": [{**h, "cible": M.proposition(h["host"], connus)} for h in hotes],
+            "clients": sorted(connus)}
+
+
+def op_monitor_assign(payload: dict, auth_ctx=None) -> dict:
+    """Confirme (ou retire) l'association d'un hôte à un client/projet. Écrit dans la surcharge locale."""
+    M = _monitor_mod()
+    hote = str(payload.get("host") or "").strip()
+    if not hote or len(hote) > 200:
+        raise ApiError(400, "hôte invalide")
+    client = str(payload.get("client") or "").strip()
+    projet = str(payload.get("project") or "").strip()
+    if client and not _PART_RE.match(client):
+        raise ApiError(400, "client invalide")
+    if projet and not _PART_RE.match(projet):
+        raise ApiError(400, "projet invalide")
+    if not M.associe(hote, client or None, projet or None):
+        raise ApiError(500, "l'association n'a pas pu être écrite")
+    _jlog("system", "info", f"hôte {hote} → {client}/{projet}" if client else f"hôte {hote} détaché",
+          by=str((auth_ctx or {}).get("user") or ""))
+    return {"ok": True, "host": hote, "cible": M.proposition(hote)}
+
+
+def op_monitor_ticket(payload: dict, auth_ctx=None) -> dict:
+    """Crée un ticket DEPUIS une alerte, dans le client/projet associé à son hôte (RM3112).
+
+    Rien n'est deviné ici : le client et le projet arrivent du client, qui les a lus de la proposition
+    et a pu les corriger. Le ticket se crée par le chemin normal — même script, mêmes garde-fous."""
+    client = str(payload.get("client") or "").strip()
+    projet = str(payload.get("project") or "").strip()
+    if not (_PART_RE.match(client) and _PART_RE.match(projet)):
+        raise ApiError(400, "client et projet requis pour créer le ticket (associe d'abord l'hôte)")
+    hote = str(payload.get("host") or "").strip()
+    alerte = str(payload.get("name") or "").strip()
+    if not alerte:
+        raise ApiError(400, "l'intitulé de l'alerte est requis")
+    sev = str(payload.get("severity_label") or "").strip()
+    depuis = str(payload.get("since") or "").strip()
+    eventid = str(payload.get("eventid") or "").strip()
+    titre = (f"{hote} : {alerte}" if hote else alerte)[:240]
+    desc = (f"Alerte de supervision relevée sur **{hote or 'hôte inconnu'}**.\n\n"
+            f"- **Alerte** : {alerte}\n"
+            + (f"- **Sévérité** : {sev}\n" if sev else "")
+            + (f"- **Active depuis** : {depuis}\n" if depuis else "")
+            + (f"- **Événement** : {eventid}\n" if eventid else "")
+            + "\nTicket ouvert depuis le panneau supervision du cockpit (RM3112). "
+              "L'observateur rapporte, il ne diagnostique pas : vérifier les métriques avant de conclure "
+              "sur la cause (garde-fou 16).")
+    return op_create_ticket({"title": titre, "description": desc, "type": "infrastructure",
+                             "priority": "high" if payload.get("grave") else "normal",
+                             "project": f"{client}/{projet}"})
+
+
 def op_create_ticket(payload: dict) -> dict:
     title = (payload.get("title") or "").strip()
     if not title:
@@ -12090,6 +12181,10 @@ class Handler(BaseHTTPRequestHandler):
                     "version": _cockpit_version(),   # RM3000
                     "journal": jsante,
                 })
+            if path == "/monitor/alerts":    # RM3112 : les alertes de l'observateur, situées
+                return self._send_json(200, op_monitor_alerts({k: v[0] for k, v in parse_qs(parsed.query).items()}))
+            if path == "/monitor/hosts":     # RM3112 : les hôtes supervisés et leur association
+                return self._send_json(200, op_monitor_hosts())
             if path == "/notifications":     # RM2792 : le fil de l'instance, toutes sources
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_notifications(qs))
@@ -12433,6 +12528,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_cdc_feature(payload))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
                 return self._send_json(200, op_cdc_version(payload))
+            if path == "/monitor/assign":       # RM3112 : confirmer l'association d'un hôte
+                return self._send_json(200, op_monitor_assign(payload, self.auth_ctx))
+            if path == "/monitor/ticket":       # RM3112 : ouvrir un ticket depuis une alerte
+                return self._send_json(200, op_monitor_ticket(payload, self.auth_ctx))
             if path == "/notifications/mark":   # RM2792 : lu / traité
                 return self._send_json(200, op_notifications_mark(payload, self.auth_ctx))
             return self._send_json(404, {"error": f"route inconnue : {path}"})

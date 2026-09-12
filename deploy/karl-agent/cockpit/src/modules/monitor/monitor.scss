@@ -1,0 +1,9 @@
+// RM3112 : le panneau supervision. Une alerte grave doit se voir sans la chercher ; une association
+// devinée doit se distinguer d'une association confirmée, sinon on ouvre un ticket chez le mauvais client.
+.mon-filtres { display: flex; flex-wrap: wrap; gap: 6px; }
+.mon-host { font-family: var(--mono, monospace); font-size: 11.5px; white-space: nowrap; }
+.mon-cible { font-size: 11.5px; }
+.mon-cible.devine { border-bottom: 1px dotted var(--muted); opacity: .85; }
+.mon-manque { color: var(--muted); font-size: 11.5px; font-style: italic; }
+.mon-grave td { background: color-mix(in srgb, var(--bad, #d66) 7%, transparent); }
+.mon-proj { width: 8em; padding: 3px 6px; font-size: 11.5px; }

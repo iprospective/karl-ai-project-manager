@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Menu Supervision : les alertes du parc, situées chez un client** (RM3112) : un nouvel axe de
+  fournisseurs, **Observateurs**, avec Zabbix pour premier type — déclaré comme les autres, jeton en
+  écriture seule. Le code ne suppose pas Zabbix : `pm_monitor` définit une interface à trois questions et
+  un backend par outil, Uptime Kuma étant déclaré pour le jour où l'on observera des **sites** plutôt que
+  des machines. Le menu 🩺 montre les alertes actives avec leur sévérité, leur hôte et leur durée, et
+  **le client associé à cet hôte**. Le bouton ＋ ticket ouvre le ticket là, par le chemin normal de
+  création. **L'association hôte → client/projet se propose** (slug du client, ou domaine cité dans ses
+  fiches) **et se confirme à la main**, en disant toujours sa source et sa confiance : une association
+  devinée en silence enverrait un ticket chez le mauvais client. Sans projet associé, le bouton n'apparaît
+  pas et la ligne renvoie vers l'association. Cockpit 3.13.0.
+
 - **Un fil de notifications pour l'instance** (RM2792, lot 2) : trois canaux disaient déjà des choses,
   chacun dans son coin — le journal trace tout, le worklog retient ce qui est notable dans **une**
   session, l'ordonnanceur garde l'historique de ses travaux. Aucun ne répondait à « qu'est-ce qui demande

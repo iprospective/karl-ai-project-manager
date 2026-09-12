@@ -86,3 +86,9 @@ html[data-layout="mobile"] {
 #reviewpane.split { flex: 0 0 var(--reviewpane-h, 300px); }
 .chandle { flex: 0 0 6px; cursor: row-resize; background: var(--line); border: 0; }
 .chandle:hover, .chandle:active { background: var(--accent); }
+
+/* RM3123 : le bouclier du glisser. Le terminal est une IFRAME, et une iframe avale les événements de
+   souris qui passent au-dessus d'elle : sans ce voile, tirer la poignée vers la gauche — c'est-à-dire
+   au-dessus du terminal — perdait le geste, et la colonne ne pouvait plus que rétrécir au retour.
+   Transparent, plein écran, au-dessus de tout, posé le temps du glisser seulement. */
+.resize-shield { position: fixed; inset: 0; z-index: 9999; background: transparent; }

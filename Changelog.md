@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **La colonne de droite s'agrandit enfin à la poignée** (RM3123) : elle ne faisait que rétrécir. Le
+  terminal est une **iframe**, et une iframe avale tous les événements de souris qui passent au-dessus
+  d'elle. Or agrandir veut dire tirer vers la gauche, donc au-dessus du terminal : le document ne recevait
+  plus rien, la largeur cessait de suivre, et au retour elle ne pouvait plus qu'être plus petite. Un
+  **bouclier transparent** est posé le temps du glisser, au-dessus de tout, iframe comprise. Vaut aussi
+  pour la poignée du split de la zone centrale, qui glisse sur le même terminal.
+
 - **Les données de session quittent le home** (RM2992) : worklogs, état de karl-agent, curseurs de
   tour et registre des sessions vivent désormais sous **`var/` du repo PM**, communs à tous les
   agents de la machine. Ils étaient dans `~` « par défaut d'avoir choisi », et c'est le home qui

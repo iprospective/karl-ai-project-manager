@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les questions ouvertes d'un ticket sont dans sa description** (RM3116) : elles gouvernaient déjà des
+  choses sérieuses — un ticket ne se ferme pas avec une question en attente — mais ne se voyaient nulle
+  part où l'on lit un ticket. `mmi-pm task-questions` régénère une section **❓ Questions ouvertes** dans
+  la description, entre marqueurs, comme les chapitres du CDC le sont du même fichier : deux vues, une
+  donnée. Une question tranchée s'affiche **cochée avec la décision qui l'a tranchée** — cocher sans dire
+  ce qui a été décidé produirait une trace qui ment par omission. La section suit **au fil de l'eau** :
+  poser ou trancher une question la remet d'aplomb. Et **une coche posée à la main est signalée**, pas
+  décochée en silence : quelqu'un a voulu dire quelque chose, mais une coche n'est pas une réponse.
+
 - **Une vue ou un panneau ne s'empile plus sous le terminal** (RM3115) : la zone centrale a **trois**
   surfaces sœurs — tickets, vues, panneaux — et RM3051 n'en gérait qu'une. Les deux autres passaient par
   un `display` posé à la main, qui ne prévient personne : la session restait affichée et la page se

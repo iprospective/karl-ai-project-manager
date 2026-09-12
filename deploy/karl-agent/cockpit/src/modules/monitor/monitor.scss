@@ -15,17 +15,53 @@
 
 // Largeurs pensées plutôt que subies : ce qui est court reste court, et l'intitulé de l'alerte prend
 // tout le reste en passant à la ligne au lieu de pousser la table hors de l'écran.
+// Largeurs en POURCENTAGE, pas en em : des colonnes fixes ne s'adaptent ni à la largeur de la fenêtre
+// ni à celle du panneau de droite, qui se règle à la poignée. Ce qui est court reste court, et
+// l'intitulé de l'alerte — la colonne qu'on lit vraiment — prend tout le reste.
 #cp-monitor .cdc-table { table-layout: fixed; width: 100%; }
-#cp-monitor .cdc-table th:nth-child(1) { width: 7.5em; }      // sévérité
-#cp-monitor .cdc-table th:nth-child(2) { width: 15em; }       // hôte
-#cp-monitor .cdc-table th:nth-child(4) { width: 5em; }        // depuis
-#cp-monitor .cdc-table th:nth-child(5) { width: 13em; }       // client / projet
-#cp-monitor .cdc-table th:nth-child(6) { width: 7em; }        // gestes
+#cp-monitor .cdc-table th:nth-child(1) { width: 8%; }         // sévérité
+#cp-monitor .cdc-table th:nth-child(2) { width: 16%; }        // hôte
+#cp-monitor .cdc-table th:nth-child(3) { width: auto; }       // alerte : tout le reste
+#cp-monitor .cdc-table th:nth-child(4) { width: 6%; }         // depuis
+#cp-monitor .cdc-table th:nth-child(5) { width: 15%; }        // client / projet
+#cp-monitor .cdc-table th:nth-child(6) { width: 7%; }         // gestes
 #cp-monitor .cdc-table td { overflow-wrap: anywhere; }
 // un nom d'hôte ne doit plus imposer sa largeur : il se coupe proprement
 .mon-host { white-space: normal; overflow-wrap: anywhere; }
 
 // La page « hôtes » a ses propres colonnes : l'association doit rester lisible d'un coup d'œil.
-#cp-monitor .cdc-table.mon-hosts th:nth-child(1) { width: 20em; }
-#cp-monitor .cdc-table.mon-hosts th:nth-child(2) { width: 14em; }
-#cp-monitor .cdc-table.mon-hosts th:nth-child(3) { width: 16em; }
+#cp-monitor .cdc-table.mon-hosts th:nth-child(1) { width: 24%; }
+#cp-monitor .cdc-table.mon-hosts th:nth-child(2) { width: 18%; }
+#cp-monitor .cdc-table.mon-hosts th:nth-child(3) { width: 22%; }
+
+// La sévérité tient sur une ligne courte : « avertissement » n'a pas besoin de 7 em de large.
+#cp-monitor .cdc-table .st { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+
+// ── S'adapter au CADRE, pas à la fenêtre (RM3112, second retour) ───────────────
+//
+// La zone centrale rétrécit quand la colonne de droite s'élargit : mesuré à 418 px sur un profil
+// avec une colonne large, là où le tableau en demandait 483. Une media query ne voit que la fenêtre
+// et ne sert donc à rien ici ; une requête de CONTENEUR voit la largeur réellement disponible.
+#cp-monitor { container-type: inline-size; container-name: monitor; }
+
+// À l'étroit, on retire ce qui se déduit ailleurs plutôt que de tout comprimer illisiblement :
+// la durée est déjà dans l'infobulle de la ligne, et la sévérité se lit à la couleur de la pastille.
+@container monitor (max-width: 760px) {
+  #cp-monitor .cdc-table th:nth-child(4), #cp-monitor .cdc-table td:nth-child(4) { display: none; }
+  #cp-monitor .cdc-table th:nth-child(1) { width: 11%; }
+  #cp-monitor .cdc-table th:nth-child(2) { width: 22%; }
+  #cp-monitor .cdc-table th:nth-child(5) { width: 20%; }
+  #cp-monitor .cdc-table th:nth-child(6) { width: 12%; }
+  #cp-monitor .cdc-table .st { font-size: 10px; padding: 1px 4px; }
+  #cp-monitor .cdc-act button.mini { padding: 3px 5px; font-size: 11px; }
+}
+// Plus étroit encore : l'hôte passe sous l'intitulé plutôt que de lui voler sa largeur.
+@container monitor (max-width: 560px) {
+  #cp-monitor .cdc-table th:nth-child(1), #cp-monitor .cdc-table td:nth-child(1),
+  #cp-monitor .cdc-table th:nth-child(5), #cp-monitor .cdc-table td:nth-child(5) { display: none; }
+  #cp-monitor .cdc-table th:nth-child(2) { width: 34%; }
+  #cp-monitor .cdc-table th:nth-child(6) { width: 18%; }
+}
+// Les boutons et sélecteurs sont le vrai plancher incompressible : qu'ils puissent au moins se plier.
+#cp-monitor .cdc-act { white-space: normal; }
+#cp-monitor .cdc-act button.mini, #cp-monitor .cdc-act select.mini { max-width: 100%; }

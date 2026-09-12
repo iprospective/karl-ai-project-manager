@@ -73,7 +73,40 @@ const seed = () => {
         assert(rightP.page === "right" && rightP.rpanel && rightP.rnav && rightP.w >= 380, kind + " : la page droite déplie la colonne sur toute la largeur (" + JSON.stringify(rightP) + ")");
         await page.goto(url + "?layout=desktop", { waitUntil: "load" }); await page.waitForTimeout(600);
         assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.layout), "desktop", kind + " : ?layout=desktop force le bureau sur un écran étroit");
-      } else assert(lay.layout === "desktop" && !lay.mnav && lay.left && lay.right && lay.cols === 2, kind + " / " + label + " : bureau attendu (" + JSON.stringify(lay) + ")");
+      } else {
+        assert(lay.layout === "desktop" && !lay.mnav && lay.left && lay.right && lay.cols === 2, kind + " / " + label + " : bureau attendu (" + JSON.stringify(lay) + ")");
+        // RM3112 : un tableau large ne doit pas pousser la page. `.termwrap` contient le centre ET la
+        // colonne de droite ; sans `min-width: 0`, il refuse de rétrécir sous la largeur de son contenu,
+        // grandit, et la colonne de droite sort du cadre. On le mesure plutôt que de l'espérer.
+        const dbg = await page.evaluate(() => {
+          // dans le VRAI conteneur du panneau : les règles de largeur et les requêtes de conteneur
+          // sont attachées à `#cp-monitor`, pas à `#panelpane` qui n'est que la surface.
+          const pane = document.getElementById("cp-monitor") || document.getElementById("panelpane");
+          document.getElementById("panelpane").style.display = "";
+          pane.style.display = "";
+          pane.innerHTML = '<div class="card"><div class="cdc-tablewrap"><table class="cdc-table">'
+            + '<thead><tr><th>Sévérité</th><th>Hôte</th><th>Alerte</th><th>Depuis</th><th>Client / projet</th><th></th></tr></thead><tbody>'
+            + Array.from({ length: 12 }, (_, i) =>
+                '<tr><td><span class="st">avertissement</span></td><td class="mon-host">srv-prd-tres-long-nom-' + i + '.materiaux-naturels.fr</td>'
+                + '<td>Une alerte dont l intitule est volontairement tres long pour eprouver la largeur du tableau ' + i + '</td>'
+                + '<td>3 j</td><td>iprospective/pm-ai-agents</td><td><button class="mini">＋ ticket</button></td></tr>').join("")
+            + "</tbody></table></div></div>";
+          const doc = document.documentElement, rp = document.getElementById("rpanel");
+          const wrap = pane.querySelector(".cdc-tablewrap");
+          return { pousse: doc.scrollWidth - doc.clientWidth,
+                   // le VRAI symptôme : le tableau défile-t-il à l'intérieur de son cadre ?
+                   defilement: wrap.scrollWidth - wrap.clientWidth,
+                   cadre: wrap.clientWidth,
+                   rpanelDroite: Math.round(rp.getBoundingClientRect().right),
+                   fenetre: Math.round(window.innerWidth) };
+        });
+        assert(dbg.pousse <= 1, kind + " : un tableau large ne pousse pas la page (débord " + dbg.pousse + " px)");
+        assert(dbg.rpanelDroite <= dbg.fenetre + 1,
+               kind + " : la colonne de droite reste dans le cadre (" + dbg.rpanelDroite + " > " + dbg.fenetre + ")");
+        assert(dbg.defilement <= 1,
+               kind + " : le tableau tient dans sa largeur, sans défilement latéral (" + dbg.defilement + " px de trop sur " + dbg.cadre + ")");
+        console.log("  · tableau large : cadre " + dbg.cadre + " px, défilement " + dbg.defilement + " px, page " + dbg.pousse + " px");
+      }
       console.log("✓ " + kind + " — " + label + " : aucune erreur, boot évalué (v" + st.version + "), init jusqu'au premier tick, " + st.cmds + " commandes, écran de login, gabarit " + lay.layout);
       await page.close();
     }

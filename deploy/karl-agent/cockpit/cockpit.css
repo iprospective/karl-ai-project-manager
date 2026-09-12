@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 3be4d84352ecf061 (36 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 751451054990e4fa (36 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1631,9 +1631,15 @@ iframe {
   gap: 6px;
 }
 
+/* `min-width: 0` : SANS lui, un élément flex refuse de rétrécir sous la largeur de son contenu
+   (`min-width: auto` par défaut). `.termwrap` est à la fois un enfant flex de `.right` ET le
+   conteneur du centre + de la colonne de droite : un tableau large le faisait grandir, il poussait,
+   et la colonne de droite passait par-dessus le bord. Le pendant horizontal du `min-height: 0`
+   commenté dans layout.scss (RM2744), et la vraie cause du débordement du panneau supervision. */
 .termwrap {
   flex: 1;
   display: flex;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -4552,23 +4558,27 @@ button.mini.soft:hover {
 }
 
 #cp-monitor .cdc-table th:nth-child(1) {
-  width: 7.5em;
+  width: 8%;
 }
 
 #cp-monitor .cdc-table th:nth-child(2) {
-  width: 15em;
+  width: 16%;
+}
+
+#cp-monitor .cdc-table th:nth-child(3) {
+  width: auto;
 }
 
 #cp-monitor .cdc-table th:nth-child(4) {
-  width: 5em;
+  width: 6%;
 }
 
 #cp-monitor .cdc-table th:nth-child(5) {
-  width: 13em;
+  width: 15%;
 }
 
 #cp-monitor .cdc-table th:nth-child(6) {
-  width: 7em;
+  width: 7%;
 }
 
 #cp-monitor .cdc-table td {
@@ -4581,15 +4591,71 @@ button.mini.soft:hover {
 }
 
 #cp-monitor .cdc-table.mon-hosts th:nth-child(1) {
-  width: 20em;
+  width: 24%;
 }
 
 #cp-monitor .cdc-table.mon-hosts th:nth-child(2) {
-  width: 14em;
+  width: 18%;
 }
 
 #cp-monitor .cdc-table.mon-hosts th:nth-child(3) {
-  width: 16em;
+  width: 22%;
+}
+
+#cp-monitor .cdc-table .st {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+#cp-monitor {
+  container-type: inline-size;
+  container-name: monitor;
+}
+
+@container monitor (max-width: 760px) {
+  #cp-monitor .cdc-table th:nth-child(4), #cp-monitor .cdc-table td:nth-child(4) {
+    display: none;
+  }
+  #cp-monitor .cdc-table th:nth-child(1) {
+    width: 11%;
+  }
+  #cp-monitor .cdc-table th:nth-child(2) {
+    width: 22%;
+  }
+  #cp-monitor .cdc-table th:nth-child(5) {
+    width: 20%;
+  }
+  #cp-monitor .cdc-table th:nth-child(6) {
+    width: 12%;
+  }
+  #cp-monitor .cdc-table .st {
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+  #cp-monitor .cdc-act button.mini {
+    padding: 3px 5px;
+    font-size: 11px;
+  }
+}
+@container monitor (max-width: 560px) {
+  #cp-monitor .cdc-table th:nth-child(1), #cp-monitor .cdc-table td:nth-child(1),
+  #cp-monitor .cdc-table th:nth-child(5), #cp-monitor .cdc-table td:nth-child(5) {
+    display: none;
+  }
+  #cp-monitor .cdc-table th:nth-child(2) {
+    width: 34%;
+  }
+  #cp-monitor .cdc-table th:nth-child(6) {
+    width: 18%;
+  }
+}
+#cp-monitor .cdc-act {
+  white-space: normal;
+}
+
+#cp-monitor .cdc-act button.mini, #cp-monitor .cdc-act select.mini {
+  max-width: 100%;
 }
 
 .cn-head {

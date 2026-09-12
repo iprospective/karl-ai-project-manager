@@ -9117,8 +9117,11 @@ def op_monitor_hosts() -> dict:
     except M.MonitorError as e:
         raise ApiError(502, str(e))
     connus = M._clients_connus()
+    # Les projets de chaque client, pour que l'association se choisisse dans une LISTE plutôt que de se
+    # taper à la main : un slug mal orthographié envoie le ticket nulle part, et on ne le voit qu'après.
+    clients = [{"slug": c, "projects": M._projets_de(c)} for c in sorted(connus)]
     return {"hosts": [{**h, "cible": M.proposition(h["host"], connus)} for h in hotes],
-            "clients": sorted(connus)}
+            "clients": [c["slug"] for c in clients], "projects": {c["slug"]: c["projects"] for c in clients}}
 
 
 def op_monitor_assign(payload: dict, auth_ctx=None) -> dict:

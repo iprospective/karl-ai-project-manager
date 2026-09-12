@@ -40,13 +40,21 @@ export class MonitorViewModel extends EntityViewModel {
     const h = this.e.hosts || {};
     return (h.hosts || []).map(x => {
       const c = x.cible || {};
+      // Le client en cours de choix l'emporte sur celui de la proposition : c'est lui qui doit décider
+      // des projets offerts, sinon on choisirait un projet dans la liste du client précédent.
+      const choisi = (this.e.choix || {})[x.host];
+      const client = choisi !== undefined ? choisi : (c.client || "");
+      const projets = this.projetsDe(client);
       return { host: x.host, name: x.name || "", actif: !!x.actif,
-               client: c.client || "", project: c.project || "",
+               client, project: c.project || "",
+               projets, unique: projets.length === 1,
                source: c.source || "", confiance: c.confiance || 0,
-               confirmee: (c.confiance || 0) >= 1 };
+               confirmee: (c.confiance || 0) >= 1 && !choisi };
     });
   }
   get clients() { return (this.e.hosts || {}).clients || []; }
+  /** Les projets d'un client. Vide si le client est inconnu — on ne propose pas de projet imaginaire. */
+  projetsDe(client) { return ((this.e.hosts || {}).projects || {})[client] || []; }
   get page() { return this.e.page === "hosts" ? "hosts" : "alerts"; }
   get pages() {
     return [["alerts", "⚠ Alertes"], ["hosts", "🖥 Hôtes & association"]]

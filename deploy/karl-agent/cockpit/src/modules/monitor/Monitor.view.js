@@ -21,7 +21,10 @@ const Hote = (vm, h) => html`<tr>
   <td class="cdc-dom">${h.confirmee ? "confirmée" : h.source}</td>
   <td class="cdc-act">
     <select class="mini" data-action="assign-client" data-host="${h.host}" title="Associer cet hôte à un client"><option value="">client…</option>${vm.clients.map(c => html`<option value="${c}"${c === h.client ? " selected" : ""}>${c}</option>`)}</select>
-    <input class="mini mon-proj" data-role="project" data-host="${h.host}" value="${h.project}" placeholder="projet" title="Projet du client (laisser vide si un seul)">
+    <select class="mini mon-proj" data-role="project" data-host="${h.host}" title="Projet du client — la liste suit le client choisi" ${h.client ? "" : "disabled"}>
+      <option value="">${h.client ? (h.projets.length ? "projet…" : "aucun projet") : "choisis un client"}</option>
+      ${h.projets.map(pr => html`<option value="${pr}"${pr === h.project ? " selected" : ""}>${pr}</option>`)}
+    </select>
     <button class="mini" data-action="assign-save" data-host="${h.host}">confirmer</button>
     ${h.client ? html`<button class="mini cdc-del" data-action="assign-clear" data-host="${h.host}" title="Retirer l'association">✕</button>` : ""}
   </td>

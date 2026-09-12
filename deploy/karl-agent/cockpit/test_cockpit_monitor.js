@@ -91,6 +91,14 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert.strictEqual(ctl.state.seuil, 4, "le seuil de gravité se change");
   console.log("✓ contrôleur : confirmation nommée, cible transmise sans invention, refus respecté");
 
+  // RM3112 (retour de test) : le panneau est un tableau, pas un formulaire — il ne doit pas hériter
+  // des 760 px qui obligent à défiler latéralement, au point de cacher la colonne du client.
+  const css = fs.readFileSync(path.join(DIR, "src/modules/monitor/monitor.scss"), "utf8");
+  assert(/#cp-monitor\s*\{[^}]*max-width:\s*none/.test(css), "le panneau supervision n'est pas bridé en largeur");
+  assert(/table-layout:\s*fixed/.test(css) && /overflow-wrap:\s*anywhere/.test(css),
+         "les colonnes sont pensées et le texte passe à la ligne au lieu de pousser la table");
+  assert(/mon-hosts/.test(css) && /mon-hosts/.test(String(sh)), "la page hôtes a ses propres largeurs");
+
   const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert(/id="monitorcard"/.test(html) && /data-arg="monitor"/.test(html), "le panneau a son hôte et son menu");
   const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");

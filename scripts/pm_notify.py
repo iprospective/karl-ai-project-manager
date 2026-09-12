@@ -47,11 +47,14 @@ def _state_dir() -> Path:
     try:
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from pm_paths import PMConfig
-        return Path(PMConfig.load().state_dir)
-    except Exception:
-        base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
-        return Path(base) / "karl-agent"
+        import pm_stores      # RM2992 : la racine des stores, résolue une seule fois (et qui SURVIT
+        root = pm_stores.state_root()   # à l'absence de config PM, là où `PMConfig.load()` sortait)
+        if root:
+            return root
+    except Exception:      # noqa: BLE001
+        pass
+    base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+    return Path(base) / "karl-agent"
 
 
 def path() -> Path:

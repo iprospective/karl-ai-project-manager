@@ -15,33 +15,70 @@ relevées à l'inventaire du 2026-09-08 :
     cet outil est précisément censé réparer.
 
 Ce module est la réponse : **une fonction par store**, qui accepte les deux noms de variable quand
-l'histoire en a laissé deux. Il ne DÉCIDE de rien (D020 : la cible du worklog est l'affaire de
-RM2992) — il rend seulement la résolution unique, donc corrigeable en un endroit.
+l'histoire en a laissé deux. Il rend la résolution unique, donc corrigeable en un endroit — ce qui
+a permis à **RM2992** de déplacer les stores en changeant ce seul fichier.
 
-Stdlib seulement : `karl-agent.py` l'importe.
+**RM2992 (2026-09-12) : les stores de PM vivent dans `var/` du repo PM, plus dans le home.** Ils y
+étaient « par défaut d'avoir choisi », et c'est le home qui décidait de qui voit quoi : un agent ne
+voyait pas le travail d'un autre, et le régime de partage dépendait du hasard des montages
+(`~/.claude` partagé hôte↔conteneur, `~/.local/state` non — RM2391 s'est fait piéger dessus).
+Quatre stores déménagent : worklogs de session, état de karl-agent, curseurs de tour, registre des
+sessions. Les transcripts et `history.jsonl` restent où ils sont : **Claude Code les écrit**, nous
+ne faisons que les lire. Le partage s'arrête à la machine : `var/` n'est pas versionné.
+
+Chaque store garde son **repli d'hier** : là où la config PM ne se charge pas, le chemin du home
+reprend la main plutôt que de planter. La migration de l'existant est faite une fois par
+`pm-stores-migrate` (appelé par `pm-core-update`).
+
+Stdlib seulement : `karl-agent.py` l'importe ; `pm_paths` n'est tiré qu'à la demande, en cache.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+#: RM2992 — la RACINE des données de session, commune à tous les agents de la machine : le `var/`
+#: du repo PM. Chaque store avait jusqu'ici son défaut dans le HOME de l'utilisateur, ce qui
+#: rendait invisible à un agent le travail d'un autre — et faisait dépendre le régime de partage
+#: du hasard des montages (`~/.claude` partagé hôte↔conteneur, `~/.local/state` non : RM2391).
+#: `PM_STATE_DIR` la surcharge ; sinon elle est résolue par la config PM (`PMConfig.state_dir`).
+#: **Le partage s'arrête à la machine** : ce dossier n'est pas versionné (`var/` est en .gitignore).
+STATE_ROOT_VAR = "PM_STATE_DIR"
+
 #: Le worklog de session. Deux variables pour un seul dossier : la première posée gagne, et le
 #: défaut est commun — c'est ce qui empêche l'écrivain et le lecteur de diverger.
 WORKLOG_VARS = ("PM_SESSION_WORKLOG_DIR", "KARL_AGENT_WORKLOG_DIR")
-WORKLOG_DEFAULT = "~/.claude/session-worklogs"
+WORKLOG_SUB = "session-worklogs"
+WORKLOG_LEGACY = "~/.claude/session-worklogs"
 #: L'état de karl-agent (stores de spawn, jonctions, journaux). `KARL_AGENT_LOG_DIR` est le repli
 #: historique : l'oublier fait viser un dossier vide (RM2391).
 STATE_VARS = ("KARL_AGENT_STATE_DIR", "KARL_AGENT_LOG_DIR")
-STATE_DEFAULT = "~/.local/state/karl-agent"
-#: Les transcripts claude — liste de dossiers, séparés par « : ».
+#: …et les LOGS d'instance, qui peuvent rester locaux quand l'état est partagé (RM2385).
+LOG_VARS = ("KARL_AGENT_LOG_DIR",)
+STATE_SUB = "karl-agent"
+STATE_LEGACY = "~/.local/state/karl-agent"
+#: Le registre des sessions (seq + index, RM2034) : déjà sous `var/`, mais le chemin était CALCULÉ
+#: chez l'appelant. Paramétré ici (RM2992, demande du 2026-09-12 : « il y a des chances que le
+#: dossier soit déplacé assez rapidement »).
+SESSIONS_VARS = ("PM_SESSIONS_DIR",)
+SESSIONS_SUB = "sessions"
+#: Les chronos et curseurs par tour, jusqu'ici codés en dur dans trois scripts.
+TURN_VARS = ("PM_TURN_STATE_DIR",)
+TURN_SUB = "turns"
+TURN_LEGACY = "~/.claude/logs"
+#: Les transcripts claude — liste de dossiers, séparés par « : ». ÉCRITS PAR CLAUDE CODE, pas par
+#: nous : on ne les déplace pas, on les lit là où ils sont (idem `history.jsonl`).
 CLAUDE_STORE_VARS = ("PM_CLAUDE_STORES", "KARL_AGENT_CLAUDE_STORES")
 CLAUDE_STORE_DEFAULT = "~/.claude/projects"
 #: L'historique des demandes, hors périmètre du nettoyage de Claude Code (RM2997).
 HISTORY_VARS = ("PM_CLAUDE_HISTORY",)
 HISTORY_DEFAULT = "~/.claude/history.jsonl"
-#: Les chronos et curseurs par tour, jusqu'ici codés en dur dans trois scripts.
-TURN_VARS = ("PM_TURN_STATE_DIR",)
-TURN_DEFAULT = "~/.claude/logs"
+
+#: Les stores DÉPLAÇABLES, pour la migration (`pm-stores-migrate`) et pour les tests : ce que PM et
+#: karl écrivent, par opposition à ce que Claude Code écrit. Chemin d'hier → sous-dossier d'aujourd'hui.
+DEPLACABLES = ((WORKLOG_LEGACY, WORKLOG_SUB), (STATE_LEGACY, STATE_SUB), (TURN_LEGACY, TURN_SUB))
+
+_ROOT_CACHE = {}
 
 
 def _first(names, default, env=None) -> str:
@@ -57,10 +94,44 @@ def _path(names, default, env=None) -> Path:
     return Path(os.path.expanduser(_first(names, default, env)))
 
 
+def state_root(env=None):
+    """`var/` du repo PM, ou None si la config PM n'est pas résoluble ici (RM2992).
+
+    L'import de `pm_paths` est PARESSEUX et mis en cache : ce module est importé par `karl-agent`
+    et par des hooks qui doivent rendre la main tout de suite, et il doit rester utilisable là où
+    la config PM ne se charge pas — auquel cas chaque store retombe sur son chemin d'hier, dans le
+    home. Aucun appelant n'a donc à savoir si PM est chargeable : il demande son dossier."""
+    e = env if env is not None else os.environ
+    v = (e.get(STATE_ROOT_VAR) or "").strip()
+    if v:
+        return Path(os.path.expanduser(v))
+    key = (e.get("PM_CORE_DIR") or "", e.get("PM_DIR") or "")
+    if key not in _ROOT_CACHE:
+        try:
+            from pm_paths import PMConfig
+            _ROOT_CACHE[key] = Path(PMConfig.load().state_dir)
+        except (Exception, SystemExit):
+            # `PMConfig.load()` SORT (sys.exit) quand le `.env` canonique manque — le cas d'un clone
+            # de dev. SystemExit n'est pas une Exception : sans elle ici, résoudre un chemin de store
+            # tuerait le hook qui le demande.
+            _ROOT_CACHE[key] = None
+    return _ROOT_CACHE[key]
+
+
+def _store(names, sub, legacy, env=None) -> Path:
+    """Le dossier d'un store : la variable si elle est posée, sinon `var/<sub>`, sinon le chemin
+    d'hier dans le home (quand la config PM ne se résout pas)."""
+    v = _first(names, "", env)
+    if v:
+        return Path(os.path.expanduser(v))
+    root = state_root(env)
+    return (root / sub) if root else Path(os.path.expanduser(legacy))
+
+
 def worklog_dir(env=None) -> Path:
     """Le dossier des worklogs de session. À utiliser PARTOUT — un chemin écrit à la main ici
     désarme la garde de périmètre là-bas."""
-    return _path(WORKLOG_VARS, WORKLOG_DEFAULT, env)
+    return _store(WORKLOG_VARS, WORKLOG_SUB, WORKLOG_LEGACY, env)
 
 
 def worklog_file(session_id: str, env=None) -> Path:
@@ -68,8 +139,22 @@ def worklog_file(session_id: str, env=None) -> Path:
 
 
 def state_dir(env=None) -> Path:
-    """L'état de karl-agent, avec son repli historique."""
-    return _path(STATE_VARS, STATE_DEFAULT, env)
+    """L'état de karl-agent (keys/, sessions/, tasks/), avec son repli historique."""
+    return _store(STATE_VARS, STATE_SUB, STATE_LEGACY, env)
+
+
+def log_dir(env=None) -> Path:
+    """Les LOGS d'instance de karl-agent (pipe-pane, pm-runs). `KARL_AGENT_STATE_DIR` ne les
+    concerne pas (RM2385) : une instance de test partage l'ÉTAT sans mélanger ses journaux — d'où
+    deux fonctions pour un même défaut, plutôt qu'une seule qu'il faudrait interpréter."""
+    return _store(LOG_VARS, STATE_SUB, STATE_LEGACY, env)
+
+
+def sessions_dir(env=None) -> Path:
+    """Le registre des sessions (seq + index, RM2034). Sous `var/` comme les autres, et
+    surchargeable comme les autres."""
+    root = state_root(env)
+    return _store(SESSIONS_VARS, SESSIONS_SUB, str((root or Path(".")) / SESSIONS_SUB), env)
 
 
 def claude_stores(env=None) -> list:
@@ -98,7 +183,7 @@ def history_file(env=None) -> Path:
 
 
 def turn_dir(env=None) -> Path:
-    return _path(TURN_VARS, TURN_DEFAULT, env)
+    return _store(TURN_VARS, TURN_SUB, TURN_LEGACY, env)
 
 
 #: Slugification du `cwd` telle que le CLI la fait (vérifiée dans le binaire, cf. RM3057) : TOUT ce

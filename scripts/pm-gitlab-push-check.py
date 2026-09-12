@@ -41,7 +41,12 @@ def state_path() -> Path:
     override = os.environ.get("KARL_GITLAB_CHECK_STATE")
     if override:
         return Path(override)
-    sd = os.environ.get("KARL_AGENT_STATE_DIR") or os.environ.get("KARL_AGENT_LOG_DIR")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_stores      # RM2992 : même dossier d'état que karl-agent, résolu une seule fois
+        sd = str(pm_stores.state_dir())
+    except Exception:      # noqa: BLE001
+        sd = os.environ.get("KARL_AGENT_STATE_DIR") or os.environ.get("KARL_AGENT_LOG_DIR")
     if not sd:
         xdg = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
         sd = str(Path(xdg) / "karl-agent")

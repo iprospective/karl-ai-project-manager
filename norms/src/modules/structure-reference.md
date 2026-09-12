@@ -192,6 +192,39 @@ client_dir = cfg.path("entity", entity=client_slug)
 
 **Index des projets et annuaire de contacts** : `structure-reference-pratique`.
 
+## Où vivent les données de SESSION (RM2992)
+
+Worklogs, état de karl-agent, curseurs de tour, registre des sessions : **sous `var/` du repo PM**,
+communs à tous les agents de la machine. Ils vivaient dans le home de l'utilisateur, si bien qu'un
+agent ne voyait pas le travail d'un autre, et que le régime de partage dépendait du hasard des
+montages (`~/.claude` partagé hôte↔conteneur, `~/.local/state` non — RM2391 s'est fait piéger).
+
+| Store | Dossier | Variable |
+|---|---|---|
+| worklogs de session | `var/session-worklogs/` | `PM_SESSION_WORKLOG_DIR` · `KARL_AGENT_WORKLOG_DIR` |
+| état de karl-agent (keys, sessions, tasks) | `var/karl-agent/` | `KARL_AGENT_STATE_DIR` |
+| logs d'instance de karl-agent | `var/karl-agent/` | `KARL_AGENT_LOG_DIR` (RM2385 : séparables de l'état) |
+| curseurs de tour (tick, moisson) | `var/turns/` | `PM_TURN_STATE_DIR` |
+| registre des sessions (seq + index) | `var/sessions/` | `PM_SESSIONS_DIR` |
+| racine de tout ce qui précède | `var/` | `PM_STATE_DIR` |
+
+**Un chemin de store ne s'écrit jamais à la main** : `pm_stores.<store>_dir()`, toujours. Un chemin
+recopié continue de viser le home après un déplacement, et le script écrit seul dans son coin sans
+que rien ne le signale — c'est ce qui avait désarmé la garde de périmètre (RM3085). Une garde de
+test refuse tout script qui cite un store sans passer par `pm_stores`.
+
+**Ce qui NE déménage pas** : les transcripts (`~/.claude/projects/`) et `history.jsonl`. Claude Code
+les écrit, nous ne faisons que les lire.
+
+**Le partage s'arrête à la machine.** `var/` n'est pas versionné : « partagé » veut dire *un chemin
+commun à tous les agents d'ici*, pas *synchronisé entre instances*. Le dossier est créé en `2775`
+(setgid + écriture du groupe) : sans le setgid, un fichier déposé par un agent porte son groupe
+primaire et devient illisible aux autres — un partage qui ne partage rien, et qui ne se voit qu'au
+premier agent qui échoue.
+
+Migration de l'existant : `mmi-pm stores-migrate` (idempotent, ne remplace jamais un fichier déjà à
+destination), appelée par `mmi-pm core update` après le redémarrage de karl-agent.
+
 ## Structure des dossiers
 
 ## Configuration des chemins (`pm.config.yml`)

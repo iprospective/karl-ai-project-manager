@@ -10,6 +10,8 @@ sauf en `--dry-run`, qui prévisualise sans privilège. Enchaînement (inchangé
   4. hooks PM du core lui-même (post-commit, pre-push, pre-commit — .git/hooks root-owned, RM2240) ;
   5. si `scripts/karl-agent.py` a changé : redémarrage du service USER karl-agent (RM2308 — KillMode=process, tmux intacts) ;
   6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent ;
+  7b. stores de session ramenés du HOME vers `var/` du core s'il en reste (RM2992, `pm-stores-migrate`, en tant que
+     `KARL_USER`) — après le restart, pour que l'agent écrive déjà au nouveau chemin ; ne remplace jamais ;
   7. provisioning UTILISATEUR de l'instance (RM3054, user `KARL_USER` du .env) : hooks Claude Code manquants posés par
      `pm-claude-hooks-sync` (ajout seulement) et symlinks `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills
      du core — un lien vers ailleurs ou un vrai dossier n'est jamais écrasé (⚠ manuel).
@@ -236,6 +238,33 @@ def restart_karl_agent(core_dir: Path):
         log(f"⚠ karl-agent.py modifié mais restart ÉCHOUÉ — l'agent sert l'ancien code ; relancer en tant que {ku} : systemctl --user restart karl-agent")
 
 
+def migrate_stores(core_dir: Path, dry: bool):
+    """Étape 8 (RM2992) : ramène les stores de session du HOME vers `var/`, en tant que
+    l'utilisateur de l'instance.
+
+    En root, ce déplacement créerait des dossiers root-owned dans un `var/` que les agents doivent
+    pouvoir écrire — d'où `runuser`, comme pour le provisioning. Le script ne remplace jamais un
+    fichier déjà à destination : le lancer APRÈS le redémarrage de karl-agent (qui écrit alors déjà
+    au nouveau chemin) ramasse ce que l'ancien code avait laissé derrière, sans course."""
+    who = instance_user(core_dir)
+    script = core_dir / "scripts" / "pm-stores-migrate.py"
+    if not script.is_file():
+        return
+    if not who:
+        log("⚠ migration des stores ignorée — KARL_USER inconnu dans .env (à lancer à la main : mmi-pm stores-migrate)"); return
+    ku, _uid, _gid, home = who
+    cmd = ["runuser", "-u", ku, "--", "env", f"HOME={home}", f"PM_CORE_DIR={core_dir}",
+           "PATH=/usr/local/bin:/usr/bin:/bin", sys.executable, str(script)]
+    if dry:
+        cmd.append("--dry-run")
+    r = run(cmd)
+    for line in (r.stdout or "").splitlines():
+        if line.strip():
+            log(line.strip())
+    if r.returncode != 0:
+        log(f"⚠ migration des stores en échec : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm stores-migrate")
+
+
 def update(core_dir: Path, dry: bool) -> int:
     if not (core_dir / ".git").exists():
         die(f"{core_dir} n'est pas un dépôt git")
@@ -287,6 +316,7 @@ def update(core_dir: Path, dry: bool) -> int:
         changed = git(core_dir, "diff", "--name-only", old, new).stdout.splitlines()
         if needs_agent_restart(changed):
             restart_karl_agent(core_dir)
+    migrate_stores(core_dir, dry)
     for src, dst, ref, todo in deploy_plan(core_dir):
         if todo:
             run(["install", "-o", "root", "-g", "root", "-m", "755", str(src), str(dst)], check=True)

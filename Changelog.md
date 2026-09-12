@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une vue ou un panneau ne s'empile plus sous le terminal** (RM3115) : la zone centrale a **trois**
+  surfaces sœurs — tickets, vues, panneaux — et RM3051 n'en gérait qu'une. Les deux autres passaient par
+  un `display` posé à la main, qui ne prévient personne : la session restait affichée et la page se
+  rangeait dessous, sous le terminal et même sous le composer. C'est pourquoi le défaut semblait corrigé,
+  il l'était pour les tickets seulement. Les trois passent maintenant par la disposition, avec la règle
+  qui manquait : fermer **une** surface ne rend la session que si plus **aucune** n'est ouverte — sinon
+  passer d'un onglet à l'autre faisait réapparaître le terminal entre les deux.
+
 - **Menu Supervision : les alertes du parc, situées chez un client** (RM3112) : un nouvel axe de
   fournisseurs, **Observateurs**, avec Zabbix pour premier type — déclaré comme les autres, jeton en
   écriture seule. Le code ne suppose pas Zabbix : `pm_monitor` définit une interface à trois questions et

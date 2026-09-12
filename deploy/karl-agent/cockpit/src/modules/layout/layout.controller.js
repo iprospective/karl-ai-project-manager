@@ -40,6 +40,15 @@ export function mountLayout(hosts = {}, ctx = {}) {
   // zone se coupait en deux, sans que personne ne l'ait demandé. Le split devient une option
   // (défaut : OFF), et quand il est actif, la séparation se règle à la poignée.
   const centerEls = () => [h.termhost, h.term, h.composer].filter(Boolean);
+  // Les trois surfaces SŒURS de la zone centrale. RM3051 n'en gérait qu'une (`reviewpane`) : ouvrir une
+  // vue ou un panneau passait par un `display` brut, la session restait affichée, et la page s'empilait
+  // SOUS le terminal et sous le composer au lieu de le remplacer. Les trois passent maintenant par ici.
+  const SURFACES = ["reviewpane", "viewpane", "panelpane"];
+  const surfaceEl = (nom) => h[nom] || (root && root.getElementById ? root.getElementById(nom) : null);
+  /** Vrai dès qu'une surface centrale est visible : c'est ce qui décide de masquer la session. */
+  function surfaceVisible() {
+    return SURFACES.some(n => { const el = surfaceEl(n); return el && el.style && el.style.display !== "none"; });
+  }
   function centerSplit() { return svc.centerSplit(); }
   function setCenterSplit(on) {
     svc.setCenterSplit(!!on);
@@ -63,9 +72,14 @@ export function mountLayout(hosts = {}, ctx = {}) {
    * Sans split, la session est MASQUÉE le temps de la consultation, puis rendue telle
    * qu'elle était : ce qui était caché reste caché (un terminal non attaché, par exemple).
    */
-  function showCenter(on) {
+  function showCenter(on, surface) {
     on = !!on;
-    if (h.reviewpane && h.reviewpane.style) h.reviewpane.style.display = on ? "" : "none";
+    const el = surfaceEl(surface || "reviewpane");
+    if (el && el.style) el.style.display = on ? "" : "none";
+    // « on » ne suffit pas : fermer UNE surface ne doit rendre la session que si plus AUCUNE n'est
+    // ouverte — sinon passer d'un onglet à l'autre ferait réapparaître le terminal une fraction de
+    // seconde, ou pire, le laisserait revenir sous la vue suivante.
+    on = surfaceVisible();
     if (on) {
       if (!centerSplit()) {
         if (!state.center.hidden) state.center.hidden = centerEls().filter(el => el.style && el.style.display !== "none");
@@ -82,6 +96,9 @@ export function mountLayout(hosts = {}, ctx = {}) {
     applyCenter();
     return on;
   }
+  /** Montre une vue ou un panneau du centre : même règle que pour un ticket — à la place de la
+   *  session, ou sous elle si le split est activé. */
+  const showSurface = (nom, on) => showCenter(on, nom);
   const setVarH = (px) => { if (root && root.documentElement) root.documentElement.style.setProperty("--reviewpane-h", clampCenterH(px) + "px"); };
   function startCenterResize(e) { if (!centerSplit() || !state.center.shown) return; state.center.resizing = true; state.center.bottom = h.reviewpane && h.reviewpane.getBoundingClientRect ? h.reviewpane.getBoundingClientRect().bottom : 0; if (e && e.preventDefault) e.preventDefault(); }
   function doCenterResize(e) { if (!state.center.resizing) return; setVarH(state.center.bottom - e.clientY); }   // le volet grandit vers le haut
@@ -156,7 +173,7 @@ export function mountLayout(hosts = {}, ctx = {}) {
   listen(h.mnav, "click", (e) => { const b = e.target && e.target.closest ? e.target.closest("[data-mpage]") : null; if (b) mobileGo(b.dataset.mpage); });
   if (media && media.addEventListener) listen(media, "change", () => detectMobile());
   return { dispatch, switchRight, showRight, toggleRight, collapseRight, rightVisible, toggleLeft, restore, setRightWidth, resetWidth, switchPanel, restorePanel, panel: () => state.panel, right: () => state.right, left: () => state.left, state,
-    showCenter, centerSplit, setCenterSplit, resetCenterH, applyCenter,
+    showCenter, showSurface, centerSplit, setCenterSplit, resetCenterH, applyCenter,
     mobile: () => Object.assign({}, state.mobile), isMobile, mobileGo, centerShown, refreshMobileNav, detectMobile,
     unmount() { disposers.forEach(d => d()); disposers.length = 0; } };
 }

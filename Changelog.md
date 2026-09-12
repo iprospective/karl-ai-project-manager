@@ -37,7 +37,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   écrit, nous les lisons. Quatre scripts qui recopiaient un chemin d'état à la main passent par
   `pm_stores` (`karl-agent`, `karl-mail-fetch`, `pm-cockpit-test-env`, `pm-gitlab-push-check`,
   `pm_notify`), et une garde de test refuse désormais tout script qui vise un store sans lui.
-  NORMS 2.42.0 § « Où vivent les données de session ».
+  **L'ancien dossier devient un lien** vers le nouveau une fois vidé : une instance non redémarrée,
+  une session ouverte avant la mise à jour ou un script lancé sans `.env` écrivent encore à
+  l'ancien chemin, et sans ce lien leurs écritures partiraient dans un dossier que plus personne ne
+  lit — sans que rien ne le signale. Un dossier qui contient encore ce qui n'est pas à nous n'est
+  jamais remplacé. NORMS 2.42.0 § « Où vivent les données de session ».
 - **La garde de livraison était cassée hors du core** (RM2992, en marge) : `PMConfig.load()` **sort**
   (`sys.exit`) quand le `.env` canonique manque — le cas d'un clone de dev — et `SystemExit`
   n'héritant pas d'`Exception`, les `except Exception` des bibliothèques la laissaient remonter et

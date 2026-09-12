@@ -141,7 +141,8 @@ class PMConfig:
                  providers: Optional[dict] = None,
                  conf_dir: Optional[Path] = None,
                  state_dir: Optional[Path] = None,
-                 log_dir: Optional[Path] = None):
+                 log_dir: Optional[Path] = None,
+                 zfs_backup: Optional[dict] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
@@ -154,6 +155,10 @@ class PMConfig:
         # Registre de providers (RM2542/P0) — section `providers:` de pm.config.yml
         # (servers + defaults). Vide si absente. Consommé par pm_registry.
         self.providers = providers or {}
+        # Politique de sauvegarde ZFS (RM3023) — section `zfs_backup:`. Même
+        # traitement que `providers` : une section optionnelle de la config,
+        # exposée telle quelle, vide si absente. Consommée par pm-zfs-backup.
+        self.zfs_backup = zfs_backup or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -237,7 +242,8 @@ class PMConfig:
             sys.exit("ERREUR : pm.config.yml :: paths est vide")
 
         return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
-                   conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir)
+                   conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir,
+                   zfs_backup=cfg.get("zfs_backup", {}))
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:

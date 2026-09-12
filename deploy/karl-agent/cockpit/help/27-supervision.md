@@ -37,6 +37,11 @@ Une association proposée s'affiche en pointillé, avec au survol la règle qui 
 client, ou un domaine cité dans ses fiches. Tant qu'elle n'est pas confirmée, elle peut se tromper.
 Confirmer une association la fige : aucune règle ne la réécrit ensuite. Un hôte peut être détaché.
 
+Le **client** et le **projet** se choisissent tous les deux dans une liste — rien à taper. La liste des
+projets suit le client sélectionné, et se met à jour dès qu'on en change. Un client qui a plusieurs
+projets exige qu'on en désigne un : sans projet, le bouton de création de ticket ne pourrait pas
+aboutir, autant le dire au moment de l'association plutôt que devant une alerte.
+
 ## Ce qui n'est pas dans ce lot
 
 Acquitter une alerte depuis le cockpit — cela touche l'outil de toute l'équipe, ça se décide. Et la

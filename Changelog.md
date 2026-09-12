@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Supervision : le projet se choisit dans une liste** (RM3112) : le champ était en saisie libre, or un
+  slug mal orthographié envoie le ticket nulle part et ne se voit qu'après. La liste des projets **suit le
+  client sélectionné** et se met à jour avant même de confirmer. Un client à plusieurs projets exige qu'on
+  en désigne un : sans projet, le bouton de création ne pourrait pas aboutir, autant le dire au moment de
+  l'association plutôt que devant une alerte.
+
 - **La colonne de droite s'agrandit enfin à la poignée** (RM3123) : elle ne faisait que rétrécir. Le
   terminal est une **iframe**, et une iframe avale tous les événements de souris qui passent au-dessus
   d'elle. Or agrandir veut dire tirer vers la gauche, donc au-dessus du terminal : le document ne recevait

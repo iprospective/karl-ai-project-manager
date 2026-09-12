@@ -12,13 +12,13 @@ export function mountMonitor(el, ctx = {}) {
   const notify = ctx.notify || (() => {});
   const ask = ctx.confirm || (() => true);
   const store = ctx.storage || (typeof localStorage !== "undefined" ? localStorage : { getItem() { return null; }, setItem() {} });
-  const state = { page: "alerts", seuil: lu(), busy: null };
+  const state = { page: "alerts", seuil: lu(), busy: null, choix: {} };
   const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)],
                                      ["change", "[data-action=\"assign-client\"]", (ev, n) => onClient(n)]] });
 
   function lu() { try { return Number(store.getItem("karlMonitorSeuil") || 0) || 0; } catch (e) { return 0; } }
   const vm = () => new MonitorViewModel({ data: svc.data, error: svc.error, page: state.page,
-                                          hosts: svc.hosts, seuil: state.seuil });
+                                          hosts: svc.hosts, seuil: state.seuil, choix: state.choix });
   const render = () => h.update(MonitorCard(vm()));
   const q = (sel) => (h.el && h.el.querySelector ? h.el.querySelector(sel) : null);
 
@@ -41,7 +41,11 @@ export function mountMonitor(el, ctx = {}) {
     const n = q(`[data-role="project"][data-host="${host}"]`);
     return n ? String(n.value || "").trim() : "";
   }
-  function onClient() { /* la sélection seule n'écrit rien : c'est « confirmer » qui décide */ }
+  /** Choisir un client ne confirme rien : ça change seulement la liste des projets offerts. */
+  function onClient(n) {
+    state.choix[n.dataset.host] = String(n.value || "").trim();
+    render();
+  }
 
   async function onAction(ev, n) {
     const a = n.dataset.action; if (ev && ev.preventDefault) ev.preventDefault();
@@ -57,8 +61,16 @@ export function mountMonitor(el, ctx = {}) {
         const client = a === "assign-clear" ? "" : clientDe(host);
         if (a === "assign-clear" && !ask("Retirer l'association de " + host + " ?")) return;
         if (a === "assign-save" && !client) { notify("choisis un client pour " + host, true); return; }
-        await svc.assign({ host, client, project: a === "assign-clear" ? "" : projetDe(host) });
-        notify(host + (client ? " → " + client : " : association retirée"));
+        const projets = vm().hostRows.find(r => r.host === host);
+        const projet = a === "assign-clear" ? "" : projetDe(host);
+        // Un client à plusieurs projets sans projet choisi ne permettrait pas d'ouvrir un ticket :
+        // autant le dire ici plutôt que de laisser découvrir le manque devant une alerte.
+        if (a === "assign-save" && !projet && projets && projets.projets.length > 1) {
+          notify("choisis aussi le projet : " + client + " en a " + projets.projets.length, true); return;
+        }
+        await svc.assign({ host, client, project: projet || (projets && projets.unique ? projets.projets[0] : "") });
+        delete state.choix[host];
+        notify(host + (client ? " → " + client + (projet ? "/" + projet : "") : " : association retirée"));
         await open(); return;
       }
       if (a !== "ticket") return;

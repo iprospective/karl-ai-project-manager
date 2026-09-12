@@ -51,13 +51,32 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(!/data-action="ticket" data-id="2"/.test(s), "l'alerte non située ne le porte PAS");
   assert(/data-action="page" data-page="hosts"/.test(s), "elle renvoie vers l'association à la place");
   assert(/srv-prd\.abatik\.com/.test(s) && /abatik\/infra/.test(s), "hôte et cible sont lisibles");
-  const sh = String(V.MonitorCard(new VM.MonitorViewModel({ data, page: "hosts", hosts: {
-    clients: ["abatik", "matnat"],
+  const hostsData = { clients: ["abatik", "matnat"],
+    projects: { abatik: ["infra"], matnat: ["erp_old", "infra", "site_sf7"] },
     hosts: [{ host: "srv-prd.abatik.com", name: "n", actif: true, cible: { client: "abatik", project: "infra", confiance: 1, source: "confirmée" } },
-            { host: "x.example", name: "", actif: false, cible: { client: "", project: "", confiance: 0, source: "" } }] } })));
+            { host: "x.example", name: "", actif: false, cible: { client: "", project: "", confiance: 0, source: "" } }] };
+  const sh = String(V.MonitorCard(new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData })));
   assert(/data-action="assign-save"/.test(sh) && /data-action="assign-client"/.test(sh), "la page hôtes permet d'associer");
   assert(/désactivé/.test(sh), "un hôte désactivé se voit");
   console.log("✓ vue : bouton de ticket seulement là où il peut aboutir, page d'association");
+
+  // — RM3112 (retour) : le projet se CHOISIT dans une liste, il ne se tape pas —
+  const vmH = new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData });
+  const [h1, h2] = vmH.hostRows;
+  assert.deepStrictEqual(h1.projets, ["erp_old", "infra", "site_sf7"].slice(0, 0).concat(["infra"]),
+    "les projets offerts sont ceux du client de la ligne");
+  assert(h2.projets.length === 0, "sans client, aucun projet n'est proposé — on n'invente pas de cible");
+  assert.deepStrictEqual(vmH.projetsDe("matnat"), ["erp_old", "infra", "site_sf7"]);
+  assert.deepStrictEqual(vmH.projetsDe("inconnu"), [], "un client inconnu n'a pas de projet imaginaire");
+  const vmChoix = new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData, choix: { "x.example": "matnat" } });
+  assert.deepStrictEqual(vmChoix.hostRows[1].projets, ["erp_old", "infra", "site_sf7"],
+    "choisir un client change la liste des projets AVANT de confirmer");
+  assert(!vmChoix.hostRows[1].confirmee, "et la ligne n'est plus « confirmée » tant qu'on n'a pas validé");
+  assert(vmH.hostRows[0].unique === true || vmH.projetsDe("abatik").length === 1, "un client à projet unique se signale");
+  assert(/<select[^>]*data-role="project"/.test(sh), "le projet est un menu déroulant, pas un champ libre");
+  assert(!/<input[^>]*data-role="project"/.test(sh), "plus de saisie libre du projet");
+  assert(/choisis un client/.test(sh), "sans client, le sélecteur le dit et reste inerte");
+  console.log("✓ projet : liste alimentée par le client, rien d'inventé, rien à taper");
 
   // — contrôleur —
   const el = fakeEl("monitorcard"); const envoyes = []; let confirme = true; const demandes = []; const tickets = [];
@@ -86,6 +105,14 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   confirme = true;
   await el.click("ticket", { id: "2" });
   assert(envoyes.every(e => e[0] !== "ticket"), "une alerte sans client ne crée rien, même si on force le geste");
+
+  // confirmer sans projet, alors que le client en a plusieurs, doit être refusé ici et non découvert plus tard
+  svc.hosts = hostsData; ctl.state.page = "hosts"; await ctl.open("hosts");
+  ctl.state.choix["x.example"] = "matnat";
+  const avantAssign = envoyes.length;
+  await el.click("assign-save", { host: "x.example" });
+  assert.strictEqual(envoyes.length, avantAssign, "un client à plusieurs projets sans projet choisi : rien n'est envoyé");
+  ctl.state.page = "alerts"; await ctl.open("alerts");
 
   await el.click("seuil", { seuil: "4" });
   assert.strictEqual(ctl.state.seuil, 4, "le seuil de gravité se change");

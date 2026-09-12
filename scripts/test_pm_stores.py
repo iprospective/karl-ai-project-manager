@@ -136,15 +136,39 @@ check("un fichier DÉJÀ à destination n'est jamais remplacé — relancer la m
 check("ce qui n'est pas à nous reste où c'est (dossier partagé avec Claude Code)",
       (mhome / ".claude" / "logs" / "debug-de-claude-code.log").exists()
       and not (mvar / "turns" / "debug-de-claude-code.log").exists())
-check("un store MORT n'est pas emporté dans le dossier propre",
-      (mhome / ".local" / "state" / "karl-agent" / "answers.jsonl").exists()
-      and not (mvar / "karl-agent" / "answers.jsonl").exists())
+check("un store MORT suit quand même — sinon l'ancien dossier ne se vide jamais et le lien est "
+      "impossible — mais il est NOMMÉ pour qu'on le supprime un jour",
+      (mvar / "karl-agent" / "answers.jsonl").exists()
+      and not (mhome / ".local" / "state" / "karl-agent" / "answers.jsonl").exists())
 check("le dossier créé est réellement partageable (setgid + écriture du groupe)",
       (mvar / "karl-agent").stat().st_mode & 0o2775 == 0o2775, oct((mvar / "karl-agent").stat().st_mode))
 check("une trace reste dans l'ancien dossier, pour l'humain qui le retrouve",
       (mhome / ".claude" / "session-worklogs" / mig.TRACE).is_file())
 again = [mig.migrer(src, dst, sub) for sub, src, dst in avant]
 check("rejouer ne déplace plus rien (idempotent)", all(n == 0 for n, _d, _p in again), str(again))
+
+# le LIEN : le filet pour les écrivains restés sur l'ancien chemin (instance non redémarrée,
+# session ouverte avant la mise à jour, script lancé sans .env qui retombe sur le repli du home)
+wl_src = mhome / ".claude" / "session-worklogs"; wl_dst = mvar / "session-worklogs"
+check("tant qu'un fichier reste à la source (celui qu'on a refusé d'écraser), PAS de lien : "
+      "on ne détruit pas ce qu'on n'a pas su déplacer", "pas de lien" in mig.lier(wl_src, wl_dst))
+(wl_src / "deja.json").unlink()      # l'humain a tranché le doublon ; le dossier est vide
+mot = mig.lier(wl_src, wl_dst)
+check("l'ancien dossier VIDÉ devient un lien vers le nouveau", wl_src.is_symlink()
+      and wl_src.resolve() == wl_dst.resolve(), mot)
+(wl_src / "ecrit-par-un-vieux-code.json").write_text("{}", encoding="utf-8")
+check("…donc une écriture à l'ancien chemin atterrit au NOUVEAU : rien ne se perd en silence",
+      (wl_dst / "ecrit-par-un-vieux-code.json").is_file())
+check("relancer sur un lien ne casse rien", "déjà un lien" in mig.lier(wl_src, wl_dst))
+check("un store lié sort du plan : la migration suivante l'ignore",
+      not any(src == wl_src for _s, src, _d in mig.plan(ENVM)))
+# le garde-fou : un dossier qui contient encore quelque chose n'est JAMAIS remplacé
+logs_src = mhome / ".claude" / "logs"
+check("un dossier de Claude Code, où il reste ce qui n'est pas à nous, n'est pas remplacé",
+      "pas de lien" in mig.lier(logs_src, mvar / "turns") and not logs_src.is_symlink()
+      and (logs_src / "debug-de-claude-code.log").is_file())
+check("`~/.claude/logs` n'est de toute façon pas dans la liste des dossiers liables — il n'est pas à nous",
+      str(mig.pm_stores.TURN_LEGACY) not in {str(pathlib.Path(x).expanduser()) for x in mig.LIENS})
 
 # ── 2d. RM2992 : plus un seul script ne vise un store tout seul ─────────────
 _STORES = ("session-worklogs", 'state" / "karl-agent', '"karl-agent"')

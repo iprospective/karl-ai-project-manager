@@ -489,7 +489,12 @@ primaire et devient illisible aux autres — un partage qui ne partage rien, et 
 premier agent qui échoue.
 
 Migration de l'existant : `mmi-pm stores-migrate` (idempotent, ne remplace jamais un fichier déjà à
-destination), appelée par `mmi-pm core update` après le redémarrage de karl-agent.
+destination), appelée par `mmi-pm core update` après le redémarrage de karl-agent. Elle remplace
+l'ancien dossier **par un lien** vers le nouveau, une fois vidé — sans quoi un écrivain resté en
+arrière (instance non redémarrée, session ouverte avant la mise à jour, script lancé sans `.env`)
+continuerait d'écrire dans un dossier que plus personne ne lit, **et rien ne le signalerait**. Un
+dossier qui n'est pas à nous (`~/.claude/logs`, à Claude Code) n'est jamais remplacé : ce qu'on y
+laisse est ramassé à la migration suivante.
 
 ## Structure des dossiers
 

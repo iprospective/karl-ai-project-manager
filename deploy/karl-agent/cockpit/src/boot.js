@@ -148,7 +148,8 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // les contrôleurs à l'appel, jamais au montage).
 const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
   // RM3051 : les surfaces de la zone centrale — la disposition les montre ou les masque selon l'option de split
-  reviewpane: byId("reviewpane"), centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
+  reviewpane: byId("reviewpane"), viewpane: byId("viewpane"), panelpane: byId("panelpane"),
+  centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
   // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
   media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
@@ -312,7 +313,9 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
     clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
   },
-  panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
+  // RM3115 : une vue ou un panneau est une surface centrale comme un ticket — c'est la disposition qui
+  // décide s'il remplace la session ou s'affiche sous elle, pas un `display` posé à la main.
+  panelShow: (on) => layout.showSurface("panelpane", on), viewShow: (on) => layout.showSurface("viewpane", on),
   noted: () => layout.centerShown(),   // RM3003 : une vue, une session, un panneau ou une fiche ouverte → la page « centre » du gabarit mobile
   placeholder: (on) => show("placeholder", on, "flex"),
   dashboard: () => dashboard.refresh(),

@@ -97,7 +97,8 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     const el = (id, display = "") => ({ id, style: { display }, classList: { c: {}, toggle(n, on) { this.c[n] = !!on; } }, getBoundingClientRect: () => ({ right: 0, bottom: 600 }), addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [] });
     const st = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
     const props = {}; const root = { documentElement: { dataset: {}, style: { setProperty(k, v) { props[k] = v; }, removeProperty(k) { delete props[k]; } } }, addEventListener() {}, removeEventListener() {} };
-    const h = { reviewpane: el("reviewpane", "none"), centerhandle: el("centerhandle", "none"), termhost: el("termhost"), term: el("term", "none"), composer: el("composer"), main: el("main") };
+    const h = { reviewpane: el("reviewpane", "none"), viewpane: el("viewpane", "none"), panelpane: el("panelpane", "none"),
+                centerhandle: el("centerhandle", "none"), termhost: el("termhost"), term: el("term", "none"), composer: el("composer"), main: el("main") };
     const L = ML(h, { storage: st, root, media: { matches: false }, search: "" });
 
     assert.strictEqual(L.centerSplit(), false, "défaut : PAS de split (l'option s'active exprès)");
@@ -124,6 +125,28 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
       "désactiver le split pendant la consultation : la session se retire, le ticket reste");
     L.setCenterSplit(true);
     assert(h.termhost.style.display === "" && h.composer.style.display === "", "réactiver le rend à nouveau");
+
+    // RM3115 : une VUE et un PANNEAU sont des surfaces centrales comme un ticket. Elles passaient par un
+    // `display` brut : la session restait affichée et la page s'empilait SOUS le terminal et le composer.
+    L.setCenterSplit(false);
+    L.showCenter(false);
+    L.showSurface("viewpane", true);
+    assert(h.viewpane.style.display === "" && h.termhost.style.display === "none" && h.composer.style.display === "none",
+      "une vue prend la zone, elle ne se met pas sous la session");
+    L.showSurface("viewpane", false);
+    assert(h.termhost.style.display === "" && h.composer.style.display === "", "en la fermant, la session revient");
+    L.showSurface("panelpane", true);
+    assert(h.panelpane.style.display === "" && h.termhost.style.display === "none",
+      "un panneau non plus ne s'empile pas sous le terminal");
+
+    // passer d'une surface à l'autre ne doit pas faire réapparaître la session entre les deux
+    L.showSurface("viewpane", true);
+    assert.strictEqual(h.termhost.style.display, "none", "deux surfaces ouvertes : la session reste masquée");
+    L.showSurface("panelpane", false);
+    assert.strictEqual(h.termhost.style.display, "none", "fermer l'une, l'autre restant ouverte : toujours masquée");
+    L.showSurface("viewpane", false);
+    assert(h.termhost.style.display === "" && h.composer.style.display === "",
+      "la session ne revient qu'une fois la DERNIÈRE surface fermée");
 
     // hauteur : bornée, mémorisée, réinitialisable
     L.showCenter(true);

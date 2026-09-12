@@ -59,8 +59,108 @@ check("KARL_AGENT_WORKLOG_DIR aussi (le cockpit et les scripts lisent le MÊME d
       str(pm_stores.worklog_dir({"KARL_AGENT_WORKLOG_DIR": "/b/worklogs"})) == "/b/worklogs")
 check("la première posée gagne, jamais un mélange",
       str(pm_stores.worklog_dir({"PM_SESSION_WORKLOG_DIR": "/a", "KARL_AGENT_WORKLOG_DIR": "/b"})) == "/a")
-check("défaut commun", str(pm_stores.worklog_dir({})).endswith(".claude/session-worklogs"))
+check("défaut commun, désormais sous le `var/` du repo PM (RM2992) — le même pour les deux variables",
+      str(pm_stores.worklog_dir({})) == str(pm_stores.state_root({}) / "session-worklogs"))
 check("fichier d'une session", pm_stores.worklog_file("abc", E).name == "abc.json")
+
+# ── 2b. RM2992 : la racine est le `var/` du repo PM, plus le home ───────────
+import importlib as _il
+_il.import_module("pm_stores")
+pm_stores._ROOT_CACHE.clear()
+check("PM_STATE_DIR impose la racine", str(pm_stores.state_root({"PM_STATE_DIR": "/r"})) == "/r")
+E2 = {"PM_STATE_DIR": "/r"}
+check("le worklog s'y range", str(pm_stores.worklog_dir(E2)) == "/r/session-worklogs")
+check("l'état de karl aussi", str(pm_stores.state_dir(E2)) == "/r/karl-agent")
+check("les curseurs de tour aussi — ils étaient dans ~/.claude/logs", str(pm_stores.turn_dir(E2)) == "/r/turns")
+check("le registre des sessions aussi, et il est enfin PARAMÉTRABLE (demande du 2026-09-12)",
+      str(pm_stores.sessions_dir(E2)) == "/r/sessions"
+      and str(pm_stores.sessions_dir({"PM_SESSIONS_DIR": "/ailleurs"})) == "/ailleurs")
+check("une variable de store reste prioritaire sur la racine",
+      str(pm_stores.worklog_dir({"PM_STATE_DIR": "/r", "PM_SESSION_WORKLOG_DIR": "/w"})) == "/w")
+# le repli : là où la config PM ne se charge pas, le chemin d'hier reprend la main plutôt que de planter
+_vrai = pm_stores.state_root
+pm_stores.state_root = lambda env=None: None
+try:
+    check("sans config PM résoluble, chaque store retombe sur son chemin d'hier (jamais d'exception)",
+          str(pm_stores.worklog_dir({})).endswith(".claude/session-worklogs")
+          and str(pm_stores.state_dir({})).endswith("state/karl-agent")
+          and str(pm_stores.turn_dir({})).endswith(".claude/logs"))
+finally:
+    pm_stores.state_root = _vrai
+check("les transcripts, eux, NE bougent PAS : Claude Code les écrit, on les lit",
+      str(pm_stores.claude_stores({})[0]).endswith(".claude/projects")
+      and str(pm_stores.history_file({})).endswith(".claude/history.jsonl"))
+# RM2385 : l'ÉTAT peut être partagé pendant que les LOGS d'instance restent locaux
+check("KARL_AGENT_STATE_DIR ne détourne pas les logs d'instance (RM2385)",
+      str(pm_stores.log_dir({"KARL_AGENT_STATE_DIR": "/s", "PM_STATE_DIR": "/r"})) == "/r/karl-agent"
+      and str(pm_stores.state_dir({"KARL_AGENT_STATE_DIR": "/s", "PM_STATE_DIR": "/r"})) == "/s")
+check("…mais KARL_AGENT_LOG_DIR, lui, les détourne", str(pm_stores.log_dir({"KARL_AGENT_LOG_DIR": "/l"})) == "/l")
+
+# ── 2c. RM2992 : la migration ───────────────────────────────────────────────
+mig_spec = importlib.util.spec_from_file_location("pm_stores_migrate", HERE / "pm-stores-migrate.py")
+mig = importlib.util.module_from_spec(mig_spec); mig_spec.loader.exec_module(mig)
+mhome = tmp / "home"; mvar = tmp / "var"
+(mhome / ".claude" / "session-worklogs").mkdir(parents=True)
+(mhome / ".claude" / "logs").mkdir(parents=True)
+(mhome / ".local" / "state" / "karl-agent" / "sessions").mkdir(parents=True)
+(mhome / ".claude" / "session-worklogs" / "a.json").write_text("{}", encoding="utf-8")
+(mhome / ".claude" / "session-worklogs" / "deja.json").write_text("nouveau", encoding="utf-8")
+(mhome / ".claude" / "logs" / "turn-start-x.json").write_text("{}", encoding="utf-8")
+(mhome / ".claude" / "logs" / "debug-de-claude-code.log").write_text("pas à nous", encoding="utf-8")
+(mhome / ".local" / "state" / "karl-agent" / "sessions" / "s.json").write_text("{}", encoding="utf-8")
+(mhome / ".local" / "state" / "karl-agent" / "answers.jsonl").write_text("mort", encoding="utf-8")
+(mvar / "session-worklogs").mkdir(parents=True)
+(mvar / "session-worklogs" / "deja.json").write_text("ANCIEN", encoding="utf-8")
+os.environ["HOME"] = str(mhome)
+import pathlib as _pl
+mig.pm_stores.WORKLOG_LEGACY = str(mhome / ".claude" / "session-worklogs")
+mig.pm_stores.STATE_LEGACY = str(mhome / ".local" / "state" / "karl-agent")
+mig.pm_stores.TURN_LEGACY = str(mhome / ".claude" / "logs")
+mig.pm_stores.DEPLACABLES = ((mig.pm_stores.WORKLOG_LEGACY, "session-worklogs"),
+                             (mig.pm_stores.STATE_LEGACY, "karl-agent"),
+                             (mig.pm_stores.TURN_LEGACY, "turns"))
+ENVM = {"PM_STATE_DIR": str(mvar)}
+avant = [(sub, src, dst) for sub, src, dst in mig.plan(ENVM)]
+check("le plan ne retient que les stores qui existent encore", len(avant) == 3, str(avant))
+tot = [mig.migrer(src, dst, sub, dry=True) for sub, src, dst in avant]
+check("à blanc, rien ne bouge", (mvar / "session-worklogs" / "deja.json").read_text() == "ANCIEN"
+      and (mhome / ".claude" / "session-worklogs" / "a.json").exists())
+for sub, src, dst in avant:
+    mig.migrer(src, dst, sub)
+check("les fichiers arrivent, arborescence conservée",
+      (mvar / "session-worklogs" / "a.json").exists() and (mvar / "karl-agent" / "sessions" / "s.json").exists()
+      and (mvar / "turns" / "turn-start-x.json").exists())
+check("un fichier DÉJÀ à destination n'est jamais remplacé — relancer la migration ne détruit rien",
+      (mvar / "session-worklogs" / "deja.json").read_text() == "ANCIEN"
+      and (mhome / ".claude" / "session-worklogs" / "deja.json").exists())
+check("ce qui n'est pas à nous reste où c'est (dossier partagé avec Claude Code)",
+      (mhome / ".claude" / "logs" / "debug-de-claude-code.log").exists()
+      and not (mvar / "turns" / "debug-de-claude-code.log").exists())
+check("un store MORT n'est pas emporté dans le dossier propre",
+      (mhome / ".local" / "state" / "karl-agent" / "answers.jsonl").exists()
+      and not (mvar / "karl-agent" / "answers.jsonl").exists())
+check("le dossier créé est réellement partageable (setgid + écriture du groupe)",
+      (mvar / "karl-agent").stat().st_mode & 0o2775 == 0o2775, oct((mvar / "karl-agent").stat().st_mode))
+check("une trace reste dans l'ancien dossier, pour l'humain qui le retrouve",
+      (mhome / ".claude" / "session-worklogs" / mig.TRACE).is_file())
+again = [mig.migrer(src, dst, sub) for sub, src, dst in avant]
+check("rejouer ne déplace plus rien (idempotent)", all(n == 0 for n, _d, _p in again), str(again))
+
+# ── 2d. RM2992 : plus un seul script ne vise un store tout seul ─────────────
+_STORES = ("session-worklogs", 'state" / "karl-agent', '"karl-agent"')
+_EXEMPT = {"pm_stores.py", "pm-stores-migrate.py", "pm_log.py"}   # la résolution, la migration, et le journal (sa propre racine)
+sans_import = []
+for f in sorted(HERE.glob("*.py")):
+    if f.name.startswith("test") or f.name in _EXEMPT:
+        continue
+    src = f.read_text(encoding="utf-8")
+    corps = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
+    # `deploy/karl-agent/cockpit/…` est un chemin DU DÉPÔT, pas un store : ne pas le confondre
+    corps = "\n".join(l for l in corps.splitlines() if "deploy" not in l and "cockpit" not in l)
+    if any(m in corps for m in _STORES) and "pm_stores" not in corps:
+        sans_import.append(f.name)
+check("un script qui vise un store passe par pm_stores — sinon il continue de viser le home "
+      "après le déplacement, et écrit seul dans son coin (RM2992)", not sans_import, str(sans_import))
 
 # ── 3. le repli oublié qui reproduisait RM2391 ──────────────────────────────
 check("KARL_AGENT_STATE_DIR", str(pm_stores.state_dir({"KARL_AGENT_STATE_DIR": "/s"})) == "/s")

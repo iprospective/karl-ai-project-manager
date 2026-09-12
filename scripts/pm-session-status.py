@@ -2,8 +2,8 @@
 """Suivi par session des tickets/tâches ouverts et de leur avancement.
 
 Store léger keyé par session Claude Code ($CLAUDE_CODE_SESSION_ID) :
-  - source de vérité : ~/.claude/session-worklogs/<session-id>.json
-  - rendu lisible     : ~/.claude/session-worklogs/<session-id>.md (régénéré à chaque mutation)
+  - source de vérité : <var PM>/session-worklogs/<session-id>.json   (RM2992 : var/ du repo PM, partagé)
+  - rendu lisible     : <var PM>/session-worklogs/<session-id>.md      (régénéré à chaque mutation)
 
 But : répondre cheap à « il reste quoi à faire dans cette session » sans rescanner
 le contexte. Les scripts PM (`pm-task-add`/`-status-update`/`-link`, hook post-commit)

@@ -57,7 +57,11 @@ def _declared_dir():
         from pm_paths import PMConfig
         d = PMConfig.load().log_dir
         return Path(d) if d else None
-    except Exception:
+    except (Exception, SystemExit):
+        # RM2992 : `PMConfig.load()` SORT (sys.exit) quand le `.env` canonique manque — le cas d'un
+        # clone de dev. SystemExit n'étant pas une Exception, elle remontait jusqu'au top-level et
+        # TUAIT l'appelant : 17 tests rouges dans tout worktree, et la garde de livraison avec.
+        # Choisir où écrire un journal ne doit jamais arrêter le programme qui veut journaliser.
         return None
 
 

@@ -106,10 +106,15 @@ def core_dir() -> str:
 def prod_state_dir() -> Path:
     """État de session prod partagé (RM2385) — MIROIR du défaut `STATE_DIR`/
     `LOG_DIR` de karl-agent : `$XDG_STATE_HOME/karl-agent` sinon
-    `~/.local/state/karl-agent`. C'est là que vivent keys/, sessions/, tasks/
+    `<var PM>/karl-agent` (RM2992). C'est là que vivent keys/, sessions/, tasks/
     que l'instance de test doit lire pour résoudre les sessions live."""
-    base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
-    return Path(base) / "karl-agent"
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_stores      # RM2992 : le même dossier que la prod, résolu au même endroit
+        return pm_stores.state_dir()
+    except Exception:      # noqa: BLE001
+        base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+        return Path(base) / "karl-agent"
 
 
 def _registry() -> dict:

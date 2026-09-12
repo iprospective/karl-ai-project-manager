@@ -27,8 +27,11 @@ sessions. Les transcripts et `history.jsonl` restent où ils sont : **Claude Cod
 ne faisons que les lire. Le partage s'arrête à la machine : `var/` n'est pas versionné.
 
 Chaque store garde son **repli d'hier** : là où la config PM ne se charge pas, le chemin du home
-reprend la main plutôt que de planter. La migration de l'existant est faite une fois par
-`pm-stores-migrate` (appelé par `pm-core-update`).
+reprend la main plutôt que de planter. Ce repli n'écrit pourtant plus à côté, car
+`pm-stores-migrate` remplace l'ancien dossier **par un lien** vers le nouveau : un écrivain resté en
+arrière — instance non redémarrée, session ouverte avant la mise à jour, script lancé sans `.env` —
+atterrit au bon endroit sans rien savoir du déplacement. La migration de l'existant est faite une
+fois par `pm-stores-migrate` (appelé par `pm-core-update`).
 
 Stdlib seulement : `karl-agent.py` l'importe ; `pm_paths` n'est tiré qu'à la demande, en cache.
 """

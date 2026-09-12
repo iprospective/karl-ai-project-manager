@@ -66,6 +66,7 @@ import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // 
 import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
 import { mountEngines } from "./modules/engines/engines.controller.js";       // RM3069
 import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
+import { mountMonitor } from "./modules/monitor/monitor.controller.js";       // RM3112
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
@@ -243,6 +244,13 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   centerSplit: () => layout.centerSplit(), setCenterSplit: (on) => layout.setCenterSplit(on),
 });
 
+// RM3112 : la supervision du parc. Le cockpit ne parle jamais à l'observateur : il demande au serveur,
+// qui sait lequel répond et détient sa clé.
+const monitor = mountMonitor(byId("monitorcard"), {
+  notify: notify.toast, confirm: (m) => window.confirm(m), storage: localStorage,
+  showTicket: (rm) => { if (meta) meta.showTicket(rm); },   // lambda : `meta` est monté plus bas
+});
+
 // RM3081 : les réglages en onglets. Chaque onglet dit ce qu'il faut charger pour lui, et rien d'autre
 // ne part au serveur tant qu'on ne l'ouvre pas — un onglet n'est chargé qu'une fois.
 const setnav = mountSetnav(byId("setnav"), {
@@ -300,6 +308,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     settings: { label: "réglages",     load: () => setnav.open(), show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
+    monitor:  { label: "supervision", load: () => monitor.open(), show: (on) => show("cp-monitor", on) },   // RM3112
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
     clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
   },

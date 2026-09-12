@@ -105,6 +105,10 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
 /client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss
 /cdc/think	L5	doc	/api/doc/cdc-think	1	thinkEdit
+/monitor/alerts	L4	monitor	/api/monitor/alerts	1	loadAlerts
+/monitor/hosts	L4	monitor	/api/monitor/hosts	1	loadHosts
+/monitor/assign	L4	monitor	/api/monitor/assign	1	assignHost
+/monitor/ticket	L4	monitor	/api/monitor/ticket	1	ticketFromAlert
 /notifications	L4	dashboard	/api/dashboard/notifications	1	loadNotifications
 /notifications/mark	L4	dashboard	/api/dashboard/notifications-mark	1	markNotifications
 /cdc/version	L5	doc	/api/doc/cdc-version	1	versionEdit

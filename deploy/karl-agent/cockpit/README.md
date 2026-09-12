@@ -21,6 +21,7 @@ cockpit/
                         errors, markdown, log (journal du front), version, Repository / Factory / EntityViewModel
     modules/<domaine>/  un dossier par domaine, une couche par SUFFIXE (voir ci-dessous)
     styles/             _tokens.scss (couleurs, thèmes), _base.scss, _entities.scss (niveaux .e-row/.e-card/.e-panel/.e-full), main.scss
+  src/modules/monitor/   panneau Supervision (RM3112) : alertes de l'observateur situées chez un client, association hôte → projet, ticket depuis une alerte
   src/modules/setnav/    onglets des réglages (RM3081) : répartit les cartes du panneau par sujet et ne charge qu'à l'ouverture
   src/modules/engines/   panneau Moteurs des réglages (RM3069) : installer / mettre à jour / tester, par recette connue du serveur,
                          en deux portées — « pour moi » (home, sans privilège) et « pour tous » (sudo, administrateur)

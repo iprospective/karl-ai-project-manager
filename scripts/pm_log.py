@@ -317,7 +317,11 @@ class Journal:
         return Journal(self.source, self.cat, **{**self.ctx, **contexte})
 
     def write(self, level: str, message: str, category=None, **fields):
-        return log(category or self.cat, level, message, src=self.source, **{**self.ctx, **fields})
+        # `tool`, pas `src` : « src » est un nom de champ MÉTIER très courant (la branche source d'une
+        # MR, par exemple), et l'écraser faisait planter l'appelant sur un doublon d'argument. Le nom
+        # d'un champ technique doit être choisi pour ne heurter personne.
+        return log(category or self.cat, level, message,
+                   **{"tool": self.source, **self.ctx, **fields})
 
     def debug(self, message, **f): return self.write("debug", message, **f)
     def info(self, message, **f): return self.write("info", message, **f)

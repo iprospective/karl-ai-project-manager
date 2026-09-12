@@ -306,6 +306,17 @@ DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
+        # RM3108 — options de lancement PROPOSÉES par ce moteur. Le catalogue est ici
+        # (il dépend du binaire installé) ; ce qui est COCHÉ est dans pm.config.yml
+        # (cela dépend de l'instance). `default` est l'état quand l'instance ne dit rien.
+        "options": [
+            {"key": "no_mcp", "flag": "--strict-mcp-config", "default": True,
+             "label": "désactiver les connecteurs MCP",
+             "why": "les serveurs MCP du compte injectent leurs noms d'outils et leurs "
+                    "instructions dans CHAQUE session : 8 179 tokens mesurés le 2026-09-11, "
+                    "payés au démarrage puis relus à chaque appel d'outil. Une session PM "
+                    "n'en utilise aucun."},
+        ],
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
         # RM2951 : le TUI s'arrête sur son garde-fou quand le dossier n'a jamais
         # été approuvé. L'écran porte « ❯ » (curseur sur « No, exit ») : sans ces
@@ -1160,7 +1171,10 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     engine = payload.get("engine", DEFAULT_ENGINE)
     if engine not in ENGINES:
         raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
-    cmd = ENGINES[engine]["cmd"]
+    problems = validate_engine_options(engine)          # RM3108 : jamais de session morte-née
+    if problems:
+        raise ApiError(400, f"options du moteur {engine} invalides : " + " ; ".join(problems))
+    cmd = engine_base_cmd(engine)
 
     # Modèle (RM1941) : "" = défaut moteur ; "ticket" = frontmatter `ai_model` ;
     # sinon une CLÉ du catalogue serveur (jamais une valeur brute client).
@@ -1257,6 +1271,135 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
             # RM2951 : ce qui a (ou n'a pas) été fait du prompt, et pourquoi
             "prompt_sent": prompt_sent, "blocked": blocked,
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
+
+
+# ── Options de lancement par moteur (RM3108) ─────────────────────────────────
+# Le piège que ce code corrige : la ligne de commande d'un moteur se construisait à
+# DEUX endroits — `op_spawn` (session neuve) et `op_resume` (reprise). Une option
+# posée dans un seul des deux donne une session neuve et une session reprise qui ne
+# se comportent pas pareil, et le second cas ne se voit qu'après coup. Tout passe
+# désormais par `engine_base_cmd`.
+
+#: Drapeaux que PM pose LUI-MÊME selon le contexte. Les redéclarer en option ou en
+#: argument libre produirait un doublon sur la ligne de commande — refusé, pas toléré.
+RESERVED_FLAGS = {"--model", "--session-id", "--resume", "--session", "--continue"}
+
+
+def _engine_conf(engine: str) -> dict:
+    """Ce que l'INSTANCE dit de ce moteur (pm.config.yml :: engines.<nom>)."""
+    if not callable(globals().get("_conf_merged")):
+        return {}
+    return ((_conf_merged().get("engines") or {}).get(engine) or {})
+
+
+# >>> engine_option_state — pure (testée par test_karl_agent_engine_options.py)
+def engine_option_state(engine: str) -> list:
+    """Le catalogue du moteur, chaque option portant son état EFFECTIF.
+
+    L'instance ne redéfinit pas le catalogue, elle coche ou décoche : une option
+    absente de la conf garde son `default`. C'est ce qui permet d'ajouter une option
+    au code sans casser les instances qui n'en ont jamais entendu parler.
+    """
+    conf = (_engine_conf(engine).get("options") or {})
+    out = []
+    for opt in (ENGINES.get(engine, {}).get("options") or []):
+        o = dict(opt)
+        chosen = conf.get(o["key"])
+        o["enabled"] = bool(o.get("default")) if chosen is None else bool(chosen)
+        o["source"] = "défaut" if chosen is None else "pm.config.yml"
+        out.append(o)
+    return out
+# <<< engine_option_state
+
+
+# >>> engine_extra_args — pure
+def engine_extra_args(engine: str) -> list:
+    """Arguments libres de l'instance, découpés comme le shell le ferait.
+
+    Une chaîne non fermée (guillemet orphelin) est une erreur de configuration, pas
+    une session à lancer de travers : on refuse en le disant.
+    """
+    raw = _engine_conf(engine).get("extra_args") or ""
+    if isinstance(raw, list):
+        return [str(a) for a in raw]
+    try:
+        return shlex.split(str(raw))
+    except ValueError as exc:
+        raise ApiError(400, f"engines.{engine}.extra_args illisible : {exc}")
+# <<< engine_extra_args
+
+
+# >>> validate_engine_options — pure
+def validate_engine_options(engine: str) -> list:
+    """Les problèmes de configuration de ce moteur, en clair. Liste vide = tout va bien.
+
+    Vaut mieux un refus explicite qu'une session morte-née : un drapeau inconnu du
+    binaire fait sortir le CLI immédiatement, et le TUI n'atteint jamais son marqueur
+    de « prêt » — on ne voit qu'un spawn qui échoue sans raison lisible.
+    """
+    problems = []
+    cat = {o["key"] for o in (ENGINES.get(engine, {}).get("options") or [])}
+    for key in (_engine_conf(engine).get("options") or {}):
+        if key not in cat:
+            problems.append(f"option inconnue pour {engine} : {key!r} "
+                            f"(connues : {sorted(cat) or 'aucune'})")
+    for o in (ENGINES.get(engine, {}).get("options") or []):
+        f = str(o.get("flag") or "")
+        if not f.startswith("-"):
+            problems.append(f"option {o['key']!r} : drapeau invalide {f!r}")
+        if f in RESERVED_FLAGS:
+            problems.append(f"option {o['key']!r} : {f} est posé par PM lui-même")
+    try:
+        extra = engine_extra_args(engine)
+    except ApiError as exc:
+        return problems + [str(exc)]
+    enabled = {o["flag"] for o in engine_option_state(engine) if o["enabled"]}
+    for a in extra:
+        if a in RESERVED_FLAGS:
+            problems.append(f"extra_args : {a} est posé par PM lui-même — à retirer")
+        if a in enabled:
+            problems.append(f"extra_args : {a} est déjà coché en option — doublon")
+    return problems
+# <<< validate_engine_options
+
+
+# >>> engine_base_cmd — pure
+def engine_base_cmd(engine: str) -> str:
+    """La commande du moteur, options d'instance comprises — spawn ET resume.
+
+    N'y figure PAS ce qui dépend de l'invocation (`--model`, `--session-id`,
+    `--resume <sid>`) : l'appelant l'ajoute ensuite, et `RESERVED_FLAGS` garantit
+    qu'aucune option de configuration ne vient le contredire.
+    """
+    spec = ENGINES.get(engine) or {}
+    parts = [str(spec.get("cmd") or engine)]
+    parts += [o["flag"] for o in engine_option_state(engine) if o["enabled"]]
+    parts += [shlex.quote(a) for a in engine_extra_args(engine)]
+    return " ".join(parts)
+# <<< engine_base_cmd
+
+
+def engine_preview(engine: str) -> dict:
+    """Ce qui sera RÉELLEMENT lancé, pour que personne n'ait à le deviner."""
+    spec = ENGINES.get(engine) or {}
+    base = engine_base_cmd(engine)
+    spawn = base + (" --session-id <uuid>" if engine == "claude" else "")
+    resume = (f"{base} {spec['resume_flag']} <session-id>"
+              if spec.get("resume_flag") else None)
+    return {"engine": engine, "base_cmd": base, "spawn_cmd": spawn,
+            "resume_cmd": resume, "options": engine_option_state(engine),
+            "extra_args": _engine_conf(engine).get("extra_args") or "",
+            "problems": validate_engine_options(engine)}
+
+
+def op_engine_options(_qs: dict = None, auth_ctx: dict | None = None) -> dict:
+    """GET /engines/options — catalogue d'options, état coché, et la commande réelle.
+
+    À ne pas confondre avec `op_engines` (`/pm/engines`), qui traite de l'INSTALLATION
+    des moteurs — recettes, versions présentes. Ici, il s'agit de la façon dont on les
+    LANCE. Deux sujets voisins, deux routes distinctes.
+    """
+    return {"engines": [engine_preview(n) for n in ENGINES]}
 
 
 def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
@@ -4293,7 +4436,9 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
         return _spawn_fallback(rm_id, engine, payload, auth_ctx,
                                f"cwd de la session invalide ({e})")
 
-    cmd = f"{support['cmd']} {support['resume_flag']} {shlex.quote(session_id)}"
+    # RM3108 : même composition qu'au spawn — une option ne vaut pas que pour les
+    # sessions neuves, sinon une reprise se comporte autrement que son original.
+    cmd = f"{engine_base_cmd(engine)} {support['resume_flag']} {shlex.quote(session_id)}"
     width = int(payload.get("width", DEFAULT_WIDTH))
     height = int(payload.get("height", DEFAULT_HEIGHT))
     _start_session_tmux(rm_id, cmd, cwd, width, height, [])
@@ -12349,6 +12494,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/engines/options":         # RM3108 : options de lancement + commande réelle
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_engine_options(qs, self.auth_ctx))
             if path == "/alerts":                  # RM2698 : dérives (tickets, MR)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_alerts(qs, self.auth_ctx))

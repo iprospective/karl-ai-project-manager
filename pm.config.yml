@@ -349,3 +349,28 @@ sessions:
   # de saturer le swap et de faire ramer le poste pendant la montée
   # high → max — c'est le scénario du 2026-08-13 (6 Go de swap saturés).
   memory_swap_gib: 0
+
+# ── Options de lancement des moteurs d'agent (RM3108) ─────────────────────────
+#
+# Le CATALOGUE des options vit dans le code (`karl-agent.py :: ENGINES`) : il dépend
+# du binaire installé, pas de la machine. Ici, l'instance se contente de COCHER ou
+# DÉCOCHER, et d'ajouter ses propres arguments. Une option absente garde son défaut,
+# ce qui permet d'en ajouter au code sans toucher aux instances existantes.
+#
+# Aperçu de ce qui sera réellement lancé, moteur par moteur :
+#   curl -s localhost:8765/engines | python3 -m json.tool
+#
+# Les options s'appliquent au lancement d'une session NEUVE comme à la REPRISE d'une
+# conversation : les deux passent par `engine_base_cmd`.
+engines:
+  claude:
+    options:
+      # Les connecteurs MCP du compte (Ahrefs, Notion, Gmail, Drive…) injectent leurs
+      # noms d'outils et les instructions de leurs serveurs dans CHAQUE session :
+      # 8 179 tokens mesurés le 2026-09-11, payés au démarrage puis relus à chaque
+      # appel d'outil. Une session PM n'en utilise aucun. Décocher (false) pour une
+      # session qui a besoin d'un connecteur.
+      no_mcp: true
+    # Arguments libres, ajoutés tels quels après les options cochées. Ce que PM pose
+    # lui-même (--model, --session-id, --resume) y est REFUSÉ : ce serait un doublon.
+    extra_args: ""

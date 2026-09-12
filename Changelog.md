@@ -39,6 +39,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`pm_log._declared_dir`, `pm_notify._state_dir`, `pm_monitor._local_path`) : **12 tests
   repassent au vert**. Le défaut de fond — une fonction de bibliothèque qui peut tuer son appelant —
   est ticketé à part (RM3119).
+- **Options de lancement par moteur** (RM3108) : la ligne de commande d'un moteur d'agent était en dur
+  dans `ENGINES`, surchargeable seulement par variable d'environnement — impossible d'ajouter durablement
+  une option. Elle se construisait de surcroît à **deux endroits** (session neuve / reprise) : une option
+  posée dans un seul des deux donnait une session reprise au comportement différent de son original, ce
+  qui ne se découvre qu'après coup. Désormais un **catalogue** par moteur dans le code (il dépend du
+  binaire), ce qui est **coché** dans `pm.config.yml` (cela dépend de l'instance), des **arguments libres**,
+  une **vérification** avant lancement — un drapeau que PM pose lui-même (`--model`, `--session-id`,
+  `--resume`) est refusé plutôt que dupliqué —, et `GET /engines/options` qui rend la **commande complète**
+  telle qu'elle sera lancée, au spawn comme à la reprise. Première option livrée : claude démarre avec
+  `--strict-mcp-config`, **coché par défaut**. Les connecteurs MCP du compte injectaient leurs noms
+  d'outils et les instructions de leurs serveurs dans chaque session — **8 179 tokens** mesurés, payés au
+  démarrage puis relus à chaque appel d'outil, pour des connecteurs qu'une session PM n'utilise jamais.
+  (À ne pas confondre avec `/pm/engines`, qui traite de leur *installation*.)
 
 - **Les questions ouvertes d'un ticket sont dans sa description** (RM3116) : elles gouvernaient déjà des
   choses sérieuses — un ticket ne se ferme pas avec une question en attente — mais ne se voyaient nulle

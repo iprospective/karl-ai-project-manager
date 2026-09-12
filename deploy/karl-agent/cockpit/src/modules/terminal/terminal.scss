@@ -46,7 +46,12 @@ iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
 .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
 
 .tabactions { display: flex; align-items: center; gap: 6px; }
-.termwrap { flex: 1; display: flex; min-height: 0; }
+/* `min-width: 0` : SANS lui, un élément flex refuse de rétrécir sous la largeur de son contenu
+   (`min-width: auto` par défaut). `.termwrap` est à la fois un enfant flex de `.right` ET le
+   conteneur du centre + de la colonne de droite : un tableau large le faisait grandir, il poussait,
+   et la colonne de droite passait par-dessus le bord. Le pendant horizontal du `min-height: 0`
+   commenté dans layout.scss (RM2744), et la vraie cause du débordement du panneau supervision. */
+.termwrap { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
 /* RM3094 — le bloc des commandes de panes tmux : `display: contents` pour que la barre le traverse
    comme si les quatre contrôles y étaient restés (aucun changement d'espacement quand il est

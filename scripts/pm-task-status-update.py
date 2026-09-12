@@ -1081,7 +1081,7 @@ def main():
     with log_path.open("a", encoding="utf-8") as f:
         f.write("\n".join(entry_lines))
     if journal:
-        journal.info("statut changé", rm=rm_id, de=old_status, vers=args.status,
+        journal.info("statut changé", rm=args.rm_id, de=old_status, vers=args.status,
                      assignee=getattr(args, "assign_to", None))
     out.info(f"✓ log appendé : {log_path.name}")
 

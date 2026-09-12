@@ -39,6 +39,7 @@ import fcntl
 import hashlib
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -487,6 +488,30 @@ def fmt_row(r):
     return f"  {icon} RM{rm:<5} {te_part}  {cf17}{note}{err}"
 
 
+def _tick_sauvegarde_zfs(args):
+    """Greffe le tick de sauvegarde ZFS sur ce passage (RM3023).
+
+    Pas de timer dédié : ce script tourne déjà toutes les 30 min dans le cron de
+    l'hôte, c'est-à-dire au seul endroit où `zfs` existe. Sur un portable, un
+    horaire fixe manquerait la moitié de ses créneaux de toute façon ; la
+    question utile est « le dernier snapshot a-t-il plus d'une heure ? ».
+
+    Jamais bloquant, jamais bavard : une sauvegarde qui échoue se signale par le
+    contrôle d'environnement (pastille cockpit), pas en polluant la sortie d'un
+    report de tokens — et surtout pas en le faisant échouer. Dans le conteneur,
+    où `zfs` n'existe pas, le tick est un no-op silencieux."""
+    if not getattr(args, "apply", False):
+        return                                   # un dry-run ne touche à rien
+    script = Path(__file__).resolve().parent / "pm-zfs-backup.py"
+    if not script.is_file():
+        return
+    try:
+        subprocess.run([sys.executable, str(script), "--tick"],
+                       capture_output=True, timeout=300)
+    except Exception:                            # noqa: BLE001 — jamais bloquant
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description="Report tokens/temps consommés → Redmine")
     g = ap.add_mutually_exclusive_group(required=True)
@@ -509,6 +534,7 @@ def main():
         ap.error("--note nécessite --rm-id (une note cible un ticket précis)")
 
     cfg = PMConfig.load()
+    _tick_sauvegarde_zfs(args)
     cf_out_id = cf_id_by_name(CF_TOK_OUT_NAME)              # 16
     cf_in_id = cf_id_by_name(CF_TOK_IN_NAME)                # 28
     cf_out_total_id = cf_id_by_name(CF_TOK_OUT_TOTAL_NAME)  # 17

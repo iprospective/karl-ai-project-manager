@@ -465,6 +465,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **La machine est enfin sauvegardée — et la sauvegarde est surveillée** (RM3023).
+  `zfs/root/home` n'avait **qu'un seul snapshot, du 17 avril 2025**, et la machine aucune
+  sauvegarde externe : ni borg, ni restic, ni rsnapshot, ni rclone configuré, ni ligne cron.
+  C'est ce qui a rendu 42 transcripts de session **définitivement** irrécupérables (RM2997) —
+  il n'existait aucun recours au niveau du système de fichiers. `pm-zfs-backup.py` prend des
+  snapshots par seaux (24 horaires, 14 quotidiens, 8 hebdomadaires, 6 mensuels) sur
+  `zfs/root`, `zfs/workspaces`, `zfs/lxc/dev` et `zfs/documents` — la politique tient dans une
+  section de `pm.config.yml`, parce que le périmètre d'une machine n'est pas celui d'une autre.
+  **Aucun timer dédié** : le tick se greffe sur le cron `pm-task-report`, qui tourne déjà toutes
+  les 30 min sur l'hôte, seul endroit où `zfs` existe ; sur un portable un horaire fixe
+  manquerait la moitié de ses créneaux, et la question utile est « le dernier snapshot a-t-il
+  plus d'une heure ? ». **Aucun droit nouveau** non plus : tout passe par `pm-zfs-snap.sh`, le
+  guichet sudo NOPASSWD déjà en place, root-owned, dont le périmètre est élargi — ses deux
+  gardes (charset du nom, et `destroy` qui ne peut viser qu'un `dataset@snapshot`, jamais un
+  dataset nu) sont ce qui rend l'élargissement tenable. La purge a ses propres gardes : elle ne
+  touche que les noms `pm-auto-…` — un snapshot posé à la main est un point de restauration
+  délibéré — et un seau retiré de la config n'est pas purgé, sinon éditer une ligne effacerait
+  son historique en silence. Enfin la surveillance, qui est le vrai enjeu : le tick tourne sur
+  l'hôte, le contrôle dans le conteneur, et ils ne se voient que par une empreinte posée sur le
+  montage partagé — `_envchk_zfs_backup` distingue *jamais tourné*, *a décroché* et *tourne
+  mais échoue*. **Ce que ça ne protège pas** : un snapshot vit sur le même disque, et la
+  machine est un portable — la réplication hors machine reste à faire.
 - **Le budget de contexte se regarde, il ne se ticketise plus** (RM3046). Le préchargement des
   rôles grossit à chaque module ajouté aux normes : `pm-context-budget --check` est passé au rouge,
   et avec lui `pm-norms-doctor` et deux tests de la suite. Le réflexe — ouvrir un ticket à chaque

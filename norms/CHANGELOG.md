@@ -1,5 +1,16 @@
 # Changelog des normes
 
+## [2.41.0] - 2026-09-12
+
+### Ajouté
+- **`session-tooling-pratique` — ligne d'outillage « sauvegarde ZFS »** (RM3023) :
+  `pm-zfs-backup.py`, détail dans `knowledge/zfs/sauvegarde.md`. La règle
+  anti-trou vaut pour ce qui *protège* le travail autant que pour ce qui le
+  produit : la machine n'avait aucun snapshot de `/home` depuis avril 2025, et
+  c'est ce qui a rendu 42 transcripts définitivement irrécupérables (RM2997).
+  Le tick n'a **pas** de timer dédié — il se greffe sur le cron `pm-task-report`
+  qui tourne déjà, seul endroit où `zfs` existe.
+
 ## [2.38.0] - 2026-09-11
 
 ### Ajouté

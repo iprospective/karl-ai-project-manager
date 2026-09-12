@@ -10276,8 +10276,36 @@ def _envchk_sessions_archive():
                  "scripts/pm-sessions-archive.py (ou --install-timer)")]
 
 
+def _envchk_zfs_backup():
+    """RM3023 — la machine est-elle encore sauvegardée ?
+
+    Pendant du contrôle d'archivage des sessions (RM2997), et pour la même
+    raison : une sauvegarde qui s'arrête ne produit rien, elle cesse de
+    produire — ça ne se voit pas tout seul. /home n'avait aucun snapshot depuis
+    avril 2025 quand on s'en est aperçu, et il était trop tard.
+
+    Le tick tourne sur l'HÔTE (seul endroit où `zfs` existe) ; ce contrôle
+    tourne dans le conteneur. Ils ne se voient que par l'empreinte posée sur le
+    montage partagé — d'où la délégation au script, qui sait la lire."""
+    script = REPO_ROOT / "scripts" / "pm-zfs-backup.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script), "--check"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("sauvegarde ZFS", "warn", "contrôle impossible")]
+    detail = " ; ".join(l.strip().lstrip("✗ ") for l in p.stdout.splitlines()
+                        if l.strip()) or "état inconnu"
+    if p.returncode == 0:
+        return [_chk("sauvegarde ZFS", "ok", detail[:200])]
+    return [_chk("sauvegarde ZFS", "error", detail[:200],
+                 "scripts/pm-zfs-backup.py --status (sur l'hôte)")]
+
+
 def _envchk_pm():
-    out = _envchk_workspace_bridge() + _envchk_sessions_archive()
+    out = (_envchk_workspace_bridge() + _envchk_sessions_archive()
+           + _envchk_zfs_backup())
     lvl, det, fix = budget_contexte_line(_budget_contexte_etat())     # RM3046
     out.append(_chk("budget de contexte", lvl, det, fix))
     vf = REPO_ROOT / "norms" / "VERSION"

@@ -80,11 +80,49 @@ paths:
   # — privé, versionné, et lisible depuis n'importe quel client.
   contacts_dir:        "{entities_dir}/iprospective/projects/pm-ai-agents/contacts"
 
+  # Sauvegarde ZFS de la machine (RM3023) — l'empreinte du dernier passage.
+  # Sous `state_dir`, qui vit sur /zfs/workspaces : le tick tourne sur l'HÔTE
+  # (seul endroit où `zfs` existe) mais le contrôle qui le surveille tourne dans
+  # le conteneur. Les deux ne se voient que par ce montage partagé.
+  zfs_backup_stamp:    "{state_dir}/zfs-backup.json"
+
   # Symlinks de liaison code ↔ PM
   # workspace_link  : côté PM, pointe vers le workspace de code
   # reverse_link    : côté workspace de code, pointe vers le projet PM
   workspace_link:      "{project}/workspace"
   reverse_link:        "{workspace_dir}/.mmi-pm"
+
+
+# ── Sauvegarde ZFS de la machine (RM3023) ─────────────────────────────────
+# Le 2026-09-06, /home n'avait AUCUN snapshot depuis avril 2025 et aucune
+# sauvegarde externe : 42 transcripts de session effacés par la rétention de
+# Claude Code étaient définitivement irrécupérables (RM2997).
+#
+# Pas de timer dédié : le tick se greffe sur un processus qui tourne déjà
+# (`pm-task-report`, cron de l'hôte toutes les 30 min). Sur un portable, un
+# horaire fixe manquerait la moitié des créneaux de toute façon ; ce qui compte
+# est « le dernier snapshot a-t-il plus d'une heure ? », pas « est-il minuit ? ».
+zfs_backup:
+  # Datasets sauvegardés. Récursif : `zfs/root` couvre /home et /root.
+  datasets:
+    - zfs/root          # /home (57 G) + /root — le trou qui a coûté RM2997
+    - zfs/workspaces    # 162 G — le code est dans git, le WIP ne l'est pas
+    - zfs/lxc/dev       # 25 G — le conteneur de travail
+    - zfs/documents     # 55 G — irremplaçables
+  # Volontairement dehors, et pourquoi :
+  #   zfs/lxc/ai      221 G de poids de modèles, retéléchargeables
+  #   zfs/nextcloud   service avec son propre cycle de sauvegarde
+  #   zfs/swap zfs/tmp zfs/test   sans contenu à conserver
+  #
+  # Chaque seau : période minimale entre deux prises, et nombre gardé.
+  # 24 h d'heures + 2 semaines de jours + 2 mois de semaines + 6 mois de mois.
+  buckets:
+    hourly:  {every_minutes: 60,     keep: 24}
+    daily:   {every_minutes: 1440,   keep: 14}
+    weekly:  {every_minutes: 10080,  keep: 8}
+    monthly: {every_minutes: 43200,  keep: 6}
+  # Âge au-delà duquel le contrôle d'environnement passe au rouge.
+  stale_hours: 26
 
 # ── Manager IA — supervision des agents (cf. RM1734) ──────────────────────
 # L'humain qui supervise les agents IA : reçoit les notifs mail de livraison,

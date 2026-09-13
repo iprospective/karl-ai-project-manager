@@ -101,7 +101,10 @@ export class ClientViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get name() { return this.e.name || this.e.client || "client"; }
   identity() { const c = this.e; return [["slug", c.client], ["statut", c.status], ["type", c.type], ["créé le", c.created]].filter(([, v]) => v); }
-  contacts() { return (this.e.contacts || []).map(p => ({ nom: [p.first_name, p.last_name].filter(Boolean).join(" ") || p.name || "—", det: [p.title, p.role, p.email, p.phone].filter(Boolean).join(" · "), internal: !!p.internal })); }
+  // RM3024 : `ref` et `orphelin` remontent pour que la ligne soit cliquable —
+  // et pour qu'un rattachement dont la fiche a disparu se VOIE, au lieu
+  // d'apparaître comme un contact vide.
+  contacts() { return (this.e.contacts || []).map(p => ({ nom: [p.first_name, p.last_name].filter(Boolean).join(" ") || p.name || "—", det: [p.title, p.role, p.email, p.phone].filter(Boolean).join(" · "), internal: !!p.internal, ref: p.source === "annuaire" ? p.ref : "", orphelin: p.source === "orphelin" })); }
   get team() { return ((this.e.defaults || {}).team || []).map(t => (t && (t.username || t.email)) || "").filter(Boolean); }
   get priority() { return (this.e.defaults || {}).priority || ""; }
   get projects() { return this.e.projects || []; }
@@ -118,3 +121,31 @@ export class ClientViewModel extends EntityViewModel {
 }
 // RM3002 : les types du centre lient leur ViewModel au registre — leurs quatre niveaux se composent depuis sections()
 bindEntity("file", FileViewModel); bindEntity("dir", DirViewModel); bindEntity("mail", EmailViewModel); bindEntity("client", ClientViewModel);
+
+// ── RM3024 : l'annuaire ─────────────────────────────────────────────────────
+export class ContactsViewModel {
+  constructor(e, q) { this.e = e || {}; this.q = q || ""; }
+  rows() {
+    return (this.e.contacts || []).map(p => ({
+      ref: p.ref, name: p.name || p.ref, internal: !!p.internal,
+      emails: p.emails || [],
+    }));
+  }
+}
+
+export class ContactViewModel {
+  constructor(e) { this.e = e || {}; }
+  get name() { return this.e.name || this.e.ref || "—"; }
+  /** Le couple créé/mis à jour en une ligne : deux `kv` pour ça seraient du bruit. */
+  get dates() {
+    const c = this.e;
+    return [c.created ? "créée " + c.created : "", c.updated ? "màj " + c.updated : ""]
+      .filter(Boolean).join(" · ");
+  }
+  links() {
+    return (this.e.links || []).map(l => ({
+      client: l.client,
+      det: [l.role, l.title].filter(Boolean).join(" · ") || "sans rôle",
+    }));
+  }
+}

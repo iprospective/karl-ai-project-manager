@@ -12,6 +12,7 @@ export function ProjectsList(vm) {
 export function ProjectsPanel(vm) {
   return html`<div class="card">
     <h2>📁 Projets <span id="pj-count" style="color:var(--muted);font-weight:normal">${vm ? vm.count : ""}</span>
+      <button class="mini" data-action="contacts" title="Annuaire de contacts — une personne, une fiche, retrouvable par n'importe laquelle de ses adresses">👤</button>
       <button class="helpq" data-action="help" title="Aide sur ce panneau">?</button></h2>
     <div class="searchrow">
       <input id="pj-filter" type="text" placeholder="filtrer : client ou projet…" value="${vm ? vm.filtre : ""}" aria-label="Filtrer les clients et projets">

@@ -39,7 +39,44 @@ from email.message import EmailMessage
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_contacts as pc                                   # noqa: E402
+import yaml                                                # noqa: E402
 from pm_paths import PMConfig
+
+
+def resolve_refs(cfg, refs):
+    """`--to-ref moulin-mathieu` → son adresse (RM3024).
+
+    Écrire un destinataire par sa `ref` plutôt que de recopier une adresse : la
+    recopie se périme en silence le jour où la personne change de boîte, et
+    c'est précisément ce que l'annuaire est là pour éviter. Une ref inconnue, ou
+    sans adresse, est une ERREUR bruyante — un mail envoyé à un destinataire
+    deviné ne se rattrape pas."""
+    if not refs:
+        return []
+    try:
+        d = cfg.path("contacts_dir")
+    except Exception:  # noqa: BLE001
+        sys.exit("ERREUR : --to-ref/--cc-ref exige un annuaire (paths.contacts_dir)")
+    out, manquants = [], []
+    for ref in refs:
+        f = d / f"{ref}.yml"
+        data = {}
+        if f.is_file():
+            try:
+                data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                data = {}
+        emails = [pc.norm_email(e) for e in (data.get("emails") or []) if e]
+        if not emails:
+            manquants.append(ref + (" (fiche absente)" if not f.is_file()
+                                    else " (aucune adresse)"))
+            continue
+        out.append(emails[0])          # la première est l'adresse de référence
+    if manquants:
+        sys.exit("ERREUR : ref(s) non résolue(s) : " + ", ".join(manquants)
+                 + "\n  → pm-contact.py list")
+    return out
 
 SMTP_HOST = "mail.iprospective.net"
 SMTP_PORT = 465
@@ -163,8 +200,13 @@ def append_to_sent(username, password, msg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--to", action="append", required=True, help="Destinataire (répétable)")
+    ap.add_argument("--to", action="append", default=[], help="Destinataire (répétable)")
+    ap.add_argument("--to-ref", action="append", default=[], dest="to_ref", metavar="REF",
+                    help="Destinataire par sa ref d'annuaire (répétable) — "
+                         "l'adresse est résolue au moment de l'envoi, jamais recopiée.")
     ap.add_argument("--cc", action="append", default=[], help="Copie (répétable)")
+    ap.add_argument("--cc-ref", action="append", default=[], dest="cc_ref", metavar="REF",
+                    help="Copie par sa ref d'annuaire (répétable)")
     ap.add_argument("--bcc", action="append", default=[], help="Copie cachée (répétable)")
     ap.add_argument("--subject", required=True)
     ap.add_argument("--body", required=True, help="Corps texte (ou '-' pour stdin)")
@@ -175,6 +217,14 @@ def main():
     ap.add_argument("--in-reply-to", help="Message-ID auquel ce mail répond (chainage RFC)")
     ap.add_argument("--dry-run", action="store_true", help="N'envoie pas, affiche le mail formaté")
     args = ap.parse_args()
+    if not (args.to or args.to_ref):
+        ap.error("au moins un --to ou --to-ref")
+    # Résolution AVANT toute autre chose : une ref inconnue doit arrêter le
+    # programme avant qu'il n'ouvre le vault, pas au milieu d'un envoi.
+    if args.to_ref or args.cc_ref:
+        _cfg_refs = PMConfig.load()
+        args.to = list(args.to) + resolve_refs(_cfg_refs, args.to_ref)
+        args.cc = list(args.cc) + resolve_refs(_cfg_refs, args.cc_ref)
 
     body = sys.stdin.read() if args.body == "-" else args.body
     body = body.rstrip() + "\n"

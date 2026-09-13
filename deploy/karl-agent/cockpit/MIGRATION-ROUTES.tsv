@@ -10,6 +10,8 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /auto-yes	L2	sessionsets	/api/session-set/auto-yes	1	setAutoYes
 /buffer	L2	terminal	/api/terminal/buffer	1	pullBuffer
 /capture	L2,L5	terminal	/api/terminal/capture	2	copyCapture;readQuestion
+/contact	L4	projects	/api/project/contact	1	openContact
+/contacts	L4	projects	/api/project/contacts	1	openContacts
 /client	L4	projects	/api/project/client	1	openCenterClient
 /cockpit-config	L2	sessions	/api/session/cockpit-config	1	kill
 /conf	L4	projects	/api/project/conf	1	openCenterConf

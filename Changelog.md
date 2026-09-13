@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les worklogs des sessions actives pendant le déménagement sont recollés** (RM2992) : le déplacement
+  des données vers `var/` a copié les worklogs, puis le démon a continué d'écrire dans l'**ancien** tant
+  qu'il n'avait pas redémarré. Au redémarrage, il a repris le fichier copié — sans ce qui avait été écrit
+  entre-temps. Une session active ce jour-là a vu **83 tickets devenir 2**, et ses 214 merge requests
+  disparaître de sa vue. Rien n'était perdu : les deux fichiers existaient, il fallait les recoller.
+  `mmi-pm worklog-merge` le fait — `--list` dit ce qui manque, `--all` répare, avec sauvegarde avant
+  écriture. La fusion **complète sans amputer** : une entrée présente des deux côtés garde ce que la plus
+  récente ne porte pas. Quatre sessions réparées.
+
 - **Supervision : le projet se choisit dans une liste** (RM3112) : le champ était en saisie libre, or un
   slug mal orthographié envoie le ticket nulle part et ne se voit qu'après. La liste des projets **suit le
   client sélectionné** et se met à jour avant même de confirmer. Un client à plusieurs projets exige qu'on

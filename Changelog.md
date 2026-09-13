@@ -1014,6 +1014,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Le clic sur « 📧 emails » ne faisait rien** (RM3138). Une balise fermante orpheline dans
+  `index.html` refermait `.lbody` juste avant `#lp-mail`, qui se retrouvait **dehors**.
+  `switchPanel` commence par vérifier que le panneau demandé existe *dans* `.lbody` — garde
+  légitime contre un nom inconnu — ne le trouvait pas, et retombait sur « running » : d'où
+  l'inertie apparente, et un panneau de triage des emails **inatteignable depuis l'interface**
+  alors qu'il était monté et peint au démarrage. Le navigateur corrigeant l'imbrication en
+  silence, la page s'affichait normalement et rien ne signalait l'erreur — ni au chargement, ni
+  dans la console. Le correctif tient en une ligne retirée ; ce qui compte est la garde qui
+  manquait : un test vérifie désormais sur le fichier lui-même que tout bouton `data-panel`
+  a son panneau, qu'aucun `.lpanel` ne traîne hors de `.lbody` (`.lpanel { display:none }` est
+  global : un panneau égaré resterait invisible pour toujours) et que l'imbrication de la
+  colonne est équilibrée. Vérifié par contrôle négatif : le test redevient rouge dès qu'on
+  remet la balise.
 - **Ce qui change arrive au cockpit sans attendre son tick** (RM3006). Statuts de tickets,
   notes, worklog de session et relève mail n'apparaissaient qu'au prochain composite `/refresh`
   (3 à 7 s). Les scripts qui écrivent publient désormais un sujet à karl-agent

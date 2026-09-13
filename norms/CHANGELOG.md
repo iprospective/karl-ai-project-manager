@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.45.0] - 2026-09-13
+
+### Modifié
+- **`structure-reference-pratique` § annuaire — `internal` est un attribut de
+  PERSONNE** (RM3024), et l'envoi d'un mail peut viser une `ref`. Posé ligne par
+  ligne, « des nôtres » ne voulait rien dire : la même personne était marquée
+  interne chez 2 clients et externe chez 17. Le routage entrant s'appuie
+  désormais dessus — toute adresse d'une personne interne cesse d'être un indice
+  de client, y compris sa boîte hors domaine. Est écrit aussi pourquoi ce sont
+  des **adresses** et non des domaines (dériver un domaine de la boîte perso
+  d'un interne rendrait « nôtre » tout `gmail.com`), et où vivent désormais les
+  domaines maison (`pm.config.yml :: mail.own_domains`).
+
+
 ## [2.44.0] - 2026-09-13
 
 ### Modifié

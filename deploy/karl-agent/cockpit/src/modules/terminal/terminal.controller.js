@@ -8,7 +8,7 @@ import { mount, paint } from "../../core/dom.js";
 import { TerminalService } from "./terminal.service.js";
 import { ComposerViewModel } from "./ComposerViewModel.js";
 import { ComposerWarn, ComposerHistory } from "./Composer.view.js";
-import { termAvailable, termBase, ttydUrl, composerGuard, truncate, sessionCookie } from "./terminal.js";
+import { termAvailable, termBase, ttydUrl, composerGuard, truncate, sessionCookie, iframeReachable } from "./terminal.js";
 
 export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   const svc = ctx.service || new TerminalService({ storage: ctx.storage });
@@ -28,6 +28,15 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
     // RM2700 : le WebSocket (et l'iframe) ne portent pas X-Karl-Token ; le gate Apache valide un cookie même-origine posé depuis le token d'appareil
     if (c.auth_required && ctx.token && ctx.token()) { try { if (ctx.setCookie) ctx.setCookie(sessionCookie(ctx.token(), l.protocol === "https:")); } catch (e) { /* cookies bloqués : le gate refusera */ } }
     if (!termAvailable(ctx.storage, win)) {                                   // repli : iframe ttyd
+      // RM3124 : à distance ce repli ne peut PAS aboutir (port 7681 du bridge LXC).
+      // On le dit, plutôt que de laisser le navigateur afficher « impossible de se
+      // connecter à …:7681 », qui n'apprend rien à qui le lit.
+      if (!iframeReachable(l)) {
+        if (host) host.style.display = "none";
+        if (frame) { frame.src = "about:blank"; frame.style.display = "none"; }
+        notify("Terminal indisponible : le client intégré ne s'est pas chargé, et le repli exige le port 7681 du conteneur, injoignable depuis l'extérieur. Recharge la page (Ctrl+Maj+R) ; si cela persiste, retire `karl_noxterm` du stockage local.", "error");
+        composerShow(true); return "unreachable";
+      }
       if (host) host.style.display = "none";
       if (frame) { frame.style.display = "block"; frame.src = ttydUrl(c, l, rmId); }
       composerShow(true); return "iframe";

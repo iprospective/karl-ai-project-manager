@@ -399,10 +399,12 @@ if (window.matchMedia) {
          dans le cockpit, alors que sa fiche était prête à être servie. -->
     <!-- RM2760 panneau projets — domaine MIGRÉ (RM2889, L4) : rendu par src/views/projects/ProjectsPanel.view.js -->
     <div class="lpanel" id="lp-projects"></div>
-    </div>
 
     <!-- RM2671 file de triage des emails — domaine MIGRÉ (RM2889, L1) : le panneau
-         entier est rendu par src/views/mail/MailPanel.view.js et monté ici par boot.js. -->
+         entier est rendu par src/views/mail/MailPanel.view.js et monté ici par boot.js.
+         RM3138 : une balise fermante orpheline refermait `.lbody` juste au-dessus,
+         laissant ce panneau DEHORS — `switchPanel` ne le trouvait plus et retombait
+         sur « running », si bien que le clic sur « 📧 emails » ne faisait rien. -->
     <div class="lpanel" id="lp-mail"></div>
 
     </div><!-- /.lbody -->

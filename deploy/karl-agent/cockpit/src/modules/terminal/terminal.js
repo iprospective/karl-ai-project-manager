@@ -1,8 +1,27 @@
 // models/terminal/terminal — le terminal (RM2522 client maison / repli iframe, RM2561 origine du WebSocket, RM2807 opt-in) et le
 // composer (RM2527 garde d'état, historique) : ce qui se calcule sans DOM. RM2889.
 
-/** RM2807 : le client xterm maison est OPT-IN (`karl_xterm=1`) le temps de l'enquête mémoire ; l'iframe ttyd reste le défaut. */
-export function termAvailable(storage, win) { try { if (!storage || storage.getItem("karl_xterm") !== "1") return false; } catch (e) { return false; } return !!(win && win.KarlTerm && win.Terminal); }
+/** Le client xterm maison est le DÉFAUT ; `karl_noxterm=1` fait repli sur l'iframe (RM3124).
+ *
+ * Il avait été passé en opt-in par RM2807, « le temps de l'enquête mémoire ». L'enquête a
+ * conclu : le coupable était un fan-out exponentiel ailleurs (2^N → N+1, garde
+ * `!resolveInflight`), pas ce client — innocenté, mais jamais remis par défaut. L'oubli
+ * rendait le terminal inutilisable À DISTANCE : seule l'iframe servait, et elle ne sait
+ * viser que `hostname:7681`, un port du bridge LXC jamais exposé publiquement.
+ */
+export function termAvailable(storage, win) {
+  try { if (storage && storage.getItem("karl_noxterm") === "1") return false; } catch (e) { /* stockage bloqué : on garde le défaut */ }
+  return !!(win && win.KarlTerm && win.Terminal);
+}
+/** Le repli iframe est-il seulement joignable d'ici ? (RM3124)
+ *
+ * Non en accès proxifié : l'UI ttyd native exige la RACINE de son serveur — elle fetch
+ * « /token » en absolu et ne survit pas au préfixe `/ttyd/`. Elle a donc besoin du port
+ * dédié 7681, qui n'écoute que sur le bridge LXC. Le dire vaut mieux que de poser une
+ * URL morte : le navigateur ne rend alors qu'un « impossible de se connecter » qui
+ * n'apprend rien.
+ */
+export function iframeReachable(loc) { const p = loc && loc.port; return !(p === "" || p === "80" || p === "443"); }
 /** RM2561 : servi par le vhost (port implicite), le WebSocket passe par le proxy de MÊME ORIGINE /ttyd ; en accès direct, repli :7681. */
 export function termBase(cfg, loc) {
   if (cfg && cfg.ttyd_base) return cfg.ttyd_base;

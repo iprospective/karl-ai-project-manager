@@ -22,6 +22,7 @@ Usage :
                       --email claire@x.fr --phone "+33 6 …" [--internal]
     pm-contact.py set <ref> [--add-email …] [--add-phone …] [--last-name …] …
     pm-contact.py merge <ref-gardée> <ref-absorbée>   # met à jour les clients
+    pm-contact.py mark-internal [--dry-run] # « des nôtres » devient un fait de personne
     pm-contact.py migrate [--apply]         # 31 lignes en ligne → annuaire
 """
 import argparse
@@ -208,6 +209,37 @@ def cmd_set(cfg, args):
     return 0
 
 
+def cmd_mark_internal(cfg, args):
+    """Marque `internal` les personnes portant une de NOS adresses (RM3024).
+
+    L'attribut appartient à la PERSONNE, pas à une ligne de client : avant,
+    la même personne était marquée interne chez 2 clients et externe chez 17,
+    ce qui ne voulait rien dire — et le routage ne pouvait pas s'en servir.
+
+    Ne démarque jamais : quelqu'un des nôtres dont l'adresse maison a été
+    retirée de sa fiche reste des nôtres. Le retrait se fait à la main
+    (`set <ref> --no-internal`), parce que c'est une décision, pas une
+    déduction."""
+    ann = load_annuaire(cfg)
+    touches = []
+    for ref, p in sorted(ann.items()):
+        if p.get("internal"):
+            continue
+        if any(pc.is_internal_email(e) for e in p.get("emails") or []):
+            p["internal"] = True
+            touches.append(ref)
+            if not args.dry_run:
+                write_fiche(cfg, p)
+    if not touches:
+        out.info("aucune personne à marquer (toutes celles qui portent une "
+                 "adresse maison le sont déjà)")
+        return 0
+    print("  " + ", ".join(touches))
+    out.ok(f"{'(dry-run) ' if args.dry_run else ''}{len(touches)} personne(s) "
+           "marquée(s) internes")
+    return 0
+
+
 def cmd_merge(cfg, args):
     """Absorbe une fiche dans une autre, et RÉPARE les rattachements.
 
@@ -330,6 +362,7 @@ def main():
     p.add_argument("--redmine-user-id", type=int)
     p.add_argument("--internal", dest="internal", action="store_true", default=None)
     p.add_argument("--no-internal", dest="internal", action="store_false")
+    p = sub.add_parser("mark-internal")
     p = sub.add_parser("merge"); p.add_argument("garde"); p.add_argument("absorbe")
     p = sub.add_parser("migrate"); p.add_argument("--apply", action="store_true")
 
@@ -337,7 +370,8 @@ def main():
     out.configure(args)
     cfg = PMConfig.load()
     return {"list": cmd_list, "show": cmd_show, "find": cmd_find, "add": cmd_add,
-            "set": cmd_set, "merge": cmd_merge, "migrate": cmd_migrate}[args.cmd](cfg, args)
+            "set": cmd_set, "merge": cmd_merge, "migrate": cmd_migrate,
+            "mark-internal": cmd_mark_internal}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

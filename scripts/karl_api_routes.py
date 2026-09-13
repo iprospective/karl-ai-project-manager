@@ -73,6 +73,8 @@ TARGET_TO_CURRENT = {
     "/api/pm/test-queue": "/pm/test-queue",
     "/api/project/client": "/client",
     "/api/project/conf": "/conf",
+    "/api/project/contact": "/contact",
+    "/api/project/contacts": "/contacts",
     "/api/project/project-worktrees": "/project-worktrees",
     "/api/project/projects": "/projects",
     "/api/review/mr/deliver": "/mr/deliver",

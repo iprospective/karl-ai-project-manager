@@ -56,6 +56,8 @@ defineEntity("review",    { icon: "🧪", label: "ticket", surface: true, toolti
 defineEntity("project",   { icon: "📁", label: "projet", surface: true, tooltip: (key) => avec("fiche projet", key), open: (api, t) => api.surface("project", "open", t.key) });
 defineEntity("newticket", { icon: "＋", label: "nouveau ticket", surface: true, closeLast: true, tooltip: () => "nouveau ticket", open: (api) => api.surface("newticket", "open") });
 defineEntity("client",    { icon: "🏢", label: "client", tooltip: (key, p) => avec("fiche client", p[0] || key), open: (api, t, p) => api.openClient(p[0]) });
+defineEntity("contacts", { icon: "👤", label: "annuaire", tooltip: (key, p) => avec("annuaire", p[0] ? "« " + p[0] + " »" : ""), tabLabel: (p) => p[0] ? "👤 " + p[0] : "annuaire", open: (api, t, p) => api.openContacts(p[0]) });
+defineEntity("contact",  { icon: "👤", label: "personne", errorTitle: "Fiche introuvable", tooltip: (key, p) => avec("personne", p[0] || key), tabLabel: (p) => p[0] || "personne", open: (api, t, p) => api.openContact(p[0]) });
 defineEntity("conf",      { icon: "⚙", label: "configuration", tooltip: (key, p) => avec("configuration", p[0] === "project" ? (p[1] || "") + "/" + (p[2] || "") : (p[1] || "")), open: (api, t, p) => api.openConf(p[0], p[1], p[2]) });
 defineEntity("file",      { icon: "📄", label: "fichier", tooltip: (key, p, lbl) => avec("fichier", p[2] || p[1] || lbl), tabLabel: (p) => base(p[2]) || base(p[1]) || "fichier", open: (api, t, p) => api.openFile(p[0], p[1], p[2], p[3]) });
 defineEntity("dir",       { icon: "🗂", label: "dossier", tooltip: (key, p) => avec("dossier", p[2] || "racine du dépôt"), tabLabel: (p) => (base(p[2]) || "racine") + "/", open: (api, t, p) => api.openDir(p[0], p[1], p[2], p[3]) });

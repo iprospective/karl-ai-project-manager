@@ -526,6 +526,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **L'annuaire de contacts devient utile aux automatismes, et visible** (RM3024, lots L4-L5
+  de RM2703). Trois consommateurs le lisent désormais. **`internal` est un attribut de
+  personne** : posé ligne par ligne, il ne voulait rien dire — la même personne était marquée
+  interne chez 2 clients et externe chez 17. `pm-contact.py mark-internal` le pose sur la
+  PERSONNE, et `pm-client-contact mark-internal` ne touche plus une ligne rattachée : deux
+  points d'écriture sur la même vérité, c'est une divergence en germe. **Le routage entrant**
+  (RM2669) s'appuie dessus : toute adresse d'une personne interne cesse d'être un indice de
+  client, y compris sa boîte hors domaine — ce qu'aucune liste de domaines ne pouvait couvrir.
+  Ce sont des **adresses** et jamais des domaines, délibérément : dériver un domaine de la
+  boîte perso d'un interne rendrait « nôtre » tout `gmail.com` et le routage cesserait de
+  reconnaître ses clients ; les domaines maison, eux, quittent le code pour
+  `pm.config.yml :: mail.own_domains`. **Un mail s'envoie par `ref`**
+  (`karl-mail-send.py --to-ref <ref>`) : l'adresse est résolue à l'envoi et jamais recopiée —
+  une recopie se périme en silence le jour où la personne change de boîte ; une ref inconnue
+  arrête le programme **avant** qu'il n'ouvre le vault. Côté **cockpit**, l'annuaire s'ouvre au
+  centre (bouton 👤 du panneau Projets) : recherche par nom ou par n'importe quelle adresse,
+  accents ignorés, la requête restant dans la clé d'onglet pour être rejouée à la réouverture ;
+  la fiche d'une personne montre ses **rattachements** — chez qui elle intervient et à quel
+  titre — et chacun ramène à la fiche du client. Dans la fiche d'un client, les contacts sont
+  enfin **résolus** : un rattachement affichait « — » jusqu'ici, faute que le cockpit connaisse
+  autre chose que l'ancienne forme ; il porte maintenant l'identité, se clique, et une `ref`
+  dont la fiche a disparu se signale au lieu de passer pour un contact vide.
 - **La machine est enfin sauvegardée — et la sauvegarde est surveillée** (RM3023).
   `zfs/root/home` n'avait **qu'un seul snapshot, du 17 avril 2025**, et la machine aucune
   sauvegarde externe : ni borg, ni restic, ni rsnapshot, ni rclone configuré, ni ligne cron.

@@ -52,11 +52,35 @@ export function CommitView(short, message, patch) {
   return html`<div class="ms"><h4 style="font-family:var(--mono)">${short}</h4><div style="white-space:pre-wrap;font-size:12px">${message}</div></div>${patch}`;
 }
 
+// ── RM3024 : l'annuaire de contacts ─────────────────────────────────────────
+// Une personne, une fiche — et on la retrouve par n'importe laquelle de ses
+// adresses, ce qu'un contact recopié chez chaque client ne permettait pas.
+
+export function ContactsView(vm) {
+  const rows = vm.rows();
+  return html`<div class="ms"><h4>👤 Annuaire <span style="color:var(--muted);font-weight:normal">(${rows.length})</span></h4>
+    <div class="searchrow"><input id="ct-q" type="text" placeholder="nom, prénom, adresse…" value="${vm.q}" data-action="contacts-search"><button class="mini" data-action="contacts-clear" title="Vider">✕</button></div>
+    <div style="color:var(--muted);font-size:11px;margin-top:4px">La recherche porte sur le nom ET sur toutes les adresses de la personne.</div></div>
+    ${rows.length ? html`<div class="ms">${rows.map(p => html`<div class="oline" style="white-space:normal;cursor:pointer" data-action="open-contact" data-value="${p.ref}" title="Ouvrir la fiche de ${p.ref}">${p.internal ? html`<span class="pill">interne</span> ` : ""}${p.name}<span style="color:var(--muted)"> — ${p.emails.join(" · ")}</span></div>`)}</div>`
+      : html`<div class="ms"><div class="empty">${vm.q ? "aucune personne pour « " + vm.q + " »" : "annuaire vide"}</div></div>`}`;
+}
+
+export function ContactView(vm) {
+  const kv = (k, v) => v ? html`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>` : "";
+  const c = vm.e, liens = vm.links();
+  return html`<div class="ms"><h4>${vm.name}${c.internal ? html` <span class="pill">interne</span>` : ""}</h4>
+    ${kv("ref", html`<code>${c.ref}</code>`)}${kv("adresses", (c.emails || []).join(" · "))}${kv("téléphones", (c.phones || []).join(" · "))}
+    ${kv("Redmine", c.redmine_user_id || "")}${kv("note", c.note || "")}${kv("fiche", vm.dates)}</div>
+    <div class="ms"><h4>Rattachements (${liens.length})</h4>${liens.length
+      ? liens.map(l => html`<div class="oline" style="cursor:pointer" data-action="open-client" data-value="${l.client}" title="Ouvrir la fiche de ${l.client}">🏢 ${l.client}<span style="color:var(--muted)"> — ${l.det}</span></div>`)
+      : html`<div style="color:var(--muted);font-size:11.5px">aucun client ne la référence encore</div>`}</div>`;
+}
+
 export function ClientView(vm) {
   const kv = (k, v) => v ? html`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>` : "";
   const c = vm.e, contacts = vm.contacts();
   return html`<div class="ms"><h4>${vm.name}</h4>${vm.identity().map(([k, v]) => kv(k, v))}${kv("Redmine", c.redmine_project_url ? html`<a href="${c.redmine_project_url}" target="_blank">${c.redmine_project_id} ↗</a>` : (c.redmine_project_id || ""))}</div>${contacts.length
-    ? html`<div class="ms"><h4>Contacts (${contacts.length})</h4>${contacts.map(p => html`<div class="kv"><span class="k">${p.nom}${p.internal ? html` <span class="pill">interne</span>` : ""}</span><span class="v">${p.det}</span></div>`)}</div>` : ""}${(vm.priority || vm.team.length)
+    ? html`<div class="ms"><h4>Contacts (${contacts.length})</h4>${contacts.map(p => html`<div class="kv"${p.ref ? html` style="cursor:pointer" data-action="open-contact" data-value="${p.ref}" title="Ouvrir la fiche de ${p.ref}"` : ""}><span class="k">${p.nom}${p.internal ? html` <span class="pill">interne</span>` : ""}${p.orphelin ? html` <span class="pill warn">ref inconnue</span>` : ""}</span><span class="v">${p.det}</span></div>`)}</div>` : ""}${(vm.priority || vm.team.length)
     ? html`<div class="ms"><h4>Valeurs par défaut</h4>${kv("priorité", vm.priority)}${kv("équipe", vm.team.join(" · "))}</div>` : ""}<div class="ms"><h4>Projets (${vm.projects.length})</h4>${vm.projects.length
     ? vm.projects.map(p => html`<div class="oline" style="white-space:normal;cursor:pointer" data-action="open-project" data-value="${p.value}" title="Ouvrir la fiche de ${p.value}">📄 ${p.project}</div>`)
     : html`<div style="color:var(--muted);font-size:11.5px">aucun projet</div>`}</div>${vm.used.length

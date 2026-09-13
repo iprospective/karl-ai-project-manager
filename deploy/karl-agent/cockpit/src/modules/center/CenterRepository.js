@@ -14,7 +14,8 @@ const enc = encodeURIComponent;
 export class CenterRepository extends Repository {
   constructor({ git = new GitRepository(), mail = new MailRepository() } = {}) {
     super({ name: "center", ttl: 3000, max: 20, factory: new Factory({ type: "center-view" }),
-            routes: { doc: routeFor("/file"), fsFile: routeFor("/fs/file"), fsLs: routeFor("/fs/ls"), client: "project.client", conf: "project.conf" } });
+            routes: { doc: routeFor("/file"), fsFile: routeFor("/fs/file"), fsLs: routeFor("/fs/ls"), client: "project.client", conf: "project.conf",
+                     contacts: "project.contacts", contact: "project.contact" } });
     this.git = git; this.mail = mail;
   }
   /** Un document PM, en texte ; lève « erreur <status> » comme avant. */
@@ -29,5 +30,8 @@ export class CenterRepository extends Repository {
     return e;
   }
   client(client) { return get(this.path("client") + "/" + enc(client)); }
+  /** RM3024 — l'annuaire, cherchable par nom comme par n'importe quelle adresse. */
+  contacts(q) { return get(this.path("contacts") + (q ? "?q=" + enc(q) : "")); }
+  contact(ref) { return get(this.path("contact") + "/" + enc(ref)); }
   conf(scope, client, project) { return get(this.path("conf") + "?scope=" + enc(scope) + "&client=" + enc(client) + "&project=" + enc(project || "")); }
 }

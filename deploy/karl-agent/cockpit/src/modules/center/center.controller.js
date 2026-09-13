@@ -22,8 +22,8 @@ import { NAV_MAX, histVisit, histStep, histCloseTarget } from "./history.js";
 import { viewKey, parseViewKey, viewTabLabel } from "./viewKey.js";
 import { fsScope, scopeTag } from "../files/scope.js";
 import { CenterRepository } from "./CenterRepository.js";
-import { TabsViewModel, HistoryViewModel, CenterTitleViewModel, FileViewModel, DirViewModel, EmailViewModel, ClientViewModel } from "./CenterViewModels.js";
-import { Tabs, History, CenterTitle, FileView, DirView, MailView, CommitView, ClientView, ConfView, ViewError } from "./Center.view.js";
+import { TabsViewModel, HistoryViewModel, CenterTitleViewModel, FileViewModel, DirViewModel, EmailViewModel, ClientViewModel, ContactsViewModel, ContactViewModel } from "./CenterViewModels.js";
+import { Tabs, History, CenterTitle, FileView, DirView, MailView, CommitView, ClientView, ContactsView, ContactView, ConfView, ViewError } from "./Center.view.js";
 import { GitPatchViewModel } from "../git/GitPatchViewModel.js";
 import { GitPatch } from "../git/GitPanel.view.js";
 import { entity, surfaceTypes } from "../../core/entities.js";
@@ -88,6 +88,7 @@ export function mountCenter(hosts, ctx = {}) {
     surface: (name, verb, ...args) => surfaces[name] && surfaces[name][verb] && surfaces[name][verb](...args),
     openSessionTab, openDashboard: () => openDashboard(), openFile: (...a) => openFile(...a), openDir: (...a) => openDir(...a), openCommit: (...a) => openCommit(...a),
     openMail: (...a) => openMail(...a), openClient: (...a) => openClient(...a), openConf: (...a) => openConf(...a), openPanel: (n) => openPanel(n),
+    openContacts: (...a) => openContacts(...a), openContact: (...a) => openContact(...a),
   };
   function togglePin(id) {
     const t = state.tabs.find(x => tabId(x.kind, x.key) === id);
@@ -195,6 +196,20 @@ export function mountCenter(hosts, ctx = {}) {
     const key = viewKey([client]);
     return openView("client", key, client, async () => ClientView(new ClientViewModel(await repo.client(client))));
   }
+  // RM3024 — l'annuaire et la fiche d'une personne. La requête garde les
+  // mots-clés dans la clé de vue : rouvrir l'onglet rejoue la MÊME recherche,
+  // au lieu de rendre un annuaire entier où l'on ne retrouve rien.
+  function openContacts(q) {
+    q = String(q || "");
+    const key = viewKey([q]);
+    return openView("contacts", key, viewTabLabel("contacts", [q]),
+                    async () => ContactsView(new ContactsViewModel(await repo.contacts(q), q)));
+  }
+  function openContact(ref) {
+    const key = viewKey([ref]);
+    return openView("contact", key, viewTabLabel("contact", [ref]),
+                    async () => ContactView(new ContactViewModel(await repo.contact(ref))));
+  }
   function openConf(scope, client, project) {
     const key = viewKey([scope, client, project || ""]);
     return openView("conf", key, "⚙ " + (scope === "project" ? project : client), async () => ConfView(await repo.conf(scope, client, project)));
@@ -232,18 +247,33 @@ export function mountCenter(hosts, ctx = {}) {
   }
 
   // ── montage ──────────────────────────────────────────────────────────────
+  // Déclaré AVANT la table de gestes qui s'en sert : la capture dans une
+  // fonction serait sûre, mais le motif « let après usage » est celui qui a
+  // coûté un ReferenceError silencieux au boot (RM2889).
+  let contactsTimer = null;
   const gestures = {
     activate: (n) => activate(n.dataset.id), pin: (n) => togglePin(n.dataset.id), close: (n) => closeTab(n.dataset.id),
     goto: (n) => histGoTo(n.dataset.id),
     "open-dir": (n) => openDir(n.dataset.src, n.dataset.wt, n.dataset.path, n.dataset.tag),
     "open-file": (n) => openFile(n.dataset.src, n.dataset.wt, n.dataset.path, n.dataset.tag),
     "open-project": (n) => surfaces.project && surfaces.project.open(n.dataset.value),
+    // RM3024 — l'annuaire. La recherche est amortie : chaque frappe rouvrirait
+    // la vue et relancerait une requête.
+    "open-contact": (n) => openContact(n.dataset.value),
+    "open-client": (n) => openClient(n.dataset.value),
+    "contacts-search": (n) => {
+      clearTimeout(contactsTimer);
+      const q = n.value;
+      contactsTimer = setTimeout(() => openContacts(q), 250);
+    },
+    "contacts-clear": () => openContacts(""),
   };
   const onAction = (ev, n) => { const g = gestures[n.dataset.action]; if (!g) return; if (ev.preventDefault) ev.preventDefault(); if (ev.stopPropagation) ev.stopPropagation(); return g(n); };
   const h = {
     tabs: hosts.tabs ? mount(hosts.tabs, "", { events: [["click", "[data-action]", onAction]] }) : null,
     hist: hosts.hist ? mount(hosts.hist, "", { events: [["click", "[data-action]", onAction]] }) : null,
-    view: hosts.view ? mount(hosts.view, "", { events: [["click", "[data-action]", onAction]] }) : null,
+    view: hosts.view ? mount(hosts.view, "", { events: [["click", "[data-action]", onAction],
+                                               ["input", "[data-action='contacts-search']", onAction]] }) : null,
     title: hosts.title ? mount(hosts.title, "") : null,
   };
   const hasTab = (key, kinds) => state.tabs.some(t => t && String(t.key) === String(key) && (!kinds || kinds.includes(t.kind)));
@@ -251,7 +281,7 @@ export function mountCenter(hosts, ctx = {}) {
   if (h.tabs) h.tabs.track(resolve().subscribe((k) => { if (k != null && hasTab(k, ["review", "session"])) renderTabs(); }));
   return { note, activate, closeTab, togglePin, pinOf, hasTab, renderTabs, title, navGo, histGoTo, histToggle,
            openDashboard, openPanel, closePanel, closeView, isBusy, fallback, restore, yield: yieldTo,
-           openFile, openDir, openCommit, openMail, openClient, openConf, current: () => state.view, state,
+           openFile, openDir, openCommit, openMail, openClient, openConf, openContacts, openContact, current: () => state.view, state,
            register: (kind, surface) => { surfaces[kind] = surface; },
            unmount: () => Object.values(h).forEach(x => x && x.unmount()) };
 }

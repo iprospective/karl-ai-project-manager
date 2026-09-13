@@ -141,6 +141,30 @@ def merge_person(a, b):
     return {k: v for k, v in out.items() if v not in (None, [], "")}
 
 
+# >>> internal_addresses — pure (testée par test_pm_contacts.py)
+def internal_addresses(annuaire):
+    """Toutes les adresses des personnes marquées `internal`, en minuscules.
+
+    C'est ce que l'annuaire apporte au routage (RM2669/RM3024) : « des nôtres »
+    devient une propriété de la PERSONNE, vraie une fois pour toutes, au lieu
+    d'une marque posée ligne par ligne — la même personne était interne chez
+    2 clients et externe chez 17.
+
+    Des ADRESSES, jamais des domaines : dériver un domaine de la boîte perso
+    d'un interne rendrait « nôtre » tout gmail.com, et le routage cesserait de
+    reconnaître ses clients."""
+    out = set()
+    for p in (annuaire or {}).values():
+        if not (p or {}).get("internal"):
+            continue
+        for e in p.get("emails") or []:
+            e = norm_email(e)
+            if e:
+                out.add(e)
+    return out
+# <<< internal_addresses
+
+
 def index_by_email(annuaire):
     """{email normalisé → ref}. Une personne a plusieurs adresses ; c'est par
     n'importe laquelle qu'on doit la retrouver — ce dont le routage a besoin."""

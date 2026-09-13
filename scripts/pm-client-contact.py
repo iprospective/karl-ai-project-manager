@@ -270,7 +270,7 @@ def cmd_mark_internal(cfg, args):
     entrant — cf. RM2669).
     """
     clients = [args.client] if args.client else known_clients(cfg)
-    touched = []
+    touched, rattaches = [], 0
     for slug in clients:
         f = meta_path(cfg, slug)
         if not f.is_file():
@@ -278,6 +278,13 @@ def cmd_mark_internal(cfg, args):
         meta = load_meta(f)
         changed = False
         for c in meta.get("contacts") or []:
+            # RM3024 : une ligne rattachée n'a plus d'attribut à elle — il
+            # appartient à la personne. On la compte pour le dire, on n'y
+            # touche pas : deux points d'écriture sur la même vérité, c'est
+            # une divergence en germe.
+            if c.get("ref"):
+                rattaches += 1
+                continue
             if is_internal(c.get("email") or "") and not c.get("internal"):
                 c["internal"] = True
                 changed = True
@@ -285,8 +292,11 @@ def cmd_mark_internal(cfg, args):
             touched.append(slug)
             if args.apply and not args.dry_run:
                 save_meta(f, meta)
+    if rattaches:
+        print(f"  {rattaches} ligne(s) rattachée(s) à l'annuaire : l'attribut y est "
+              "porté par la personne → pm-contact.py mark-internal")
     if not touched:
-        out.op("contacts", extra="aucune adresse maison à marquer")
+        out.op("contacts", extra="aucune adresse maison à marquer sur une ligne en ligne")
         return
     print("  " + ", ".join(touched))
     out.op("contacts", extra=(f"{len(touched)} client(s) marqués"

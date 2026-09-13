@@ -112,6 +112,8 @@ API (JSON, localhost:9876)
                                   pas encore fetchés), ou les deux fusionnés  (RM2770)
   GET  /tags                    → {tags:[{tag,count}]} — étiquettes en usage (RM2830)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  GET  /contacts[?q=&internal=1] → {contacts:[…]}  annuaire cherchable (RM3024)
+  GET  /contact/<ref>           → fiche personne + ses rattachements (RM3024)
   GET  /client/<slug>           → fiche client : identité, statut, contacts,
                                   valeurs par défaut, projets, projets utilisés,
                                   docs  (RM2768)
@@ -8986,6 +8988,146 @@ def _client_docs(client: str) -> list:
     return out
 
 
+# ── RM3024 : l'annuaire de contacts vu du cockpit ────────────────────────────
+# L'identité vit dans une fiche, la relation chez le client (RM2703). Le cockpit
+# doit montrer les deux : « qui est cette personne » et « qui elle est pour ce
+# client » — et les rendre cherchables, ce qui manquait complètement.
+
+def _resolve_contacts(lignes) -> list:
+    """`contacts[]` d'un client, chaque ligne enrichie de son identité.
+
+    Les deux formes cohabitent (RM2703) : un rattachement (`ref`) et un contact
+    en ligne. Une `ref` sans fiche est marquée `orphelin` plutôt que rendue
+    muette — c'est une anomalie qui doit se voir, et le rôle, lui, reste vrai."""
+    ann = _annuaire()
+    out = []
+    for c in lignes or []:
+        if not isinstance(c, dict):
+            continue
+        ref = c.get("ref")
+        if not ref:
+            out.append(dict(c, source="inline"))
+            continue
+        p = ann.get(ref)
+        if not p:
+            out.append({"ref": ref, "role": c.get("role"), "title": c.get("title"),
+                        "source": "orphelin"})
+            continue
+        nom = " ".join(x for x in (p.get("first_name"), p.get("last_name")) if x)
+        emails = [str(e) for e in (p.get("emails") or [])]
+        out.append({"ref": ref, "role": c.get("role"), "title": c.get("title"),
+                    "source": "annuaire", "name": nom or (emails[0] if emails else ref),
+                    "last_name": p.get("last_name"), "first_name": p.get("first_name"),
+                    "email": emails[0] if emails else None, "emails": emails,
+                    "phone": (p.get("phones") or [None])[0],
+                    "internal": bool(p.get("internal"))})
+    return out
+
+
+def _contacts_dir() -> Path | None:
+    """Dossier de l'annuaire, résolu par le MÊME motif que le CLI.
+
+    Passer par `PMConfig` plutôt que recopier le chemin : une seconde
+    définition dériverait le jour où l'instance déplace son annuaire, et le
+    cockpit montrerait un annuaire vide sans dire pourquoi."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_paths import PMConfig
+        d = PMConfig.load().path("contacts_dir")
+    except Exception:  # noqa: BLE001 — instance sans le motif : annuaire absent
+        return None
+    return d if d.is_dir() else None
+
+
+def _annuaire() -> dict:
+    """{ref → fiche}. Lecture seule ; l'écriture reste à `pm-contact.py`."""
+    base = _contacts_dir()
+    if base is None:
+        return {}
+    ann = {}
+    for f in sorted(base.glob("*.yml")):
+        try:
+            data = yaml_safe_load(f.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001 — une fiche cassée n'efface pas les autres
+            continue
+        ann[str(data.get("ref") or f.stem)] = data
+    return ann
+
+
+def _contact_links(ref: str) -> list:
+    """Où cette personne est rattachée, et à quel titre."""
+    out = []
+    for cdir in sorted(PROJECTS_BASE.glob("*")):
+        if not cdir.is_dir():
+            continue
+        meta = _client_conf(cdir.name) or {}
+        for c in meta.get("contacts") or []:
+            if isinstance(c, dict) and c.get("ref") == ref:
+                out.append({"client": cdir.name, "role": c.get("role"),
+                            "title": c.get("title")})
+    return out
+
+
+def _sans_accents(s):
+    """Comparaison insensible aux accents : on cherche « noe » et on trouve
+    « Noé ». Sans cela, la recherche punit l'orthographe correcte."""
+    import unicodedata
+    n = unicodedata.normalize("NFKD", str(s or ""))
+    return "".join(c for c in n if not unicodedata.combining(c))
+
+
+# >>> contacts_view — pure (testée par test_karl_agent_contacts.py)
+def contacts_view(annuaire, q="", internal_only=False, limit=200):
+    """Lignes de l'annuaire, filtrées. Pure : le tri et le filtre sont la
+    fonctionnalité, ils doivent être testables sans serveur.
+
+    La recherche porte sur le nom ET sur toutes les adresses : une personne se
+    retrouve par n'importe laquelle des siennes — c'est la raison d'être de
+    l'annuaire, un contact en ligne n'en connaissait qu'une."""
+    ql = _sans_accents(str(q or "")).lower().strip()
+    out = []
+    for ref, p in (annuaire or {}).items():
+        p = p or {}
+        nom = " ".join(x for x in (p.get("first_name"), p.get("last_name")) if x)
+        emails = [str(e) for e in (p.get("emails") or [])]
+        if internal_only and not p.get("internal"):
+            continue
+        if ql:
+            foin = _sans_accents(f"{ref} {nom} {' '.join(emails)} "
+                                  f"{p.get('note') or ''}").lower()
+            if ql not in foin:
+                continue
+        out.append({"ref": ref, "name": nom or (emails[0] if emails else ref),
+                    "emails": emails, "phones": [str(x) for x in (p.get("phones") or [])],
+                    "internal": bool(p.get("internal")),
+                    "redmine_user_id": p.get("redmine_user_id"),
+                    "note": p.get("note") or ""})
+    out.sort(key=lambda e: (not e["internal"], _sans_accents(e["name"]).lower()))
+    return out[:limit]
+# <<< contacts_view
+
+
+def op_contacts(qs: dict) -> dict:
+    """GET /contacts[?q=&internal=1] — l'annuaire, cherchable."""
+    q = (qs or {}).get("q") or ""
+    interne = str((qs or {}).get("internal") or "").lower() in ("1", "true", "yes", "on")
+    return {"contacts": contacts_view(_annuaire(), q, interne)}
+
+
+def op_contact(ref: str) -> dict:
+    """GET /contact/<ref> — la fiche d'une personne et ses rattachements."""
+    ref = str(ref or "").strip()
+    if not _PART_RE.match(ref):
+        raise ApiError(400, "ref invalide")
+    p = _annuaire().get(ref)
+    if not p:
+        raise ApiError(404, f"aucune fiche « {ref} »")
+    ligne = contacts_view({ref: p})
+    return dict(ligne[0] if ligne else {"ref": ref},
+                links=_contact_links(ref), created=p.get("created"),
+                updated=p.get("updated"))
+
+
 def op_client(client: str) -> dict:
     """RM2768 : fiche client — identité, contacts, valeurs par défaut, projets.
 
@@ -9025,7 +9167,9 @@ def op_client(client: str) -> dict:
         "status": meta.get("status") or "",
         "type": meta.get("type") or "",
         "created": str(meta.get("created") or ""),
-        "contacts": meta.get("contacts") or [],
+        # RM3024 : résolus. Une ligne `ref` n'affichait rien du tout avant —
+        # ni nom, ni adresse : le cockpit ne connaissait que l'ancienne forme.
+        "contacts": _resolve_contacts(meta.get("contacts") or []),
         "defaults": meta.get("defaults") or {},
         "redmine_project_id": rid,
         "redmine_project_url": f"{redmine}/projects/{rid}" if redmine and rid else "",
@@ -12331,6 +12475,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"tags": op_tags()})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path == "/contacts":                # RM3024 : l'annuaire, cherchable
+                return self._send_json(200, op_contacts(
+                    {k: v[0] for k, v in parse_qs(parsed.query).items()}))
+            if path.startswith("/contact/"):       # RM3024 : une personne
+                return self._send_json(200, op_contact(path[len("/contact/"):]))
             if path.startswith("/client/"):        # RM2768 : fiche client
                 return self._send_json(200, op_client(path[len("/client/"):]))
             if path == "/conf":                    # RM2768 : meta.yml client/projet

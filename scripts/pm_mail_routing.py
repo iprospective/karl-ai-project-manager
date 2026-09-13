@@ -36,6 +36,8 @@ from pathlib import Path
 
 import yaml
 
+import pm_contacts
+
 # Adresses/domaines « maison » : ce sont les nôtres, ils n'identifient aucun client.
 OWN_DOMAINS_DEFAULT = ["iprospective.fr", "iprospective.net"]
 
@@ -66,18 +68,56 @@ _SPLIT_RE = re.compile(r"[^a-z0-9]+")
 def own_addresses(cfg=None) -> set:
     """Adresses à ne jamais prendre pour un indice de client (les nôtres).
 
-    Les domaines maison (§ `own_domains`) couvrent déjà le cas courant ; cette
-    liste sert aux adresses hors domaine (gmail perso d'un intervenant, alias).
-    """
-    return {a.strip().lower()
-            for a in (os.environ.get("KARL_MAIL_OWN_ADDRESSES") or "").split(",")
-            if a.strip()}
+    Trois sources, cumulées :
+      * **l'annuaire** (RM3024) — toute adresse d'une personne `internal: true`.
+        C'est la source qui se tient à jour toute seule : marquer quelqu'un des
+        nôtres une fois suffit, y compris pour sa boîte hors domaine ;
+      * `KARL_MAIL_OWN_ADDRESSES` — échappatoire d'instance ;
+      * les domaines maison (§ `own_domains`), qui couvrent le cas courant.
+
+    Des adresses et non des domaines côté annuaire : dériver un domaine de la
+    boîte perso d'un interne rendrait « nôtre » tout gmail.com, et le routage
+    cesserait de reconnaître ses clients."""
+    env = {a.strip().lower()
+           for a in (os.environ.get("KARL_MAIL_OWN_ADDRESSES") or "").split(",")
+           if a.strip()}
+    return env | _annuaire_internes(cfg)
 
 
-def own_domains() -> list:
+def _annuaire_internes(cfg) -> set:
+    """Adresses des personnes internes de l'annuaire, ou set() s'il n'existe pas."""
+    if cfg is None:
+        return set()
+    try:
+        d = cfg.path("contacts_dir")
+    except Exception:  # noqa: BLE001 — instance sans le motif : on n'empêche rien
+        return set()
+    if not d.is_dir():
+        return set()
+    ann = {}
+    for f in sorted(d.glob("*.yml")):
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        ann[data.get("ref") or f.stem] = data
+    return pm_contacts.internal_addresses(ann)
+
+
+def own_domains(cfg=None) -> list:
+    """Domaines maison. Configuration, plus une liste en dur (RM3024).
+
+    L'annuaire dit qui est des nôtres **adresse par adresse** ; les domaines
+    restent nécessaires pour ce qui n'y figure pas encore (un alias fraîchement
+    créé, une boîte de service). Ils viennent donc de `pm.config.yml ::
+    mail.own_domains`, surchargeable par `KARL_MAIL_OWN_DOMAINS`. La constante
+    n'est plus qu'un repli de dernier recours, pour une instance sans config."""
     raw = os.environ.get("KARL_MAIL_OWN_DOMAINS")
     if raw:
         return [d.strip().lower() for d in raw.split(",") if d.strip()]
+    conf = (getattr(cfg, "mail", None) or {}).get("own_domains") if cfg else None
+    if conf:
+        return [str(d).strip().lower() for d in conf if str(d).strip()]
     return list(OWN_DOMAINS_DEFAULT)
 
 
@@ -87,7 +127,7 @@ def is_own(addr: str, cfg=None) -> bool:
         return True
     if addr in own_addresses(cfg):
         return True
-    return addr.rsplit("@", 1)[-1] in own_domains()
+    return addr.rsplit("@", 1)[-1] in own_domains(cfg)
 
 
 # ── Table apprise ────────────────────────────────────────────────────────────

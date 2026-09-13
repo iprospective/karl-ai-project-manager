@@ -76,6 +76,8 @@ export const ROUTES = {
   "pm.test_queue": { current: "/pm/test-queue", target: "/api/pm/test-queue", lot: "L3", callers: 1 },
   "project.client": { current: "/client", target: "/api/project/client", lot: "L4", callers: 1 },
   "project.conf": { current: "/conf", target: "/api/project/conf", lot: "L4", callers: 1 },
+  "project.contact": { current: "/contact", target: "/api/project/contact", lot: "L4", callers: 1 },
+  "project.contacts": { current: "/contacts", target: "/api/project/contacts", lot: "L4", callers: 1 },
   "project.project_worktrees": { current: "/project-worktrees", target: "/api/project/project-worktrees", lot: "L4", callers: 1 },
   "project.projects": { current: "/projects", target: "/api/project/projects", lot: "L3", callers: 1 },
   "review.mr.deliver": { current: "/mr/deliver", target: "/api/review/mr/deliver", lot: "L3", callers: 1 },

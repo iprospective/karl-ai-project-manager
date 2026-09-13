@@ -93,6 +93,21 @@ paths:
   reverse_link:        "{workspace_dir}/.mmi-pm"
 
 
+
+# ── Courrier (RM3024) ─────────────────────────────────────────────────────
+# Nos domaines. Ils servent à NE PAS prendre une de nos propres adresses pour
+# un indice de client dans le routage entrant (RM2669) : le gabarit de création
+# pose une adresse maison chez CHAQUE client, elle n'identifie donc personne.
+#
+# L'annuaire (`contacts/`) dit qui est des nôtres **adresse par adresse**, y
+# compris hors domaine ; ces domaines couvrent ce qui n'y figure pas encore —
+# un alias fraîchement créé, une boîte de service. Surcharge d'instance :
+# KARL_MAIL_OWN_DOMAINS.
+mail:
+  own_domains:
+    - iprospective.fr
+    - iprospective.net
+
 # ── Sauvegarde ZFS de la machine (RM3023) ─────────────────────────────────
 # Le 2026-09-06, /home n'avait AUCUN snapshot depuis avril 2025 et aucune
 # sauvegarde externe : 42 transcripts de session effacés par la rétention de

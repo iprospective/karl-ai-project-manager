@@ -94,6 +94,25 @@ check("la première adresse trouve la personne", idx["mathieu@iprospective.fr"] 
 check("la seconde aussi — c'est tout l'intérêt", idx["perso@gmail.com"] == "moulin-mathieu")
 check("une adresse inconnue ne rend rien", "x@y.fr" not in idx)
 
+# ── 4 bis. « des nôtres » est un fait de personne (RM3024) ───────────────────
+# Le routage s'en sert : une adresse maison ne doit jamais servir d'indice de
+# client (le gabarit en pose une chez CHACUN), et la boîte hors domaine d'un
+# interne doit compter comme nôtre sans qu'on ait à l'inscrire quelque part.
+ANN_I = {"moi": {"internal": True,
+                 "emails": ["Mathieu@iProspective.FR", "perso@gmail.com"]},
+         "lui": {"internal": False, "emails": ["noe@calyclay.com"]},
+         "vide": {"internal": True}}
+ia = pc.internal_addresses(ANN_I)
+check("les adresses d'un interne sont retenues", "mathieu@iprospective.fr" in ia)
+check("…y compris hors domaine — c'est l'apport de l'annuaire",
+      "perso@gmail.com" in ia)
+check("elles sont normalisées (casse)", "Mathieu@iProspective.FR" not in ia)
+check("celles d'un externe ne le sont pas", "noe@calyclay.com" not in ia)
+check("une fiche interne sans adresse ne casse rien", len(ia) == 2)
+check("annuaire vide ⇒ ensemble vide", pc.internal_addresses({}) == set())
+check("des ADRESSES, jamais des domaines : rien ne ressemble à un domaine nu",
+      all("@" in a for a in ia))
+
 # ── 5. les deux formes cohabitent ────────────────────────────────────────────
 r = pc.resolve_link({"ref": "solsona-noe", "role": "owner", "title": "PDG"}, ann)
 check("un rattachement rend l'identité de l'annuaire", r["source"] == "annuaire")

@@ -31,6 +31,7 @@ n'ouvre ni ne referme le client : il fait ce qu'il annonce, rien d'autre.
 | Icône | Sur | Ce qu'elle ouvre au centre |
 |---|---|---|
 | 🏢 | un client | sa **fiche** : identité, statut, contacts, valeurs par défaut, projets, projets utilisés, docs |
+| 👤 | *(en-tête du panneau)* | l'**annuaire de contacts** — voir plus bas |
 | ⚙ | un client | sa **configuration** — le `meta.yml` intégral |
 | ⚙ | un projet | la **configuration du projet** — `meta.yml` : identifiant Redmine, dépôt GitLab, branche par défaut, aspects, dépôts déclarés |
 
@@ -51,3 +52,38 @@ statut** et les derniers traités.
 
 Comme toute vue centrale, elle devient un [onglet](onglets) : épingle-la pour la garder
 sous la main pendant que tu travailles ailleurs.
+
+## L'annuaire de contacts
+
+Le bouton **👤** de l'en-tête « Projets » ouvre l'annuaire au centre.
+
+**Une personne, une fiche.** Avant, un contact vivait dans le `meta.yml` de SON
+client : une personne présente chez vingt clients s'écrivait vingt fois — et
+divergeait vingt fois. On avait ainsi 31 contacts pour 21 clients dont
+**19 lignes pour la même personne**, en deux orthographes.
+
+La recherche porte sur le nom **et sur toutes les adresses** : c'est tout
+l'intérêt. Un contact recopié chez un client n'en connaissait qu'une ; une
+fiche les porte toutes, et « contact@… » comme « mathieu@… » ramènent la même
+personne. Les accents sont ignorés — chercher `noe` trouve `Noé`. Ce que tu as
+cherché reste dans le titre de l'onglet : le rouvrir rejoue la même recherche.
+
+Cliquer une ligne ouvre la **fiche** : adresses, téléphones, note, et surtout
+**ses rattachements** — chez quels clients elle intervient et à quel titre.
+Chaque rattachement ramène à la fiche du client.
+
+Dans la fiche d'un client, les contacts sont **résolus** : un rattachement
+affiche l'identité de la personne et se clique pour ouvrir sa fiche. Deux
+mentions à connaître :
+
+- **interne** — la personne est des nôtres. C'est un fait de **personne**, pas
+  de ligne : avant, la même personne était marquée interne chez 2 clients et
+  externe chez 17, ce qui ne voulait rien dire. Le routage du courrier entrant
+  s'en sert pour ne jamais prendre une de nos adresses pour un indice de client.
+- **ref inconnue** — la ligne pointe une fiche qui n'existe pas. C'est une
+  anomalie, pas un contact vide : le rôle reste vrai, la fiche est à recréer ou
+  le rattachement à corriger (`pm-contact.py list`).
+
+L'annuaire se **lit** ici et s'**écrit** en ligne de commande — `pm-contact.py`
+en est le seul point d'écriture, comme `pm-client-contact.py` l'est pour les
+rattachements.

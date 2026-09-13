@@ -31,6 +31,7 @@
 - `pm-task-protocol` — Protocole de test d'un ticket : CF Redmine + frontmatter
 - `pm-task-questions` — les questions d'un ticket, dans sa description
 - `pm-task-report` — Report des tokens/temps consommés (frontmatter + .log.md PM) → Redmine.
+- `pm-task-search` — recherche d'ANTÉRIORITÉ : ce sujet a-t-il déjà un ticket ?
 - `pm-task-show` — Affiche le détail d'une tâche (MD + tail log + Redmine récent).
 - `pm-task-status-update` — Change le statut d'une tâche (Redmine + MD frontmatter + log).
 - `pm-task-sync` — Synchronise une tâche MD locale avec son état actuel Redmine.
@@ -53,6 +54,7 @@
 - `pm-index-list` — index des projets PM (RM3033, porté de `bin/mmi-pm index list`). Voir p…
 - `pm-index-rebuild` — index des projets PM (RM3033, porté de `bin/mmi-pm index rebuild`). Voi…
 - `pm-index-remove` — index des projets PM (RM3033, porté de `bin/mmi-pm index remove`). Voir…
+- `pm-index` — l'index de requêtage de karl-PM
 - `pm-project-bootstrap` — Bootstrap a PM project by instantiating bootstrap-tasks templates.
 - `pm-project-config` — édite la conf structurée d'un projet ou d'un client
 - `pm-project-new` — Pipeline complet : Redmine + struct PM + symlinks + bootstrap.
@@ -175,8 +177,10 @@
 
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
+- `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
+- `pm-worklog-merge` — reprendre un worklog de session resté à l'ancien emplacement
 
 ## Bibliothèques (importées, pas lancées)
 
@@ -190,7 +194,7 @@
 - `pm_forge` — abstraction de forge git (GitLab / Gogs / GitHub) — RM2498 (T2).
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
-- `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
+- `pm_index` — l'index de requêtage de karl-PM : une PROJECTION du Markdown
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer

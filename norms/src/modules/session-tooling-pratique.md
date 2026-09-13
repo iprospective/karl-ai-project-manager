@@ -61,3 +61,64 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
+
+Détail du tripwire #18. La règle est **permanente** : il n'existe aucun moment
+observable « je m'apprête à appeler un outil », c'est pourquoi elle est au KERNEL
+et non derrière un déclencheur (critère `MAINTAINING.md` §6).
+
+### Ce qui a été mesuré
+
+Session d'étude réelle du 2026-09-11 (42 étapes, moteur claude-opus-5, 1 M de
+fenêtre) :
+
+| Poste | valeur |
+|---|---|
+| Socle payé au **1er** appel (prompt système + définitions d'outils + skills + CLAUDE.md + mémoire) | 50 538 tokens |
+| Contexte relu **à chaque** appel d'outil (moyenne) | 105 504 tokens |
+| Appels API | 80 |
+| `cache_read` cumulé | 8 440 334 tokens |
+| Coût | ≈ 8,07 $ |
+
+Ventilation de la facture : `cache_read` **52 %**, raisonnement interne **17 %**,
+écriture du cache **29 %**, texte produit **2 %**.
+
+Deux conséquences contre-intuitives, et c'est pourquoi la règle se viole en
+silence :
+
+* **Ce qu'on lit coûte moins cher que le nombre de fois où l'on s'arrête.** Lire
+  le KERNEL (26 Ko) coûte une fois ~8 k tokens ; trois `ls` d'un même dossier
+  coûtent 1,5 k de sortie **plus trois relectures complètes** — davantage.
+* **Le raisonnement reste dans le contexte.** Il est facturé une première fois en
+  sortie, puis **relu à chaque appel suivant**. Un raisonnement de 3 k au 5ᵉ appel
+  est relu 37 fois.
+
+### Les idiomes
+
+```bash
+# ✅ séquentiel : UN appel, sections lisibles
+git status --short; echo "=== BRANCHE ==="; git branch --show-current
+
+# ✅ filtre pensé d'emblée
+ls scripts/ | grep -v '^test_'          # et non : ls, puis head, puis tail
+
+# ✅ plan d'abord, section ensuite
+grep -n '^#\+ ' doc.md                  # puis sed -n 'A,Bp' doc.md
+
+# ❌ trois appels pour un dossier
+ls scripts/ | head -100 ; # puis ls scripts/ | tail -80 ; # puis ls | grep -v test_
+```
+
+Côté agent : plusieurs `tool_use` **indépendants** émis dans une **même** réponse
+s'exécutent en parallèle pour le prix d'une seule relecture. C'est la forme à
+préférer chaque fois qu'aucune commande n'attend le résultat d'une autre.
+
+### Quand le groupage est impossible
+
+Quand la commande N+1 **dépend** du résultat de N : capturer un RM-id avant de
+créer sa branche (tripwire #13), lire un chemin avant de l'ouvrir, vérifier un
+état avant d'agir dessus. Dans ces cas, l'aller-retour est le prix de la
+correction — on ne devine pas pour économiser un appel. La parade n'est pas de
+fusionner à tout prix, mais de **chaîner dans un seul shell** quand c'est
+possible (`ID=$(outil --porcelain) && autre-outil "$ID"`).

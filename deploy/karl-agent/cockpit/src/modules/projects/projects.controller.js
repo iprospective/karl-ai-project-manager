@@ -29,6 +29,9 @@ export function mountProjectsPanel(el, ctx = {}) {
     clear: () => { state.filtre = ""; state.typing = false; render(); },
     toggle: (n) => { state.open[n.dataset.client] = !state.open[n.dataset.client]; render(); },
     client: (n) => ctx.openClient && ctx.openClient(n.dataset.client),
+    // RM3024 : l'annuaire s'ouvre au centre, comme une fiche client — c'est une
+    // vue, pas un panneau de plus à caser dans la colonne.
+    contacts: () => ctx.openContacts && ctx.openContacts(""),
     conf: (n) => ctx.openConf && ctx.openConf(n.dataset.scope, n.dataset.client, n.dataset.project || ""),
     project: (n) => ctx.openProject && ctx.openProject(n.dataset.value),
   };

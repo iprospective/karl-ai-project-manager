@@ -1,9 +1,9 @@
 ---
-schema_version: "2.43.0"
+schema_version: "2.44.0"
 updated: 2026-09-13
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.43.0
+# Normes de gestion des tâches — v2.44.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -671,6 +671,18 @@ Trois choses à ne pas confondre :
 **Pas sous `conf_dir`** : le dépôt de code part sur un miroir GitHub public, et
 ce sont des données personnelles. **Pas à la racine de `projects_root`** :
 aucun dépôt ne la versionne. Écriture par `pm-contact.py` uniquement.
+
+`internal` est un attribut de **personne** (RM3024), jamais d'une ligne de
+client : « des nôtres » est vrai une fois pour toutes. Le routage du courrier
+entrant (RM2669) s'en sert — toute adresse d'une personne interne cesse d'être
+un indice de client, y compris sa boîte hors domaine. Des **adresses**, jamais
+des domaines : dériver un domaine de la boîte perso d'un interne rendrait
+« nôtre » tout `gmail.com`. Les domaines maison, eux, vivent dans
+`pm.config.yml :: mail.own_domains`.
+
+Un mail s'envoie **par `ref`** (`karl-mail-send.py --to-ref <ref>`) : l'adresse
+est résolue à l'envoi, jamais recopiée — une recopie se périme en silence le
+jour où la personne change de boîte.
 
 **Ce qu'un dépôt git n'oublie pas** : effacer une fiche ne l'efface pas de
 l'historique. Un droit à l'effacement réellement honoré demande une réécriture

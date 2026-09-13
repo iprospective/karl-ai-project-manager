@@ -142,7 +142,8 @@ class PMConfig:
                  conf_dir: Optional[Path] = None,
                  state_dir: Optional[Path] = None,
                  log_dir: Optional[Path] = None,
-                 zfs_backup: Optional[dict] = None):
+                 zfs_backup: Optional[dict] = None,
+                 mail: Optional[dict] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
@@ -159,6 +160,9 @@ class PMConfig:
         # traitement que `providers` : une section optionnelle de la config,
         # exposée telle quelle, vide si absente. Consommée par pm-zfs-backup.
         self.zfs_backup = zfs_backup or {}
+        # Réglages de courrier (RM3024) — section `mail:`. Même traitement que
+        # `providers` : optionnelle, exposée telle quelle, vide si absente.
+        self.mail = mail or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -243,7 +247,8 @@ class PMConfig:
 
         return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
                    conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir,
-                   zfs_backup=cfg.get("zfs_backup", {}))
+                   zfs_backup=cfg.get("zfs_backup", {}),
+                   mail=cfg.get("mail", {}))
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:

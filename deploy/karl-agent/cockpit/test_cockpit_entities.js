@@ -16,7 +16,7 @@ const fs = require("fs"); const path = require("path"); const assert = require("
 
   // — registre —
   const types = E.entityTypes();
-  assert.deepStrictEqual(types, ["dash", "session", "review", "project", "newticket", "client", "conf", "file", "dir", "commit", "mail", "pm", "settings", "journal", "memory", "cdc"], "les types du cockpit, dans l'ordre de déclaration");
+  assert.deepStrictEqual(types, ["dash", "session", "review", "project", "newticket", "client", "contacts", "contact", "conf", "file", "dir", "commit", "mail", "pm", "settings", "journal", "memory", "cdc"], "les types du cockpit, dans l'ordre de déclaration");
   assert(E.entity("review").icon === "🧪" && E.iconOf("memory") === "🧠" && E.iconOf("inconnu") === "•" && !E.isEntity("inconnu") && E.entity("inconnu").type === "inconnu");
   assert.deepStrictEqual(E.surfaceTypes(), ["session", "review", "project", "newticket"]); assert.deepStrictEqual(E.panelTypes(), ["pm", "settings", "journal", "memory", "cdc"]);
   assert(E.entity("dash").fixed && !E.entity("session").restorable && E.entity("review").restorable && E.entity("newticket").closeLast && !E.entity("session").closeLast);

@@ -208,6 +208,7 @@ const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
   clientContext: () => launcher.clientContext(),
   pin: (kind, key) => center.pinOf(kind, key),
   openProject: (key) => project.open(key), openClient: (c) => center.openClient(c), openConf: (scope, c, p) => center.openConf(scope, c, p),
+  openContacts: (q) => center.openContacts(q), openContact: (r) => center.openContact(r),
 });
 
 // santé du poste et verrous : la modale partagée (docmodal) lui est prêtée, comme

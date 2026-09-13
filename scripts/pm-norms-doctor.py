@@ -73,6 +73,23 @@ def check_freshness():
     return r.returncode == 0, (r.stdout or r.stderr).strip().splitlines()[-1:]
 
 
+def check_generated_indexes():
+    """Les deux index d'outillage sont-ils à jour vis-à-vis de `scripts/` ? (RM3110)
+
+    `norms/CHEATSHEET.md` (condensé préchargé) et `scripts/INDEX.md` (exhaustif, à la
+    demande) sont GÉNÉRÉS depuis les docstrings. Rien ne les régénérait au fil de
+    l'eau : le 2026-09-12, la cheatsheet listait 47 outils pour 95 réels — périmée de
+    48 entrées, sans que personne puisse le voir. Un index qui ment est pire que pas
+    d'index : on cherche l'outil, on ne le trouve pas, on refait à la main.
+    """
+    out = []
+    for sub, label in (("cheatsheet", "norms/CHEATSHEET.md"), ("index", "scripts/INDEX.md")):
+        r = subprocess.run([sys.executable, str(ASSEMBLE), sub, "--check"],
+                           capture_output=True, text=True)
+        out.append((label, r.returncode == 0, sub))
+    return out
+
+
 def check_coverage():
     """Retourne (mode, uncovered_lines). mode='identité' si pas encore d'oracle."""
     if not ORACLE.exists():
@@ -202,6 +219,14 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} manifest : sources cohérentes, pas d'orphelin")
+
+    for label, ok, sub in check_generated_indexes():
+        if ok:
+            print(f"  {PASS} index à jour : {label}")
+        else:
+            print(f"  {FAIL} index PÉRIMÉ : {label} "
+                  f"→ régénère : pm-norms-assemble.py {sub}")
+            rc |= 1
 
     bad_fences = check_fences()
     if bad_fences:

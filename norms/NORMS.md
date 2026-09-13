@@ -1,9 +1,13 @@
 ---
-schema_version: "2.44.0"
-updated: 2026-09-13
+schema_version: "2.45.0"
+updated: 2026-09-14
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.44.0
+<<<<<<< HEAD
+# Normes de gestion des tâches — v2.45.0
+=======
+# Normes de gestion des tâches — v2.42.0
+>>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -105,9 +109,13 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 17. **Tests au fil de l'eau.** Coder = **livrer les tests avec le code**, pas après : TDD par défaut sur la logique, tests **unitaires** + **fonctionnels/workflow** anticipés dès la conception, **tous les cas** couverts (tests auto ET protocole de test, complémentaires). `mmi-pm test` **vert avant livraison** (front/cockpit ⇒ tests node même MR). Projet `browser_test: true` (site public) ⇒ **validation NAVIGATEUR obligatoire** avant toute livraison front, sur l'env du ticket (`tools/browser-check`) — le rendu navigateur n'est PLUS un cas « non automatisable » (RM3036). Non automatisable (intégration tierce, matériel, envoi réel) ⇒ recette humaine + **justification tracée** ; jamais « pas de test ». → `modules/testing.md`
 
+<<<<<<< HEAD
 18. **Restitution point par point (RM3127).** Un message du demandeur qui porte **plusieurs demandes ou questions** se traite **point par point, dans SON ordre**, en reprenant l'intitulé de chacun : il doit vérifier d'un coup d'œil que rien n'a été perdu, **sans relire son propre message**. **La réponse d'abord, le raisonnement après.** Ce qui n'a **pas** été traité se dit **explicitement, à sa place dans la liste** — jamais par omission, jamais renvoyé à la fin. Répondre en prose continue à un lot de demandes oblige le demandeur à faire l'inventaire lui-même ; s'il doit demander « tu as bien tout pris ? », la restitution a échoué (incident fondateur : 2026-09-13, deux messages, quatre demandes tombées).
 
 19. **Antériorité avant de ticketer (RM3130).** Une **nouvelle demande** du demandeur se cherche d'abord dans l'existant : `mmi-pm task-search <mots-clés>` — titres, corps et `.think.md`, **fermés inclus** (un ticket clos est souvent la meilleure réponse). Un résultat proche se **lie** (`pm-task-link … relates`) ou **complète** le ticket trouvé ; il ne donne pas un doublon. Vaut aussi avant de consigner une F ou une D. Sans cette recherche, on recrée ce qui existe et on éparpille un même sujet sur trois tickets — la sortie est volontairement brève pour qu'aucun agent n'ait de raison de s'en passer.
+=======
+18. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
+>>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -947,6 +955,67 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
+
+Détail du tripwire #18. La règle est **permanente** : il n'existe aucun moment
+observable « je m'apprête à appeler un outil », c'est pourquoi elle est au KERNEL
+et non derrière un déclencheur (critère `MAINTAINING.md` §6).
+
+### Ce qui a été mesuré
+
+Session d'étude réelle du 2026-09-11 (42 étapes, moteur claude-opus-5, 1 M de
+fenêtre) :
+
+| Poste | valeur |
+|---|---|
+| Socle payé au **1er** appel (prompt système + définitions d'outils + skills + CLAUDE.md + mémoire) | 50 538 tokens |
+| Contexte relu **à chaque** appel d'outil (moyenne) | 105 504 tokens |
+| Appels API | 80 |
+| `cache_read` cumulé | 8 440 334 tokens |
+| Coût | ≈ 8,07 $ |
+
+Ventilation de la facture : `cache_read` **52 %**, raisonnement interne **17 %**,
+écriture du cache **29 %**, texte produit **2 %**.
+
+Deux conséquences contre-intuitives, et c'est pourquoi la règle se viole en
+silence :
+
+* **Ce qu'on lit coûte moins cher que le nombre de fois où l'on s'arrête.** Lire
+  le KERNEL (26 Ko) coûte une fois ~8 k tokens ; trois `ls` d'un même dossier
+  coûtent 1,5 k de sortie **plus trois relectures complètes** — davantage.
+* **Le raisonnement reste dans le contexte.** Il est facturé une première fois en
+  sortie, puis **relu à chaque appel suivant**. Un raisonnement de 3 k au 5ᵉ appel
+  est relu 37 fois.
+
+### Les idiomes
+
+```bash
+# ✅ séquentiel : UN appel, sections lisibles
+git status --short; echo "=== BRANCHE ==="; git branch --show-current
+
+# ✅ filtre pensé d'emblée
+ls scripts/ | grep -v '^test_'          # et non : ls, puis head, puis tail
+
+# ✅ plan d'abord, section ensuite
+grep -n '^#\+ ' doc.md                  # puis sed -n 'A,Bp' doc.md
+
+# ❌ trois appels pour un dossier
+ls scripts/ | head -100 ; # puis ls scripts/ | tail -80 ; # puis ls | grep -v test_
+```
+
+Côté agent : plusieurs `tool_use` **indépendants** émis dans une **même** réponse
+s'exécutent en parallèle pour le prix d'une seule relecture. C'est la forme à
+préférer chaque fois qu'aucune commande n'attend le résultat d'une autre.
+
+### Quand le groupage est impossible
+
+Quand la commande N+1 **dépend** du résultat de N : capturer un RM-id avant de
+créer sa branche (tripwire #13), lire un chemin avant de l'ouvrir, vérifier un
+état avant d'agir dessus. Dans ces cas, l'aller-retour est le prix de la
+correction — on ne devine pas pour économiser un appel. La parade n'est pas de
+fusionner à tout prix, mais de **chaîner dans un seul shell** quand c'est
+possible (`ID=$(outil --porcelain) && autre-outil "$ID"`).
 > 📂 **Module `scheduler` — quand lire ceci :** je veux qu'un travail tourne périodiquement · j'allais écrire une ligne de crontab · un job périodique n'a pas tourné, ou tourne mal · je veux savoir ce qui tourne en tâche de fond sur l'instance.
 > **Outils :** `pm-scheduler list|history|check|run`, `jobs.reference.yml` · **Préchargé par :** *(personne — ouvert à la demande)*.
 

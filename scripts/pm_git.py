@@ -51,6 +51,7 @@ Usage côté script :
     pm_git.autocommit([md_path, log_path], f"pm(status): RM{rm_id} -> {status}")
 """
 import fcntl
+import os
 import subprocess
 import sys
 import time
@@ -376,6 +377,22 @@ def _push(root, cfg, sha):
     return pushed
 
 
+def _index_touch(paths):
+    """Réindexe les fiches écrites (RM3128). Silencieux et sans effet si l'index n'a
+    jamais été construit — on ne le crée pas en douce au détour d'un commit."""
+    try:
+        import pm_index
+        from pm_paths import PMConfig
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        if not pm_index.db_path(cfg).exists():
+            return
+        for p in paths:
+            if p.name.startswith("RM") and p.name.endswith(".md"):
+                pm_index.touch(cfg, p)
+    except (Exception, SystemExit):      # PMConfig.load() peut sys.exit() hors PM
+        return
+
+
 def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
     """Committe (et pousse) atomiquement les chemins listés. Retourne le sha court ou None.
 
@@ -401,6 +418,12 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
              if p and (allow_missing or Path(p).exists())]
     if not paths:
         return None
+
+    # RM3128 — première des deux entrées de l'index : toute écriture PM passe ici.
+    # Greffé sur un process existant plutôt que sur un timer dédié, comme le sweep
+    # RM3013 juste au-dessus. Jamais fatal : l'index est une projection, son échec ne
+    # doit pas empêcher un ticket d'être écrit.
+    _index_touch(paths)
 
     root_r = _run(["git", "-C", str(paths[0].parent), "rev-parse", "--show-toplevel"])
     if root_r.returncode != 0:

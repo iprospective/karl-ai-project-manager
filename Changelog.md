@@ -13,6 +13,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le fil de notifications sait à qui il parle, et le mail cesse de se répéter** (RM2792, lot 3) :
+  une notification peut viser quelqu'un (`--user`), et l'être **en privé** — elle n'apparaît alors
+  que dans la vue de cette personne, et personne d'autre ne peut la marquer. Le défaut est sûr :
+  sans lecteur déclaré, aucune entrée privée n'est rendue, et le cockpit lit désormais le fil au nom
+  de l'utilisateur authentifié (à défaut, le propriétaire déclaré de l'instance, `PM_NOTIFY_OWNER` —
+  le compte système du démon n'est pas une personne). Filtrer par utilisateur rend ce qui le
+  **concerne** : ses entrées et celles de l'instance, parce qu'une alerte sans destinataire concerne
+  aussi celui qui filtre. Le **canal mail** (`mmi-pm notify-mail`, toutes les 15 minutes) envoie en
+  UN message ce qui attend au niveau `warn` et au-dessus, puis se tait : l'entrée retient l'envoi et
+  le niveau auquel elle est partie, donc la même alerte répétée ne repart pas — mais une alerte qui
+  **empire** repart, parce que c'est une nouvelle. Sans destinataire configuré il le dit et ne fait
+  rien, plutôt que d'échouer toutes les quinze minutes.
+
+- **Les publications qu'on attend se déclarent au lieu de s'écrire** (RM2792 lot 4, RM2429) :
+  `mmi-pm release-watch` compare la dernière release des dépôts listés dans `releases.watch.yml` au
+  plancher qu'on attend et notifie le fil quand c'est sorti. Premier cas, celui qui a motivé tout le
+  ticket : Vaultwarden au-delà de 1.37.1, pour le correctif upstream #7608. Prévenir **une seule
+  fois** n'a demandé aucun code : l'empreinte du fil fait qu'une même annonce remonte au lieu de se
+  dupliquer, et qu'une version plus récente — vraie nouvelle — rouvre une entrée.
+
 - **Les worklogs des sessions actives pendant le déménagement sont recollés** (RM2992) : le déplacement
   des données vers `var/` a copié les worklogs, puis le démon a continué d'écrire dans l'**ancien** tant
   qu'il n'avait pas redémarré. Au redémarrage, il a repris le fichier copié — sans ce qui avait été écrit

@@ -8447,10 +8447,21 @@ def op_cdc_feature(payload: dict) -> dict:
 _VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
 
 
-def op_notifications(qs: dict) -> dict:
+def _notify_viewer(auth_ctx) -> str:
+    """Qui lit le fil. L'utilisateur authentifié ; à défaut le propriétaire déclaré de l'instance
+    (`PM_NOTIFY_OWNER`), parce qu'un cockpit derrière un secret partagé ne nomme personne et que le
+    privé y serait alors illisible. Jamais le compte système du démon : ce n'est pas une personne."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_notify
+    return str((auth_ctx or {}).get("user") or "") or pm_notify.owner()
+
+
+def op_notifications(qs: dict, auth_ctx=None) -> dict:
     """Le fil de l'instance : ce qui attend, toutes sources confondues (RM2792).
 
-    Le journal (RM3010) trace tout et se cherche après coup ; ce fil-ci est une FILE, il se vide."""
+    Le journal (RM3010) trace tout et se cherche après coup ; ce fil-ci est une FILE, il se vide.
+    Lu AU NOM de celui qui regarde : les notifications privées d'autrui n'en sortent pas, et la
+    pastille compte ce que ce lecteur-là peut effectivement ouvrir."""
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import pm_notify
     etat = (qs.get("etat") or "ouvert").strip() or "ouvert"
@@ -8458,9 +8469,13 @@ def op_notifications(qs: dict) -> dict:
         limite = int(qs.get("limit") or 100)
     except ValueError:
         limite = 100
+    qui = _notify_viewer(auth_ctx)
+    vise = (qs.get("user") or "").strip() or None
     return {"feed": pm_notify.feed(etat=None if etat == "tout" else etat,
-                                   origine=qs.get("origin"), niveau=qs.get("level"), limit=limite),
-            "counts": pm_notify.counts(),
+                                   origine=qs.get("origin"), niveau=qs.get("level"), limit=limite,
+                                   viewer=qui, user=vise),
+            "counts": pm_notify.counts(viewer=qui, user=vise),
+            "viewer": qui, "users": pm_notify.users(),
             "origins": list(pm_notify.ORIGINES), "levels": list(pm_notify.NIVEAUX)}
 
 
@@ -8472,15 +8487,16 @@ def op_notifications_mark(payload: dict, auth_ctx=None) -> dict:
     etat = str(payload.get("etat") or "lu").strip()
     if etat not in pm_notify.ETATS:
         raise ApiError(400, "état inconnu (" + " · ".join(pm_notify.ETATS) + ")")
+    qui = _notify_viewer(auth_ctx)
     ids = payload.get("ids") or ([] if not payload.get("id") else [payload["id"]])
     if payload.get("all"):
-        ids = [e["id"] for e in pm_notify.feed(etat="ouvert", limit=1000)]
+        ids = [e["id"] for e in pm_notify.feed(etat="ouvert", limit=1000, viewer=qui)]
     ids = [str(i) for i in ids if str(i).strip()]
     if not ids:
         raise ApiError(400, "aucune notification désignée (ids, id, ou all)")
-    n = pm_notify.mark(ids, etat)
+    n = pm_notify.mark(ids, etat, viewer=qui)
     _jlog("system", "info", f"{n} notification(s) → {etat}", by=str((auth_ctx or {}).get("user") or ""))
-    return {"ok": True, "marked": n, "etat": etat, "counts": pm_notify.counts()}
+    return {"ok": True, "marked": n, "etat": etat, "counts": pm_notify.counts(viewer=qui)}
 
 
 def op_cdc_version(payload: dict) -> dict:
@@ -12506,7 +12522,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_monitor_hosts())
             if path == "/notifications":     # RM2792 : le fil de l'instance, toutes sources
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, op_notifications(qs))
+                return self._send_json(200, op_notifications(qs, self.auth_ctx))
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})

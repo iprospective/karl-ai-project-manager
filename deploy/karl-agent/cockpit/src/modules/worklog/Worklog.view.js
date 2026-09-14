@@ -1,5 +1,6 @@
 // views/worklog/Worklog — le worklog de la session, la ligne de MR partagée, les écrans de lot. Gestes en data-*. RM2889.
 import { html, raw } from "../../core/html.js";
+import { pillClass } from "../../core/status.js";
 const muted = "color:var(--muted)";
 
 /** RM2723 : rendu UNIQUE session + projet (la fiche projet le reçoit en prêt). */
@@ -26,9 +27,11 @@ export function MrPane(groups, deps) {
 export function Progress(p) {
   if (!p) return "";
   return html`${p.check ? html`<div class="wl-prog"><span class="pill ${p.check.cls}" title="critères d’acceptation cochés">${p.check.done}/${p.check.total} ✓</span>${p.check.items.map(t => html`<span class="wl-crit" title="critère restant">☐ ${t}</span>`)}${p.check.truncated ? html`<span class="wl-crit" style="opacity:.6">…</span>` : ""}</div>` : ""}${p.subs.length
-    ? html`<div class="wl-prog">${p.subs.map((s, i) => html`${i ? " " : ""}<span class="pill" title="sous-tâche${s.title ? " — " + s.title : ""}">RM${s.rm}${s.status ? " · " + s.status : ""}</span>`)}</div>` : ""}`;
+    ? html`<div class="wl-prog">${p.subs.map((s, i) => html`${i ? " " : ""}<span class="${pillClass(s.status)}" title="sous-tâche${s.title ? " — " + s.title : ""}">RM${s.rm}${s.status ? " · " + s.status : ""}</span>`)}</div>` : ""}`;
 }
-export function StatusPill(s) { return s.drifted ? html`<span class="pill warn" title="${s.tip}">${s.status}</span>` : html`<span class="pill">${s.status}</span>`; }
+// RM3126 : la famille colore la pastille — sauf si le ticket a DÉRIVÉ, auquel cas l'alerte prime :
+// une dérive est plus urgente à voir que la phase où le ticket se croit.
+export function StatusPill(s) { return s.drifted ? html`<span class="pill warn" title="${s.tip}">${s.status}</span>` : html`<span class="${pillClass(s.status)}">${s.status}</span>`; }
 export function Stage(st) { if (!st) return ""; return st.url ? html` <span class="pill ${st.cls}" style="cursor:pointer" title="${st.tip}" data-action="mr-stage" data-url="${st.url}">${st.txt}</span>` : html` <span class="pill ${st.cls}" title="${st.tip}">${st.txt}</span>`; }
 
 export function WorklogItem(it, { tip, pin }) {
@@ -54,7 +57,7 @@ export function WorklogPane(vm, deps) {
 }
 // ── écrans de lot (dans la modale doc) ────────────────────────────────────────
 export function BatchPlan(vm, { envoi }) {
-  return html`<div class="ms"><h4>▶ à traiter (${vm.todo.length})</h4>${vm.todo.length ? vm.todo.map(t => html`<div class="oline" style="white-space:normal"><b>${t.n}.</b> <span class="r-id">RM${t.rm}</span> <span class="pill">${t.status}</span> ${t.title}<div style="${muted};font-size:11px">→ ${t.instruction}</div>${t.points.length
+  return html`<div class="ms"><h4>▶ à traiter (${vm.todo.length})</h4>${vm.todo.length ? vm.todo.map(t => html`<div class="oline" style="white-space:normal"><b>${t.n}.</b> <span class="r-id">RM${t.rm}</span> <span class="${pillClass(t.status)}">${t.status}</span> ${t.title}<div style="${muted};font-size:11px">→ ${t.instruction}</div>${t.points.length
       ? html`<div class="bp-points">${t.points.map(p => html`<label class="bp-point"><input type="checkbox" checked data-ref="${t.rm}" data-i="${p.j}" value="${p.text}"> ${p.text}</label>`)}<div class="bp-hint">tous cochés = ticket entier · aucun coché = ticket écarté${t.truncated ? " · ⚠ liste de critères incomplète (le ticket en porte d’autres)" : ""}</div></div>` : ""}</div>`)
     : html`<div class="empty">aucun ticket actionnable dans la sélection</div>`}</div>${vm.skipped.length ? html`<div class="ms"><h4>⊘ écartés (${vm.skipped.length})</h4>${vm.skipped.map(s => html`<div class="oline" style="white-space:normal;opacity:.75"><span class="r-id">RM${s.rm}</span> ${s.title}<div style="${muted};font-size:11px">${s.reason}</div></div>`)}</div>` : ""}${vm.big
     ? html`<div class="ms" style="color:var(--warn)">⚠ ${vm.todo.length} tickets : au-delà de 10, la file déborde le contexte de l’agent — confirme seulement si tu sais pourquoi.</div>` : ""}<div style="display:flex;gap:8px;margin-top:12px"><button class="primary" data-action="send-batch">${envoi}</button><button class="mini" data-action="close">annuler</button></div><details style="margin-top:10px"><summary style="cursor:pointer;font-size:11.5px;${muted}">voir la consigne exacte</summary><pre class="logtail" style="white-space:pre-wrap">${vm.prompt}</pre></details>`;
@@ -66,7 +69,7 @@ export function MrBatch(vm) {
     ? html`<div class="ms"><h4>⊘ écartés (${vm.skipped.length})</h4>${vm.skipped.map(k => html`<div class="oline" style="white-space:normal;opacity:.75"><span class="r-id">RM${k.rm}</span><div style="${muted};font-size:11px">${k.reason}</div></div>`)}</div>` : ""}<div style="display:flex;gap:8px;margin-top:12px"><button class="primary" data-action="send-mr">⇥ merger maintenant</button><button class="mini" data-action="close">annuler</button></div>`;
 }
 export function ClosePlan(p) {
-  return html`<div class="bp">${p.todo.length ? html`<h4>Seront fermés (${p.todo.length})</h4>${p.todo.map(t => html`<div class="bp-row"><b>RM${t.rm_id}</b> ${t.title} <span class="pill">${t.status}</span></div>`)}` : html`<div class="empty">aucun ticket fermable dans la sélection</div>`}${p.skipped.length
+  return html`<div class="bp">${p.todo.length ? html`<h4>Seront fermés (${p.todo.length})</h4>${p.todo.map(t => html`<div class="bp-row"><b>RM${t.rm_id}</b> ${t.title} <span class="${pillClass(t.status)}">${t.status}</span></div>`)}` : html`<div class="empty">aucun ticket fermable dans la sélection</div>`}${p.skipped.length
     ? html`<h4>Écartés (${p.skipped.length})</h4>${p.skipped.map(t => html`<div class="bp-row" style="opacity:.75"><b>RM${t.rm_id}</b> ${t.title} <span style="color:var(--warn)">— ${t.why}</span></div>`)}` : ""}<div class="bp-hint" style="margin-top:8px">Chaque fermeture passe par <code>pm-task-status-update</code>. Un ticket refusé (checklist non cochée, branche non mergée) reste ouvert et sera listé : il se traite depuis sa fiche, où le forçage se demande explicitement.</div></div><div style="display:flex;gap:8px;margin-top:12px">${p.count ? html`<button class="primary" data-action="send-close">✅ fermer maintenant</button>` : ""}<button class="mini" data-action="close">annuler</button></div>`;
 }
 export function CloseRefused(ko) {

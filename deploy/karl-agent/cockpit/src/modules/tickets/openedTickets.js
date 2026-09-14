@@ -1,5 +1,10 @@
 // models/tickets/openedTickets — la carte « Tickets ouverts » (RM2606/2637/2757/2883) : ce qui se calcule sans DOM. RM2889.
 
+// RM3126 : la table des statuts est montée dans le socle (core/status) pour que les quatre autres
+// vues qui affichent un statut y accèdent aussi. Ré-exportée ici : aucun appelant n'a à bouger.
+export { ticketStatusRank, ticketStatusFamily } from "../../core/status.js";
+import { ticketStatusFamily, ticketStatusRank } from "../../core/status.js";
+
 /** RM2757 : la carte s'ouvre-t-elle au chargement ? Repliée tant que l'utilisateur n'a rien dit ; un choix explicite prime. */
 export function openedPanelOpen(saved) { return String(saved) === "1"; }
 
@@ -18,28 +23,6 @@ export function openedAdd(list, id, max) {
   const out = (list || []).map(String).filter(x => x !== s);
   out.unshift(s);
   return out.slice(0, max || 40);
-}
-
-/** Ordre de LECTURE, pas alphabétique : ce qui réclame une action d'abord, ce qui est clos en dernier ; l'inconnu avant « fermé ». */
-export function ticketStatusRank(status) {
-  const ordre = ["a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev", "a_mep", "a_tester_preprod", "a_mep_prod", "en_mep", "a_faire",
-                 "etude_chiffrage_a_valider", "etude_chiffrage_en_cours", "a_etudier_chiffrer", "nouveau", "en_pause"];
-  const s = String(status || "").toLowerCase();
-  if (s === "ferme" || s === "fermé") return 99;
-  const i = ordre.indexOf(s);
-  return i < 0 ? 98 : i;
-}
-
-/** RM2883 : la FAMILLE d'un statut, pour filtrer la carte. Un statut inconnu tombe dans « autre », jamais d'office dans « à faire ». */
-export function ticketStatusFamily(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "ferme" || s === "fermé") return "ferme";
-  if (s === "en_pause") return "pause";
-  if (s === "a_mep" || s === "a_tester_preprod" || s === "a_mep_prod" || s === "en_mep") return "mep";
-  if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
-  if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
-  if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider", "a_corriger"].indexOf(s) >= 0) return "todo";
-  return "autre";
 }
 
 /** Les filtres à PROPOSER, avec leur compte : une famille absente n'a pas de bouton (la colonne est étroite). */

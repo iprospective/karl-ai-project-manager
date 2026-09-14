@@ -1,5 +1,6 @@
 // views/tickets/Meta — l'encart ℹ : onglet « infos » (session) et onglet « tickets » (facettes). Balisage repris ; gestes en data-*. RM2889.
 import { html, raw } from "../../core/html.js";
+import { pillClass } from "../../core/status.js";
 const muted = "color:var(--muted)";
 const kv = (k, v, kStyle) => html`<div class="kv"><span class="k"${kStyle ? html` style="${kStyle}"` : ""}>${k}</span><span class="v">${v}</span></div>`;
 
@@ -32,7 +33,7 @@ export function ProjectBrief(vm) {
 export function TicketDetail(vm, { tip }) {
   const d = vm.detail(), rm = d.rm;
   return html`<div class="ms"><h4>Ticket</h4><div class="kv"><span class="k">id</span><span class="v">${d.redmineUrl ? html`<a href="${d.redmineUrl}" target="_blank">RM${rm} ↗</a>` : "RM" + rm} <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" data-action="launcher" data-rm="${rm}">→ lanceur</span> <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" data-action="review" data-rm="${rm}">🗂 fiche</span> <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque (description, statut, chiffrage)" data-action="reload" data-rm="${rm}">↻</span></span></div>${d.freshness
-    ? html`<div class="kv"><span class="k" style="${muted}">version</span><span class="v" style="${muted}" title="dernière écriture du ticket : ${d.freshness.stamp}">${d.freshness.stamp}${d.freshness.since ? html` <span style="opacity:.75">(${d.freshness.since})</span>` : ""}</span></div>` : ""}<div style="margin:4px 0">${d.title}</div>${kv("type", d.type)}<div class="kv"><span class="k">phase</span><span class="v"><span class="pill" style="cursor:pointer" title="Changer le statut — transitions du workflow depuis « ${d.status || "?"} »" data-action="status" data-rm="${rm}">${d.status || "—"} ⇄</span>${d.closed
+    ? html`<div class="kv"><span class="k" style="${muted}">version</span><span class="v" style="${muted}" title="dernière écriture du ticket : ${d.freshness.stamp}">${d.freshness.stamp}${d.freshness.since ? html` <span style="opacity:.75">(${d.freshness.since})</span>` : ""}</span></div>` : ""}<div style="margin:4px 0">${d.title}</div>${kv("type", d.type)}<div class="kv"><span class="k">phase</span><span class="v"><span class="${pillClass(d.status)}" style="cursor:pointer" title="Changer le statut — transitions du workflow depuis « ${d.status || "?"} »" data-action="status" data-rm="${rm}">${d.status || "—"} ⇄</span>${d.closed
     ? html` <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" data-action="reopen" data-rm="${rm}">↻ rouvrir</span>` : ""}</span></div>${kv("priorité", d.priority)}${kv("avancement", d.pct)}</div>${ProjectBrief(vm.brief())}${d.envs.length
     ? html`<div class="ms"><h4>Environnement (selon phase)</h4>${d.envs.map(e => e.kind === "active"
         ? html`<div class="kv"><span class="k"><span class="pill ok">${e.name}</span></span><span class="v">${e.url ? html`<a href="${e.url}" target="_blank">ouvrir ↗</a>` : "—"}</span></div>`
@@ -76,7 +77,12 @@ export function TicketsPane(vm, deps) {
       : html`<div class="ms" style="${muted}">${e === "untracked" ? "ticket non PM-tracké" : e === "slug-empty" ? "session slug — aucun ticket dans son worklog" : "session slug (sans ticket d’ancrage) — lecture du worklog…"}</div>`;
   }
   const sel = vm.sel;
-  return html`<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}">RM${t.rm}</button>`)}</div><div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
+  // RM3126 : le TITRE du ticket courant entre la liste des tickets et ses onglets. Sans lui, on
+  // navigue entre des numéros : « RM3126 » ne dit pas de quoi il s'agit, et le titre n'apparaissait
+  // qu'une fois l'onglet « détail » ouvert — donc jamais sur les autres facettes.
+  const titre = vm.currentTitle;
+  return html`<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}">RM${t.rm}</button>`)}</div>${titre
+    ? html`<div class="rtitle" title="${titre}">${titre}</div>` : ""}<div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
     : k === "notfound" ? html`<div class="ms"><h4>Ticket</h4>RM${sel} <span style="${muted}">non trouvé en local</span></div>`
     : k === "desc" ? TicketDesc(vm.desc(), deps)
     : k === "log" ? html`<div class="facetfull">${TicketLog(vm.log(), deps)}</div>`

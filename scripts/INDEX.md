@@ -20,6 +20,7 @@
 - `pm-task-deploy` — actions à effectuer au déploiement : CF Redmine + frontmatter
 - `pm-task-description-update` — Met à jour la DESCRIPTION d'un ticket Redmine + sync MD.
 - `pm-task-doc` — adosser une doc partagée (aspect) à un ticket
+- `pm-task-estimate` — RÉVISER l'estimation d'un ticket (frontmatter + Redmine). RM3155.
 - `pm-task-implementation` — esquisse d'implémentation d'un ticket : CF Redmine + frontmatter
 - `pm-task-import` — ADOPTE un ticket Redmine existant en fiche PM locale.
 - `pm-task-link` — Gestion des liens entre tickets PM (Redmine + frontmatter + log).

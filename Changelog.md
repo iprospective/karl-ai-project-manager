@@ -23,6 +23,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   besoin du transport de cette forge. Rien n'est déplacé, délibérément — `module inventory` mesure
   l'écart entre ce qui est décrit et ce que les registres portent encore, et c'est cette mesure qui rend
   la suite du chantier discutable sur pièces plutôt que sur intention.
+- **Les options de lancement se cochent depuis le cockpit** (RM3139) : RM3108 avait rendu la ligne de
+  commande des moteurs configurable — catalogue d'options par moteur, « désactiver MCP » cochée par
+  défaut pour claude, options libres, vérification, aperçu de la commande réelle — mais **la régler
+  voulait dire éditer `pm.config.yml` à la main sur le serveur**. Une capacité qu'on ne peut pas
+  atteindre depuis l'interface n'est pas livrée. La carte 🧩 Moteurs gagne une section **Lancement** :
+  les cases avec leur *pourquoi* en infobulle, le champ d'options libres, les problèmes détectés, et
+  la commande exacte — spawn et reprise. L'écriture va dans `pm.config.local.yml`, la surcharge de
+  l'instance, jamais dans le fichier de référence ; et **une option laissée à son défaut n'y est pas
+  consignée**, pour que l'instance suive le jour où ce défaut change au lieu de rester figée sur
+  l'état du jour où elle a été réglée. Le réglage est **vérifié avant d'être écrit**, sur la conf
+  qu'il produirait : un drapeau que PM pose lui-même, une option inconnue, un doublon, des guillemets
+  non fermés — le message arrive à l'enregistrement. C'est le point de départ du ticket : une option
+  invalide ne fait pas échouer bruyamment le moteur, elle le fait sortir aussitôt, et l'on ne voit
+  qu'une session morte-née sans raison lisible (incident RM2951, d'où la demande est née).
 
 - **Une liste de tickets coûte une requête, plus une par ticket** (RM3140) : cliquer sur une session
   déclenchait une rafale de `GET /ticket/resolve/<id>` — l'encart résolvait chaque ticket de la session

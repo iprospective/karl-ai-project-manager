@@ -65,6 +65,7 @@ export const ROUTES = {
   "outline.scroll": { current: "/scroll", target: "/api/outline/scroll", lot: "L5", callers: 2 },
   "pm.commands": { current: "/pm/commands", target: "/api/pm/commands", lot: "L5", callers: 1 },
   "pm.engine_install": { current: "/pm/engine-install", target: "/api/pm/engine-install", lot: "L5", callers: 1 },
+  "pm.engine_options": { current: "/engines/options", target: "/api/pm/engine-options", lot: "L5", callers: 2 },
   "pm.engines": { current: "/pm/engines", target: "/api/pm/engines", lot: "L5", callers: 1 },
   "pm.llm_models": { current: "/pm/llm-models", target: "/api/pm/llm-models", lot: "L5", callers: 1 },
   "pm.provider_assign": { current: "/pm/provider-assign", target: "/api/pm/provider-assign", lot: "L5", callers: 1 },
@@ -131,9 +132,9 @@ export const ROUTES = {
   "voice.stt": { current: "/stt", target: "/api/voice/stt", lot: "L5", callers: 1 },
   "voice.tts": { current: "/tts", target: "/api/voice/tts", lot: "L5", callers: 1 },
   "worklog.batch": { current: "/worklog/batch", target: "/api/worklog/batch", lot: "L3,L4", callers: 3 },
-  "worklog.request": { current: "/worklog/request", target: "/api/worklog/request", lot: "L3", callers: 1 },
   "worklog.mr.batch": { current: "/mr/batch", target: "/api/worklog/mr/batch", lot: "L3", callers: 2 },
   "worklog.mr.merge": { current: "/mr/merge", target: "/api/worklog/mr/merge", lot: "L3", callers: 1 },
+  "worklog.request": { current: "/worklog/request", target: "/api/worklog/request", lot: "L3", callers: 1 },
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },
 };
 

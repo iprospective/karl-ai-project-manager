@@ -3,16 +3,43 @@
 import { html } from "../../core/html.js";
 import { mount } from "../../core/dom.js";
 import { EnginesService } from "./engines.service.js";
-import { EnginesViewModel } from "./EnginesViewModel.js";
-import { EnginesCard } from "./Engines.view.js";
+import { EnginesViewModel, EngineLaunchViewModel } from "./EnginesViewModel.js";
+import { EnginesCard, EnginesLaunchCard } from "./Engines.view.js";
 
 export function mountEngines(el, ctx = {}) {
   const svc = ctx.service || new EnginesService();
   const notify = ctx.notify || (() => {});
   const ask = ctx.confirm || (() => true);
-  const state = { busy: null, journal: "" };
-  const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)]] });
-  const render = () => h.update(EnginesCard(new EnginesViewModel({ data: svc.data, busy: state.busy }), state.journal));
+  // `dirty` retient ce que l'utilisateur vient de cocher tant qu'il n'a pas enregistré : sans lui,
+  // le re-rendu qui suit chaque clic remettrait la case dans l'état du serveur, sous les doigts.
+  const state = { busy: null, journal: "", dirty: {} };
+  const h = mount(el, "", { events: [["click", "[data-action]", (ev, n) => onAction(ev, n)],
+                                     ["change", "[data-action=opt]", (ev, n) => onOption(n)],
+                                     ["input", "[data-action=extra]", (ev, n) => onExtra(n)]] });
+  const render = () => h.update(html`${EnginesCard(new EnginesViewModel({ data: svc.data, busy: state.busy }), state.journal)}
+    ${EnginesLaunchCard(new EngineLaunchViewModel({ data: svc.launch, dirty: state.dirty, busy: state.busy }))}`);
+
+  const brouillon = (name) => (state.dirty[name] = state.dirty[name] || { options: {}, extra_args: null });
+  function onOption(n) {
+    const b = brouillon(n.dataset.engine);
+    b.options[n.dataset.key] = !!n.checked;
+    render();
+  }
+  function onExtra(n) {
+    // pas de `render()` ici : re-rendre à chaque frappe reprendrait le focus et la position du curseur
+    brouillon(n.dataset.engine).extra_args = n.value;
+    const bouton = el.querySelector(`[data-action=save][data-engine="${n.dataset.engine}"]`);
+    if (bouton) bouton.disabled = false;
+  }
+  /** Ce qu'on envoie : l'état COMPLET des cases de ce moteur, pas le seul delta — le serveur compare
+   *  aux défauts et ne consigne que ce qui en diffère. */
+  function aEnvoyer(name) {
+    const p = ((svc.launch || {}).engines || []).find(x => x.engine === name) || {};
+    const b = state.dirty[name] || {};
+    const options = {};
+    for (const o of (p.options || [])) options[o.key] = o.key in (b.options || {}) ? !!b.options[o.key] : !!o.enabled;
+    return { engine: name, options, extra_args: typeof b.extra_args === "string" ? b.extra_args : (p.extra_args || "") };
+  }
 
   async function load() {
     h.update(html`<h2>🧩 Moteurs</h2><div class="empty">chargement…</div>`);
@@ -22,6 +49,18 @@ export function mountEngines(el, ctx = {}) {
   async function onAction(ev, n) {
     const a = n.dataset.action, id = n.dataset.id; if (ev && ev.preventDefault) ev.preventDefault();
     try {
+      if (a === "save") {
+        const name = n.dataset.engine;
+        state.busy = name; render();
+        try {
+          await svc.saveOptions(aEnvoyer(name));
+          delete state.dirty[name];
+          notify(name + " : options enregistrées");
+        } catch (e) {
+          notify(e.message, true);        // le serveur REFUSE un réglage invalide : on le dit, on ne l'écrit pas
+        }
+        state.busy = null; render(); return;
+      }
       if (a === "test") {
         const r = await svc.run({ recipe: id, action: "test" });
         state.journal = r.cmd + "\n" + (r.out || r.err || "").slice(-800);

@@ -86,6 +86,55 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(envoyes[envoyes.length - 1].action === "test", "tester n'exige aucune confirmation");
   console.log("✓ contrôleur : commande montrée puis exécutée sur accord, force sur second accord, refus respecté");
 
+  // ── RM3139 : le LANCEMENT — cocher depuis le cockpit au lieu d'éditer pm.config.yml ──
+  const launch = { engines: [
+    { engine: "claude", base_cmd: "claude --strict-mcp-config", spawn_cmd: "claude --strict-mcp-config --session-id <uuid>",
+      resume_cmd: "claude --strict-mcp-config --resume <session-id>", extra_args: "",
+      options: [{ key: "no_mcp", flag: "--strict-mcp-config", label: "désactiver les connecteurs MCP",
+                  why: "8 179 tokens par session", enabled: true, source: "défaut" }], problems: [] },
+    { engine: "shell", base_cmd: "bash", spawn_cmd: "bash", resume_cmd: null, extra_args: "--login",
+      options: [], problems: ["extra_args : --session-id est posé par PM lui-même — à retirer"] }] };
+
+  const lv = new VM.EngineLaunchViewModel({ data: launch });
+  assert.deepStrictEqual(lv.rows.map(r => r.engine), ["claude", "shell"], "un bloc par moteur");
+  assert(lv.rows[0].options[0].enabled && lv.rows[0].options[0].why.includes("8 179"),
+         "l'option porte son état ET son pourquoi — on ne coche pas ce qu'on ne comprend pas");
+  assert.strictEqual(lv.rows[0].cmd, "claude --strict-mcp-config --session-id <uuid>", "la commande réelle est celle du serveur");
+  assert.deepStrictEqual(lv.rows[1].problems.length, 1, "les problèmes de configuration remontent");
+  assert(/tous aux valeurs par défaut/.test(lv.count) === false && /réglé/.test(lv.count), "compte les moteurs réglés ici (shell a des extra_args)");
+  // le brouillon prime sur le serveur : sinon la case se recoche sous les doigts au re-rendu
+  const lv2 = new VM.EngineLaunchViewModel({ data: launch, dirty: { claude: { options: { no_mcp: false } } } });
+  assert.strictEqual(lv2.rows[0].options[0].enabled, false, "ce qu'on vient de décocher reste décoché");
+  assert.strictEqual(lv2.rows[0].dirty, true, "…et le bloc est marqué comme non enregistré");
+  const vueL = V.EnginesLaunchCard(lv);
+  assert(/type="checkbox"/.test(vueL) && /--strict-mcp-config/.test(vueL) && /options libres/.test(vueL)
+         && /pm\.config\.local\.yml/.test(vueL), "la vue : cases, commande, champ libre, et où ça s'écrit");
+  assert(!/\son\w+=/.test(vueL), "aucun handler inline dans la vue (RM2889)");
+  assert(/options indisponibles/.test(V.EnginesLaunchCard(new VM.EngineLaunchViewModel({ data: { engines: [], error: "boum" } }))),
+         "catalogue injoignable : le panneau le dit au lieu de disparaître");
+  console.log("✓ lancement : options cochables, pourquoi, commande réelle, brouillon, problèmes (RM3139)");
+
+  // le contrôleur : cocher marque le brouillon, enregistrer envoie l'état COMPLET, un refus se dit
+  const envoyesOpt = []; let refuse = false;
+  const svcL = { data, launch, async load() {}, async run() { return {}; },
+                 async saveOptions(b) { envoyesOpt.push(b); if (refuse) throw new Error("réglage refusé : option inconnue"); return { ok: true }; } };
+  const el2 = fakeEl("enginescard");
+  const notes = [];
+  const c2 = mountEngines(el2, { service: svcL, notify: (m, err) => notes.push([m, !!err]), confirm: () => true });
+  c2.render();
+  c2.state.dirty = { claude: { options: { no_mcp: false }, extra_args: null } };
+  await el2.click("save", { engine: "claude" });
+  assert.strictEqual(envoyesOpt.length, 1, "enregistrer envoie une fois");
+  assert.deepStrictEqual(envoyesOpt[0], { engine: "claude", options: { no_mcp: false }, extra_args: "" },
+                         "l'état COMPLET des cases part au serveur : c'est lui qui compare aux défauts");
+  assert(!c2.state.dirty.claude, "enregistré : le brouillon est oublié");
+  refuse = true; c2.state.dirty = { claude: { options: { no_mcp: true }, extra_args: null } };
+  await el2.click("save", { engine: "claude" });
+  assert(notes[notes.length - 1][1] === true && /refusé/.test(notes[notes.length - 1][0]),
+         "un réglage refusé par le serveur se DIT — il ne s'écrit pas en silence");
+  assert(c2.state.dirty.claude, "…et le brouillon est gardé, pour corriger sans tout retaper");
+  console.log("✓ contrôleur du lancement : brouillon, envoi complet, refus dit et gardé");
+
   const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert(/id="enginescard"/.test(html), "le panneau a son hôte dans les réglages");
   console.log("\nLe panneau Moteurs passe.");

@@ -1,0 +1,34 @@
+// modules/modules/modules.scss — le panneau « Modules » (RM3145). Compilé dans cockpit.css.
+
+.mdl-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.mdl-row { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mdl-row.on { border-color: var(--accent); }
+.mdl-head { display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer;
+  min-width: 0; }
+.mdl-head:hover { background: var(--accent-soft); }
+.mdl-name { font-family: var(--mono); font-size: 12px; }
+.mdl-ver { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+/* Le libellé cède la place en premier : c'est le nom et l'état qu'on cherche dans une liste. */
+.mdl-label { color: var(--muted); font-size: 11.5px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mdl-state { font-size: 10.5px; color: var(--muted); flex: none; }
+.mdl-detail { padding: 6px 10px 9px; border-top: 1px solid var(--line); font-size: 12px;
+  display: flex; flex-direction: column; gap: 3px; }
+.mdl-desc { color: var(--fg); margin-bottom: 4px; }
+.mdl-k { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px;
+  margin-right: 6px; }
+.mdl-trigs { display: flex; flex-direction: column; gap: 2px; }
+.mdl-trig { font-size: 11.5px; }
+.mdl-trig.ko { color: var(--warn); }
+.mdl-trig code { font-size: 11px; color: var(--muted); }
+.mdl-when { color: var(--muted); font-size: 11px; }
+.mdl-motif { color: var(--warn); font-size: 11.5px; }
+/* Un module cassé doit dire POURQUOI sans qu'on l'ouvre : sinon on ne sait pas lequel regarder,
+   et une liste d'états sans motif ne fait que déplacer la question. */
+.mdl-motif-court { padding: 0 8px 5px 30px; }
+.mdl-reg { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.mdl-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* La colonne des manquants peut être longue : elle enveloppe dans sa cellule plutôt que
+   d'élargir le tableau — c'est la leçon de RM3112. */
+.mdl-manq { white-space: normal; word-break: break-word; color: var(--muted); font-size: 11.5px; }
+.mdl-ecart { margin-top: 12px; }

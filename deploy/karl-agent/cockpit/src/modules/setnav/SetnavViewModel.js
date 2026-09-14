@@ -11,6 +11,10 @@ export const GROUPES = [
     help: "tickets, dépôts, documentation, coffres, modèles de travail" },
   { key: "engines", label: "🧩 Moteurs", cards: ["enginescard"],
     help: "moteurs de session et serveurs de modèles" },
+  // RM3145 : les modules sont de la CONFIGURATION de l'instance — ce qu'elle porte, et ce qui
+  // dépend de quoi. Leur place est ici, pas dans l'en-tête qu'on vient d'alléger (RM3150).
+  { key: "modules", label: "🧩 Modules", cards: ["modulescard"],
+    help: "ce que l'instance porte, et ce qui dépend de quoi" },
   { key: "display", label: "🎨 Affichage", cards: ["themecard", "rightcard", "sessprefcard", "voicecard"],
     help: "local à ce navigateur" },
   { key: "account", label: "👤 Compte", cards: ["authcard", "userscard"],

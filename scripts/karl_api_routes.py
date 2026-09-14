@@ -131,6 +131,7 @@ TARGET_TO_CURRENT = {
     "/api/worklog/batch": "/worklog/batch",
     "/api/worklog/mr/batch": "/mr/batch",
     "/api/worklog/mr/merge": "/mr/merge",
+    "/api/pm/modules": "/modules",
     "/api/worklog/request": "/worklog/request",
     "/api/worklog/worklog": "/worklog",
 }

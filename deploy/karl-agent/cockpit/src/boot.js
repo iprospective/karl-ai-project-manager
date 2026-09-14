@@ -64,7 +64,8 @@ import { mountCdc } from "./modules/cdc/cdc.controller.js";                 // R
 import { mountClientNotify } from "./modules/clientnotify/clientnotify.controller.js";   // RM3052
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
 import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
-import { mountEngines } from "./modules/engines/engines.controller.js";       // RM3069
+import { mountEngines } from "./modules/engines/engines.controller.js";
+import { mountModules } from "./modules/modules/modules.controller.js";       // RM3145
 import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
 import { mountMonitor } from "./modules/monitor/monitor.controller.js";       // RM3112
 import { mountFeed } from "./modules/feed/feed.controller.js";               // RM2792 (le FIL ; `notify` ci-dessus, ce sont les toasts)
@@ -241,6 +242,8 @@ const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard
 // RM3068 : le panneau Fournisseurs vit dans les réglages ; il charge à la première ouverture du panneau
 const providers = mountProviders(byId("providerscard"), { notify: notify.toast, confirm: (m) => window.confirm(m) });
 const engines = mountEngines(byId("enginescard"), { notify: notify.toast, confirm: (m) => window.confirm(m) });
+// RM3145 : le panneau des modules — en lecture. Il ne charge ni n'active aucun module.
+const modulesPane = mountModules(byId("modulescard"), {});
 let helpSpotsCtl = null;                       // RM3075 : monté plus bas (il a besoin de `doc`), lu ici par les réglages
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
   helpSpots: { enabled: () => (helpSpotsCtl ? helpSpotsCtl.enabled() : true), toggle: (on) => (helpSpotsCtl ? helpSpotsCtl.toggle(on) : on) },
@@ -296,6 +299,7 @@ const setnav = mountSetnav(byId("setnav"), {
     instance: () => { settings.load(); memory.render(); },
     providers: () => providers.load(),
     engines: () => engines.load(),
+    modules: () => modulesPane.open(),
   },
 });
 

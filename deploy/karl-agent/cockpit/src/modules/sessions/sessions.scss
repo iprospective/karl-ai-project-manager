@@ -120,3 +120,7 @@
 @keyframes ctxcross { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 .tctx.ctx-cross { animation: ctxcross .55s ease-in-out 3; }
 @media (prefers-reduced-motion: reduce) { .tctx.ctx-cross { animation: none; } }
+
+/* RM3131 — le compteur de tickets d'une session, discret : il informe au passage,
+   il ne dispute pas la place au titre ni à la jauge de contexte. */
+.runitem .tcount { margin-left: 4px; font-size: 9.5px; color: var(--muted); white-space: nowrap; }

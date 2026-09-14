@@ -23,13 +23,21 @@ Valide les champs redondants par construction des `project/overview.md`
      `instance:` déclaré doivent désigner la MÊME forge. Deux forges pour un même
      remote = le transport gagne en silence, l'identité vise ailleurs.
 
+  5. **Audit des environnements (RM3163)** — pm-doctor ne relance pas l'audit (long,
+     il écrit dans les cores) : il **lit** ce que `pm-env-audit` a consigné dans chaque
+     projet (`<workspace>/.mmi-pm/env-audit/last.json`). Audit absent ou > 7 jours →
+     avertissement (à relancer) ; anomalie ÉLEVÉE encore ouverte → erreur.
+
 Sortie : rapport par problème ; exit 0 si tout est cohérent, 1 sinon.
 Usage : pm-doctor.py [--quiet]
 """
 import argparse
+import json
+import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -261,6 +269,44 @@ def check_claude_hooks(warns):
                      f"→ conso interactive non tickée ; lancer pm-claude-hooks-sync.py")
 
 
+def check_env_audit(warns, errors, root=None, max_age_days=7):
+    """Consignation de pm-env-audit (RM3163) : lue, jamais recalculée ici."""
+    root = Path(root or os.environ.get("PM_WORKSPACES_ROOT", "/zfs/workspaces"))
+    if not root.is_dir():
+        return
+    jamais, perimes, eleves = [], [], []
+    for client in sorted(root.iterdir()):
+        if not client.is_dir() or client.name.startswith("."):
+            continue
+        for ws in sorted(client.iterdir()):
+            if not ws.is_dir() or not (ws / ".mmi-pm").exists():
+                continue
+            name = f"{client.name}/{ws.name}"
+            lp = (ws / ".mmi-pm").resolve() / "env-audit" / "last.json"
+            if not lp.exists():
+                jamais.append(name)
+                continue
+            try:
+                st = json.loads(lp.read_text(encoding="utf-8"))
+                age = (datetime.now() - datetime.strptime(st["date"], "%Y-%m-%d %H:%M")).days
+            except (OSError, ValueError, KeyError, TypeError):
+                warns.append(f"{name} : .mmi-pm/env-audit/last.json illisible")
+                continue
+            if age > max_age_days:
+                perimes.append(f"{name} ({age} j)")
+            n = (st.get("par_gravite") or {}).get("ÉLEVÉE", 0)
+            if n:
+                eleves.append(f"{name} : {n}")
+    if jamais:
+        warns.append(f"envs jamais audités : {len(jamais)} workspace(s) "
+                     f"({', '.join(jamais[:4])}{'…' if len(jamais) > 4 else ''}) → pm-env-audit --fetch")
+    if perimes:
+        warns.append(f"audit des envs > {max_age_days} j : {', '.join(perimes)} → pm-env-audit --fetch")
+    if eleves:
+        errors.append(f"anomalie(s) ÉLEVÉE(s) d'environnement ouverte(s) au dernier pm-env-audit : "
+                      f"{' ; '.join(eleves)} → <workspace>/.mmi-pm/env-audit/history.md")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -277,6 +323,9 @@ def main():
 
     # 4. Hooks PM du profil Claude Code de la machine (RM2306)
     check_claude_hooks(warns)
+
+    # 5. Audit des environnements : lecture de la consignation par projet (RM3163)
+    check_env_audit(warns, errors)
 
     # 5. Providers secondaires & rattachements partenaires obligatoires (RM2654)
     check_partner_links(cfg, ovs, errors, warns)

@@ -24,7 +24,7 @@
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
-| **début de semaine**, ou reprise d'un projet après > 7 jours : l'audit des envs date de quand ? | `modules/git-mep.md` § « Audit hebdomadaire des environnements » (RM3163) | `pm-env-audit --fetch` (`--last` = date du dernier) |
+| **début de semaine**, ou reprise d'un projet après > 7 jours : l'audit des envs date de quand ? | `modules/git-mep.md` § « Audit hebdomadaire des environnements » (RM3163) | `pm-env-audit --fetch` (`--last` = date du dernier, `--last --workspace client/projet` = celui du projet, consigné dans son `.mmi-pm/env-audit/`) |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |

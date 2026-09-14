@@ -20,10 +20,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   Nouveau `pm-env-audit` : sur **tous** les workspaces, branches portant des commits absents *par
   contenu* de l'intégration (gravité selon l'état du ticket : fermé/MEP = ÉLEVÉE, sans MR = moyenne,
   MR renseignée = info), fichiers non commités avec leur âge, intégration en retard, stash, worktrees
-  de tickets fermés, fetch impossible ; chaque contrôle est consigné dans `var/env-audit/history.jsonl`
-  (`--last` = de quand date le dernier). NORMS 2.49.0 : déclencheur « début de semaine / reprise après
+  de tickets fermés, fetch impossible. La gravité d'une branche vient de l'**état réel de sa MR** (API
+  forge : mergée + commits postérieurs = ÉLEVÉE, ouverte = info, repli sur le ticket sans réseau).
+  Chaque contrôle est **consigné dans le projet audité** : `<workspace>/.mmi-pm/env-audit/history.md`
+  (une ligne par audit, Δ nouvelles/résolues) + un fichier de détail daté seulement s'il y a une
+  anomalie ou un changement, commité et poussé sur le core ; le repo PM ne garde qu'une synthèse
+  globale locale (`--last`, `--last --workspace`). Tests offline `test_pm_env_audit.py`. NORMS 2.49.0 : déclencheur « début de semaine / reprise après
   > 7 jours », section `git-mep`, et le tripwire #3 dit désormais qu'une MR mergée clôt sa branche
   pour le contenu. Décision Mathieu : « lancer le script de vérif sur l'ensemble des envs chaque semaine ».
+  v2 : la branche d'intégration retenue est la branche par défaut du remote (`origin/HEAD`) puis
+  dev/develop/main/master (un `origin/dev` mort n'inflate plus le compte de commits) ; par défaut
+  seules les branches de tickets et les branches locales sont examinées par contenu (`--all-branches`
+  pour tout examiner) ; `pm-doctor` lit la consignation à chaque exécution et alerte (> 7 jours,
+  ÉLEVÉE ouverte) sans relancer l'audit ; les envs obsolètes se nettoient sur tout le parc en une
+  commande, `pm-env-gc --all` (dry-run) puis `--all --apply`.
 - **Le cycle de session devient une procédure nommée** (RM3162) : le texte du bouton ↻ Relancer
   (RM3159) était une procédure déguisée en presse-papier — quatre étapes, un ordre qui compte, des
   règles qui ne se devinent pas. Rangé dans un réglage d'instance, il se recopiait sur chaque machine

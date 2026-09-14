@@ -24,6 +24,13 @@ Modes :
   --entity E --project P     ajoute la cascade d'un projet réel
   --check                    compare au budget pm.config.yml :: context.budget_tokens
                              (exit 1 si dépassé) — utilisé par pm-norms-doctor
+  --notify                   n'échoue JAMAIS : signale dans le fil de notifications que la
+                             marge de sécurité est entamée (défaut : 90 % du plafond)
+
+Deux capteurs, deux natures (RM2756) : le **plafond** est un invariant — le franchir casse
+`--check`, et c'est bien le rôle d'un test. La **marge** est une TENDANCE : elle s'entame
+lentement, sur des semaines, et un test qui reste rouge des semaines n'apprend plus rien —
+il apprend à ignorer les échecs rouges. Une tendance se NOTIFIE ; un invariant casse.
 """
 import argparse
 import re
@@ -118,6 +125,41 @@ def load_budget():
     return ((cfg.get("context") or {}).get("budget_tokens") or {})
 
 
+def notifie(ratio: float = 0.9) -> int:
+    """Dit dans le FIL que la marge est entamée — et ne casse jamais rien.
+
+    Le message est volontairement STABLE : les chiffres partent en champs, pas dans le texte.
+    C'est ce qui fait qu'une dérive qui dure produit UNE entrée qui remonte, et non une par
+    passage — la mesure bouge de quelques tokens à chaque commit de NORMS."""
+    budgets = load_budget()
+    defaut = budgets.get("default")
+    if not defaut:
+        print("aucun budget par défaut déclaré (pm.config.yml :: context.budget_tokens)")
+        return 0
+    mesures = {r: sum(t for _, _, t in components(r)) for r in ROLES}
+    pire_role = max(mesures, key=lambda r: mesures[r])
+    pire = mesures[pire_role]
+    seuil = int(defaut * ratio)
+    part = pire / defaut * 100
+    if pire <= seuil:
+        print(f"marge saine : {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")
+        return 0
+
+    depasse = pire > defaut
+    msg = ("la précharge NORMS DÉPASSE le plafond de contexte" if depasse
+           else "la précharge NORMS a entamé sa marge de sécurité")
+    print(f"{msg} — {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_notify
+        pm_notify.add("system", "critical" if depasse else "warn", msg,
+                      job="norms-budget", role=pire_role, tokens=pire, budget=defaut,
+                      pct=round(part))
+    except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas une mesure
+        pass
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -130,9 +172,16 @@ def main():
     ap.add_argument("--with-host", action="store_true")
     ap.add_argument("--check", action="store_true",
                     help="Compare chaque rôle à context.budget_tokens (exit 1 si dépassé)")
+    ap.add_argument("--notify", action="store_true",
+                    help="signale une marge entamée dans le fil de notifications (n'échoue jamais)")
+    ap.add_argument("--warn-ratio", type=float, default=0.9,
+                    help="part du plafond à partir de laquelle la marge est dite entamée (défaut 0.9)")
     ap.add_argument("--json", action="store_true",
                     help="sortie machine : ce que lit la santé du poste (cockpit, famille PM)")
     args = ap.parse_args()
+
+    if args.notify:
+        return notifie(args.warn_ratio)
 
     if args.json:
         budgets = load_budget()

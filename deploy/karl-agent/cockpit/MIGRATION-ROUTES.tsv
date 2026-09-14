@@ -124,6 +124,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worklog	L3	worklog	/api/worklog/worklog	1	loadWorklog
 /worklog/batch	L3,L4	worklog	/api/worklog/batch	3	openBatchPlan;sendBatch;spawnBatchSession
 /worklog/request	L3	worklog	/api/worklog/request	1	setRequestStatus
+/tickets/anteriority	L3	worklog	/api/ticket/anteriority	1	anteriority
 /modules	L5	modules	/api/pm/modules	1	loadModules
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles

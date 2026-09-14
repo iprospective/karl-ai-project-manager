@@ -121,6 +121,7 @@ export const ROUTES = {
   "terminal.memdebug": { current: "/memdebug", target: "/api/terminal/memdebug", lot: "L2", callers: 1 },
   "test_queue.ticket_sessions": { current: "/ticket-sessions", target: "/api/test-queue/ticket-sessions", lot: "L3", callers: 1 },
   "test_queue.ticket_transitions": { current: "/ticket-transitions", target: "/api/test-queue/ticket-transitions", lot: "L3", callers: 1 },
+  "ticket.anteriority": { current: "/tickets/anteriority", target: "/api/ticket/anteriority", lot: "L3", callers: 1 },
   "ticket.brief": { current: "/tickets/brief", target: "/api/ticket/brief", lot: "L3", callers: 1 },
   "ticket.impact": { current: "/ticket-impact", target: "/api/ticket/impact", lot: "L3", callers: 1 },
   "ticket.mergecheck": { current: "/mergecheck", target: "/api/ticket/mergecheck", lot: "L3", callers: 1 },

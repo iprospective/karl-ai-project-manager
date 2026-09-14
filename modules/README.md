@@ -73,3 +73,33 @@ se tairait pour toujours.
 des processus courts — ils déposent un fait et meurent. La réaction attend donc un tour
 d'ordonnanceur ; ce qui doit être instantané (rafraîchir un écran) passe par `pm_events`,
 le canal de push vers le cockpit, qui est un autre mécanisme et porte un autre nom.
+
+
+## Servir une API (`routes/` + `controllers/`)
+
+Un module déclare ses routes dans `routes/*.yml`, une par fichier :
+
+```yaml
+path: watches                 # sans barre de tête
+method: GET                   # GET ou POST
+handler: watches:etat         # <fichier de controllers/>:<fonction>
+```
+
+Elle est servie sous **`/api/modules/<nom>/<path>`**. Le préfixe n'est pas décoratif :
+dans le journal comme dans le navigateur, il dit **quel module répond** — une route qui
+se confondrait avec celles du noyau rendrait un incident illisible.
+
+Le contrôleur est une fonction :
+
+```python
+def etat(qs=None, payload=None, auth_ctx=None) -> dict:
+    return {"…": "…"}
+```
+
+Un module **bloqué ou désactivé ne sert rien** : une route qui répondrait alors que son
+module n'a pas pu se charger donnerait des réponses à moitié.
+
+⚠ **C'est le seul endroit où du code de module s'exécute dans le processus du serveur.**
+Tant que les modules sont livrés avec le noyau, le risque est celui du code qu'on écrit
+soi-même. S'ils deviennent installables depuis une source tierce, ce point devra être
+isolé — c'est une question ouverte du ticket, pas un détail d'implémentation.

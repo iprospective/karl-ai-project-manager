@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un onglet « Modules » dans les réglages** (RM3145, lot 3) : ce que l'instance porte, ce que chaque
+  module fournit, ce dont il dépend — et surtout **ce qui le requiert lui**, parce que c'est la question
+  qu'on se pose au moment de désactiver quelque chose, et qu'elle ne se répond pas en lisant son propre
+  manifeste. Un module cassé ou bloqué annonce son motif **sans qu'on l'ouvre** : une liste d'états sans
+  motif ne fait que déplacer la question. Le panneau montre aussi la santé du bus (ce qui attend, ce qui
+  a échoué) : sans elle, un module semblerait branché et ne réagirait jamais. Et il affiche **l'écart** —
+  combien de points d'extension sont encore portés par un registre sans module, et lesquels : un panneau
+  qui ne montrerait que les modules déclarés serait flatteur et faux. Le panneau LIT, il n'active rien —
+  l'activation viendra avec le lot 1. Placé dans les réglages plutôt qu'en en-tête, qu'on venait
+  d'alléger. Cockpit 3.18.0.
+
 - **Les modules peuvent réagir à ce qui se passe** (RM3145, lot 2) : PM publiait déjà des *sujets*
   pour réveiller le cockpit (RM3006), mais rien ne retenait les **faits** — « le statut de RM3145 est
   passé de a_faire à en_cours » — ni ne permettait d'y réagir. Un journal d'événements métier les

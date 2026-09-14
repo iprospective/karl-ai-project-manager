@@ -67,6 +67,7 @@ import { mountProviders } from "./modules/providers/providers.controller.js"; //
 import { mountEngines } from "./modules/engines/engines.controller.js";       // RM3069
 import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
 import { mountMonitor } from "./modules/monitor/monitor.controller.js";       // RM3112
+import { mountFeed } from "./modules/feed/feed.controller.js";               // RM2792 (le FIL ; `notify` ci-dessus, ce sont les toasts)
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
@@ -253,6 +254,33 @@ const monitor = mountMonitor(byId("monitorcard"), {
   showTicket: (rm) => { if (meta) meta.showTicket(rm); },   // lambda : `meta` est monté plus bas
 });
 
+// RM2792 : le fil de notifications — ce qui attend, toutes sources confondues. Le bouton d'en-tête
+// porte le compte ; il ne dit rien tant que rien n'attend.
+const feedCtl = mountFeed(byId("feedcard"), {
+  notify: notify.toast, confirm: (m) => window.confirm(m),
+  showTicket: (rm) => { if (meta) meta.showTicket(rm); },
+  onCounts: (c) => paintFeedBadge(c),
+});
+// Le compte se rafraîchit AU FIL DE L'EAU, sur le tick qui existe déjà — pas de minuterie de plus.
+// Bridé à une lecture par minute, et jamais deux en vol : le fil est une commodité, pas une charge.
+let feedAt = 0, feedBusy = false;
+function pollFeed(force) {
+  const t = Date.now();
+  if (feedBusy || (!force && t - feedAt < 60000)) return;
+  feedBusy = true; feedAt = t;
+  Promise.resolve(feedCtl.poll()).catch(() => {}).then(() => { feedBusy = false; });
+}
+function paintFeedBadge(c) {
+  const b = byId("feedbtn"); if (!b) return;
+  const n = Number((c && c.open) || 0), pire = (c && c.worst) || "";
+  const badge = b.querySelector ? b.querySelector(".feed-badge") : null;
+  if (badge) { badge.textContent = n ? String(n) : ""; }
+  b.classList.toggle("has-warn", n > 0 && pire === "warn");
+  b.classList.toggle("has-critical", n > 0 && pire === "critical");
+  b.title = n ? n + " notification(s) en attente" + (pire ? " (pire niveau : " + pire + ")" : "")
+              : "Fil de notifications — rien n'attend";
+}
+
 // RM3081 : les réglages en onglets. Chaque onglet dit ce qu'il faut charger pour lui, et rien d'autre
 // ne part au serveur tant qu'on ne l'ouvre pas — un onglet n'est chargé qu'une fois.
 const setnav = mountSetnav(byId("setnav"), {
@@ -311,6 +339,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
     memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
     monitor:  { label: "supervision", load: () => monitor.open(), show: (on) => show("cp-monitor", on) },   // RM3112
+    feed:     { label: "fil",          load: () => feedCtl.open(),    show: (on) => show("cp-feed", on) },     // RM2792
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
     clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
   },
@@ -536,7 +565,8 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
   version: VERSION,   // RM3000 : la version servie par /health est comparée à celle du front
   stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
-  onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
+  // RM2792 : le compte du fil suit le tick qui existe déjà — pas de minuterie de plus.
+  onSessions: (list) => { sessionsCtl.render(list); pollFeed(); }, onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
   token: () => auth.token(),   // RM3006 : le canal de push (EventSource) porte le jeton en query
   onTopics: (topics) => { if (topics.includes("mail")) mail.refresh(); if (topics.includes("sets") && setsCtl) setsCtl.refreshSets(); },   // sujets sans bloc /refresh
   onPush: () => layout.refreshMobileNav(),

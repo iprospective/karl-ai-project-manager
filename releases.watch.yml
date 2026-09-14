@@ -1,0 +1,28 @@
+# ── Veilles de publication (RM2792 lot 4 / RM2429) ────────────────────────────
+#
+# « Est-ce que la version qui corrige mon problème est sortie ? » — la question se
+# pose pour Vaultwarden aujourd'hui, elle se reposera pour autre chose demain. Un
+# script par produit voudrait dire un script à écrire, à déclarer et à oublier à
+# chaque fois : c'est une VEILLE qui se déclare ici, pas un outil qu'on récrit.
+#
+# Champs :
+#   repo        (requis) dépôt GitHub « owner/name ».
+#   min_version (requis) plancher EXCLUSIF : on alerte à partir de la première
+#               version strictement supérieure. C'est la version qu'on a, ou la
+#               dernière qui ne corrige pas le problème.
+#   why         (requis) ce qu'on attend de cette version — c'est le texte que
+#               l'alerte portera, des mois plus tard, quand le contexte sera loin.
+#   rm          ticket à rouvrir / à suivre quand ça tombe. Facultatif.
+#   enabled     défaut true. Passer à false quand la mise à jour est faite :
+#               une veille satisfaite qui continue de crier n'apprend rien.
+
+watches:
+
+  vaultwarden:
+    repo: dani-garcia/vaultwarden
+    min_version: "1.37.1"
+    rm: 2429
+    why: >
+      Correctif upstream #7608 du bug #7607 (dani-garcia/vaultwarden) qui bloque
+      l'usage du vault par les agents. Tant qu'aucune release ne le porte, le
+      contournement local reste en place — et c'est lui qu'on veut retirer.

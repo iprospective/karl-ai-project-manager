@@ -1,0 +1,19 @@
+// modules/feed/notify.scss — le panneau « fil » (RM2792). Compilé dans cockpit.css par `npm run build:css`.
+
+.feed-filtres { display: flex; gap: 4px; flex-wrap: wrap; }
+.feed-etat { width: 1.2em; text-align: center; color: var(--muted); font-family: var(--mono); }
+.feed-src { color: var(--muted); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+/* Le message peut être long : il enveloppe dans sa cellule plutôt que d'élargir le tableau. */
+.feed-msg { white-space: normal; word-break: break-word; }
+.feed-rep { color: var(--muted); font-size: 11px; }
+.feed-user { color: var(--accent); font-size: 11px; white-space: nowrap; }
+.feed-user.prive { color: var(--warn); }
+.feed-rm { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 11px; }
+.feed-rm:hover { text-decoration: underline; }
+/* Traité : encore là, mais visiblement derrière soi. */
+.feed-traite { opacity: .55; }
+
+/* Pastille du bouton d'en-tête : le compteur ne crie que si quelque chose attend. */
+#feedbtn .feed-badge { font-family: var(--mono); font-size: 11px; margin-left: 3px; }
+#feedbtn.has-warn { color: var(--warn); border-color: var(--warn); }
+#feedbtn.has-critical { color: var(--danger); border-color: var(--danger); animation: kblink 1s ease-in-out infinite; }

@@ -152,6 +152,7 @@
 ### Ordonnancement & notifications
 
 - `pm-lock-gc` — GC des fichiers .lock (T7/RM2551) : filet post-crash + observabilité.
+- `pm-notify-mail` — le canal mail du fil de notifications
 - `pm-notify` — le fil de notifications de l'instance : lire, marquer, émettre
 - `pm-scheduler` — ordonnanceur unique des travaux périodiques PM
 
@@ -177,6 +178,7 @@
 
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
+- `pm-release-watch` — la veille des publications qu'on attend
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une

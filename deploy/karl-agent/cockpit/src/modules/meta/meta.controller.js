@@ -55,7 +55,11 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     if (sel && probe.facet === "workspace" && svc.workspace(sel) === undefined) refreshWorkspace(sel);
     const r = sel ? resolve().get(sel) : undefined;
     const card = (r && r.found && r.client && r.project) ? svc.projectCard(r.client, r.project, () => render()) : undefined;
-    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card })), deps));
+    // RM3164 : les sessions du ticket — demandées seulement sur la facette « détail », là où
+    // elles s'affichent. Les charger à chaque rendu de n'importe quel onglet serait une requête
+    // par frappe pour une information qu'on ne regarde pas.
+    const ts = (sel && probe.facet === "detail") ? svc.ticketSessions(sel, () => render()) : undefined;
+    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card, ts })), deps));
   }
   function render() { renderInfos(); renderTickets(); }
 
@@ -93,6 +97,7 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     launcher: (n) => ctx.gotoTicket && ctx.gotoTicket(n.dataset.rm), review: (n) => ctx.openReview && ctx.openReview(n.dataset.rm),
     reload: (n) => ctx.reload && ctx.reload(n.dataset.rm), status: (n, e) => ctx.openStatusMenu && ctx.openStatusMenu(n.dataset.rm, n, e),
     reopen: (n) => ctx.reopen && ctx.reopen(n.dataset.rm), project: (n) => ctx.openProject && ctx.openProject(n.dataset.key),
+    "attach-session": (n) => ctx.attachSession && ctx.attachSession(n.dataset.sid),
     "refresh-ws": (n) => refreshWorkspace(n.dataset.rm),
   };
   const events = [["click", "[data-action]", (e, n) => { const f = acts[n.dataset.action]; if (f) { e.stopPropagation(); f(n, e); } }]];

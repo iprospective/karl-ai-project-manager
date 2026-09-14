@@ -57,6 +57,21 @@ export function TicketLog(entries, { md }) {
     return html`<div class="logent">${quand || e.title ? html`<div class="logent-h">${quand ? html`<span class="logent-ts">${quand}</span>` : ""}${e.title ? html`<span>${e.title}</span>` : ""}</div>` : ""}${e.body ? html`<div class="logent-b">${raw(md(e.body))}</div>` : ""}</div>`; })}</div>`;
 }
 
+/** RM3164 — les sessions qui traitent ce ticket, dans le panneau. L'information existait
+ *  dans la fiche de revue (RM2726) ; elle manquait là où l'on regarde le ticket au quotidien.
+ *  Un clic attache la session : le but est d'y RETOURNER, pas seulement de savoir. */
+export function TicketSessionsBlock(ts) {
+  if (ts.kind === "none") return "";                     // jamais demandé : pas de bloc vide
+  if (ts.kind === "loading") return html`<div class="ms"><h4>Sessions</h4><span style="${muted}">…</span></div>`;
+  if (ts.kind === "error") return html`<div class="ms"><h4>Sessions</h4><span style="${muted}">indisponible</span></div>`;
+  if (ts.kind === "empty") {
+    return html`<div class="ms"><h4>Sessions</h4><span style="${muted}">aucune session ne traite ce ticket${ts.candidates ? html` — ${ts.candidates} candidate(s) possible(s), voir la fiche de revue` : ""}.</span></div>`;
+  }
+  return html`<div class="ms"><h4>Sessions (${ts.rows.length})</h4>${ts.rows.map(s =>
+    html`<div class="kv" style="cursor:pointer" data-action="attach-session" data-sid="${s.sid}" title="Attacher la session ${s.name}"><span class="k">${s.alive
+      ? html`<span style="color:var(--ok)">●</span> ` : "◌ "}${s.name}</span><span class="v">${s.title}</span></div>`)}</div>`;
+}
+
 export function TicketConso(c) {
   if (!c) return html`<div class="ms" style="${muted}">Aucune consommation enregistrée pour ce ticket.</div>`;
   return html`<div class="ms"><h4>Consommation <span style="text-transform:none;${muted}">(enregistrée)</span></h4><div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">${c.total}</span></div>${c.breakdown

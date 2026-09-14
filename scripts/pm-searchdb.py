@@ -74,7 +74,7 @@ def main():
                 print(f"  dernière maj    : {s['last_update'] or '—'}")
                 if s["stale"] or s["orphans"]:
                     out.warn(f"index EN RETARD : {s['stale']} fiche(s) modifiée(s), "
-                             f"{s['orphans']} disparue(s) — `mmi-pm index update`")
+                             f"{s['orphans']} disparue(s) — `mmi-pm searchdb update`")
                 else:
                     print("  ✓ à jour")
         elif args.cmd == "query":

@@ -76,16 +76,35 @@ export function ContactView(vm) {
       : html`<div style="color:var(--muted);font-size:11.5px">aucun client ne la référence encore</div>`}</div>`;
 }
 
-export function ClientView(vm) {
+export const CLIENT_TABS = [["resume", "résumé"], ["projets", "projets"], ["sessions", "sessions"]];
+export function clientTabOf(t) { return CLIENT_TABS.some(x => x[0] === t) ? t : "resume"; }
+
+/** RM3132 — la fiche client en onglets. Elle empilait identité, contacts, valeurs par défaut,
+ *  projets et projets utilisés : chez un client à vingt projets, l'identité disparaissait sous
+ *  la liste. L'en-tête reste commun — il dit de quel client on parle. */
+export function ClientView(vm, tab) {
+  const a = clientTabOf(tab);
   const kv = (k, v) => v ? html`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>` : "";
   const c = vm.e, contacts = vm.contacts();
-  return html`<div class="ms"><h4>${vm.name}</h4>${vm.identity().map(([k, v]) => kv(k, v))}${kv("Redmine", c.redmine_project_url ? html`<a href="${c.redmine_project_url}" target="_blank">${c.redmine_project_id} ↗</a>` : (c.redmine_project_id || ""))}</div>${contacts.length
+  const barre = html`<div class="rsub facets">${CLIENT_TABS.map(([k, label]) =>
+    html`<button class="${k === a ? "active" : ""}" data-action="ctab" data-tab="${k}" data-client="${c.client || vm.name}">${label}</button>`)}</div>`;
+  const entete = html`<div class="ms"><h4>${vm.name}</h4>${vm.identity().map(([k, v]) => kv(k, v))}${kv("Redmine", c.redmine_project_url ? html`<a href="${c.redmine_project_url}" target="_blank">${c.redmine_project_id} ↗</a>` : (c.redmine_project_id || ""))}</div>`;
+  const resume = html`${contacts.length
     ? html`<div class="ms"><h4>Contacts (${contacts.length})</h4>${contacts.map(p => html`<div class="kv"${p.ref ? html` style="cursor:pointer" data-action="open-contact" data-value="${p.ref}" title="Ouvrir la fiche de ${p.ref}"` : ""}><span class="k">${p.nom}${p.internal ? html` <span class="pill">interne</span>` : ""}${p.orphelin ? html` <span class="pill warn">ref inconnue</span>` : ""}</span><span class="v">${p.det}</span></div>`)}</div>` : ""}${(vm.priority || vm.team.length)
-    ? html`<div class="ms"><h4>Valeurs par défaut</h4>${kv("priorité", vm.priority)}${kv("équipe", vm.team.join(" · "))}</div>` : ""}<div class="ms"><h4>Projets (${vm.projects.length})</h4>${vm.projects.length
+    ? html`<div class="ms"><h4>Valeurs par défaut</h4>${kv("priorité", vm.priority)}${kv("équipe", vm.team.join(" · "))}</div>` : ""}${vm.docs.length
+    ? html`<div class="ms"><h4>Docs client</h4><ul class="doclist">${vm.docs.map(d => html`<li data-action="open-file" data-src="doc" data-wt="" data-path="${d.path}" data-tag="">📄 ${d.name}</li>`)}</ul></div>` : ""}`;
+  const sessions = vm.sessions.length
+    ? html`<div class="ms"><h4>Sessions (${vm.sessions.length})</h4>${vm.sessions.map(s => html`<div class="oline" style="cursor:pointer" data-action="attach" data-sid="${s.rm_id}" title="Attacher la session ${s.rm_id}"><span class="pill">${s.rm_id}</span> ${s.project || ""} ${s.state ? html`<span class="pill">${s.state}</span>` : ""}</div>`)}</div>`
+    : html`<div class="ms" style="color:var(--muted);font-size:11.5px">aucune session en cours pour ce client.</div>`;
+  return html`${entete}${barre}${a === "projets" ? html`${projetsBloc(vm)}` : a === "sessions" ? sessions : resume}`;
+}
+
+/** Les projets du client — extrait tel quel de la fiche d'origine (RM3132). */
+function projetsBloc(vm) {
+  return html`<div class="ms"><h4>Projets (${vm.projects.length})</h4>${vm.projects.length
     ? vm.projects.map(p => html`<div class="oline" style="white-space:normal;cursor:pointer" data-action="open-project" data-value="${p.value}" title="Ouvrir la fiche de ${p.value}">📄 ${p.project}</div>`)
     : html`<div style="color:var(--muted);font-size:11.5px">aucun projet</div>`}</div>${vm.used.length
-    ? html`<div class="ms"><h4>Projets utilisés (${vm.used.length})</h4><div style="font-size:11.5px">${vm.used.join(" · ")}</div><div style="color:var(--muted);font-size:11px;margin-top:4px">Projets d'un autre client, partagés avec celui-ci.</div></div>` : ""}${vm.docs.length
-    ? html`<div class="ms"><h4>Docs client</h4><ul class="doclist">${vm.docs.map(d => html`<li data-action="open-file" data-src="doc" data-wt="" data-path="${d.path}" data-tag="">📄 ${d.name}</li>`)}</ul></div>` : ""}`;
+    ? html`<div class="ms"><h4>Projets utilisés (${vm.used.length})</h4><div style="font-size:11.5px">${vm.used.join(" · ")}</div><div style="color:var(--muted);font-size:11px;margin-top:4px">Projets d'un autre client, partagés avec celui-ci.</div></div>` : ""}`;
 }
 
 /** La conf est rendue TELLE QUELLE : la reformater masquerait ce qu'on vient vérifier. */

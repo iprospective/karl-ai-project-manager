@@ -28,9 +28,33 @@
 # le dnsmasq de l'host vers ce conteneur). La ligne est ajoutée au .env si absente.
 # Cert TLS surchargeable via KARL_SSL_CERT / KARL_SSL_KEY (défaut snakeoil).
 #
-# Portée réseau : le bridge LXC est local à la workstation (10.0.3.0/24) — pas
-# d'exposition publique. Si le bridge devait être partagé, poser KARL_AGENT_TOKEN
-# (auth de l'API) avant d'élargir.
+# Portée réseau : DEUX accès coexistent (corrigé RM3156 — ce commentaire affirmait
+# « pas d'exposition publique », faux depuis RM2700, et il fondait un raisonnement
+# de sécurité) :
+#   · le bridge LXC (10.0.3.0/24), local à la workstation ;
+#   · l'exposition PUBLIQUE via le frontal mmi — https://karl.iprospective.fr/ (RM2700).
+#
+# ⚠ Le frontal RÉÉCRIT le Host en $HOST avant de transmettre. C'est pour cela que ce
+# vhost, dont le ServerName est le nom LXC, répond aussi au trafic public — et il n'y
+# a AUCUN ServerAlias à ajouter pour le nom public. Le diagnostic de RM3124 a perdu du
+# temps sur cette fausse piste : une requête portant Host: karl.iprospective.fr tombe
+# bien sur le vhost par défaut (404 sur /ttyd/), mais ce n'est pas ce Host-là qui
+# arrive ici.
+#
+# Ce qui protège l'accès : l'authentification du cockpit, OBLIGATOIRE dès cette
+# exposition — KARL_WEB_USER / KARL_WEB_PASS (Basic, RM2139), puis token d'appareil
+# (RM2334), plus le cookie de session même-origine qui porte ce token à l'upgrade
+# WebSocket de /ttyd (RM2700). karl-agent.py le dit déjà dans son en-tête : « requis
+# dès que le cockpit est exposé au-delà du bridge local ».
+# Vérifiable en deux commandes :
+#   curl -s <hôte>/cockpit-config | grep auth_required   → true
+#   curl -so /dev/null -w '%{http_code}' <hôte>/sessions → 401
+#
+# KARL_AGENT_TOKEN n'est PAS requis et n'est volontairement pas posé : c'est un secret
+# partagé antérieur, qui donne un accès admin complet SANS identifier d'utilisateur
+# (`mode: shared-token`, rétrocompatibilité). L'ajouter aujourd'hui serait une clé
+# passe-partout de plus, pas un renforcement — les identifiants et le token d'appareil
+# identifient qui agit et distinguent les rôles.
 #
 # Idempotence : modules/enable à blanc si déjà faits ; le .conf n'est réécrit
 # (et Apache rechargé) que si le contenu généré change ; configtest avant

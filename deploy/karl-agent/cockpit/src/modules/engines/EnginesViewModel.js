@@ -49,3 +49,34 @@ export class EnginesViewModel extends EntityViewModel {
   }
   get count() { const n = this.etats.filter(e => e.installed).length; return `${n} installé(s) sur ${this.etats.length}`; }
 }
+
+/** RM3139 — comment les moteurs sont LANCÉS : les options cochables, ce qui est saisi à la main, et
+ *  la commande qui en sort. Séparé du ViewModel d'installation : deux sujets voisins, deux vues.
+ *  e = { data: {engines, error}, dirty: {<engine>: {options, extra_args}}, busy } */
+export class EngineLaunchViewModel extends EntityViewModel {
+  constructor(e, ctx) { super(e || {}, ctx); this.d = (this.e.data || {}); }
+  get error() { return this.d.error || ""; }
+  get empty() { return !(this.d.engines || []).length; }
+  /** L'état AFFICHÉ : ce que l'utilisateur vient de cocher s'il a touché à quelque chose, sinon ce
+   *  que le serveur dit. Sans cela, une case décochée se recocherait sous les doigts au re-rendu. */
+  brouillon(name) { return (this.e.dirty || {})[name] || null; }
+  ligne(p) {
+    const d = this.brouillon(p.engine);
+    const options = (p.options || []).map(o => ({
+      key: o.key, label: o.label || o.key, flag: o.flag, why: o.why || "",
+      enabled: d && d.options && o.key in d.options ? !!d.options[o.key] : !!o.enabled,
+      source: o.source || "" }));
+    const extra = d && typeof d.extra_args === "string" ? d.extra_args : (p.extra_args || "");
+    // la commande vient du SERVEUR : tant qu'on n'a pas enregistré, elle décrit l'état enregistré,
+    // pas le brouillon — le dire vaut mieux que d'afficher une commande devinée côté client.
+    return { engine: p.engine, options, extra, cmd: p.spawn_cmd || p.base_cmd || "",
+             resume: p.resume_cmd || "", problems: p.problems || [],
+             dirty: !!d, busy: this.e.busy === p.engine };
+  }
+  get rows() { return (this.d.engines || []).map(p => this.ligne(p)); }
+  /** Combien de moteurs portent un réglage propre à l'instance — le reste suit les défauts. */
+  get count() {
+    const n = this.rows.filter(r => r.options.some(o => o.source === "pm.config.yml") || r.extra).length;
+    return n ? `${n} moteur(s) réglé(s) ici` : "tous aux valeurs par défaut";
+  }
+}

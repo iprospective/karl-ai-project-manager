@@ -1287,22 +1287,27 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
 RESERVED_FLAGS = {"--model", "--session-id", "--resume", "--session", "--continue"}
 
 
-def _engine_conf(engine: str) -> dict:
-    """Ce que l'INSTANCE dit de ce moteur (pm.config.yml :: engines.<nom>)."""
+def _engine_conf(engine: str, conf: dict = None) -> dict:
+    """Ce que l'INSTANCE dit de ce moteur (pm.config.yml :: engines.<nom>).
+
+    RM3139 : `conf` permet d'injecter un réglage qui n'est PAS encore écrit — c'est ce qui rend la
+    validation possible avant l'enregistrement, plutôt qu'après coup sur une session morte-née."""
+    if conf is not None:
+        return conf
     if not callable(globals().get("_conf_merged")):
         return {}
     return ((_conf_merged().get("engines") or {}).get(engine) or {})
 
 
 # >>> engine_option_state — pure (testée par test_karl_agent_engine_options.py)
-def engine_option_state(engine: str) -> list:
+def engine_option_state(engine: str, conf: dict = None) -> list:
     """Le catalogue du moteur, chaque option portant son état EFFECTIF.
 
     L'instance ne redéfinit pas le catalogue, elle coche ou décoche : une option
     absente de la conf garde son `default`. C'est ce qui permet d'ajouter une option
     au code sans casser les instances qui n'en ont jamais entendu parler.
     """
-    conf = (_engine_conf(engine).get("options") or {})
+    conf = (_engine_conf(engine, conf).get("options") or {})
     out = []
     for opt in (ENGINES.get(engine, {}).get("options") or []):
         o = dict(opt)
@@ -1315,13 +1320,13 @@ def engine_option_state(engine: str) -> list:
 
 
 # >>> engine_extra_args — pure
-def engine_extra_args(engine: str) -> list:
+def engine_extra_args(engine: str, conf: dict = None) -> list:
     """Arguments libres de l'instance, découpés comme le shell le ferait.
 
     Une chaîne non fermée (guillemet orphelin) est une erreur de configuration, pas
     une session à lancer de travers : on refuse en le disant.
     """
-    raw = _engine_conf(engine).get("extra_args") or ""
+    raw = _engine_conf(engine, conf).get("extra_args") or ""
     if isinstance(raw, list):
         return [str(a) for a in raw]
     try:
@@ -1332,7 +1337,7 @@ def engine_extra_args(engine: str) -> list:
 
 
 # >>> validate_engine_options — pure
-def validate_engine_options(engine: str) -> list:
+def validate_engine_options(engine: str, conf: dict = None) -> list:
     """Les problèmes de configuration de ce moteur, en clair. Liste vide = tout va bien.
 
     Vaut mieux un refus explicite qu'une session morte-née : un drapeau inconnu du
@@ -1341,7 +1346,7 @@ def validate_engine_options(engine: str) -> list:
     """
     problems = []
     cat = {o["key"] for o in (ENGINES.get(engine, {}).get("options") or [])}
-    for key in (_engine_conf(engine).get("options") or {}):
+    for key in (_engine_conf(engine, conf).get("options") or {}):
         if key not in cat:
             problems.append(f"option inconnue pour {engine} : {key!r} "
                             f"(connues : {sorted(cat) or 'aucune'})")
@@ -1352,10 +1357,10 @@ def validate_engine_options(engine: str) -> list:
         if f in RESERVED_FLAGS:
             problems.append(f"option {o['key']!r} : {f} est posé par PM lui-même")
     try:
-        extra = engine_extra_args(engine)
+        extra = engine_extra_args(engine, conf)
     except ApiError as exc:
         return problems + [str(exc)]
-    enabled = {o["flag"] for o in engine_option_state(engine) if o["enabled"]}
+    enabled = {o["flag"] for o in engine_option_state(engine, conf) if o["enabled"]}
     for a in extra:
         if a in RESERVED_FLAGS:
             problems.append(f"extra_args : {a} est posé par PM lui-même — à retirer")
@@ -1366,7 +1371,7 @@ def validate_engine_options(engine: str) -> list:
 
 
 # >>> engine_base_cmd — pure
-def engine_base_cmd(engine: str) -> str:
+def engine_base_cmd(engine: str, conf: dict = None) -> str:
     """La commande du moteur, options d'instance comprises — spawn ET resume.
 
     N'y figure PAS ce qui dépend de l'invocation (`--model`, `--session-id`,
@@ -1375,23 +1380,23 @@ def engine_base_cmd(engine: str) -> str:
     """
     spec = ENGINES.get(engine) or {}
     parts = [str(spec.get("cmd") or engine)]
-    parts += [o["flag"] for o in engine_option_state(engine) if o["enabled"]]
-    parts += [shlex.quote(a) for a in engine_extra_args(engine)]
+    parts += [o["flag"] for o in engine_option_state(engine, conf) if o["enabled"]]
+    parts += [shlex.quote(a) for a in engine_extra_args(engine, conf)]
     return " ".join(parts)
 # <<< engine_base_cmd
 
 
-def engine_preview(engine: str) -> dict:
+def engine_preview(engine: str, conf: dict = None) -> dict:
     """Ce qui sera RÉELLEMENT lancé, pour que personne n'ait à le deviner."""
     spec = ENGINES.get(engine) or {}
-    base = engine_base_cmd(engine)
+    base = engine_base_cmd(engine, conf)
     spawn = base + (" --session-id <uuid>" if engine == "claude" else "")
     resume = (f"{base} {spec['resume_flag']} <session-id>"
               if spec.get("resume_flag") else None)
     return {"engine": engine, "base_cmd": base, "spawn_cmd": spawn,
-            "resume_cmd": resume, "options": engine_option_state(engine),
-            "extra_args": _engine_conf(engine).get("extra_args") or "",
-            "problems": validate_engine_options(engine)}
+            "resume_cmd": resume, "options": engine_option_state(engine, conf),
+            "extra_args": _engine_conf(engine, conf).get("extra_args") or "",
+            "problems": validate_engine_options(engine, conf)}
 
 
 def op_engine_options(_qs: dict = None, auth_ctx: dict | None = None) -> dict:
@@ -1402,6 +1407,76 @@ def op_engine_options(_qs: dict = None, auth_ctx: dict | None = None) -> dict:
     LANCE. Deux sujets voisins, deux routes distinctes.
     """
     return {"engines": [engine_preview(n) for n in ENGINES]}
+
+
+# >>> engine_conf_patch — pure (testée par test_karl_agent_engine_options.py)
+def engine_conf_patch(local: dict, engine: str, options: dict, extra_args: str) -> dict:
+    """La conf locale AVEC les réglages de ce moteur. Pure : rien n'est écrit ici. RM3139.
+
+    Ne consigne que ce qui DIFFÈRE du catalogue. Une conf qui répéterait les défauts figerait
+    l'instance sur l'état du jour : le jour où un défaut change — parce qu'on a compris quelque
+    chose — les instances qui l'ont recopié ne l'apprendraient jamais. Décocher une option dont le
+    défaut est « cochée » s'écrit, bien sûr : c'est une intention, pas un silence.
+    """
+    out = {k: v for k, v in (local or {}).items()}
+    engines = {k: dict(v) if isinstance(v, dict) else v for k, v in (out.get("engines") or {}).items()}
+    conf = dict(engines.get(engine) or {})
+    defauts = {o["key"]: bool(o.get("default")) for o in (ENGINES.get(engine, {}).get("options") or [])}
+    choisies = {}
+    for key, val in (options or {}).items():
+        if key in defauts and bool(val) == defauts[key]:
+            continue                      # identique au défaut : on ne fige pas, on laisse suivre
+        choisies[key] = bool(val)
+    if choisies:
+        conf["options"] = choisies
+    else:
+        conf.pop("options", None)
+    extra = str(extra_args or "").strip()
+    if extra:
+        conf["extra_args"] = extra
+    else:
+        conf.pop("extra_args", None)
+    if conf:
+        engines[engine] = conf
+    else:
+        engines.pop(engine, None)         # plus rien à dire sur ce moteur : ne pas laisser un trou
+    if engines:
+        out["engines"] = engines
+    else:
+        out.pop("engines", None)
+    return out
+# <<< engine_conf_patch
+
+
+def op_engine_options_set(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """POST /engines/options — coche, décoche, pose les options libres. RM3139.
+
+    Écrit dans `pm.config.local.yml`, JAMAIS dans le `pm.config.yml` de référence : celui-ci est
+    commenté, versionné et lu par des humains ; une machine n'y touche pas.
+
+    Le réglage est VÉRIFIÉ avant d'être enregistré, sur la conf qu'il produirait — pas sur celle
+    d'avant. Refuser ici coûte un message ; laisser passer coûte une session morte-née dont on ne
+    voit que le spawn qui échoue sans raison lisible (incident RM2951).
+    """
+    engine = str((payload or {}).get("engine") or "")
+    if engine not in ENGINES:
+        raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
+    options = (payload or {}).get("options") or {}
+    if not isinstance(options, dict):
+        raise ApiError(400, "options : objet {clé: booléen} attendu")
+    extra = (payload or {}).get("extra_args") or ""
+    if not isinstance(extra, str):
+        raise ApiError(400, "extra_args : chaîne attendue")
+    local = _providers_local()
+    patch = engine_conf_patch(local, engine, options, extra)
+    futur = ((patch.get("engines") or {}).get(engine) or {})
+    problems = validate_engine_options(engine, futur)
+    if problems:
+        raise ApiError(400, "réglage refusé : " + " · ".join(problems))
+    _providers_ecrit_local(patch)
+    _jlog("env", "info", "options de lancement modifiées", engine=engine,
+          user=str((auth_ctx or {}).get("user") or ""))
+    return {"ok": True, **engine_preview(engine, futur)}
 
 
 def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
@@ -12792,6 +12867,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"ok": True})
             if path == "/events/publish":   # RM3006 : un script PM (ou le front) signale que quelque chose a changé
                 return self._send_json(200, op_events_publish(payload, self.auth_ctx))
+            if path == "/engines/options":  # RM3139 : cocher/décocher depuis le cockpit, plutôt qu'éditer le YAML
+                return self._send_json(200, op_engine_options_set(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.

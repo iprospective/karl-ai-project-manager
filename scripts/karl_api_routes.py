@@ -18,7 +18,6 @@ TARGET_TO_CURRENT = {
     "/api/clientnotify/test": "/client-notify/test",
     "/api/core/update-status": "/core/update-status",
     "/api/dashboard/alerts": "/alerts",
-    "/api/worklog/request": "/worklog/request",
     "/api/dashboard/notifications": "/notifications",
     "/api/dashboard/notifications-mark": "/notifications/mark",
     "/api/dashboard/overview": "/overview",
@@ -63,6 +62,7 @@ TARGET_TO_CURRENT = {
     "/api/outline/scroll": "/scroll",
     "/api/pm/commands": "/pm/commands",
     "/api/pm/engine-install": "/pm/engine-install",
+    "/api/pm/engine-options": "/engines/options",
     "/api/pm/engines": "/pm/engines",
     "/api/pm/llm-models": "/pm/llm-models",
     "/api/pm/provider-assign": "/pm/provider-assign",
@@ -131,6 +131,7 @@ TARGET_TO_CURRENT = {
     "/api/worklog/batch": "/worklog/batch",
     "/api/worklog/mr/batch": "/mr/batch",
     "/api/worklog/mr/merge": "/mr/merge",
+    "/api/worklog/request": "/worklog/request",
     "/api/worklog/worklog": "/worklog",
 }
 

@@ -10,15 +10,28 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /auto-yes	L2	sessionsets	/api/session-set/auto-yes	1	setAutoYes
 /buffer	L2	terminal	/api/terminal/buffer	1	pullBuffer
 /capture	L2,L5	terminal	/api/terminal/capture	2	copyCapture;readQuestion
-/contact	L4	projects	/api/project/contact	1	openContact
-/contacts	L4	projects	/api/project/contacts	1	openContacts
+/cdc	L5	doc	/api/doc/cdc	1	openCdc
+/cdc/feature	L5	doc	/api/doc/cdc-feature	1	featureEdit
+/cdc-features	L5	doc	/api/doc/cdc-features	1	loadFeatures
+/cdc/think	L5	doc	/api/doc/cdc-think	1	thinkEdit
+/cdc/version	L5	doc	/api/doc/cdc-version	1	versionEdit
 /client	L4	projects	/api/project/client	1	openCenterClient
+/client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss
+/client-notify/pending	L4	clientnotify	/api/clientnotify/pending	1	loadPending
+/client-notify/preview	L4	clientnotify	/api/clientnotify/preview	1	preview
+/client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
+/client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
 /cockpit-config	L2	sessions	/api/session/cockpit-config	1	kill
 /conf	L4	projects	/api/project/conf	1	openCenterConf
+/contact	L4	projects	/api/project/contact	1	openContact
+/contacts	L4	projects	/api/project/contacts	1	openContacts
 /core/update-status	L0	core	/api/core/update-status	1	refreshCoreUpdate
 /disposition	L2	sessions	/api/session/disposition	1	setDisposition
+/engines/options	L5	pm	/api/pm/engine-options	2	loadEngineOptions, saveEngineOptions
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck
 /env-status	L5	env	/api/env/env-status	1	openEnvStatus
+/events	L8	refresh	/api/session/events	1	push.service
+/events/publish	L8	refresh	/api/session/events/publish	1	pm_events
 /file	L4,L5	files	/api/file/file	2	openCenterFile;openDoc
 /fs/file	L4	files	/api/file/read	4	filesOpen;openCenterFile;projOpen;vocabShow
 /fs/log	L4	files	/api/file/log	1	filesToggleCommits
@@ -30,6 +43,9 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /help	L5	glossary	/api/glossary/help	1	openHelp
 /kill	L2	sessions	/api/session/kill	1	kill
 /layout	L2	sessions	/api/session/layout	1	setLayout
+/log	RM3010	log	/api/log/write	1	journal : dépôt front (RM3011)
+/log/historical	L8	journal	/api/log/historical	0	(hors cockpit : compteur RM3004)
+/log/tail	RM3010	log	/api/log/tail	1	journal (cockpit RM3011)
 /mail/create	L1	mail	/api/mail/create	2	mailCreate;mailNoteOn
 /mail/dismiss	L1	mail	/api/mail/dismiss	1	mailDismiss
 /mail/draft	L1	mail	/api/mail/draft	1	mailDraft
@@ -40,20 +56,33 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /memdebug	L2	terminal	/api/terminal/memdebug	1	memProbeSample
 /mergecheck	L3	tickets	/api/ticket/mergecheck	1	ensureMergecheck
 /monitor	L2	sessions	/api/session/monitor	1	addMonitor
+/monitor/alerts	L4	monitor	/api/monitor/alerts	1	loadAlerts
+/monitor/assign	L4	monitor	/api/monitor/assign	1	assignHost
+/monitor/hosts	L4	monitor	/api/monitor/hosts	1	loadHosts
+/monitor/ticket	L4	monitor	/api/monitor/ticket	1	ticketFromAlert
 /move-session	L2	sessions	/api/session/move-session	1	moveSession
 /mr/batch	L3	worklog	/api/worklog/mr/batch	2	openMrBatch;sendMrBatch
 /mr/deliver	L3	review	/api/review/mr/deliver	1	mrDeliver
 /mr/merge	L3	worklog	/api/worklog/mr/merge	1	mergeOneMr
+/notifications	L4	dashboard	/api/dashboard/notifications	1	loadNotifications
+/notifications/mark	L4	dashboard	/api/dashboard/notifications-mark	1	markNotifications
 /outline	L5	layout	/api/layout/outline	1	loadOutline
 /overview	L4	dashboard	/api/dashboard/overview	2	loadDashboard;loadProjWorklog
 /pm/commands	L5	settings	/api/pm/commands	1	loadPmCommands
+/pm/engine-install	L5	settings	/api/pm/engine-install	1	installEngine
+/pm/engines	L5	settings	/api/pm/engines	1	loadEngines
+/pm/llm-models	L5	settings	/api/pm/llm-models	1	loadLlmModels
+/pm/provider-assign	L5	settings	/api/pm/provider-assign	1	saveAssign
+/pm/providers	L5	settings	/api/pm/providers	1	loadProviders
+/pm/provider-secret	L5	settings	/api/pm/provider-secret	1	saveSecret
+/pm/provider-types	L5	settings	/api/pm/provider-types	1	loadProviderTypes
 /pm/run	L3	review	/api/pm/run	1	pmRun
 /pm/settings	L2,L5	terminal	/api/pm/settings	2	loadSettings;saveSetting
 /pm/test-queue	L3	review	/api/pm/test-queue	1	loadTestQueue
 /project	L5	glossary	/api/glossary/project	2	ensureProjectCard;openProjectView
 /project-roots	L4	files	/api/file/project-roots	1	loadFiles
-/project-worktrees	L4	projects	/api/project/project-worktrees	1	loadProjWorktrees
 /projects	L3	search	/api/project/projects	1	loadProjects
+/project-worktrees	L4	projects	/api/project/project-worktrees	1	loadProjWorktrees
 /question	L5	voice	/api/voice/question	2	announceWaiting;readQuestion
 /refresh	L2	sessions	/api/session/refresh	1	refreshFetch
 /resolve	L3,L5	tickets	/api/ticket/resolve	2	ensureResolved;resolveRm
@@ -61,6 +90,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /resume	L2	sessions	/api/session/resume	2	relaunchGhost;resumeSession
 /scroll	L5	outline	/api/outline/scroll	2	jumpTo;scrollLive
 /send	L2,L3,L5	sessions	/api/session/send	4	composerSend;sendAction;sendDictated;sendTicketToSession
+/sessions	L0,L3	tabs	/api/session/sessions	2	attachIfRunning;openSessionTab
 /session-set	L2	sessionsets	/api/session-set/session-set	6	deleteSessionSet;dropFromSet;forgetGhost;loadSessionSet
 /session-set/create	L2	sessionsets	/api/session-set/create	2	applyRuleForm;createSetFromSelection
 /session-set/current	L2	sessionsets	/api/session-set/current	2	switchSet;switchView
@@ -75,15 +105,14 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /session-set/retention	L2	sessionsets	/api/session-set/retention	1	setRetention
 /session-set/rule	L2	sessionsets	/api/session-set/rule	1	applyRuleForm
 /session-sets	L2	sessionsets	/api/session-set/session-sets	1	refreshSessionSets
-/sessions	L0,L3	tabs	/api/session/sessions	2	attachIfRunning;openSessionTab
 /spawn	L2,L3	sessions	/api/session/spawn	3	spawn;spawnBatchSession;spawnTicketSession
 /stt	L5	voice	/api/voice/stt	1	serverDictate
 /tags	L3	search	/api/search/tags	1	loadTags
-/ticket-sessions	L3	testqueue	/api/test-queue/ticket-sessions	1	ensureTicketSessions
-/ticket-transitions	L3	testqueue	/api/test-queue/ticket-transitions	1	ticketTransitions
 /tickets	L2,L3	sessions	/api/ticket/tickets	2	createTicket;submitNewTicket
 /tickets/brief	L3	tickets	/api/ticket/brief	1	requestBriefs
+/ticket-sessions	L3	testqueue	/api/test-queue/ticket-sessions	1	ensureTicketSessions
 /tickets/search	L3	search	/api/search/tickets	1	search
+/ticket-transitions	L3	testqueue	/api/test-queue/ticket-transitions	1	ticketTransitions
 /triage	L3	tickets	/api/ticket/triage	1	loadTriage
 /tts	L5	voice	/api/voice/tts	1	serverSpeak
 /unmonitor	L2	sessions	/api/session/unmonitor	1	removeMonitor
@@ -96,31 +125,3 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worklog/request	L3	worklog	/api/worklog/request	1	setRequestStatus
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
-/log/tail	RM3010	log	/api/log/tail	1	journal (cockpit RM3011)
-/log	RM3010	log	/api/log/write	1	journal : dépôt front (RM3011)
-/events	L8	refresh	/api/session/events	1	push.service
-/events/publish	L8	refresh	/api/session/events/publish	1	pm_events
-/log/historical	L8	journal	/api/log/historical	0	(hors cockpit : compteur RM3004)
-/cdc	L5	doc	/api/doc/cdc	1	openCdc
-/cdc-features	L5	doc	/api/doc/cdc-features	1	loadFeatures
-/client-notify/pending	L4	clientnotify	/api/clientnotify/pending	1	loadPending
-/client-notify/preview	L4	clientnotify	/api/clientnotify/preview	1	preview
-/client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
-/client-notify/dismiss	L4	clientnotify	/api/clientnotify/dismiss	1	dismiss
-/cdc/think	L5	doc	/api/doc/cdc-think	1	thinkEdit
-/monitor/alerts	L4	monitor	/api/monitor/alerts	1	loadAlerts
-/monitor/hosts	L4	monitor	/api/monitor/hosts	1	loadHosts
-/monitor/assign	L4	monitor	/api/monitor/assign	1	assignHost
-/monitor/ticket	L4	monitor	/api/monitor/ticket	1	ticketFromAlert
-/notifications	L4	dashboard	/api/dashboard/notifications	1	loadNotifications
-/notifications/mark	L4	dashboard	/api/dashboard/notifications-mark	1	markNotifications
-/cdc/version	L5	doc	/api/doc/cdc-version	1	versionEdit
-/cdc/feature	L5	doc	/api/doc/cdc-feature	1	featureEdit
-/client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
-/pm/provider-types	L5	settings	/api/pm/provider-types	1	loadProviderTypes
-/pm/providers	L5	settings	/api/pm/providers	1	loadProviders
-/pm/provider-secret	L5	settings	/api/pm/provider-secret	1	saveSecret
-/pm/provider-assign	L5	settings	/api/pm/provider-assign	1	saveAssign
-/pm/llm-models	L5	settings	/api/pm/llm-models	1	loadLlmModels
-/pm/engines	L5	settings	/api/pm/engines	1	loadEngines
-/pm/engine-install	L5	settings	/api/pm/engine-install	1	installEngine

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
-<meta name="karl-cockpit-version" content="3.16.0">
+<meta name="karl-cockpit-version" content="3.17.0">
 <!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
      cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
      terminal doit être prêt avant le premier attach. -->
@@ -92,6 +92,26 @@ if (window.matchMedia) {
   <!-- RM3065 : la marque — le K qui relie une note, une page web et du code (variante A4, currentColor suit le thème) -->
   <svg class="brand" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M30 26v50M30 52l38-30M30 52l38 30"/></g><circle cx="30" cy="52" r="7" fill="currentColor"/><g fill="none" stroke="var(--accent)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"><path d="M20 6h14l7 7v13H20z"/><rect x="65" y="6" width="26" height="20" rx="2.5"/><path d="M74 74l-6 7 6 7M84 74l6 7-6 7"/></g><circle cx="78" cy="18" r="3.5" fill="var(--accent)"/></svg>
   <h1>Cockpit karl-agent</h1>
+  <!-- RM3150 : les PORTES — on y va, on en revient. Icône seule, le nom au survol : leur libellé
+       ne sert qu'à la première visite, et la barre du haut n'a pas à le payer à chaque session.
+       Groupées à gauche, contre le titre, et séparées des actions sur le travail en cours.
+       Les flèches d'historique restent avec lui : les séparer de leur propre bouton n'aurait
+       pas de sens, et elles sont déjà minimales. -->
+  <span class="hgo">
+    <button class="mini" id="histback" data-cmd="nav" data-arg="-1"
+      title="Précédent — revenir à la vue précédente (les vues fermées entre-temps sont sautées)">←</button>
+    <button class="mini" id="histfwd" data-cmd="nav" data-arg="1"
+      title="Suivant — revenir en avant, tant qu'aucune nouvelle vue n'a été ouverte">→</button>
+    <button class="mini" id="histbtn" data-cmd="hist"
+      title="Historique — les vues visitées dans cette page">🕘</button>
+    <button class="mini" id="helpbtn" data-cmd="help" title="Aide du cockpit">❓</button>
+    <button class="mini" id="setbtn" data-cmd="panel" data-arg="settings"
+      title="Réglages — thème, voix, appareils, conf PM (ouvre un onglet central)">🔧</button>
+    <button class="mini" id="journalbtn" data-cmd="panel" data-arg="journal"
+      title="Journal — ce que le serveur et le navigateur ont consigné (sévérité, catégories, recherche)">📜<span class="nbadge att" id="ln-journal" style="display:none"></span></button>
+    <button class="mini" id="contactsbtn" data-cmd="contacts"
+      title="Annuaire — une personne, une fiche, cherchable par nom ou par n'importe laquelle de ses adresses (ouvre un onglet central)">👤</button>
+  </span>
   <!-- RM3043/RM3044/RM3063 : le CDC vivant du projet en contexte, juste à droite du titre — onglets fonctionnalités, CDC vivant, roadmap, dictionnaire, décisions, vrac, questions… -->
   <button class="mini" id="monitorbtn" data-cmd="panel" data-arg="monitor" title="Supervision du parc : alertes de l'observateur, situées chez un client, et ouverture d'un ticket au bon endroit">🩺 Supervision</button>
   <button class="mini" id="feedbtn" data-cmd="panel" data-arg="feed" title="Fil de notifications — rien n'attend">🔔<span class="feed-badge"></span></button>
@@ -114,30 +134,18 @@ if (window.matchMedia) {
     title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
   <!-- RM2776 : navigation dans les vues déjà visitées. `←`/`→` comme dans un
        navigateur ; « historique » ouvre la liste, la plus récente en tête. -->
-  <button class="mini" id="histback" data-cmd="nav" data-arg="-1"
-    title="Revenir à la vue précédente (les vues fermées entre-temps sont sautées)">←</button>
-  <button class="mini" id="histfwd" data-cmd="nav" data-arg="1"
-    title="Revenir en avant — tant qu'aucune nouvelle vue n'a été ouverte">→</button>
-  <button class="mini" id="histbtn" data-cmd="hist"
-    title="Historique des vues visitées dans cette page">🕘 historique</button>
   <!-- RM2816 : les deux surfaces d'action du cockpit, au menu du haut. Leur
        contenu s'ouvre au CENTRE, dans le modèle d'onglets (épinglable). -->
   <button class="mini" id="pmbtn" data-cmd="panel" data-arg="pm"
     title="Commandes PM : le catalogue des actions du PM en un clic (ouvre un onglet central)">⚙ commandes pm</button>
-  <button class="mini" id="setbtn" data-cmd="panel" data-arg="settings"
-    title="Réglages : thème, voix, appareils, conf PM (ouvre un onglet central)">🔧 réglages</button>
   <!-- RM3146 : l'annuaire (RM2703/RM3024) n'était atteignable que par un bouton enfoui
        dans l'en-tête du panneau Projets. Sa place est ici, avec les surfaces d'ACTION
        (RM2816) : on y va chercher quelqu'un, on en sort. Ni dans les réglages — ils
        portent la configuration et les COMPTES, et NORMS écarte justement la confusion
        entre « qui a un compte » et « qui l'on côtoie » — ni dans la colonne de gauche,
        qui porte des files qu'on garde sous l'œil. -->
-  <button class="mini" id="contactsbtn" data-cmd="contacts"
-    title="Annuaire : une personne, une fiche — cherchable par nom ou par n'importe laquelle de ses adresses (ouvre un onglet central)">👤 annuaire</button>
   <!-- RM3011 : journal (serveur RM3010 + navigateur) — ouvre un onglet central ; le badge compte les erreurs du front non vues -->
-  <button class="mini" id="journalbtn" data-cmd="panel" data-arg="journal" title="Journal : ce que le serveur et le navigateur ont consigné (sévérité, catégories, recherche)">📜 journal<span class="nbadge att" id="ln-journal" style="display:none"></span></button>
   <!-- RM2593 : aide intégrée du cockpit -->
-  <button class="mini" id="helpbtn" data-cmd="help" title="Aide du cockpit">❓ aide</button>
   <!-- RM3052 : compte-rendu client — ce qui est parti en prod et qu'on n'a pas encore annoncé au client.
        Le badge compte les tickets en attente d'annonce ; le clic déroule un client par ligne (« Calicote (5) »). -->
   <button class="mini" id="cnbtn" data-cmd="clientnotify" title="Compte-rendu client : cocher les évolutions livrées à annoncer, relire l'email, envoyer">✉ compte-rendu<span class="nbadge" id="ln-clientnotify" style="display:none"></span></button>

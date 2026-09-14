@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **L'en-tête s'allège : les portes passent en icône seule, groupées à gauche** (RM3150) : historique,
+  aide, réglages, journal et annuaire ne portent plus leur libellé — leur nom apparaît au survol. Ce
+  sont des **portes** (on y va, on en revient), pas des actions sur le travail en cours : une icône
+  suffit à les reconnaître, et le libellé ne sert qu'à la première visite. Elles sont regroupées contre
+  le titre, sur un fond commun qui les lit comme un ensemble, et ne rétrécissent jamais : c'est le titre
+  qui cède la place quand la barre se remplit. Les flèches de navigation restent avec l'historique — les
+  séparer de leur propre bouton n'aurait pas de sens. Le compteur du journal se pose au coin de son
+  icône, au lieu de suivre un libellé qui n'existe plus. Un test refuse qu'un de ces boutons reprenne du
+  texte, ou qu'il perde son nom au survol : une icône sans nom devient un rébus. Cockpit 3.17.0.
+
 - **PM se regarde comme un assemblage de modules** (RM3145, lot 0) : `mmi-pm module` décrit ce que le
   système porte déjà — sept mécanismes d'extension réinventés chacun dans son coin, **64 points
   d'extension** au total (20 fournisseurs, 17 services LLM, 14 travaux périodiques, 5 moteurs, 5 coffres,

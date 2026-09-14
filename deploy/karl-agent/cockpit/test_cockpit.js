@@ -951,3 +951,36 @@ console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut
 }
 
 // ── RM2991 : recherche de session dans le panneau de reprise : MIGRÉ (RM2889) — voir test_cockpit_resume.js ──
+
+// ── RM3150 : les portes du cockpit — icône seule, nom au survol, groupées à gauche ──
+// Ce qu'on veut tenir dans le temps : que la barre ne reprenne pas du poids bouton par bouton,
+// et qu'une icône sans libellé garde son nom quelque part — sinon elle devient un rébus.
+{
+  const grp = /<span class="hgo">([\s\S]*?)<\/span>\s*(?:<!--|<button|<select)/.exec(html);
+  assert(grp, "RM3150 : le groupe des portes existe");
+  const bloc = grp[1];
+  const attendus = ["histback", "histfwd", "histbtn", "helpbtn", "setbtn", "journalbtn", "contactsbtn"];
+  for (const id of attendus) assert(new RegExp('id="' + id + '"').test(bloc), "RM3150 : « " + id + " » est dans le groupe");
+  // l'ORDRE demandé : historique, aide, réglages, journal, annuaire (les flèches restent avec l'historique)
+  const ordre = ["histbtn", "helpbtn", "setbtn", "journalbtn", "contactsbtn"].map(id => bloc.indexOf('id="' + id + '"'));
+  assert(ordre.every((v, i) => i === 0 || v > ordre[i - 1]), "RM3150 : l'ordre demandé est tenu");
+  // le groupe vient AVANT le reste de la barre : « tout à gauche »
+  assert(html.indexOf('class="hgo"') < html.indexOf('id="monitorbtn"'), "RM3150 : groupé à gauche, avant les actions");
+  for (const m of bloc.matchAll(/<button[^>]*id="(\w+)"[^>]*>([\s\S]*?)<\/button>/g)) {
+    const [, id, dedans] = m;
+    const texte = dedans.replace(/<span[\s\S]*?<\/span>/g, "").trim();   // le badge n'est pas un libellé
+    assert(texte.length > 0 && texte.length <= 2, "RM3150 : « " + id + " » ne porte que son icône (" + texte + ")");
+  }
+  // le nom doit rester atteignable au survol : un title qui ne dit que la description ferait un rébus
+  const noms = { histbtn: /Historique/, helpbtn: /Aide/, setbtn: /Réglages/, journalbtn: /Journal/, contactsbtn: /Annuaire/,
+                 histback: /Précédent/, histfwd: /Suivant/ };
+  for (const [id, re] of Object.entries(noms)) {
+    const b = new RegExp('<button[^>]*id="' + id + '"[^>]*title="([^"]*)"').exec(bloc)
+           || new RegExp('<button[^>]*id="' + id + '"[\\s\\S]*?title="([^"]*)"').exec(bloc);
+    assert(b && re.test(b[1]), "RM3150 : le nom de « " + id + " » apparaît au survol");
+  }
+  assert(!/\son(click|change)=/.test(bloc), "RM3150 : aucun handler en attribut");
+  const css = fs.readFileSync(path.join(__dirname, "cockpit.css"), "utf8");
+  assert(/header \.hgo \.nbadge/.test(css), "RM3150 : le compteur reste lisible sur une icône seule");
+  console.log("✓ portes du cockpit (RM3150) : icône seule, nom au survol, groupées à gauche, ordre tenu");
+}

@@ -31,6 +31,23 @@ export function Progress(p) {
 }
 // RM3126 : la famille colore la pastille — sauf si le ticket a DÉRIVÉ, auquel cas l'alerte prime :
 // une dérive est plus urgente à voir que la phase où le ticket se croit.
+/** RM3148 : ce qu'une recherche d'antériorité a trouvé pour une demande.
+ *
+ *  Rien n'est rattaché tout seul : une correspondance lexicale n'est pas une preuve, et un
+ *  rattachement faux ferait DISPARAÎTRE une demande que personne n'a traitée — pire que l'oubli
+ *  qu'on cherche à éviter. L'humain clique, ou ne clique pas.
+ */
+export function Anteriority(r) {
+  const a = r.checked;
+  if (!a) return "";
+  if (a.pending) return html`<div class="oreq-ant" style="${muted}">recherche…</div>`;
+  if (!a.results || !a.results.length) {
+    return html`<div class="oreq-ant"><span style="${muted}">aucun ticket ne porte ce sujet — il paraît neuf.</span> <button class="mini soft" data-action="req-new" data-n="${r.n}" title="Créer le ticket, pré-rempli avec le texte de la demande">＋ créer le ticket</button></div>`;
+  }
+  return html`<div class="oreq-ant"><div style="${muted};font-size:10.5px">${a.results.length} ticket(s) possible(s) — à toi de juger :</div>${a.results.map(t =>
+    html`<div class="oreq-hit"><span class="rmref" data-action="ticket" data-rm="${t.rm_id}" title="${t.title}">RM${t.rm_id}</span> <span class="${pillClass(t.status)}">${t.status}</span> <span class="oreq-hit-t">${t.title}</span> <button class="mini soft" data-action="req-link" data-n="${r.n}" data-rm="${t.rm_id}" title="Rattacher cette demande à RM${t.rm_id} — elle sort du bloc sans être effacée">⇥ c'est lui</button></div>`)}</div>`;
+}
+
 export function StatusPill(s) { return s.drifted ? html`<span class="pill warn" title="${s.tip}">${s.status}</span>` : html`<span class="${pillClass(s.status)}">${s.status}</span>`; }
 export function Stage(st) { if (!st) return ""; return st.url ? html` <span class="pill ${st.cls}" style="cursor:pointer" title="${st.tip}" data-action="mr-stage" data-url="${st.url}">${st.txt}</span>` : html` <span class="pill ${st.cls}" title="${st.tip}">${st.txt}</span>`; }
 
@@ -46,7 +63,8 @@ export function WorklogPane(vm, deps) {
   const head = html`${notes.length ? html`<div class="ms"><h4>🔔 notifications de la session (${notes.length})${vm.notificationsDone ? html` <span class="otag" title="traitées, gardées au worklog">${vm.notificationsDone} traitée${vm.notificationsDone > 1 ? "s" : ""}</span>` : ""}</h4>${notes.map(n => html`<div class="oline ${n.cls}" style="white-space:normal" title="${n.ts}">${n.icon} <span class="otag">${n.label}</span>${n.kind ? html`<span class="pill">${n.kind}</span> ` : ""}${n.ref ? html`<b>${n.ref}</b> ` : ""}${n.message}</div>`)}</div>` : ""}${mrs.length
     ? html`<div class="ms mrnudge" title="Le détail (dépôt, trajet, état, âge) est dans l’onglet MR" data-action="sub" data-key="mrs">🔀 <b>${String(mrs.length)}</b> MR à merger — voir l’onglet <b>MR</b> →</div>` : ""}${qs.length
     ? html`<div class="ms"><h4>❓ à trancher (${qs.reduce((a, q) => a + q.n, 0)})</h4>${qs.map(q => html`<div class="oline oq" style="white-space:normal">❓ <span class="rmref" data-action="review" data-rm="${q.rm}" title="Ouvrir la fiche du ticket à sa réflexion — c'est là que les questions se lisent et se tranchent">${q.ref}</span> <span class="otag">${String(q.n)}</span> question${q.n > 1 ? "s" : ""} sans réponse <button class="mini soft" data-action="review" data-rm="${q.rm}" title="Lire et trancher ces questions">→ trancher</button></div>`)}</div>` : ""}${reqs.length
-    ? html`<div class="ms"><h4>📥 demandes à traiter (${reqs.length})</h4>${reqs.map(r => html`<div class="oline oq oreq" style="white-space:normal" title="${r.ts}">📥 <span class="otag">#${r.n}</span> ${r.text}${r.ticket ? html` <span class="rmref" data-action="ticket" data-rm="${r.ticket}" title="Le ticket qui la porte">RM${r.ticket}</span>` : ""}${r.note ? html` <span class="oreq-note">${r.note}</span>` : ""}<span class="oreq-acts">${r.suites.map(su => html`<button class="mini soft" data-action="request" data-n="${r.n}" data-status="${su.status}" title="${su.tip}">${su.icon} ${su.label}</button>`)}</span></div>`)}</div>` : ""}`;
+    ? html`<div class="ms"><h4>📥 demandes à traiter (${reqs.length})</h4>${reqs.map(r => html`<div class="oline oq oreq" style="white-space:normal" title="${r.ts}">📥 <span class="otag">#${r.n}</span> ${r.text}${r.ticket ? html` <span class="rmref" data-action="ticket" data-rm="${r.ticket}" title="Le ticket qui la porte">RM${r.ticket}</span>` : ""}${r.note ? html` <span class="oreq-note">${r.note}</span>` : ""}${Anteriority(r)}<span class="oreq-acts">${r.canCheck
+      ? html`<button class="mini soft" data-action="req-check" data-n="${r.n}" title="Chercher si un ticket porte déjà ce sujet — titres, corps et réflexions, fermés inclus">🔎 déjà ticketée ?</button>` : ""}${r.suites.map(su => html`<button class="mini soft" data-action="request" data-n="${r.n}" data-status="${su.status}" title="${su.tip}">${su.icon} ${su.label}</button>`)}</span></div>`)}</div>` : ""}`;
   if (vm.empty) return html`${head}<div class="ms"><h4>worklog</h4><div style="${muted};font-size:11.5px">${vm.emptyText}</div></div>`;
   const buckets = vm.buckets(), orphan = vm.orphans(), { tabs, sub } = vm.tabs(orphan.length);
   const bucket = (key) => { const gs = buckets[key]; if (!gs) return html`<div class="empty">rien dans ce statut</div>`; return gs.map(g => g.key === null ? html`${g.items.map(it => WorklogItem(it, deps))}` : html`<div class="wlgroup"><div class="wlghead">${g.key} <span class="gcnt">${g.items.length}</span></div>${g.items.map(it => WorklogItem(it, deps))}</div>`); };

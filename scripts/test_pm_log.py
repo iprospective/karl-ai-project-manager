@@ -58,9 +58,18 @@ with tempfile.TemporaryDirectory() as tmp:
         pl.log("worklog", "info", "y" * 40, i=i)
     check(not old.exists(), "rétention : un fichier tourné plus vieux que KEEP_DAYS est supprimé")
     # jamais d'exception vers l'appelant
-    pl.configure(directory=str(pathlib.Path(tmp) / "fichier-pas-dossier"), level="info", stderr="0")
+    # RM3119 : le fichier doit exister AVANT `configure` — sinon `_writable` crée le chemin comme
+    # DOSSIER, et le `write_text` qui suivait levait IsADirectoryError. L'exception partait dans le
+    # stderr détourné quelques lignes plus haut : le test mourait sans un mot, ni ✗ ni trace.
     (pathlib.Path(tmp) / "fichier-pas-dossier").write_text("x")
-    check(pl.log("api", "info", "…") is not None and pl.stats()["errors"] >= 1, "dossier inaccessible : compté, pas levé")
+    pl.configure(directory=str(pathlib.Path(tmp) / "fichier-pas-dossier"), level="info", stderr="0")
+    # RM3095 a donné des REPLIS au journal : un dossier qui refuse n'est plus une erreur d'écriture,
+    # il est écarté (`refused`) et l'écriture réussit ailleurs. Le contrat côté appelant est le même —
+    # il n'attrape jamais d'exception — mais le test le vérifiait sur un compteur devenu muet.
+    ecrit = pl.log("api", "info", "…")
+    st = pl.stats()
+    check(ecrit is not None and str(pathlib.Path(tmp) / "fichier-pas-dossier") in st["refused"],
+          "dossier inaccessible : écarté et tracé, l'écriture bascule — jamais d'exception vers l'appelant")
     sys.stderr = real_stderr
 
 # catégorie par chemin, traceback court

@@ -34,6 +34,34 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 
+class PMConfigError(Exception):
+    """La configuration PM n'est pas résoluble ici. RM3119.
+
+    Levée, et non `sys.exit()`. La différence n'est pas cosmétique : `SystemExit` n'hérite pas
+    d'`Exception`, si bien qu'une bibliothèque qui se protège par `except Exception` — la forme
+    normale — la laissait remonter et **mourait**. Choisir où écrire un journal ou résoudre un
+    chemin de store ne doit jamais arrêter le programme qui pose la question ; il doit pouvoir
+    répondre « je ne sais pas » et prendre son repli. Mesuré avant correction : 17 tests rouges
+    dans tout worktree de dev, avec pour seul symptôme un message d'aide sur le `.env` et aucun
+    nom de test — on cherchait un problème d'environnement là où il y avait un problème de contrat.
+
+    L'ergonomie du CLI, elle, ne change pas : l'excepthook posé plus bas rend le même message et le
+    même code de sortie quand personne n'attrape."""
+
+
+def _excepthook(kind, value, tb):
+    """Une `PMConfigError` que personne n'attrape reste une ERREUR D'USAGE, pas un plantage : le
+    message, pas la trace. Les 109 appelants de `PMConfig.load()` gardent ainsi le comportement
+    qu'ils avaient avec `sys.exit`, sans une ligne à changer."""
+    if isinstance(value, PMConfigError):
+        print(str(value), file=sys.stderr)
+        raise SystemExit(1)
+    _PREV_EXCEPTHOOK(kind, value, tb)
+
+
+_PREV_EXCEPTHOOK = sys.excepthook
+sys.excepthook = _excepthook
+
 _ENV_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 _PATTERN_REF_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
@@ -190,7 +218,7 @@ class PMConfig:
         # 3. Charge pm.config.yml + pm.config.local.yml (merge)
         cfg_path = pm_dir / "pm.config.yml"
         if not cfg_path.is_file():
-            sys.exit(f"ERREUR : {cfg_path} introuvable")
+            raise PMConfigError(f"ERREUR : {cfg_path} introuvable")
         cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         local_path = pm_dir / "pm.config.local.yml"
         if local_path.is_file():
@@ -209,7 +237,7 @@ class PMConfig:
         projects_root_raw = _expand_env(roots.get("projects_root", ""))
         if not projects_root_raw:
             if env_file is None:
-                sys.exit(
+                raise PMConfigError(
                     f"ERREUR : aucun .env trouvé pour {pm_dir}.\n"
                     "  Normal pour un CLONE de dev : il ne porte pas les secrets "
                     "(ils vivent dans le .env canonique de .mmi-pm-core). Pour exécuter\n"
@@ -220,13 +248,13 @@ class PMConfig:
                     "    • sourcer le .env canonique avant l'appel.\n"
                     "  (cf. NORMS git-mep : split clone-dev / runtime canonique)"
                 )
-            sys.exit(
+            raise PMConfigError(
                 "ERREUR : roots.projects_root non défini "
                 "(vérifier $PROJECTS_PATH dans .env ou pm.config.local.yml)"
             )
         projects_root = Path(projects_root_raw).resolve()
         if not projects_root.is_dir():
-            sys.exit(f"ERREUR : projects_root introuvable : {projects_root}")
+            raise PMConfigError(f"ERREUR : projects_root introuvable : {projects_root}")
 
         # Racines FHS (RM2580) — "auto"/absent → défaut relatif au layout actuel
         # (0 régression). Un install packagé surcharge par env (PM_CONF_DIR, …).
@@ -243,7 +271,7 @@ class PMConfig:
 
         patterns = cfg.get("paths", {}) or {}
         if not patterns:
-            sys.exit("ERREUR : pm.config.yml :: paths est vide")
+            raise PMConfigError("ERREUR : pm.config.yml :: paths est vide")
 
         return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
                    conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir,

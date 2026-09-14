@@ -1,0 +1,12 @@
+name: release-watch
+version: 1.0.0
+label: "Veille de publication"
+description: >
+  Surveille les dépôts déclarés dans releases.watch.yml et notifie le fil quand une version
+  attendue paraît. Prévenir une seule fois n'est pas son travail : l'empreinte du fil s'en
+  charge.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: job, name: release-watch}
+  - {kind: watch, name: vaultwarden}

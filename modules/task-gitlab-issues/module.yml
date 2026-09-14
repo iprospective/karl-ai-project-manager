@@ -1,0 +1,12 @@
+name: task-gitlab-issues
+version: 1.0.0
+label: "Tickets · GitLab issues"
+description: >
+  Les issues d'un dépôt GitLab comme gestionnaire de tickets, en lecture. Ni champs
+  personnalisés ni saisies de temps : un projet qui les choisit renonce au chiffrage en
+  tokens et au reporting de temps.
+requires:
+  - core >= 3.0
+  - forge-gitlab >= 1.0
+provides:
+  - {kind: provider, axis: task, type: gitlab_issues}

@@ -1,0 +1,10 @@
+name: forge-github
+version: 1.0.0
+label: "Dépôts · GitHub"
+description: >
+  Transport GitHub : API REST, jeton par organisation, pull requests natives. Adresse par
+  compte/dépôt, sans identifiant numérique.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: provider, axis: forge, type: github}

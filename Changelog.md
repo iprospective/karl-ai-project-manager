@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **PM se regarde comme un assemblage de modules** (RM3145, lot 0) : `mmi-pm module` décrit ce que le
+  système porte déjà — sept mécanismes d'extension réinventés chacun dans son coin, **64 points
+  d'extension** au total (20 fournisseurs, 17 services LLM, 14 travaux périodiques, 5 moteurs, 5 coffres,
+  2 observateurs, 1 veille). Un manifeste `modules/<nom>/module.yml` déclare ce qu'un module fournit et
+  ce dont il dépend ; les dépendances se résolvent avec leurs bornes de version, l'ordre de chargement
+  est calculé, un cycle est **nommé** plutôt que subi, et un module bloqué n'empêche pas les autres de
+  se charger. Neuf modules témoins sont décrits, dont une dépendance réelle : les issues d'une forge ont
+  besoin du transport de cette forge. Rien n'est déplacé, délibérément — `module inventory` mesure
+  l'écart entre ce qui est décrit et ce que les registres portent encore, et c'est cette mesure qui rend
+  la suite du chantier discutable sur pièces plutôt que sur intention.
+
 - **Une liste de tickets coûte une requête, plus une par ticket** (RM3140) : cliquer sur une session
   déclenchait une rafale de `GET /ticket/resolve/<id>` — l'encart résolvait chaque ticket de la session
   individuellement, et chaque aller-retour coûte la latence du lien. Ce n'étaient pas des doublons : le

@@ -177,6 +177,7 @@
 
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
+- `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
@@ -204,6 +205,7 @@
 - `pm_log` — journal structuré du système PM et de karl-agent
 - `pm_mail_routing` — de l'expéditeur d'un email au couple client/projet
 - `pm_markdown` — Utilitaires markdown partagés par l'outillage PM
+- `pm_modules` — le registre des MODULES de PM
 - `pm_monitor` — les OBSERVATEURS du parc, en lecture
 - `pm_norms_anchors` — ce qui doit survivre à une réécriture dense des normes
 - `pm_notify` — le fil de notifications de l'instance

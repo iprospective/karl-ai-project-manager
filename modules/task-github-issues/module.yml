@@ -1,0 +1,11 @@
+name: task-github-issues
+version: 1.0.0
+label: "Tickets · GitHub issues"
+description: >
+  Les issues d'un dépôt GitHub comme gestionnaire de tickets, en lecture. Partage son
+  backend avec Gogs, dont l'API v1 mime celle de GitHub.
+requires:
+  - core >= 3.0
+  - forge-github >= 1.0
+provides:
+  - {kind: provider, axis: task, type: github_issues}

@@ -1,0 +1,11 @@
+name: forge-gitlab
+version: 1.0.0
+label: "Dépôts · GitLab"
+description: >
+  Transport GitLab : API v4, jetons par rôle (worker pour le code, manager pour les repos PM
+  et les branches protégées), merge requests natives. Socle des modules qui parlent à une
+  instance GitLab.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: provider, axis: forge, type: gitlab}

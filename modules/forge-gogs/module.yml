@@ -1,0 +1,10 @@
+name: forge-gogs
+version: 1.0.0
+label: "Dépôts · Gogs"
+description: >
+  Transport Gogs : API v1 de style GitHub. Aucune API de pull request — le flux de livraison
+  passe par un lien de comparaison, et la fusion reste un geste web humain.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: provider, axis: forge, type: gogs}

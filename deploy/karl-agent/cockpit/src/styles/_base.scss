@@ -21,6 +21,19 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header .brand { width: 26px; height: 26px; flex: none; color: var(--fg); }   // RM3065 : la marque, en encre du thème
 header .sub { color: var(--muted); font-size: 12px; }
+/* RM3150 : les portes du cockpit — icône seule, nom au survol, groupées contre le titre.
+   Elles ne rétrécissent jamais (`flex: none`) : c'est le titre qui cède la place quand la
+   barre se remplit, pas la navigation. Le fond commun les lit comme UN groupe, ce qui les
+   sépare des actions sur le travail en cours sans avoir à poser un trait. */
+header .hgo { display: flex; align-items: center; gap: 2px; flex: none;
+  padding: 2px; border-radius: 8px; background: var(--bg); }
+header .hgo .mini { font-size: 14px; line-height: 1; padding: 4px 7px; border-color: transparent;
+  background: transparent; position: relative; }
+header .hgo .mini:hover { border-color: var(--line); background: var(--panel); }
+/* Le compteur du journal doit rester lisible sur une icône seule : il se pose au coin,
+   au lieu de suivre un libellé qui n'existe plus. */
+header .hgo .nbadge { position: absolute; top: -3px; right: -3px; font-size: 9px;
+  padding: 0 3px; border-radius: 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .dot.push { outline: 2px solid var(--accent-soft-hover); outline-offset: 1px; }   /* RM3006 : canal de push vivant */

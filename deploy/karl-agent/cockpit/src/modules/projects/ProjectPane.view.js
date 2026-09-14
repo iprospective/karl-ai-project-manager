@@ -19,7 +19,7 @@ export function ProjectHeader(vm) {
  *
  *  Les données ne changent pas — c'est leur RANGEMENT qui change. Le « résumé » garde ce qui
  *  situe le projet d'un coup d'œil ; le reste se demande. */
-export const PROJECT_TABS = [["resume", "résumé"], ["tickets", "tickets"],
+export const PROJECT_TABS = [["resume", "résumé"], ["sante", "santé"], ["tickets", "tickets"],
                              ["docs", "documents"], ["sessions", "sessions"],
                              ["files", "fichiers"]];
 
@@ -38,6 +38,12 @@ export function ProjectSheet(vm, titleLink, files, tab) {
   const docs = vm.docs.length
     ? html`<div class="ms"><h4>Docs projet</h4><ul class="doclist">${vm.docs.map(doc => html`<li data-action="doc" data-path="${doc.path}" data-name="${doc.name}">📄 ${doc.name}</li>`)}</ul></div>`
     : html`<div class="ms" style="${muted}">aucun document dans ce projet.</div>`;
+  const sante = (() => {
+    const h = vm.health();
+    const kvh = (k, v, tip) => html`<div class="kv"><span class="k"${tip ? html` title="${tip}"` : ""}>${k}</span><span class="v">${v}</span></div>`;
+    return html`<div class="ms"><h4>Santé du projet</h4>${kvh("tickets ouverts", h.ouverts)}${kvh("dont en attente de test ou de MEP", h.attente, "a_tester_*, a_mep, en_mep — ce qui ne dépend plus du développement")}${kvh("en pause ou à corriger", h.bloques)}${h.doyen
+      ? kvh("le plus ancien ouvert", html`<span class="rmref" data-action="ticket" data-rm="${h.doyen.rm}">RM${h.doyen.rm}</span> — ${h.doyen.age}`, "dernière écriture du ticket") : ""}${kvh("environnements déclarés", h.envs)}<div class="kv"><span class="k" style="color:var(--muted)">non renseigné ici</span><span class="v" style="color:var(--muted)" title="la fiche ne porte pas encore ces informations — elles ne sont pas déduites, pour ne pas afficher une santé à moitié fausse">${h.pending.join(" · ")}</span></div></div>`;
+  })();
   const tickets = html`${vm.byStatus.length
     ? html`<div class="ms"><h4>Tickets ouverts</h4><div class="rels" style="margin-bottom:8px">${vm.byStatus.map(s => html`<span class="${pillClass(s.status)}">${s.status} : ${s.n}</span>`)}</div>${vm.openRecent.map(t => TkRow(t, titleLink))}</div>` : html`<div class="ms" style="${muted}">aucun ticket ouvert.</div>`}${vm.closedRecent.length
     ? html`<div class="ms"><h4>Derniers tickets traités</h4>${vm.closedRecent.map(t => TkRow(t, titleLink))}</div>` : ""}`;
@@ -45,7 +51,8 @@ export function ProjectSheet(vm, titleLink, files, tab) {
   // L'en-tête et les liens restent HORS onglets : ils disent de quel projet on parle, et cette
   // question ne se range pas dans une facette.
   return html`${ProjectHeader(vm)}<div class="rels" style="margin:10px 0 14px">${vm.links.map(l => l.kind === "a" ? html`<a class="pill" href="${l.href}" target="_blank">${l.label}</a>` : html`<span class="pill" title="${l.title || ""}">${l.label}</span>`)}</div>${ProjectTabs(a)}${
-    a === "tickets" ? tickets
+    a === "sante" ? sante
+    : a === "tickets" ? tickets
     : a === "docs" ? docs
     : a === "sessions" ? html`${SessionPills(vm)}${vm.sessions && vm.sessions.length ? "" : html`<div class="ms" style="${muted}">aucune session n'a travaillé sur ce projet.</div>`}`
     : a === "files" ? fichiers

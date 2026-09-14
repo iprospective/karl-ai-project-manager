@@ -9,11 +9,27 @@ const enc = encodeURIComponent;
 export class TicketMetaRepository extends Repository {
   constructor() {
     super({ name: "ticket-meta", ttl: 30000, max: 100, factory: new Factory({ type: "workspace-status" }),
-            routes: { workspace: "ticket.workspace_status", project: routeFor("/project") } });
+            routes: { workspace: "ticket.workspace_status", project: routeFor("/project"),
+                      sessions: routeFor("/ticket-sessions") } });
     this.ws = {};       // rm → état git (undefined : jamais demandé ; null : pas de ticket, ou échec)
     this.cards = {};    // client/projet → fiche (null : en vol ; {error:true} : échec)
+    this.sess = {};     // rm → sessions du ticket (undefined : jamais demandé ; null : en vol)
   }
   workspace(rm) { return this.ws[String(rm)]; }
+
+  /** RM3164 — qui traite ce ticket. UNE requête par ticket, pas une par rendu : le panneau se
+   *  redessine à chaque frappe et à chaque poll. Rend les sessions si elles sont connues,
+   *  `null` pendant le vol, `undefined` si on ne les a jamais demandées — `onLoad` prévient. */
+  ticketSessions(rm, onLoad) {
+    rm = String(rm);
+    if (!/^\d+$/.test(rm)) return undefined;              // slug : pas un ticket
+    if (this.sess[rm] !== undefined) return this.sess[rm];
+    this.sess[rm] = null;
+    get(this.path("sessions") + "/" + enc(rm))
+      .then(d => { this.sess[rm] = d || {}; if (onLoad) onLoad(d); })
+      .catch(() => { this.sess[rm] = { error: true }; if (onLoad) onLoad(null); });
+    return null;
+  }
   async refreshWorkspace(rm) {
     rm = String(rm);
     if (!/^\d+$/.test(rm)) { this.ws[rm] = null; return null; }     // slug : pas de ticket

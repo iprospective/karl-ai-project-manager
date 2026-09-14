@@ -115,6 +115,39 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
           !/provider/.test(String(MV.ProjectBrief(mk({})))));
   }
 
+  // ── RM3164 : les sessions du ticket dans le panneau
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const ts = (v) => { const o = Object.create(MM.TicketMetaViewModel.prototype); o.e = { ts: v };
+                        return o.ticketSessions.call(o); };
+    check("jamais demandé → aucun bloc (pas d'encart vide)",
+          ts(undefined).kind === "none" && String(MV.TicketSessionsBlock(ts(undefined))) === "");
+    check("en vol → « … », jamais « aucune session » (ce serait faux, et c'est le moment où l'on regarde)",
+          ts(null).kind === "loading" && /…/.test(String(MV.TicketSessionsBlock(ts(null)))));
+    const ok = ts({ handled: [{ rm_id: "42", name: "karl-RM42", alive: true, title: "Sujet" }] });
+    const h = String(MV.TicketSessionsBlock(ok));
+    check("une session traitante est listée et attachable",
+          ok.kind === "ok" && /data-action="attach-session" data-sid="42"/.test(h) && /karl-RM42/.test(h));
+    check("la session vivante se distingue de l'éteinte", /color:var\(--ok\)/.test(h));
+    const vide = String(MV.TicketSessionsBlock(ts({ handled: [], candidates: [1, 2] })));
+    check("aucune traitante → le dit, et signale les candidates plutôt que de les taire",
+          /aucune session ne traite/.test(vide) && /2 candidate/.test(vide));
+    check("échec de chargement → « indisponible », pas « aucune session »",
+          /indisponible/.test(String(MV.TicketSessionsBlock(ts({ error: true })))));
+    check("aucun onclick", !/onclick=/.test(h));
+  }
+
+  // ── RM3164 : l'onglet « conso » dit enfin ce qu'il contient
+  {
+    const TM = await import("file://" + path.join(SRC, "modules/meta/ticketMeta.js"));
+    const f = TM.FACETS.find(x => x[0] === "conso");
+    check("l'onglet des tokens, du coût et des temps s'appelle « temps & coût »",
+          f && f[1] === "temps & coût");
+    check("sa CLÉ ne bouge pas (elle est dans les URL de vue et les préférences)",
+          TM.facetOf("conso") === "conso");
+  }
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

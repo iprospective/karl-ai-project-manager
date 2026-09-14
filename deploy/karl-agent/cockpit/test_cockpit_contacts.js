@@ -109,4 +109,23 @@ const path = require("path"); const assert = require("assert"); const DIR = __di
   assert.equal(E.tabLabelOf("contacts", [""]), "annuaire");
   assert.equal(E.tabLabelOf("contact", ["solsona-noe"]), "solsona-noe");
   console.log("✓ onglets (RM3024) : la recherche est rejouée à la réouverture");
+  // — 6. RM3146 : l'annuaire est atteignable depuis le menu du haut —
+  // Sans cette garde, le bouton peut disparaître d'index.html ou sa commande
+  // sortir de la carte de boot.js sans qu'aucun test ne bronche : l'annuaire
+  // redeviendrait ce qu'il était, une capacité livrée mais introuvable.
+  const fs = require("fs");
+  const htm = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
+  const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
+  assert(/data-cmd="contacts"/.test(htm),
+    "RM3146 : le bouton « annuaire » du menu de l'en-tête a disparu d'index.html");
+  assert(/"contacts":\s*\(\)\s*=>\s*center\.openContacts/.test(boot),
+    "RM3146 : la commande « contacts » n'est plus déclarée dans la carte data-cmd de boot.js");
+  assert(!/onclick=/.test(htm.slice(htm.indexOf('id="contactsbtn"') - 400,
+                                    htm.indexOf('id="contactsbtn"') + 400)),
+    "le geste doit passer par data-cmd, pas par un on* en dur (convention du cockpit)");
+  // L'entrée contextuelle du panneau Projets reste : on y est déjà dans les clients.
+  assert(/data-action="contacts"/.test(
+    fs.readFileSync(path.join(DIR, "src/modules/projects/ProjectsPanel.view.js"), "utf8")),
+    "RM3146 : le 👤 du panneau Projets doit rester — c'est une entrée contextuelle");
+  console.log("✓ accès à l'annuaire (RM3146) : menu de l'en-tête + entrée contextuelle Projets");
 })().catch(e => { console.error(e && e.message || e); process.exit(1); });

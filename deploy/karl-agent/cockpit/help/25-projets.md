@@ -55,7 +55,9 @@ sous la main pendant que tu travailles ailleurs.
 
 ## L'annuaire de contacts
 
-Le bouton **👤** de l'en-tête « Projets » ouvre l'annuaire au centre.
+L'annuaire s'ouvre au centre par le bouton **👤 annuaire** du menu du haut — à côté
+de « commandes pm », « réglages » et « journal ». Le bouton **👤** de l'en-tête
+« Projets » y mène aussi, quand on est déjà dans les clients.
 
 **Une personne, une fiche.** Avant, un contact vivait dans le `meta.yml` de SON
 client : une personne présente chez vingt clients s'écrivait vingt fois — et

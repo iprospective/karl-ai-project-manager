@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : a34a747d84ada6dc (37 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5813c39956a44c23 (37 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -140,6 +140,45 @@ header .brand {
 header .sub {
   color: var(--muted);
   font-size: 12px;
+}
+
+/* RM3150 : les portes du cockpit — icône seule, nom au survol, groupées contre le titre.
+   Elles ne rétrécissent jamais (`flex: none`) : c'est le titre qui cède la place quand la
+   barre se remplit, pas la navigation. Le fond commun les lit comme UN groupe, ce qui les
+   sépare des actions sur le travail en cours sans avoir à poser un trait. */
+header .hgo {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+header .hgo .mini {
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-color: transparent;
+  background: transparent;
+  position: relative;
+}
+
+header .hgo .mini:hover {
+  border-color: var(--line);
+  background: var(--panel);
+}
+
+/* Le compteur du journal doit rester lisible sur une icône seule : il se pose au coin,
+   au lieu de suivre un libellé qui n'existe plus. */
+header .hgo .nbadge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  font-size: 9px;
+  padding: 0 3px;
+  border-radius: 6px;
 }
 
 .dot {

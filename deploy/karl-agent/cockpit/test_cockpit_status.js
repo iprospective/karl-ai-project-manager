@@ -97,6 +97,24 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
   const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8");
   check("la ligne de titre est stylée et bornée", /\.rtitle/.test(css) && /line-clamp/.test(css));
 
+  // ── RM3126/F002 : le provider du ticket, avec ses secondaires
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const mk = (prov) => new MM.ProjectBriefViewModel(
+      { client: "matnat", project: "infra", card: {}, provider: prov });
+    const avec = String(MV.ProjectBrief(mk({ name: "redmine-ipro", type: "redmine",
+                                             url: "https://t", secondaries: ["redmine-matnat"] })));
+    check("le provider du ticket est affiché", /redmine-ipro/.test(avec));
+    check("les secondaires déclarés le sont aussi — c'est là que ça compte",
+          /\+ redmine-matnat/.test(avec));
+    check("l'infobulle dit le type et l'URL de l'instance",
+          /instance de gestion des tickets \(redmine\)/.test(avec) && /https:\/\/t/.test(avec));
+    check("aucune ligne « provider » quand le serveur ne l'a pas résolu — on ne devine pas",
+          !/provider/.test(String(MV.ProjectBrief(mk(null)))) &&
+          !/provider/.test(String(MV.ProjectBrief(mk({})))));
+  }
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

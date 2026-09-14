@@ -27,7 +27,8 @@ export function ProjectBrief(vm) {
   if (!vm.shown) return "";      // ticket non résolu : pas de bloc vide
   return html`<div class="ms"><h4>Client / projet</h4>${kv("client", html`${vm.clientName}${vm.clientId ? html` <span class="pill" style="opacity:.7">${vm.clientId}</span>` : ""}`)}${kv("projet", html`${vm.name} <span class="pill" style="cursor:pointer" title="Ouvrir la fiche du projet" data-action="project" data-key="${vm.key}">🗂 fiche</span>${vm.redmineUrl ? html` <a href="${vm.redmineUrl}" target="_blank" rel="noopener">Redmine ↗</a>` : ""}`)}${vm.open !== null
     ? kv("tickets", html`${vm.open} ouvert${vm.open > 1 ? "s" : ""}${vm.total ? " / " + vm.total : ""}`) : ""}${vm.repo
-    ? kv("dépôt", html`${vm.repo}${vm.branch ? html` <span class="pill">${vm.branch}</span>` : ""}`) : ""}</div>`;
+    ? kv("dépôt", html`${vm.repo}${vm.branch ? html` <span class="pill">${vm.branch}</span>` : ""}`) : ""}${vm.provider
+    ? kv("provider", html`<span class="pill" title="instance de gestion des tickets (${vm.provider.type}) — ${vm.provider.url}">${vm.provider.name}</span>${vm.provider.secondaries.map(s => html` <span class="pill" style="opacity:.75" title="secondaire déclaré du projet : un ticket peut y être rattaché, il n'est jamais source de vérité">+ ${s}</span>`)}`) : ""}</div>`;
 }
 
 export function TicketDetail(vm, { tip }) {

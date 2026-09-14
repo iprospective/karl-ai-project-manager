@@ -82,6 +82,17 @@ export class ProjectBriefViewModel extends EntityViewModel {
   get total() { return this.c.total || 0; }
   get repo() { return cval(this.c.gitlab_repo); }
   get branch() { return cval(this.c.default_branch); }
+
+  /** RM3126 — le PROVIDER qui porte ce ticket : quelle instance de gestion, et les secondaires
+   *  déclarés du projet. Évident tant qu'il n'y en avait qu'une ; plus du tout depuis que l'axe
+   *  `task` est une liste. `null` si le serveur ne l'a pas résolu — on ne devine pas une
+   *  instance, se tromper dirigerait les appels et le jeton vers la mauvaise. */
+  get provider() {
+    const p = this.e.provider;
+    if (!p || !p.name) return null;
+    return { name: p.name, type: p.type || "", url: p.url || "", slug: p.slug || "",
+             secondaries: p.secondaries || [] };
+  }
 }
 
 /** L'onglet « tickets » : sous-onglets par ticket, puis facette (RM2579/2673/2797).
@@ -121,7 +132,7 @@ export class TicketMetaViewModel extends EntityViewModel {
       git: (r.git && (r.git.branch || r.git.mr_url)) ? { branch: r.git.branch || "", mrUrl: r.git.mr_url || "" } : null,
       rels: rels.map(x => ({ label: x.label, ids: x.ids.map(String) })), hasDesc: !!r.description, hasLog: !!r.log_tail };
   }
-  brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card }); }
+  brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card, provider: r.provider }); }
   desc() { const r = this.r; return (r && r.description) || ""; }
   log() { return logEntries(this.r && this.r.log_tail); }
   /** RM2173/2373/2519 : la conso ENREGISTRÉE par le PM (≠ conso live de l'onglet infos). */

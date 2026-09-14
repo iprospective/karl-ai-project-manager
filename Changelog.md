@@ -1162,6 +1162,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **La file emails reconnaît l'expéditeur** (RM3147). Elle affichait une adresse nue là où
+  l'annuaire sait souvent qui écrit — et quand il ne sait pas, c'est le bon moment pour le lui
+  apprendre. Un expéditeur connu apparaît désormais par son **nom**, cliquable vers sa fiche,
+  avec sa pastille « interne » ; un inconnu propose **＋ annuaire**, pré-rempli depuis l'email,
+  et la file se relit ensuite pour qu'il devienne reconnu. La résolution se fait **côté
+  serveur**, l'annuaire lu une fois pour toute la file, là où il vit — pas un aller-retour de
+  plus depuis le navigateur — et la casse de l'adresse est ignorée. L'écriture passe par le
+  **catalogue de commandes** (`annuaire-list`, `annuaire-add` → `pm-contact.py`) plutôt que par
+  un endpoint bespoke : elle hérite de l'allowlist, des arguments typés et de la sous-commande
+  imposée côté serveur, et apparaît du même coup dans ⚙ commandes pm. Le découpage du nom suit
+  la convention déjà en place (dernier mot = nom), qui se trompe sur un nom composé : la fiche
+  est donc **proposée**, la confirmation montrant le découpage avant d'écrire. Le demandeur
+  d'un ticket, lui, attend RM3149 — l'exposer touche le parseur rapide du parc, ce qui demande
+  d'être mesuré.
 - **L'annuaire de contacts est atteignable depuis le menu du haut** (RM3146). Il ne s'ouvrait
   que par un bouton enfoui dans l'en-tête du panneau « Projets » : livré, mais introuvable
   sans le savoir. Sa place est avec les surfaces d'**action** (RM2816 : « on y va, on fait, on

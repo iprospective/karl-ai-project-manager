@@ -15,7 +15,23 @@ export class EmailViewModel extends EntityViewModel {
   get badge()      { return BADGE[this.state] || "•"; }
   get open()       { return !!this.ctx.openKey && this.ctx.openKey === this.e.key; }
   get day()        { return (this.e.date || "").slice(0, 10); }
-  get sender()     { return this.e.from_name || this.e.from || ""; }
+  // RM3147 : l'annuaire sait souvent qui écrit. `contact` vient du serveur, qui
+  // résout l'adresse une fois pour toute la file — pas un aller-retour de plus.
+  get contact()    { return this.e.contact || null; }
+  get known()      { return !!(this.contact && this.contact.known); }
+  get contactRef() { return this.known ? this.contact.ref : ""; }
+  get internal()   { return !!(this.contact && this.contact.internal); }
+  /** Le nom de l'annuaire prime : c'est lui qui reste juste quand l'adresse change. */
+  get sender()     { return (this.known && this.contact.name)
+                            || this.e.from_name || this.e.from || ""; }
+  /** Ce qu'on pré-remplirait pour créer sa fiche — jamais deviné, lu de l'email. */
+  get newContact() {
+    const brut = String(this.e.from_name || "").trim();
+    const mots = brut ? brut.split(/\s+/) : [];
+    return { email: (this.e.from || "").trim().toLowerCase(),
+             first_name: mots.length > 1 ? mots.slice(0, -1).join(" ") : brut,
+             last_name: mots.length > 1 ? mots[mots.length - 1] : "" };
+  }
   get target()     { return routingTarget(this.e); }
   get confidence() { return confidencePct(this.e.routing); }
   get source()     { return (this.e.routing || {}).source || ""; }

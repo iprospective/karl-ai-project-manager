@@ -128,4 +128,67 @@ const path = require("path"); const assert = require("assert"); const DIR = __di
     fs.readFileSync(path.join(DIR, "src/modules/projects/ProjectsPanel.view.js"), "utf8")),
     "RM3146 : le 👤 du panneau Projets doit rester — c'est une entrée contextuelle");
   console.log("✓ accès à l'annuaire (RM3146) : menu de l'en-tête + entrée contextuelle Projets");
+
+  // — 7. RM3147 : l'expéditeur d'un email, reconnu ou non —
+  const MVM = await import(path.join(DIR, "src/modules/mail/EmailViewModel.js"));
+  const MC = await import(path.join(DIR, "src/modules/mail/EmailCard.view.js"));
+
+  const connu = new MVM.EmailViewModel({
+    key: "k1", subject: "Devis", from: "sandrine@calicote.com", from_name: "Sandrine Roche-Pizzo",
+    contact: { known: true, ref: "sandrine-roche-pizzo", name: "Sandrine Roche-Pizzo", internal: false },
+  }, {});
+  assert.equal(connu.known, true);
+  assert.equal(connu.sender, "Sandrine Roche-Pizzo", "le nom de l'annuaire prime sur l'adresse");
+  assert.equal(connu.contactRef, "sandrine-roche-pizzo");
+  assert.equal(connu.internal, false);
+
+  const interne = new MVM.EmailViewModel({
+    key: "k2", from: "mathieu@iprospective.fr",
+    contact: { known: true, ref: "iprospective", name: "Mathieu Moulin", internal: true },
+  }, {});
+  assert.equal(interne.internal, true, "la qualité d'interne vient de la personne");
+
+  const inconnu = new MVM.EmailViewModel({
+    key: "k3", from: "Yann@Dercya.com", from_name: "Yann Le Vourch",
+    contact: { known: false, email: "yann@dercya.com" },
+  }, {});
+  assert.equal(inconnu.known, false);
+  assert.equal(inconnu.sender, "Yann Le Vourch", "à défaut d'annuaire, le nom de l'email");
+  const pre = inconnu.newContact;
+  // Convention PARTAGÉE avec person_from_legacy (pm_contacts) : dernier mot = nom.
+  // Elle découpe mal un nom composé (« Yann Le Vourch » → « Yann Le » / « Vourch »),
+  // et c'est assumé : mieux vaut UNE convention imparfaite que deux divergentes.
+  // C'est pourquoi la fiche est PROPOSÉE, pas créée — la confirmation montre le
+  // découpage, et `pm-contact set` le corrige d'un geste.
+  assert.deepEqual(pre, { email: "yann@dercya.com", first_name: "Yann Le", last_name: "Vourch" },
+    "la fiche est pré-remplie DEPUIS l'email — adresse normalisée, nom coupé au dernier mot");
+  const monoNom = new MVM.EmailViewModel({ from: "x@y.fr", from_name: "Sandrine" }, {}).newContact;
+  assert.deepEqual(monoNom, { email: "x@y.fr", first_name: "Sandrine", last_name: "" },
+    "un seul mot reste un prénom : on ne devine pas un nom de famille");
+  const sansNom = new MVM.EmailViewModel({ from: "x@y.fr" }, {}).newContact;
+  assert.equal(sansNom.first_name, "", "aucun nom dans l'email : rien n'est inventé");
+  const sansRien = new MVM.EmailViewModel({}, {});
+  assert.equal(sansRien.known, false, "un email sans contact résolu ne casse rien");
+  assert.equal(sansRien.newContact.email, "", "…et ne propose pas de créer une fiche vide");
+
+  const cConnu = String(MC.EmailCard(connu)), cInconnu = String(MC.EmailCard(inconnu));
+  assert(/data-action="contact"/.test(cConnu), "un expéditeur connu ouvre sa fiche");
+  assert(!/contact-add/.test(cConnu), "…et ne propose pas de la recréer");
+  assert(/data-action="contact-add"/.test(cInconnu), "un inconnu propose « ＋ annuaire »");
+  assert(!/data-action="contact"[^-]/.test(cInconnu.replace(/contact-add/g, "")),
+    "…et n'ouvre pas une fiche qui n'existe pas");
+  assert(/interne/.test(String(MC.EmailCard(interne))), "la pastille interne se voit");
+  const xssMail = String(MC.EmailCard(new MVM.EmailViewModel({
+    from: "x@y.fr", contact: { known: true, ref: "r", name: "<img src=x>" } }, {})));
+  assert(!/<img/.test(xssMail), "le nom venu de l'annuaire est échappé");
+  console.log("✓ expéditeur reconnu (RM3147) : nom, pastille interne, création pré-remplie, échappement");
+
+  // Le câblage : les deux gestes existent, et l'écriture passe par le catalogue.
+  const mailCtl = fs.readFileSync(path.join(DIR, "src/modules/mail/mail.controller.js"), "utf8");
+  assert(/"contact-add":/.test(mailCtl) && /contact:\s*\(key\)/.test(mailCtl),
+    "RM3147 : les gestes contact / contact-add doivent être déclarés");
+  assert(/ctx\.addContact/.test(mailCtl), "la création est déléguée au contexte, pas faite ici");
+  assert(/annuaire-add/.test(boot),
+    "RM3147 : la création doit passer par la commande catalogue annuaire-add (pm-contact reste le seul point d'écriture)");
+  console.log("✓ câblage (RM3147) : gestes déclarés, écriture par le catalogue");
 })().catch(e => { console.error(e && e.message || e); process.exit(1); });

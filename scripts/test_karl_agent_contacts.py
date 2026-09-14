@@ -123,6 +123,44 @@ try:
 except ka.ApiError as e:
     check("une ref malformée est refusée AVANT toute lecture de disque", e.code == 400)
 
+# ── 5. RM3147 : reconnaître l'expéditeur d'un email ──────────────────────────
+PAR_EMAIL = ka_par_email = {}
+for _ref, _p in ANN.items():
+    for _e in _p.get("emails") or []:
+        PAR_EMAIL.setdefault(_e.lower(), _ref)
+
+c = ka.contact_of_email("mathieu@iprospective.fr", PAR_EMAIL, ANN)
+check("un expéditeur connu est reconnu", c["known"] and c["ref"] == "iprospective")
+check("…avec son nom, pas son adresse", c["name"] == "Mathieu Moulin")
+check("…et sa qualité d'interne", c["internal"] is True)
+check("reconnu par sa SECONDE adresse aussi",
+      ka.contact_of_email("contact@iprospective.fr", PAR_EMAIL, ANN)["ref"] == "iprospective")
+check("la casse de l'adresse est ignorée",
+      ka.contact_of_email("Mathieu@IProspective.FR", PAR_EMAIL, ANN)["ref"] == "iprospective")
+inc = ka.contact_of_email("qui@inconnu.fr", PAR_EMAIL, ANN)
+check("un inconnu rend tout de même une réponse", inc is not None and inc["known"] is False)
+check("…qui porte l'adresse, de quoi créer sa fiche", inc["email"] == "qui@inconnu.fr")
+check("pas d'adresse du tout ⇒ rien à dire",
+      ka.contact_of_email("", PAR_EMAIL, ANN) is None
+      and ka.contact_of_email(None, PAR_EMAIL, ANN) is None)
+check("une personne sans nom est nommée par son adresse",
+      ka.contact_of_email("webmaster@matnat.fr", PAR_EMAIL, ANN)["name"] == "webmaster@matnat.fr")
+check("annuaire vide : tout le monde est inconnu, rien ne casse",
+      ka.contact_of_email("mathieu@iprospective.fr", {}, {})["known"] is False)
+
+# Le catalogue expose l'annuaire SANS le doubler : pm-contact reste le seul
+# point d'écriture, le cockpit ne fait que l'invoquer.
+noms = {c["name"]: c for c in ka._pm_commands() if c.get("category") == "contacts"}
+check("le catalogue propose de chercher dans l'annuaire", "annuaire-list" in noms)
+check("…et d'y créer une fiche", "annuaire-add" in noms)
+check("la création est déclarée mutante", noms["annuaire-add"]["mutate"] is True)
+check("la recherche ne l'est pas", noms["annuaire-list"]["mutate"] is False)
+check("les deux passent par pm-contact.py, jamais par une écriture directe",
+      all(noms[n]["script"] == "pm-contact.py" for n in ("annuaire-list", "annuaire-add")))
+check("la sous-commande est imposée par le catalogue, pas par le client",
+      all(a.get("const") for n in ("annuaire-list", "annuaire-add")
+          for a in noms[n]["args"] if a["name"] == "cmd"))
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

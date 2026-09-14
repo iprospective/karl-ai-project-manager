@@ -9983,6 +9983,28 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "only_real", "label": "Masquer nos propres adresses", "type": "bool",
           "flag": "--only-real"},
      ]},
+    # Annuaire de personnes (RM2703) — à ne pas confondre avec les contacts d'UN
+    # client ci-dessus : ici c'est l'identité (qui est cette personne), là-bas le
+    # rattachement (qui elle est POUR ce client). `pm-contact.py` reste le seul
+    # point d'écriture de l'annuaire (RM3147 l'expose au cockpit, il ne le double
+    # pas).
+    {"name": "annuaire-list", "label": "Annuaire : chercher une personne",
+     "category": "contacts", "script": "pm-contact.py",
+     "mutate": False, "args": [
+         {"name": "cmd", "type": "text", "flag": "find", "const": True, "positional": True},
+         {"name": "texte", "label": "Nom, prénom ou adresse", "type": "text",
+          "required": True, "positional": True, "max_len": 96},
+     ]},
+    {"name": "annuaire-add", "label": "Annuaire : créer une fiche personne",
+     "category": "contacts", "script": "pm-contact.py",
+     "mutate": True, "args": [
+         {"name": "cmd", "type": "text", "flag": "add", "const": True, "positional": True},
+         {"name": "last_name", "label": "NOM", "type": "text", "flag": "--last-name", "max_len": 64},
+         {"name": "first_name", "label": "Prénom", "type": "text", "flag": "--first-name", "max_len": 64},
+         {"name": "email", "label": "Email", "type": "text", "flag": "--email", "max_len": 96},
+         {"name": "phone", "label": "Téléphone", "type": "text", "flag": "--phone", "max_len": 32},
+         {"name": "note", "label": "Note", "type": "text", "flag": "--note", "max_len": 240},
+     ]},
     {"name": "contact-add", "label": "Ajouter un contact client",
      "category": "contacts", "script": "pm-client-contact.py",
      "mutate": True, "args": [
@@ -11223,6 +11245,31 @@ def _mail_queue_dir() -> Path:
     return MAIL_DIR / "queue"
 
 
+# >>> contact_of_email — pure (testée par test_karl_agent_contacts.py)
+def contact_of_email(adresse, par_email, annuaire):
+    """Qui est l'expéditeur, d'après l'annuaire (RM3147).
+
+    La file affichait une adresse nue là où l'annuaire sait souvent qui écrit —
+    et quand il ne sait pas, c'est le bon moment pour le lui apprendre. D'où les
+    deux réponses possibles, jamais l'absence de réponse : une personne connue,
+    ou de quoi créer sa fiche sans ressaisir ce que l'email porte déjà.
+
+    Casse ignorée : une adresse n'est pas sensible à la casse, et la même
+    personne écrite `Mathieu@…` ne doit pas devenir un inconnu."""
+    a = str(adresse or "").strip().lower()
+    if not a:
+        return None
+    ref = (par_email or {}).get(a)
+    if not ref:
+        return {"known": False, "email": a}
+    p = (annuaire or {}).get(ref) or {}
+    nom = " ".join(x for x in (p.get("first_name"), p.get("last_name")) if x)
+    return {"known": True, "ref": ref, "email": a,
+            "name": nom or (p.get("emails") or [a])[0],
+            "internal": bool(p.get("internal"))}
+# <<< contact_of_email
+
+
 def op_mail_queue(qs: dict) -> dict:
     """File de triage : un email = expéditeur, sujet, routage proposé, état.
 
@@ -11230,6 +11277,14 @@ def op_mail_queue(qs: dict) -> dict:
     des milliers de caractères de courrier client dans chaque rafraîchissement.
     """
     d = _mail_queue_dir()
+    # RM3147 : l'annuaire lu UNE fois pour toute la file — la résolution est
+    # côté serveur, là où l'annuaire vit, plutôt que par un aller-retour de plus
+    # depuis le navigateur.
+    ann = _annuaire()
+    par_email = {}
+    for ref, p in ann.items():
+        for e in (p or {}).get("emails") or []:
+            par_email.setdefault(str(e).strip().lower(), ref)
     wanted = (qs.get("key") or "").strip()
     show_done = qs.get("done") == "1"
     items = []
@@ -11246,6 +11301,7 @@ def op_mail_queue(qs: dict) -> dict:
                 "key", "from", "from_name", "subject", "date", "folder", "rm_id",
                 "kind", "created_rm", "outcome", "message_id")}
             item["attachments"] = len(e.get("attachments") or [])
+            item["contact"] = contact_of_email(e.get("from"), par_email, ann)
             item["routing"] = e.get("routing") or {}
             item["draft"] = e.get("draft") or {}
             item["dismissed"] = e.get("dismissed") or None

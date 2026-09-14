@@ -9,6 +9,21 @@ import { html } from "../../core/html.js";
 
 const muted = "color:var(--muted);font-size:11px";
 
+// RM3147 — l'expéditeur, reconnu ou non. La file affichait une adresse nue là où
+// l'annuaire sait souvent qui écrit ; et quand il ne sait pas, c'est le moment de
+// le lui apprendre, sans ressaisir ce que l'email porte déjà.
+// La ligne expéditeur n'est pas le div qui déplie la carte : ces gestes ne
+// risquent pas de la replier au passage.
+function Sender(vm) {
+  if (vm.known) {
+    return html`<span style="cursor:pointer;text-decoration:underline dotted" data-action="contact"
+      title="Fiche de ${vm.contactRef}">${vm.sender}</span>${vm.internal
+      ? html` <span class="pill">interne</span>` : ""}`;
+  }
+  return html`${vm.sender} <button class="mini" data-action="contact-add"
+    title="Créer sa fiche dans l'annuaire, pré-remplie depuis cet email">＋ annuaire</button>`;
+}
+
 export function EmailCard(vm) {
   return html`<div class="card" data-key="${vm.e.key}" style="margin-bottom:6px${vm.open ? ";border-color:var(--accent)" : ""}">
     <div style="display:flex;gap:6px;align-items:baseline;cursor:pointer" data-action="toggle">
@@ -16,7 +31,7 @@ export function EmailCard(vm) {
       <b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${vm.title}</b>
       <span style="${muted}">${vm.day}</span>
     </div>
-    <div style="${muted};margin-top:2px">${vm.sender} — ${vm.e.folder}${vm.e.attachments ? " · 📎" + vm.e.attachments : ""}</div>
+    <div style="${muted};margin-top:2px">${Sender(vm)} — ${vm.e.folder}${vm.e.attachments ? " · 📎" + vm.e.attachments : ""}</div>
     <div style="margin-top:4px;font-size:11px">🎯 <b>${vm.target}</b>${vm.confidence
       ? html` <span style="color:var(--muted)">${vm.confidence} · ${vm.source}</span>` : ""}${vm.e.rm_id
       ? html` · <span title="réponse dans un fil existant">↩ RM${vm.e.rm_id}</span>` : ""}${vm.e.created_rm

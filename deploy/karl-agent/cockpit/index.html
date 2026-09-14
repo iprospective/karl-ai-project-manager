@@ -162,10 +162,12 @@ if (window.matchMedia) {
     <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
     <nav class="lnav">
       <button data-panel="running">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
+      <!-- RM3131 : « à tester » suit « en cours » — ce sont les deux files qu'on regarde en
+           arrivant, et le compteur dit s'il y a lieu de l'ouvrir. -->
+      <button data-panel="test">🧪 à tester<span class="nbadge" id="ln-test" style="display:none"></span></button>
       <button data-panel="tickets">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
-      <button data-panel="projects">📁 projets</button>
+      <button data-panel="projects">📁 clients/projets</button>
       <button data-panel="sessions">🚀 sessions</button>
-      <button data-panel="test">🧪 à tester</button>
       <button data-panel="mail">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
       <!-- RM2816 : « ⚙ commandes pm » et « 🔧 réglages » sont passés au menu du
            haut — ce sont des surfaces d'ACTION (on y va, on fait, on sort), pas

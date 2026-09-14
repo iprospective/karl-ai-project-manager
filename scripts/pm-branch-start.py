@@ -167,6 +167,45 @@ def peek_task_frontmatter(md_path):
         return {}
 
 
+# >>> reprendre_branche — pure (testée par test_pm_branch_start_reprise.py)
+def reprendre_branche(propose: str, fiche: str, connues, rm_id: int):
+    """(branche retenue, avertissement) — RM3152. La branche d'un ticket se REPREND, elle ne se
+    recompose pas.
+
+    Le nom était recalculé à chaque prise depuis le nom de fichier, tronqué à `SLUG_MAX`. Un ticket
+    dont le slug dépassait cette longueur — ou dont le titre avait changé — se voyait attribuer un
+    NOUVEAU nom, donc une SECONDE branche : tout partait dessus pendant que la MR ouverte continuait
+    de regarder la première. Elle restait « non mergeable », et le ticket ne partait jamais en
+    production. Le symptôme (« conflit ») ne désignait pas la cause, et rien ne disait qu'il y avait
+    deux branches (incident RM3059, resté bloqué plusieurs jours).
+
+    L'ordre est celui de la confiance : ce que la fiche déclare, puis ce que le dépôt porte. Quand
+    plusieurs branches existent pour un même ticket — état anormal — on prend la plus LONGUE, parce
+    qu'une troncature ne produit que des noms plus courts que l'original, et on le dit.
+    """
+    prefixe = f"{rm_id}-"
+    candidates = sorted({b for b in (connues or []) if b.startswith(prefixe)})
+    fiche = (fiche or "").strip()
+    if fiche.startswith(prefixe):
+        note = ("" if fiche == propose else
+                f"branche du ticket REPRISE : '{fiche}' (le nom recomposé aurait été '{propose}')")
+        autres = [b for b in candidates if b != fiche]
+        if autres:
+            note = (note or f"branche du ticket : '{fiche}'") + \
+                   f" ; ⚠ ce ticket porte aussi {len(autres)} autre(s) branche(s) : {', '.join(autres)}"
+        return fiche, note
+    if not candidates:
+        return propose, ""
+    if len(candidates) == 1:
+        b = candidates[0]
+        return b, ("" if b == propose else
+                   f"branche existante REPRISE : '{b}' (le nom recomposé aurait été '{propose}')")
+    b = max(candidates, key=len)          # une troncature raccourcit : l'originale est la plus longue
+    return b, (f"⚠ {len(candidates)} branches pour RM{rm_id} : {', '.join(candidates)} — "
+               f"'{b}' retenue (la plus complète). À nettoyer : une branche par ticket.")
+# <<< reprendre_branche
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -209,6 +248,21 @@ def main():
         slug = md_path.stem.split("_", 1)[1] if "_" in md_path.stem else f"rm{args.rm_id}"
         slug = slug[:SLUG_MAX].rstrip("-")
     branch = f"{args.rm_id}-{slug}"
+    # RM3152 : un ticket DÉJÀ branché garde sa branche — `--slug` explicite reste souverain, c'est
+    # le geste par lequel on répare justement une divergence.
+    if not args.slug:
+        connues = set()
+        for ref in ("refs/heads", "refs/remotes/origin"):
+            r = _git(Path(args.repo if args.repo is not None else ".").resolve(),
+                     "for-each-ref", "--format=%(refname:short)", ref, check=False)
+            if r.returncode == 0:
+                connues |= {x.strip().split("origin/")[-1] for x in r.stdout.splitlines() if x.strip()}
+        branch, note = reprendre_branche(branch, (peek_task_frontmatter(md_path).get("git") or {}).get("branch"),
+                                         connues, args.rm_id)
+        if note:
+            # `warn` et non `info` : une divergence de branche est précisément ce qu'on ne voyait
+            # pas, et `info` est muet en sortie dense — la dire à moitié reviendrait à se taire.
+            out.warn(note)
 
     repo = Path(args.repo if args.repo is not None else ".").resolve()
     root_r = _git(repo, "rev-parse", "--show-toplevel", check=False)

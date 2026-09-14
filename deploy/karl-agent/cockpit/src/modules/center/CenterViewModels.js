@@ -154,3 +154,25 @@ export class ContactViewModel {
     }));
   }
 }
+
+
+/** RM3131 — la page de gestion des tickets : filtrer et trier sur plusieurs axes, ce que les
+ *  330 px du panneau de droite ne peuvent pas porter. Les comptes viennent de l'index. */
+export class TicketsManageViewModel extends EntityViewModel {
+  constructor(e, ctx) { super(e || {}, ctx); }
+  get indexed() { return this.e.indexed !== false; }
+  get hint() { return this.e.hint || ""; }
+  get tickets() { return this.e.tickets || []; }
+  get filters() { return this.ctx.filters || {}; }
+  /** Les filtres PROPOSÉS viennent des comptes : on n'offre pas un filtre qui ne ramène rien. */
+  get statuses() {
+    const by = this.e.by_status || {};
+    return Object.keys(by).map(k => ({ key: k, n: by[k], active: this.filters.status === k }));
+  }
+  get projects() {
+    const by = this.e.by_project || {};
+    return Object.keys(by).map(k => ({ key: k, n: by[k], active: this.filters.project === k }));
+  }
+  get total() { return this.tickets.length; }
+  get truncated() { return this.total >= (this.filters.limit || 200); }
+}

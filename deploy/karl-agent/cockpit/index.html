@@ -227,6 +227,13 @@ if (window.matchMedia) {
     </div>
 
     <div class="lpanel" id="lp-tickets">
+    <!-- RM3131 : l'entrée vers la page de GESTION (au centre) — filtrer et trier sur plusieurs
+         axes, ce que les 330 px du panneau ne peuvent pas porter. En tête : c'est le point de
+         départ quand on cherche, pas quand on suit ce qu'on a ouvert. -->
+    <div class="cmpbar" style="margin-bottom:6px">
+      <button class="mini primary" id="btn-manage-tickets"
+              title="Ouvrir la page de gestion : tous les tickets, filtrables par statut, projet et texte">🗂 gestion / liste</button>
+    </div>
     <!-- RM1952 : triage ROI — quel ticket travailler maintenant (score, débloquants) -->
     <details class="card" id="triagecard">
       <summary>🎯 Triage ROI <span style="color:var(--muted);font-weight:normal">— prochaines actions à plus fort levier</span></summary>

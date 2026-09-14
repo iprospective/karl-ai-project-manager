@@ -22,6 +22,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   temps. La lecture d'abord (lire un ticket, lister, chercher) ; l'écriture attend que la question des
   champs manquants soit tranchée. Au passage, une **demande de fusion n'est pas un ticket** : l'API
   GitHub les mélange, la liste les écarte.
+- **Deux index portaient le même nom, et l'un a écrasé l'autre** (RM3142) : RM3128 a créé l'index de
+  requêtage (`pm_index`, projection SQLite du Markdown) sous le nom d'un module qui existait déjà —
+  l'**index des projets** (RM3033), celui qui pose et reconstruit les liens de co-localisation
+  `projects/clients/<c>/projects/<p>` → `<workspace>/.mmi-pm`. Le fichier a été remplacé, et les
+  quatre commandes qui s'en servaient (`index add|list|remove|rebuild`) appelaient depuis des
+  fonctions disparues : **mortes sans un mot**. On ne pouvait plus reconstruire les liens qui
+  permettent au PM de trouver ses fiches — l'outil de réparation avait disparu avec le reste.
+  Pire que la panne : `mmi-pm index rebuild` avait changé de sens en silence, d'une reconstruction
+  de liens à une reconstruction de base. L'annuaire reprend son module (`pm_projects_index`) et son
+  domaine (`mmi-pm projects-index add|list|remove|rebuild`) ; `index` reste à l'index de requêtage.
+  Ses tests, disparus avec lui, sont rétablis. Une garde refuse désormais qu'un domaine soit partagé
+  entre un `pm-<x>.py` et des `pm-<x>-<verbe>.py` — c'est cette cohabitation qui laissait le dispatch
+  trancher en silence. Repéré par un test rouge sur `main` pendant RM3119 ; **198 verts, 0 rouge**.
 
 - **Le worklog mène quelque part** (RM3114) : « ❓ à trancher » affichait des numéros de tickets et un
   compte de questions, mais le clic ouvrait le panneau méta — qui ne montre pas le carnet de réflexion.

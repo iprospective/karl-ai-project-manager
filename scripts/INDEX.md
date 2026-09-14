@@ -54,7 +54,6 @@
 - `pm-index-list` — index des projets PM (RM3033, porté de `bin/mmi-pm index list`). Voir p…
 - `pm-index-rebuild` — index des projets PM (RM3033, porté de `bin/mmi-pm index rebuild`). Voi…
 - `pm-index-remove` — index des projets PM (RM3033, porté de `bin/mmi-pm index remove`). Voir…
-- `pm-index` — l'index de requêtage de karl-PM
 - `pm-project-bootstrap` — Bootstrap a PM project by instantiating bootstrap-tasks templates.
 - `pm-project-config` — édite la conf structurée d'un projet ou d'un client
 - `pm-project-new` — Pipeline complet : Redmine + struct PM + symlinks + bootstrap.
@@ -179,6 +178,7 @@
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-release-watch` — la veille des publications qu'on attend
+- `pm-searchdb` — l'index de requêtage de karl-PM
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
@@ -196,7 +196,7 @@
 - `pm_forge` — abstraction de forge git (GitLab / Gogs / GitHub) — RM2498 (T2).
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
-- `pm_index` — l'index de requêtage de karl-PM : une PROJECTION du Markdown
+- `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer
@@ -217,6 +217,7 @@
 - `pm_repos` — manifeste `repos[]` d'un projet PM : transport, identité, rattachement.
 - `pm_roles` — quel rôle d'agent pour ce ticket ?
 - `pm_scope` — garde de PÉRIMÈTRE des outils PM mutants
+- `pm_searchdb` — l'index de REQUÊTAGE de karl-PM : une PROJECTION du Markdown
 - `pm_secrets` — abstraction de gestionnaire de secrets (vault) — RM2681 (L0).
 - `pm_session` — Id de session court (entier incrémental) + registre des branches/worktr…
 - `pm_session_hook` — Reflète une création / transition de ticket PM dans le worklog de sessi…

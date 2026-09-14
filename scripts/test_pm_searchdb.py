@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests offline de pm_index — l'index de requêtage (RM3128).
+"""Tests offline de pm_searchdb — l'index de requêtage (RM3128, renommé par RM3143).
 
 Lancer : python3 scripts/test_pm_index.py
 L'index est une PROJECTION du Markdown : ces tests vérifient surtout qu'il ne peut pas
@@ -15,7 +15,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import pm_index
+import pm_searchdb as pm_index
 
 try:
     import yaml
@@ -356,6 +356,26 @@ def test_la_base_vit_dans_l_etat_local_jamais_dans_les_sources():
         cfg, _ = _tree(Path(d), S)
         p = pm_index.db_path(cfg)
         assert "var" in str(p) and "projects" not in str(p), p
+
+
+# ── la collision de noms qui a cassé la prod (RM3143) ──────────────────────
+
+def test_le_module_des_symlinks_de_projets_est_intact():
+    """RM3143 : `pm_index` (index des SYMLINKS de projets, RM3033) et `pm_searchdb` (index de
+    requêtage, RM3128) sont deux modules distincts. Le second s'appelait `pm_index` à sa
+    livraison et a ÉCRASÉ le premier, cassant les quatre `pm-index-*` en production."""
+    import importlib
+    import pm_index
+    for fn in ("listing", "format_listing"):
+        assert hasattr(pm_index, fn), f"pm_index.{fn} manque — le module des projets est écrasé"
+    assert not hasattr(pm_index, "rebuild") or pm_index.__doc__.startswith("pm_index — l'INDEX"), \
+        "pm_index ne doit PAS être l'index de requêtage"
+
+
+def test_les_deux_modules_ne_partagent_pas_leur_base():
+    """Deux index, deux fichiers : un nom de base partagé serait la même collision d'un cran plus bas."""
+    import pm_searchdb
+    assert "searchdb" in pm_searchdb.DB_NAME, pm_searchdb.DB_NAME
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

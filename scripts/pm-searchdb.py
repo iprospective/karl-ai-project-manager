@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""pm-index — l'index de requêtage de karl-PM (RM3128).
+"""pm-searchdb — l'index de requêtage de karl-PM (RM3128).
 
 Une PROJECTION du Markdown, qui reste la source de vérité : rien ne naît ici, et
-`rebuild` reconstruit tout depuis les fiches. Voir `pm_index` pour le pourquoi.
+`rebuild` reconstruit tout depuis les fiches. Voir `pm_searchdb` pour le pourquoi.
 
-    mmi-pm index status                 volume, fraîcheur, divergence
-    mmi-pm index update                 incrémental — le régime NORMAL
-    mmi-pm index rebuild                reconstruction complète (secours, initialisation)
-    mmi-pm index query --text "…"       recherche FTS5 (BM25)
-    mmi-pm index count                  compteur par statut (ce que rafraîchit le cockpit)
+⚠ `mmi-pm index-*` est un AUTRE domaine (l'index des symlinks de projets, RM3033).
+
+    mmi-pm searchdb status                 volume, fraîcheur, divergence
+    mmi-pm searchdb update                 incrémental — le régime NORMAL
+    mmi-pm searchdb rebuild                reconstruction complète (secours, initialisation)
+    mmi-pm searchdb query --text "…"       recherche FTS5 (BM25)
+    mmi-pm searchdb count                  compteur par statut (ce que rafraîchit le cockpit)
 
 `update` ne retouche que les fiches dont l'empreinte a bougé et retire les disparues :
 c'est ce qui tient à l'échelle, là où un rescan complet ne ferait que déplacer le coût.
@@ -19,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pm_index
+import pm_searchdb as db
 from pm_output import out
 from pm_paths import PMConfig
 
@@ -46,25 +48,25 @@ def main():
     args = ap.parse_args()
 
     cfg = PMConfig.load()
-    con = pm_index.connect(cfg)
+    con = db.connect(cfg)
     try:
         if args.cmd == "rebuild":
-            r = pm_index.rebuild(cfg, con)
+            r = db.rebuild(cfg, con)
             if _print(r, args.json):
-                out.op("index rebuild", extra=f"{r['indexed']} fiche(s) en {r['seconds']} s"
+                out.op("searchdb rebuild", extra=f"{r['indexed']} fiche(s) en {r['seconds']} s"
                        + (f", {r['skipped']} ignorée(s)" if r["skipped"] else ""))
         elif args.cmd == "update":
-            r = pm_index.update(cfg, con)
+            r = db.update(cfg, con)
             if _print(r, args.json):
-                out.op("index update", extra=f"{r['updated']} à jour, {r['removed']} retirée(s), "
+                out.op("searchdb update", extra=f"{r['updated']} à jour, {r['removed']} retirée(s), "
                        f"{r['unchanged']} inchangée(s) en {r['seconds']} s")
         elif args.cmd == "count":
-            c = pm_index.count_by_status(cfg, con)
+            c = db.count_by_status(cfg, con)
             if _print(c, args.json):
                 for k, v in sorted(c.items(), key=lambda kv: -kv[1]):
                     print(f"  {v:>5}  {k}")
         elif args.cmd == "status":
-            s = pm_index.status(cfg, con)
+            s = db.status(cfg, con)
             if _print(s, args.json):
                 print(f"index : {s['tickets']} ticket(s) — {s['db']}")
                 print(f"  disque : {s['on_disk']} fiche(s)")
@@ -76,7 +78,7 @@ def main():
                 else:
                     print("  ✓ à jour")
         elif args.cmd == "query":
-            r = pm_index.query(cfg, text=args.text, status_=args.status_,
+            r = db.query(cfg, text=args.text, status_=args.status_,
                                project=args.project, limit=args.limit, con=con)
             if _print(r, args.json):
                 if not r:

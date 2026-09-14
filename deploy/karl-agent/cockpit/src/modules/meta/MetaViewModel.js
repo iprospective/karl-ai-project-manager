@@ -103,7 +103,39 @@ export class TicketMetaViewModel extends EntityViewModel {
   get list() { const l = (this.e.tickets || []).map(String); const cur = this.e.current; if (cur && l.indexOf(String(cur)) < 0) l.unshift(String(cur)); return l; }
   get sel() { const l = this.list, cur = this.e.current == null ? null : String(this.e.current); return (cur && l.indexOf(cur) >= 0) ? cur : (l[0] || null); }
   get facet() { return facetOf(this.e.facet); }
-  get tabs() { const s = this.sel; return this.list.map(t => ({ rm: t, active: t === s })); }
+  /** RM3164 — le projet d'un ticket, depuis le cache de résolution. "" si on ne le sait pas
+   *  encore : un ticket non résolu ne doit pas se retrouver rangé sous un projet au hasard. */
+  projectOf(rm) {
+    const r = (this.e.resolve || {})[String(rm)];
+    return (r && r.found && r.client && r.project) ? r.client + "/" + r.project : "";
+  }
+
+  /** Les projets représentés dans la liste, avec leur compte. Vide quand ils sont TOUS dans le
+   *  même : proposer un filtre à une seule valeur, c'est occuper la place sans rien trier. */
+  get ticketProjects() {
+    const n = {};
+    for (const rm of this.list) { const p = this.projectOf(rm); if (p) n[p] = (n[p] || 0) + 1; }
+    const cles = Object.keys(n);
+    if (cles.length < 2) return [];
+    const f = this.ctx.ticketFilter || "";
+    return cles.sort().map(k => ({ key: k, n: n[k], active: k === f }));
+  }
+
+  /** Le filtre EFFECTIF : celui qu'on a posé, sinon le projet de la session attachée s'il est
+   *  représenté — c'est le défaut demandé, et il évite de faire chercher le contexte courant. */
+  get ticketFilter() {
+    const f = this.ctx.ticketFilter;
+    if (f !== undefined && f !== null) return f;
+    const sess = this.e.sessionProject || "";
+    return this.ticketProjects.some(p => p.key === sess) ? sess : "";
+  }
+
+  get tabs() {
+    const s = this.sel, f = this.ticketFilter;
+    return this.list
+      .filter(t => !f || this.projectOf(t) === f || t === s)   // l'onglet courant reste visible
+      .map(t => ({ rm: t, active: t === s, project: this.projectOf(t) }));
+  }
 
   /** RM3126 : le titre du ticket sélectionné, pour la ligne entre la liste et les onglets.
    *  Vide tant qu'il n'est pas chargé — une ligne de titre qui clignote « … » à chaque
@@ -156,6 +188,19 @@ export class TicketMetaViewModel extends EntityViewModel {
       alive: !!s.alive, title: s.title || "",
     })).filter(r => r.sid);
     return { kind: rows.length ? "ok" : "empty", rows, candidates: (d.candidates || []).length };
+  }
+
+  /** RM3164 — l'impact du ticket : fichiers touchés, agrégés. Mêmes trois états que les
+   *  sessions : « pas demandé », « en vol » et « inconnu » ne se disent pas pareil. */
+  impact() {
+    const d = this.e.imp;
+    if (d === undefined || d === null) return { kind: d === null ? "loading" : "none" };
+    if (d.error) return { kind: "error" };
+    if (d.pm_data_repo) return { kind: "pmdata" };
+    if (!d.is_git) return { kind: "nogit" };
+    return { kind: (d.files || []).length ? "ok" : "empty", files: d.files || [],
+             commits: d.commits || 0, base: d.base || "", branch: d.branch || "",
+             total: d.total_files || 0 };
   }
 
   workspace() {

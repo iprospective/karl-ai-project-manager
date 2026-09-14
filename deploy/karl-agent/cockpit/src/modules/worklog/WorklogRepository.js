@@ -4,7 +4,7 @@ import { Factory } from "../../core/Factory.js";
 import { get, post } from "../../core/api.js";
 
 export class WorklogRepository extends Repository {
-  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", request: "worklog.request", anteriority: "worklog.anteriority", spawn: "session.spawn" } }); }
+  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", request: "worklog.request", anteriority: "ticket.anteriority", spawn: "session.spawn" } }); }
   /** force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel. */
   load(sid, force) { return get(this.path("worklog") + "/" + encodeURIComponent(sid) + (force ? "?force=1" : "")); }
   batch(body) { return post(this.path("batch"), body); }

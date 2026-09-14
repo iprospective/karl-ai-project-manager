@@ -65,6 +65,7 @@ TARGET_TO_CURRENT = {
     "/api/pm/engine-options": "/engines/options",
     "/api/pm/engines": "/pm/engines",
     "/api/pm/llm-models": "/pm/llm-models",
+    "/api/pm/modules": "/modules",
     "/api/pm/provider-assign": "/pm/provider-assign",
     "/api/pm/provider-secret": "/pm/provider-secret",
     "/api/pm/provider-types": "/pm/provider-types",
@@ -117,7 +118,9 @@ TARGET_TO_CURRENT = {
     "/api/terminal/memdebug": "/memdebug",
     "/api/test-queue/ticket-sessions": "/ticket-sessions",
     "/api/test-queue/ticket-transitions": "/ticket-transitions",
+    "/api/ticket/anteriority": "/tickets/anteriority",
     "/api/ticket/brief": "/tickets/brief",
+    "/api/ticket/impact": "/ticket-impact",
     "/api/ticket/mergecheck": "/mergecheck",
     "/api/ticket/resolve": "/resolve",
     "/api/ticket/tickets": "/tickets",
@@ -131,9 +134,7 @@ TARGET_TO_CURRENT = {
     "/api/worklog/batch": "/worklog/batch",
     "/api/worklog/mr/batch": "/mr/batch",
     "/api/worklog/mr/merge": "/mr/merge",
-    "/api/pm/modules": "/modules",
     "/api/worklog/request": "/worklog/request",
-    "/api/ticket/anteriority": "/tickets/anteriority",
     "/api/worklog/worklog": "/worklog",
 }
 

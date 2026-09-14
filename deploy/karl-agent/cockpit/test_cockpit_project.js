@@ -41,10 +41,26 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss));
   console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées, plafond annoncé");
   // — fiche et fichiers (ex-runtime) —
-  const sheet = String(V.ProjectSheet(new VM.ProjectSheetViewModel({ name: "Appli", total: 3, docs: [{ path: "/pm/x.md", name: "x.md" }], open_by_status: { en_cours: 1 }, open_recent: [{ rm_id: "5", status: "en_cours", title: "T5", mtime: 1 }], closed_recent: [], environments: [{ name: "prod", url: "https://p" }], redmine_project_url: "https://r" },
-    { key: "acme/appli", tab: "fiche", sessions: [{ rm_id: "42", state: "working" }], ago: () => "il y a 2 min" }), (rm, t) => "<i>" + esc(t) + "</i>", '<div class="empty">chargement…</div>'));
-  assert(/📁 acme\/appli/.test(sheet) && /data-action="doc" data-path="\/pm\/x.md"/.test(sheet) && /en_cours : 1/.test(sheet) && /RM5/.test(sheet) && /<i>T5<\/i>/.test(sheet) && /il y a 2 min/.test(sheet));
-  assert(/data-action="attach" data-sid="42"/.test(sheet) && /https:\/\/p ↗/.test(sheet) && /3 tickets/.test(sheet) && /data-action="conf" data-scope="client"/.test(sheet) && /id="projfiles"/.test(sheet) && !/onclick=/.test(sheet));
+  const mkSheet = (tab) => String(V.ProjectSheet(new VM.ProjectSheetViewModel({ name: "Appli", total: 3, docs: [{ path: "/pm/x.md", name: "x.md" }], open_by_status: { en_cours: 1 }, open_recent: [{ rm_id: "5", status: "en_cours", title: "T5", mtime: 1 }], closed_recent: [], environments: [{ name: "prod", url: "https://p" }], redmine_project_url: "https://r" },
+    { key: "acme/appli", tab: "fiche", sessions: [{ rm_id: "42", state: "working" }], ago: () => "il y a 2 min" }), (rm, t) => "<i>" + esc(t) + "</i>", '<div class="empty">chargement…</div>', tab));
+  // RM3132 : la fiche est à ONGLETS — le résumé situe le projet, le détail se demande.
+  const sheet = mkSheet("resume"), onglTickets = mkSheet("tickets"), onglDocs = mkSheet("docs");
+  assert(/data-action="ptab" data-tab="tickets"/.test(sheet), "la barre d'onglets est rendue");
+  assert(/data-action="doc" data-path="\/pm\/x.md"/.test(onglDocs), "les docs sont dans leur onglet");
+  assert(/RM5/.test(onglTickets) && /<i>T5<\/i>/.test(onglTickets), "les tickets dans le leur");
+  assert(!/data-action="doc"/.test(onglTickets), "un onglet ne déborde pas sur l'autre");
+  assert(/📁 acme\/appli/.test(sheet) && /en_cours : 1/.test(sheet));
+  // L'en-tête (nom du projet) reste HORS onglets : il dit de quel projet on parle.
+  assert(/📁 acme\/appli/.test(mkSheet("tickets")) && /📁 acme\/appli/.test(mkSheet("docs")),
+         "RM3132 : l'en-tête est commun à tous les onglets");
+  assert(
+         !/data-action="attach" data-sid="42"/.test(mkSheet("docs")),
+         "RM3132 : les sessions sont dans LEUR onglet");
+  // Les LIENS du projet restent hors onglets (Redmine, dépôt, conf) ; les fichiers ont le leur.
+  assert(/https:\/\/p ↗/.test(sheet) && /3 tickets/.test(sheet) &&
+         /data-action="conf" data-scope="client"/.test(sheet) && !/onclick=/.test(sheet));
+  assert(/id="projfiles"/.test(mkSheet("files")) && !/id="projfiles"/.test(sheet),
+         "RM3132 : les fichiers sont dans LEUR onglet, plus dans le résumé");
   const files = (e) => String(V.ProjectFiles(new VM.ProjectFilesViewModel(e), (f) => "<pre>" + esc(f.content) + "</pre>"));
   assert(/aucun worktree/.test(files({ worktrees: [] })));
   const WT = [{ path: "/w/appli", name: "appli", exists: true, is_git: true, branch: "dev", clean: false, dirty: 3 }, { path: "/w/gone", name: "gone", exists: false }];
@@ -74,5 +90,20 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   await pr.open("divers"); assert(/groupe « divers »/.test(el.innerHTML) && /data-sid="42"/.test(el.innerHTML), "« divers » : message + sessions du groupe");
   pr.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur fiche projet : ouverture, worktrees, navigation, worklog, conf, divers, démontage");
+  // ── RM3132 : la barre d'onglets elle-même
+  {
+    assert.deepStrictEqual(V.PROJECT_TABS.map(t => t[0]),
+                           ["resume", "tickets", "docs", "sessions", "files"]);
+    assert.strictEqual(V.projectTabOf("zzz"), "resume", "un onglet inconnu retombe sur le résumé");
+    assert.strictEqual(V.projectTabOf(undefined), "resume", "pas d'onglet → résumé");
+    assert.strictEqual(V.projectTabOf("worklog"), "resume",
+                       "« worklog » a son propre rendu, hors de ces facettes");
+    const barre = String(V.ProjectTabs("docs"));
+    assert(/class="active" data-action="ptab" data-tab="docs"/.test(barre), "l'onglet actif est marqué");
+    assert((barre.match(/data-action="ptab"/g) || []).length === 5, "cinq onglets, pas un de plus");
+    assert(!/onclick=/.test(barre));
+    console.log("  ✓ RM3132 : onglets de la fiche projet — actif marqué, inconnu ramené au résumé");
+  }
+
   console.log("\nTous les tests de la fiche projet passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

@@ -1,17 +1,17 @@
 // models/tickets/briefs — l'infobulle d'un RM-id (RM2619) : texte et demandes à grouper, sans DOM. RM2889.
+import { hoverText } from "../../core/entities.js";
 
 /** Tant que le cache n'a pas répondu, on le DIT (« chargement… ») plutôt que de rendre une bulle vide. */
+/** Le survol d'un RM-id. RM3164 : le contenu est désormais DÉCLARÉ par le type « review » dans
+ *  le registre d'entités (`core/entities.js :: hoverFields`), et monté par `hoverText` — c'est la
+ *  généralisation demandée, ce texte n'était écrit que pour les tickets.
+ *
+ *  Le contrat d'appel ne change pas : ici `null` veut dire « pas encore chargé » (c'est ce que
+ *  rend le cache), là où le moteur réserve `null` à « inconnu ». On normalise plutôt que de
+ *  changer le cache — l'inverse ferait annoncer « inconnu en local » pendant chaque chargement.
+ */
 export function ticketTipText(id, brief) {
-  const b = brief || null;
-  if (!b) return "RM" + id + " — chargement…";
-  if (!b.found) return "RM" + id + " — inconnu en local";
-  const bits = [];
-  if (b.status) bits.push(b.status);
-  if (b.completion_pct !== null && b.completion_pct !== undefined) bits.push(b.completion_pct + " %");
-  if (b.type) bits.push(b.type);
-  if (b.priority && b.priority !== "normal") bits.push("priorité " + b.priority);
-  const ou = (b.client && b.project) ? b.client + "/" + b.project : (b.client || "");
-  return "RM" + id + " — " + (b.title || "(sans titre)") + (bits.length ? "\n" + bits.join(" · ") : "") + (ou ? "\n" + ou : "");
+  return hoverText("review", id, brief == null ? undefined : brief);
 }
 
 /** Ids à demander : inconnus ET pas déjà en vol — sans ce filtre, chaque rendu redemandait tout ce qui était à l'écran. */

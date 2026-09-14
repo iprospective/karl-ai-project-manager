@@ -110,6 +110,19 @@ Trois règles, le détail est dans `git-mep-pratique` § « Remote canonique » 
 > inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
 > déboguer), cf. `worker-common` § Restitution.
 
+> **karl-PM : une série de merges dans `dev` se termine par la promotion (RM3136).**
+> Sur le dépôt de **CODE de karl-PM** — et lui seul — après le **dernier merge d'une
+> série** de MR dans `dev`, enchaîner sans qu'on te le demande :
+> `pm-promote.py --source dev --target main --no-flush` (crée la MR, la merge, annote
+> les tickets du lot). **Pourquoi** : la prod de karl-PM est **locale**
+> (`.mmi-pm-core`) et suit **`main`** ; tant que le code n'est que sur `dev`, le
+> demandeur **ne peut pas le tester** — s'arrêter au merge lui livre de l'intestable.
+> Vérifier ensuite que `origin/main..origin/dev` est **vide**, comparer la HEAD du core
+> de prod à `origin/main`, et **ne signaler le « core update » que s'il apporte vraiment
+> quelque chose** : annoncé sur un `main` inchangé, le geste ne déploie rien (cas vécu
+> 2026-09-05). Ne concerne **pas** le dépôt de **données**, qui pousse directement sur
+> sa branche de prod (RM2440, ci-dessus).
+
 > **Rattrapage de ce qui traîne (RM3013).** Sur un **core**, chaque auto-commit
 > d'un script referme aussi le filet : ce qui est resté non commité **depuis plus
 > d'1 h** (dernière modification ; `git.sweep_after_min`, défaut 60) — édits libres

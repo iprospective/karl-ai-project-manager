@@ -529,7 +529,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
 });
 // la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
-const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
+const testqueue = testqueueRef = mountTestQueue({ card: byId("tqcard"), badge: byId("ln-test") }, {
   notify: notify.toast, help: (t) => doc.openHelp(t), run: (n, a, o) => pm.run(n, a, o), capture: (t, txt) => doc.openPlain(t, txt),
   resolveRefresh: (rm) => ticket.ensureResolved(String(rm), true),
   openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),

@@ -41,6 +41,26 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   await el.fire("click", "[data-action]", { dataset: { action: "deploy", rm: "1" }, disabled: false, textContent: "" }); assert.deepStrictEqual(runs.pop(), ["env-session-create", { action: "create", rm_id: "1", db_clone: true }], "confirm → clone dédié");
   await el.fire("click", "[data-action]", { dataset: { action: "teardown", rm: "1" }, disabled: false, textContent: "" }); assert.deepStrictEqual(runs.pop()[0], "env-session-teardown"); assert(ev.some(x => x[0] === "toast" && /Échec \(rc=1\)/.test(x[1])) && ev.some(x => x[0] === "capture" && /ÉCHEC/.test(x[1])), "un échec se dit et sa sortie s'affiche");
   tq.unmount(); assert.strictEqual(el.listenerCount, 0);
+  // ── RM3131 : le compteur de l'onglet « à tester »
+  {
+    const el2 = fakeElement(), badge = { textContent: "", style: { display: "none" } };
+    let liste = Q;
+    const svc2 = new TestQueueService({ async list() { return liste; } }, async () => ({ ok: true }));
+    const tq2 = mountTestQueue({ card: el2, badge }, { service: svc2, notify: () => {}, confirm: () => true });
+    assert.strictEqual(badge.style.display, "none", "badge masqué tant que rien n'est chargé");
+    await tq2.load();
+    assert.strictEqual(badge.textContent, String(Q.length), "le badge compte TOUTE la file, pas la vue filtrée");
+    assert.notStrictEqual(badge.style.display, "none", "badge visible quand la file n'est pas vide");
+    await el2.fire("change", "[data-filter]", { dataset: { filter: "status" }, value: "a_tester_dev" });
+    assert.strictEqual(badge.textContent, String(Q.length), "un filtre d'affichage ne change PAS le compteur");
+    liste = [];
+    await tq2.load();
+    assert.strictEqual(badge.style.display, "none", "file vide → badge masqué (un « 0 » n'informe pas, il occupe)");
+    const tq3 = mountTestQueue(el2, { service: svc2, notify: () => {}, confirm: () => true });
+    await tq3.load();   // forme historique (élément nu) : doit continuer de marcher sans badge
+    console.log("  ✓ RM3131 : badge de l'onglet — file entière, insensible aux filtres, masqué à zéro");
+  }
   console.log("✓ contrôleur : chargement, filtres, saisie sans perdre l'input, revue/verdict prêtés, gestes d'env, échec dit");
-  console.log("\nTous les tests de la file à tester passent.");
+  
+console.log("\nTous les tests de la file à tester passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

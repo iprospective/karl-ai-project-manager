@@ -8,12 +8,30 @@ import { TestQueuePanel } from "./TestQueue.view.js";
 import { html } from "../../core/html.js";
 
 export function mountTestQueue(el, ctx = {}) {
+  // RM3131 : `el` accepte aussi `{ card, badge }` — le badge de l'onglet « à tester », posé à côté
+  // de « en cours ». Forme historique (un élément nu) conservée : les appelants n'ont pas à bouger.
+  const badge = (el && el.badge) || ctx.badge || null;
+  el = (el && el.card) || el;
   const svc = ctx.service || new TestQueueService(undefined, ctx.run);
   const notify = ctx.notify || ((m, err) => (err ? console.error : console.log)(m));
   const confirm = ctx.confirm || ((m) => window.confirm(m));
   const filters = { project: "", status: "", deployable: false, q: "", sort: "oldest" };
   const vm = () => new TestQueueViewModel({ all: svc.all, loaded: svc.loaded }, { filters, pin: ctx.pin });
-  const paint = (opts) => handle.update(TestQueuePanel(vm(), opts));
+  /** RM3131 : le compteur de l'onglet — le NOMBRE de tickets en attente de test, masqué à zéro.
+   *  Un badge qui affiche « 0 » n'informe pas, il occupe : la file vide doit disparaître de l'œil. */
+  function paintBadge(n) {
+    if (!badge) return;
+    badge.textContent = String(n || 0);
+    badge.style.display = n ? "" : "none";
+  }
+  const paint = (opts) => {
+    const m = vm();
+    // Le badge compte TOUTE la file, pas la vue filtrée : il dit ce qui attend d'être testé,
+    // pas ce que l'utilisateur a choisi d'afficher. Peint seulement une fois chargé — sinon il
+    // annoncerait « 0 » pendant le chargement, ce qu'on lirait comme « rien à tester ».
+    if (svc.loaded) paintBadge(m.all.length);
+    return handle.update(TestQueuePanel(m, opts));
+  };
   async function load() {
     paint({ loading: true });
     try { await svc.load(); if (ctx.afterLoad) ctx.afterLoad(); }

@@ -10,6 +10,8 @@ sauf en `--dry-run`, qui prévisualise sans privilège. Enchaînement (inchangé
   4. hooks PM du core lui-même (post-commit, pre-push, pre-commit — .git/hooks root-owned, RM2240) ;
   5. si `scripts/karl-agent.py` a changé : redémarrage du service USER karl-agent (RM2308 — KillMode=process, tmux intacts) ;
   6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent ;
+  7c. déclencheur périodique de l'ordonnanceur posé s'il manque (RM3151, `pm-scheduler install-timer`,
+     en tant que `KARL_USER`) — idempotent : sans changement, il n'écrit ni ne recharge rien ;
   7b. stores de session ramenés du HOME vers `var/` du core s'il en reste (RM2992, `pm-stores-migrate`, en tant que
      `KARL_USER`) — après le restart, pour que l'agent écrive déjà au nouveau chemin ; ne remplace jamais ;
   7. provisioning UTILISATEUR de l'instance (RM3054, user `KARL_USER` du .env) : hooks Claude Code manquants posés par
@@ -265,6 +267,34 @@ def migrate_stores(core_dir: Path, dry: bool):
         log(f"⚠ migration des stores en échec : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm stores-migrate")
 
 
+def install_scheduler_timer(core_dir: Path, dry: bool):
+    """Étape 9 (RM3151) : pose le déclencheur périodique de l'ordonnanceur, en tant que
+    l'utilisateur de l'instance.
+
+    Sans lui, le registre `jobs.reference.yml` entier dort et rien ne le dit. En root, un timer
+    *user* serait posé pour root — c'est-à-dire nulle part : d'où `runuser`, comme le provisioning.
+    L'installation est idempotente : relancée sans changement, elle n'écrit rien et ne recharge rien,
+    ce qui permet de l'appeler à chaque mise à jour sans se demander si c'est prudent."""
+    who = instance_user(core_dir)
+    script = core_dir / "scripts" / "pm-scheduler.py"
+    if not script.is_file():
+        return
+    if not who:
+        log("⚠ timer de l'ordonnanceur ignoré — KARL_USER inconnu dans .env (à poser à la main : mmi-pm scheduler install-timer)"); return
+    ku, uid, _gid, home = who
+    cmd = ["runuser", "-u", ku, "--", "env", f"HOME={home}", f"PM_CORE_DIR={core_dir}",
+           f"XDG_RUNTIME_DIR=/run/user/{uid}", "PATH=/usr/local/bin:/usr/bin:/bin",
+           sys.executable, str(script), "install-timer"]
+    if dry:
+        cmd.append("--dry-run")
+    r = run(cmd)
+    for line in (r.stdout or "").splitlines():
+        if line.strip():
+            log(line.strip())
+    if r.returncode != 0:
+        log(f"⚠ timer de l'ordonnanceur : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm scheduler install-timer")
+
+
 def update(core_dir: Path, dry: bool) -> int:
     if not (core_dir / ".git").exists():
         die(f"{core_dir} n'est pas un dépôt git")
@@ -317,6 +347,7 @@ def update(core_dir: Path, dry: bool) -> int:
         if needs_agent_restart(changed):
             restart_karl_agent(core_dir)
     migrate_stores(core_dir, dry)
+    install_scheduler_timer(core_dir, dry)
     for src, dst, ref, todo in deploy_plan(core_dir):
         if todo:
             run(["install", "-o", "root", "-g", "root", "-m", "755", str(src), str(dst)], check=True)

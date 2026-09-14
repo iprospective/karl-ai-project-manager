@@ -45,8 +45,8 @@ from pm_paths import PMConfig  # noqa: E402
 fails = []
 
 
-def check(name, cond):
-    print(("✓ " if cond else "✗ ") + name)
+def check(name, cond, detail=""):
+    print(("✓ " if cond else "✗ ") + name + (f" — {detail}" if detail and not cond else ""))
     if not cond:
         fails.append(name)
 
@@ -248,4 +248,44 @@ print()
 if fails:
     print(f"✗ {len(fails)} test(s) en échec : {', '.join(fails)}")
     sys.exit(1)
+
+# ── RM3151 : le DÉCLENCHEUR — un timer systemd user, idempotent ──────────────
+print("\n[RM3151] le déclencheur de l'ordonnanceur")
+import tempfile as _tf
+u = pms.unites("/opt/pm/scripts/pm-scheduler.py", "/usr/bin/python3")
+check("deux unités : le service et le timer", set(u) == {"pm-scheduler.service", "pm-scheduler.timer"}, str(list(u)))
+check("le service lance bien un PASSAGE d'ordonnancement, pas le script nu",
+      u["pm-scheduler.service"].rstrip().endswith("/opt/pm/scripts/pm-scheduler.py run"), u["pm-scheduler.service"])
+check("il patiente si le script n'est pas encore déployé, au lieu d'échouer en rouge",
+      "ConditionPathExists=/opt/pm/scripts/pm-scheduler.py" in u["pm-scheduler.service"])
+check("toutes les 5 minutes", "OnUnitActiveSec=5min" in u["pm-scheduler.timer"])
+check("PAS de rattrapage systemd : c'est l'ordonnanceur qui décide de ce qui est dû",
+      "Persistent=false" in u["pm-scheduler.timer"])
+
+d = pathlib.Path(_tf.mkdtemp(prefix="pm-timer-"))
+check("dossier vide : les deux unités sont à écrire", set(pms.a_ecrire(d, u)) == set(u))
+for nom, contenu in u.items():
+    (d / nom).write_text(contenu, encoding="utf-8")
+check("contenu identique : RIEN à écrire — c'est ça, l'idempotence", pms.a_ecrire(d, u) == [])
+(d / "pm-scheduler.timer").write_text("OnUnitActiveSec=1min\n", encoding="utf-8")
+check("un contenu qui a changé est repéré, et lui seul", pms.a_ecrire(d, u) == ["pm-scheduler.timer"])
+
+# l'unité vise le RUNTIME, jamais un worktree de ticket (qui sera détruit)
+import os as _os
+from pm_paths import runtime_script
+_av = _os.environ.get("PM_CORE_DIR")
+_os.environ["PM_CORE_DIR"] = "/zfs/workspaces/.mmi-pm-core"
+chemin, err = runtime_script("pm-scheduler.py")
+check("PM_CORE_DIR posé : l'unité vise le runtime canonique", err is None and str(chemin).startswith("/zfs/workspaces/.mmi-pm-core"), str(chemin))
+_os.environ.pop("PM_CORE_DIR", None)
+_, err2 = runtime_script("pm-scheduler.py", depuis=pathlib.Path("/w/envs/repo-rm42/scripts/x.py"))
+check("depuis un worktree, sans repère : REFUS explicite plutôt qu'un timer mort dans six mois",
+      err2 and "worktree" in err2, str(err2))
+if _av:
+    _os.environ["PM_CORE_DIR"] = _av
+
+src = (pathlib.Path(__file__).resolve().parent / "pm-core-update.py").read_text(encoding="utf-8")
+check("`core update` pose le timer, en tant que l'utilisateur de l'instance (un timer user posé par root ne sert personne)",
+      "install_scheduler_timer" in src and "runuser" in src.split("def install_scheduler_timer")[1][:900])
+
 print("✓ tous les tests passent")

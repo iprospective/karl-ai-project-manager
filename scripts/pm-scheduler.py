@@ -490,6 +490,103 @@ def cmd_crontab(cfg, args):
     print(f"*/5 * * * * python3 {script} run >> {log} 2>&1")
 
 
+# ── Le DÉCLENCHEUR (RM3151, réponse à Q001) ──────────────────────────────────
+# L'ordonnanceur ne se déclenche pas tout seul : sans ceci, le registre entier dort et rien ne le
+# dit. Un TIMER systemd user, pas une ligne de crontab — non par goût, mais parce que l'instance a
+# déjà un mécanisme périodique (`pm-sessions-archive.timer`) et pas de crontab du tout. Deux
+# mécanismes pour la même chose, ce serait deux endroits où regarder quand quelque chose ne tourne
+# pas : exactement ce que ce ticket combat. Et un timer sait dire quand il est passé
+# (`systemctl --user list-timers`), ce que cron ne sait pas.
+TIMER_NOM = "pm-scheduler"
+UNIT_SERVICE = """[Unit]
+Description=Ordonnanceur PM — un passage d'ordonnancement (RM2792)
+
+[Service]
+Type=oneshot
+# Le script arrive au runtime avec le déploiement : jusque-là l'unité est ignorée plutôt que mise en
+# échec — un timer rouge pour cause d'attente ferait du bruit là où seul un VRAI défaut doit se voir.
+ConditionPathExists={script}
+ExecStart={python} {script} run
+"""
+UNIT_TIMER = """[Unit]
+Description=Ordonnanceur PM — toutes les 5 minutes (RM2792)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Pas de rattrapage : l'ordonnanceur décide lui-même de ce qui est dû, et refuse déjà la cascade
+# (machine éteinte trois jours ⇒ un job quotidien tourne UNE fois). Persistent=true ferait décider
+# systemd à sa place, et les deux se contrediraient au réveil.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+# >>> unites — pure (testée par test_pm_scheduler.py)
+def unites(script, python: str) -> dict:
+    """{nom de fichier: contenu} des deux unités. Pure : c'est elle qui porte la forme."""
+    return {f"{TIMER_NOM}.service": UNIT_SERVICE.format(python=python, script=script),
+            f"{TIMER_NOM}.timer": UNIT_TIMER}
+# <<< unites
+
+
+# >>> a_ecrire — pure
+def a_ecrire(dossier, contenus: dict) -> list:
+    """Les unités dont le contenu DIFFÈRE de ce qui est sur disque. Pure (lecture seule).
+
+    C'est ce qui rend l'installation idempotente pour de bon : relancée sans changement, elle ne
+    réécrit rien, ne recharge pas systemd et ne redémarre pas le timer. Un `core update` peut donc
+    l'appeler à chaque fois sans que personne n'ait à se demander si c'est prudent.
+    """
+    out = []
+    for nom, contenu in contenus.items():
+        f = Path(dossier) / nom
+        try:
+            if f.read_text(encoding="utf-8") == contenu:
+                continue
+        except OSError:
+            pass
+        out.append(nom)
+    return out
+# <<< a_ecrire
+
+
+def installer_timer(cfg, args) -> int:
+    """Pose (ou rafraîchit) le timer systemd user. Idempotent : silencieux s'il n'y a rien à faire."""
+    from pm_paths import runtime_script
+    script, err = runtime_script(Path(__file__).name, depuis=Path(__file__))
+    if err:
+        print("✗ installation refusée : " + err, file=sys.stderr)
+        return 1
+    d = Path("~/.config/systemd/user").expanduser()
+    contenus = unites(script, sys.executable)
+    manquantes = a_ecrire(d, contenus)
+    actif = subprocess.run(["systemctl", "--user", "is-enabled", f"{TIMER_NOM}.timer"],
+                           capture_output=True, text=True).stdout.strip() == "enabled"
+    if not manquantes and actif:
+        print(f"✓ timer {TIMER_NOM} déjà en place et activé — rien à faire")
+        return 0
+    if getattr(args, "dry_run", False):
+        print(f"(dry) écrirait {', '.join(manquantes) or 'rien'}" + ("" if actif else f", activerait {TIMER_NOM}.timer"))
+        return 0
+    d.mkdir(parents=True, exist_ok=True)
+    for nom in manquantes:
+        (d / nom).write_text(contenus[nom], encoding="utf-8")
+    cmds = ([["daemon-reload"]] if manquantes else []) + [["enable", "--now", f"{TIMER_NOM}.timer"]]
+    for cmd in cmds:
+        r = subprocess.run(["systemctl", "--user"] + cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"✗ systemctl --user {' '.join(cmd)} : {r.stderr.strip()[:200]}", file=sys.stderr)
+            return 1
+    quoi = ", ".join(manquantes) if manquantes else "activation seule"
+    print(f"✓ timer {TIMER_NOM} posé ({quoi}) — passage toutes les 5 min ; "
+          f"état : systemctl --user list-timers {TIMER_NOM}.timer ; "
+          f"arrêt : systemctl --user disable --now {TIMER_NOM}.timer")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Ordonnanceur unique des travaux périodiques PM.")
@@ -512,12 +609,14 @@ def main():
                         help="Affiche la queue de sortie conservée")
 
     sub.add_parser("check", help="Valide le registre")
-    sub.add_parser("crontab", help="Imprime LA ligne de crontab à installer")
+    sub.add_parser("crontab", help="Imprime LA ligne de crontab à installer (machines sans systemd)")
+    p_inst = sub.add_parser("install-timer", help="Pose le timer systemd user (RM3151) — idempotent")
+    p_inst.add_argument("--dry-run", action="store_true", help="Dire ce qui serait fait, sans rien écrire")
 
     args = ap.parse_args()
     cfg = PMConfig.load()
-    {"run": cmd_run, "list": cmd_list, "history": cmd_history,
-     "check": cmd_check, "crontab": cmd_crontab}[args.cmd](cfg, args)
+    sys.exit({"run": cmd_run, "list": cmd_list, "history": cmd_history, "check": cmd_check,
+              "crontab": cmd_crontab, "install-timer": installer_timer}[args.cmd](cfg, args) or 0)
 
 
 if __name__ == "__main__":

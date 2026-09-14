@@ -22,6 +22,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   séparer de leur propre bouton n'aurait pas de sens. Le compteur du journal se pose au coin de son
   icône, au lieu de suivre un libellé qui n'existe plus. Un test refuse qu'un de ces boutons reprenne du
   texte, ou qu'il perde son nom au survol : une icône sans nom devient un rébus. Cockpit 3.17.0.
+- **L'ordonnanceur a enfin un déclencheur** (RM3151, lot 3 de RM2792) : `pm-scheduler` était écrit et
+  attendait un passage toutes les 5 minutes — sans lui, **le registre `jobs.reference.yml` entier
+  dormait, et rien ne le disait**. La demande parlait d'un cron ; c'est un **timer systemd user** qui
+  est posé, et le motif vaut d'être écrit : l'instance a déjà un mécanisme périodique en service
+  (`pm-sessions-archive.timer`) et aucune crontab. Ajouter un cron à côté, ce serait deux endroits où
+  regarder quand quelque chose ne tourne pas — le défaut même que RM2792 combat. Un timer sait en
+  outre dire quand il est passé et quand il repasse (`systemctl --user list-timers`), ce que cron ne
+  sait pas. `pm-scheduler crontab` reste, pour les machines sans systemd.
+  `mmi-pm scheduler install-timer` est **idempotent au sens strict** : relancé sans changement, il ne
+  réécrit rien, ne recharge pas systemd, ne redémarre pas le timer — c'est ce qui permet à
+  `mmi-pm core update` de l'appeler à chaque fois sans que personne n'ait à se demander si c'est
+  prudent. Il est appelé en tant que `KARL_USER` : en root, un timer *user* serait posé pour root,
+  c'est-à-dire nulle part. L'unité vise le **runtime canonique**, jamais un worktree de ticket — une
+  unité qui pointe un worktree cesse de tourner le jour où le ticket se ferme, en silence ; installer
+  depuis un worktree sans `PM_CORE_DIR` est refusé plutôt que fait à moitié. La résolution de ce
+  chemin stable vit désormais dans `pm_paths.runtime_script`, partagée avec `pm-sessions-archive` qui
+  en avait sa copie. Pas de `Persistent=` : c'est l'ordonnanceur qui décide de ce qui est dû, et il
+  refuse déjà la cascade — laisser systemd en décider aussi, c'est deux avis contradictoires au
+  réveil de la machine.
 
 - **PM se regarde comme un assemblage de modules** (RM3145, lot 0) : `mmi-pm module` décrit ce que le
   système porte déjà — sept mécanismes d'extension réinventés chacun dans son coin, **64 points

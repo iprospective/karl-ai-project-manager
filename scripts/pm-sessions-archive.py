@@ -313,23 +313,11 @@ WantedBy=timers.target
 def chemin_runtime():
     """Chemin STABLE du script, pour un timer qui doit survivre au ticket.
 
-    Un worktree de session (`envs/<repo>-rmXXXX`) est détruit à la livraison :
-    un timer qui y pointe cesserait de tourner, en silence — la panne même que
-    ce ticket combat. On préfère donc le runtime canonique (`PM_CORE_DIR`), et
-    on refuse d'installer depuis un worktree si on ne sait pas le résoudre."""
-    core = os.environ.get("PM_CORE_DIR")
-    if core:
-        d = Path(core).expanduser() / "scripts"
-        if d.is_dir():
-            # Le fichier peut ne pas encore y être : on installe depuis un
-            # worktree, le runtime le recevra au prochain `core update`. L'unité
-            # porte un ConditionPathExists, elle patiente sans échouer.
-            return (d / Path(__file__).name).resolve(), None
-    ici = Path(__file__).resolve()
-    if f"{os.sep}envs{os.sep}" in str(ici):
-        return None, (f"{ici} vit dans un worktree de session, qui sera détruit.\n"
-                      "  Relance depuis le runtime, ou pose PM_CORE_DIR=<chemin .mmi-pm-core>.")
-    return ici, None
+    RM3151 : la résolution vit dans `pm_paths.runtime_script` — recopiée ici et là-bas, elle aurait
+    divergé au premier ajustement, et un timer qui pointe un worktree détruit s'arrête en silence.
+    """
+    from pm_paths import runtime_script
+    return runtime_script(Path(__file__).name, depuis=Path(__file__))
 
 
 def installer_timer(args):

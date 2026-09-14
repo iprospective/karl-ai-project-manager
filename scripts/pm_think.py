@@ -492,6 +492,42 @@ def set_state(path, rid: str, state: str, dest: str = "") -> bool:
     return False
 
 
+def set_text(path, rid: str, texte: str) -> tuple:
+    """AMENDE une ligne : remplace son texte, sans toucher à son état. Rend (ok, ancien_texte).
+
+    Corriger trois mots d'une décision demandait jusqu'ici de l'invalider et d'en écrire une autre :
+    le carnet se remplissait de doublons dont l'un est barré, et la décision qui fait foi devenait
+    plus difficile à trouver — l'inverse de ce à quoi il sert (RM3161).
+
+    L'état n'est PAS touché : corriger le texte d'une décision validée la laisse validée. C'est ce
+    qui distingue un amendement d'un revirement — et le second a déjà son geste, `--state`.
+    """
+    p = Path(path)
+    parsed = load(p)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    for kind, sec in parsed.items():
+        for r in sec["rows"]:
+            if r["id"] != rid:
+                continue
+            cells = list(r["cells"])
+            # La colonne du texte est la deuxième pour toutes les rubriques sauf les notes, où la
+            # première porte la date et l'auteur. `_clean` échappe les barres verticales : un texte
+            # qui en contiendrait casserait la ligne du tableau, et donc la lecture de tout le carnet.
+            col = 2 if kind == "note" and len(cells) > 2 else 1
+            if col >= len(cells):
+                return False, ""
+            ancien = cells[col]
+            # Une DÉCISION porte sa signature à la fin de son texte — « … (2026-09-14 · Mathieu) ».
+            # L'amendement corrige les mots, pas la paternité : effacer la signature ferait perdre
+            # QUI a décidé, ce qui est justement ce qu'on veut savoir d'une décision.
+            m = re.search(r"\s*\((\d{4}-\d{2}-\d{2} · [^()]+)\)\s*$", ancien)
+            cells[col] = _clean(texte) + (f" ({m.group(1)})" if m else "")
+            lines[r["line"]] = "| " + " | ".join(cells) + " |"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return True, ancien
+    return False, ""
+
+
 def summary(parsed: dict, limit: int = 5) -> list:
     """Le résumé lu par le brief, la fiche et `pm-task-think --show` : compteurs, Q ouvertes, D récentes."""
     c = counters(parsed)

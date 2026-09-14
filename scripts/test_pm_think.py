@@ -392,6 +392,51 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # ── RM3090 : ce que le DEMANDEUR se demande est une question, pas une note ───
 print("· classement des questions du demandeur (RM3090)")
+# ── RM3161 : amender une ligne — corriger son texte sans la réécrire ──────────
+# Corriger trois mots d'une décision demandait de l'invalider et d'en écrire une autre : le carnet
+# se remplissait de doublons dont l'un est barré, et la décision qui fait foi devenait introuvable.
+with tempfile.TemporaryDirectory() as td:
+    f = pathlib.Path(td) / "RM9001_amend.think.md"
+    f.write_text(pm_think.gabarit(9001, "amender"), encoding="utf-8")
+    did = pm_think.append(f, "decision", "Décision d'origine, un peu à côté", by="M")
+    nid = pm_think.append(f, "note", "Note d'origine", by="M")
+    qid = pm_think.append(f, "question", "Question d'origine ?", by="M")
+
+    ok, ancien = pm_think.set_text(f, did, "Décision corrigée, trois mots plus juste")
+    check("une décision s'amende", ok and "d'origine" in ancien)
+    ligne = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)][0]
+    check("le nouveau texte est là", "trois mots plus juste" in ligne)
+    check("la SIGNATURE survit — l'amendement corrige les mots, pas la paternité",
+          "· Mathieu)" in ligne, ligne)
+    check("l'état n'est pas touché par un amendement seul", "🟡" in ligne, ligne)
+
+    ok, _ = pm_think.set_text(f, nid, "Note corrigée")
+    ligne = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + nid)][0]
+    check("une note s'amende aussi — sa date et son auteur restent en colonne 1",
+          ok and "Note corrigée" in ligne and "· Mathieu" in ligne, ligne)
+
+    ok, _ = pm_think.set_text(f, qid, "Question reformulée ?")
+    check("une question aussi", ok and "Question reformulée" in f.read_text(encoding="utf-8"))
+
+    avant = f.read_text(encoding="utf-8")
+    ok, _ = pm_think.set_text(f, "D999", "n'existe pas")
+    check("une ligne inconnue échoue SANS rien écrire", not ok and f.read_text(encoding="utf-8") == avant)
+
+    pm_think.set_text(f, did, "Texte | avec | des | barres")
+    lignes = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)]
+    check("un texte qui contient des barres ne casse pas la ligne du tableau",
+          len(lignes) == 1 and lignes[0].count("|") == 4, str(lignes))
+
+    pm_think.set_state(f, did, "valide")
+    ok, _ = pm_think.set_text(f, did, "Amendée après validation")
+    ligne = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)][0]
+    check("amender une décision VALIDÉE la laisse validée", "✅" in ligne, ligne)
+
+cli = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("le CLI expose --text", '"--text"' in cli)
+check("--set seul exige --state OU --text", "--set exige --state ou --text" in cli)
+check("l'ancien texte part au JOURNAL du ticket", "_log_amendement" in cli and "Avant :" in cli)
+
 spec_c = importlib.util.spec_from_file_location("classify", SCRIPTS / "pm-think-classify.py")
 C = importlib.util.module_from_spec(spec_c); spec_c.loader.exec_module(C)
 

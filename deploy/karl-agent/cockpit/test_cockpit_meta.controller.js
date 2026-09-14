@@ -13,7 +13,12 @@ const { settle, fakeElement, JOURNAL, S, U, R } = require("./test_cockpit_meta.h
   const infosEl = fakeElement(), ticketsEl = fakeElement(); const ev = []; let att = null; let wl = { rm_id: null, buckets: {} }, wlPending = null;
   const resolve = mkStore("r", { "42": R }); const inflight = {}; const usageCache = mkStore("usage");
   const T = { usageFresh: (s) => !!usageCache.get(s), usageInFlight: () => false, ensureUsage: async (s) => { ev.push(["usage", s]); usageCache.set(s, U); }, inFlight: (t) => !!inflight[t],
-    ensureResolved: async (rm) => { ev.push(["resolve", rm]); inflight[rm] = true; await settle(); delete inflight[rm]; if (resolve.get(rm) === undefined) resolve.set(rm, { found: true, title: "T" + rm, status: "en_cours" }); return resolve.get(rm); }, revalidate: async () => {} };
+    ensureResolved: async (rm) => { ev.push(["resolve", rm]); inflight[rm] = true; await settle(); delete inflight[rm]; if (resolve.get(rm) === undefined) resolve.set(rm, { found: true, title: "T" + rm, status: "en_cours" }); return resolve.get(rm); }, revalidate: async () => {},
+    // RM3140 : la liste d'une vue se résout en UNE requête — le faux dépôt journalise le LOT,
+    // pas un événement par ticket : c'est la propriété qu'on veut tenir.
+    ensureBriefs: async (ids) => { const lot = (ids || []).filter(t => resolve.get(t) === undefined);
+      if (!lot.length) return null; ev.push(["briefs", lot.join(",")]); await settle();
+      lot.forEach(t => resolve.set(t, { found: true, title: "T" + t, status: "en_cours", partial: true })); return null; } };
   const svc = new MetaService({ repo: { ws: {}, cards: {}, workspace(rm) { return this.ws[rm]; }, async refreshWorkspace(rm) { ev.push(["ws", rm]); this.ws[rm] = { is_git: true, branch: "b", clean: true }; return this.ws[rm]; }, projectCard(c, p, onLoad) { const k = c + "/" + p; if (this.cards[k] !== undefined) return this.cards[k]; this.cards[k] = null; ev.push(["card", k]); setTimeout(() => { this.cards[k] = { name: "Boutique" }; onLoad && onLoad(); }, 0); return null; } }, clipboard: { writeText: async (t) => ev.push(["clip", t.split("\n")[0]]) } });
   const ctr = mountMeta({ infos: infosEl, tickets: ticketsEl }, { ticket: T, service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), md: (s) => s, ago: () => "1min", tipAttr: () => "",
     resolve: () => resolve, sess: () => mkStore("sess", { "42": S, calymix: { title: "calymix", registry: { branches: ["2661-x"] } } }), usage: () => usageCache, attached: () => att, worklog: () => wl, worklogPending: () => wlPending, loadWorklog: () => ev.push("loadWorklog"),

@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une liste de tickets coûte une requête, plus une par ticket** (RM3140) : cliquer sur une session
+  déclenchait une rafale de `GET /ticket/resolve/<id>` — l'encart résolvait chaque ticket de la session
+  individuellement, et chaque aller-retour coûte la latence du lien. Ce n'étaient pas des doublons : le
+  cache et la garde d'appels en vol tenaient déjà leur rôle ; c'est le **nombre de tickets distincts**
+  qui faisait le volume. La résolution en lot existait pourtant depuis RM2619, mais seul le panneau
+  tickets l'utilisait. Le dépôt expose maintenant `ensureBriefs()` : les ids s'accumulent le temps d'un
+  tour de rendu, partent en une requête, et le résultat est semé **en partiel** — jamais par-dessus une
+  fiche complète. `ensureResolved` reste pour le ticket qu'on ouvre, seul à avoir besoin de sa
+  description. Un test refuse désormais que le nombre de requêtes croisse avec le nombre de tickets
+  affichés : la régression reviendrait sans bruit, elle ne se voit qu'à l'onglet réseau. Cockpit 3.16.0.
+
 - **Les issues d'une forge peuvent porter les tickets d'un projet** (RM3113) : GitLab, GitHub et Gogs
   rejoignent Redmine sur l'axe « Tickets » des fournisseurs, et se déclarent donc depuis les réglages —
   une URL, le dépôt qui porte les tickets, un jeton en écriture seule. GitHub et Gogs partagent **un

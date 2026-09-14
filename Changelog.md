@@ -23,6 +23,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   qui ne montrerait que les modules déclarés serait flatteur et faux. Le panneau LIT, il n'active rien —
   l'activation viendra avec le lot 1. Placé dans les réglages plutôt qu'en en-tête, qu'on venait
   d'alléger. Cockpit 3.18.0.
+- **`pm-mr create` dit qui d'autre touche aux mêmes fichiers** (RM3157) : le 2026-09-14, deux
+  sessions ont corrigé le même défaut à trente minutes d'intervalle (RM3142 et RM3143) sans se voir.
+  Les **tickets** étaient différents — la garde de RM3086, qui veille sur le même ticket, ne pouvait
+  rien dire — mais le **code** était commun. La seconde MR a été mergée par-dessus la première et a
+  laissé `dev` mélangé : un lot de travail perdu, plus la réparation. Git ne prévient pas : il ne
+  voit un conflit que si les lignes se chevauchent exactement, et il le voit **au merge**, quand les
+  deux raisonnements sont déjà écrits. L'avertissement arrive donc plus tôt — à la création de la
+  MR, là où les fichiers sont enfin connus et où l'on n'a encore rien mergé — et plus large : le
+  même fichier suffit à mériter un coup d'œil. Il **nomme** la branche, les fichiers communs et la
+  MR quand elle est connue, et dit quoi faire. Il **avertit sans interdire** : travailler à deux sur
+  un fichier est parfois voulu, et un refus se contournerait. Les fichiers que tout le monde touche
+  (`Changelog.md`, `INDEX.md`, `NORMS.md`, `cockpit.css`…) sont exclus — un signal qui se déclenche
+  à chaque MR cesse d'être lu. Rien ne s'affiche quand il n'y a pas de recoupement, et aucune erreur
+  de ce contrôle ne peut faire échouer une livraison.
 
 - **Les modules peuvent réagir à ce qui se passe** (RM3145, lot 2) : PM publiait déjà des *sujets*
   pour réveiller le cockpit (RM3006), mais rien ne retenait les **faits** — « le statut de RM3145 est

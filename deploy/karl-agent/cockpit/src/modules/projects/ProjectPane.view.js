@@ -1,5 +1,6 @@
 // views/projects/ProjectPane — la fiche projet au centre (RM2353/2590/2531/2696). Balisage repris ; data-action partout.
 import { html, raw } from "../../core/html.js";
+const muted = "color:var(--muted)";
 import { pillClass } from "../../core/status.js";
 
 export function SessionPills(vm) {
@@ -12,13 +13,44 @@ export function ProjectHeader(vm) {
   return html`<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">📁 ${vm.key}</h2>${vm.e.name ? html`<span style="color:var(--muted)">${vm.e.name}</span>` : ""}<span style="flex:1"></span><button class="mini" data-action="conf" data-scope="project" title="Modifier la conf du projet (meta.yml)">✎ conf projet</button><button class="mini" data-action="conf" data-scope="client" title="Modifier la conf du client ${vm.clientKey} (meta.yml)">✎ conf client</button><button class="mini" data-action="close">✕ fermer</button></div><div class="rsub" style="margin:8px 0 4px"><button class="${vm.tab === "worklog" ? "" : "active"}" data-action="tab" data-tab="fiche">📋 fiche</button><button class="${vm.tab === "worklog" ? "active" : ""}" data-action="tab" data-tab="worklog">🗒 worklog</button></div>`;
 }
 
-export function ProjectSheet(vm, titleLink, files) {
-  const d = vm.e;
-  return html`${ProjectHeader(vm)}<div class="rels" style="margin:10px 0 14px">${vm.links.map(l => l.kind === "a" ? html`<a class="pill" href="${l.href}" target="_blank">${l.label}</a>` : html`<span class="pill" title="${l.title || ""}">${l.label}</span>`)}</div>${SessionPills(vm)}${vm.environments.length
-    ? html`<div class="ms"><h4>Environnements</h4>${vm.environments.map(e => html`<div class="kv"><span class="k">${e.name || "?"}</span><span class="v">${e.url ? html`<a href="${e.url}" target="_blank">${e.url} ↗</a>` : "—"}</span></div>`)}</div>` : ""}${vm.docs.length
-    ? html`<div class="ms"><h4>Docs projet</h4><ul class="doclist">${vm.docs.map(doc => html`<li data-action="doc" data-path="${doc.path}" data-name="${doc.name}">📄 ${doc.name}</li>`)}</ul></div>` : ""}${vm.byStatus.length
-    ? html`<div class="ms"><h4>Tickets ouverts</h4><div class="rels" style="margin-bottom:8px">${vm.byStatus.map(s => html`<span class="${pillClass(s.status)}">${s.status} : ${s.n}</span>`)}</div>${vm.openRecent.map(t => TkRow(t, titleLink))}</div>` : ""}${vm.closedRecent.length
-    ? html`<div class="ms"><h4>Derniers tickets traités</h4>${vm.closedRecent.map(t => TkRow(t, titleLink))}</div>` : ""}<div class="ms"><h4>🗂 Fichiers / worktrees du projet</h4><div id="projfiles">${files !== undefined ? files : html`<div class="empty">chargement…</div>`}</div></div>`;
+/** RM3132 — les onglets de la fiche projet. La fiche empilait tout sur une seule page :
+ *  en-tête, liens, sessions, environnements, docs, tickets, fichiers. Passé une poignée de
+ *  tickets, l'essentiel se trouvait sous trois écrans de défilement.
+ *
+ *  Les données ne changent pas — c'est leur RANGEMENT qui change. Le « résumé » garde ce qui
+ *  situe le projet d'un coup d'œil ; le reste se demande. */
+export const PROJECT_TABS = [["resume", "résumé"], ["tickets", "tickets"],
+                             ["docs", "documents"], ["sessions", "sessions"],
+                             ["files", "fichiers"]];
+
+export function projectTabOf(t) { return PROJECT_TABS.some(x => x[0] === t) ? t : "resume"; }
+
+export function ProjectTabs(actif) {
+  const a = projectTabOf(actif);
+  return html`<div class="rsub facets">${PROJECT_TABS.map(([k, label]) =>
+    html`<button class="${k === a ? "active" : ""}" data-action="ptab" data-tab="${k}">${label}</button>`)}</div>`;
+}
+
+export function ProjectSheet(vm, titleLink, files, tab) {
+  const a = projectTabOf(tab);
+  const env = vm.environments.length
+    ? html`<div class="ms"><h4>Environnements</h4>${vm.environments.map(e => html`<div class="kv"><span class="k">${e.name || "?"}</span><span class="v">${e.url ? html`<a href="${e.url}" target="_blank">${e.url} ↗</a>` : "—"}</span></div>`)}</div>` : "";
+  const docs = vm.docs.length
+    ? html`<div class="ms"><h4>Docs projet</h4><ul class="doclist">${vm.docs.map(doc => html`<li data-action="doc" data-path="${doc.path}" data-name="${doc.name}">📄 ${doc.name}</li>`)}</ul></div>`
+    : html`<div class="ms" style="${muted}">aucun document dans ce projet.</div>`;
+  const tickets = html`${vm.byStatus.length
+    ? html`<div class="ms"><h4>Tickets ouverts</h4><div class="rels" style="margin-bottom:8px">${vm.byStatus.map(s => html`<span class="${pillClass(s.status)}">${s.status} : ${s.n}</span>`)}</div>${vm.openRecent.map(t => TkRow(t, titleLink))}</div>` : html`<div class="ms" style="${muted}">aucun ticket ouvert.</div>`}${vm.closedRecent.length
+    ? html`<div class="ms"><h4>Derniers tickets traités</h4>${vm.closedRecent.map(t => TkRow(t, titleLink))}</div>` : ""}`;
+  const fichiers = html`<div class="ms"><h4>🗂 Fichiers / worktrees du projet</h4><div id="projfiles">${files !== undefined ? files : html`<div class="empty">chargement…</div>`}</div></div>`;
+  // L'en-tête et les liens restent HORS onglets : ils disent de quel projet on parle, et cette
+  // question ne se range pas dans une facette.
+  return html`${ProjectHeader(vm)}<div class="rels" style="margin:10px 0 14px">${vm.links.map(l => l.kind === "a" ? html`<a class="pill" href="${l.href}" target="_blank">${l.label}</a>` : html`<span class="pill" title="${l.title || ""}">${l.label}</span>`)}</div>${ProjectTabs(a)}${
+    a === "tickets" ? tickets
+    : a === "docs" ? docs
+    : a === "sessions" ? html`${SessionPills(vm)}${vm.sessions && vm.sessions.length ? "" : html`<div class="ms" style="${muted}">aucune session n'a travaillé sur ce projet.</div>`}`
+    : a === "files" ? fichiers
+    : html`${env}${vm.byStatus.length
+        ? html`<div class="ms"><h4>Tickets ouverts</h4><div class="rels">${vm.byStatus.map(s => html`<span class="${pillClass(s.status)}">${s.status} : ${s.n}</span>`)}</div></div>` : ""}`}`;
 }
 
 export function ProjectWorklog(vm, mrLine) {

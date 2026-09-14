@@ -97,7 +97,12 @@ export function TicketsPane(vm, deps) {
   // navigue entre des numéros : « RM3126 » ne dit pas de quoi il s'agit, et le titre n'apparaissait
   // qu'une fois l'onglet « détail » ouvert — donc jamais sur les autres facettes.
   const titre = vm.currentTitle;
-  return html`<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}">RM${t.rm}</button>`)}</div>${titre
+  // RM3164 : le filtre par projet — absent quand tous les tickets sont dans le même, puisqu'il
+  // n'aurait rien à trier. Positionné par défaut sur le projet de la session attachée.
+  const projets = vm.ticketProjects;
+  const filtre = vm.ticketFilter;
+  return html`${projets.length
+    ? html`<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:4px"><button class="mini${filtre ? "" : " primary"}" data-action="tfilter" data-value="" title="Tous les projets">tous (${vm.list.length})</button>${projets.map(p => html`<button class="mini${p.key === filtre ? " primary" : ""}" data-action="tfilter" data-value="${p.key}" title="${p.key}">${p.key} (${p.n})</button>`)}</div>` : ""}<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}" title="${t.project || ""}">RM${t.rm}</button>`)}</div>${titre
     ? html`<div class="rtitle" title="${titre}">${titre}</div>` : ""}<div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
     : k === "notfound" ? html`<div class="ms"><h4>Ticket</h4>RM${sel} <span style="${muted}">non trouvé en local</span></div>`
     : k === "desc" ? TicketDesc(vm.desc(), deps)

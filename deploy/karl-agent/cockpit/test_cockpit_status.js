@@ -180,6 +180,39 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
           /chargement…/.test(B.ticketTipText("3164", null)));
   }
 
+  // ── RM3164 : le filtre par projet de la liste des tickets d'une session
+  {
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const mk = (res, f, sess) => {
+      const o = Object.create(MM.TicketMetaViewModel.prototype);
+      o.e = { tickets: ["1", "2", "3"], current: "1", resolve: res, sessionProject: sess };
+      o.ctx = { ticketFilter: f };
+      return o;
+    };
+    const deux = { 1: { found: true, client: "a", project: "x" },
+                   2: { found: true, client: "a", project: "y" },
+                   3: { found: true, client: "a", project: "x" } };
+    const un = { 1: { found: true, client: "a", project: "x" },
+                 2: { found: true, client: "a", project: "x" },
+                 3: { found: true, client: "a", project: "x" } };
+    check("les projets représentés portent leur compte",
+          JSON.stringify(mk(deux, undefined, "").ticketProjects.map(p => p.key + ":" + p.n)) ===
+          '["a/x:2","a/y:1"]');
+    check("tous dans le MÊME projet → aucun filtre (il n'aurait rien à trier)",
+          mk(un, undefined, "a/x").ticketProjects.length === 0);
+    check("le défaut est le projet de la session attachée",
+          mk(deux, undefined, "a/y").ticketFilter === "a/y");
+    check("… mais seulement s'il est représenté — sinon on n'ampute pas la liste",
+          mk(deux, undefined, "a/zzz").ticketFilter === "");
+    check("« tous » (chaîne vide) se distingue de « pas encore choisi » (undefined)",
+          mk(deux, "", "a/y").ticketFilter === "" && mk(deux, "a/x", "a/y").ticketFilter === "a/x");
+    const filtres = mk(deux, "a/y", "").tabs.map(t => t.rm);
+    check("le filtre réduit la liste, et l'onglet COURANT reste visible",
+          filtres.indexOf("2") >= 0 && filtres.indexOf("1") >= 0 && filtres.indexOf("3") < 0);
+    check("un ticket non résolu n'est rangé sous aucun projet",
+          mk({ 1: undefined, 2: undefined, 3: undefined }, undefined, "").ticketProjects.length === 0);
+  }
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

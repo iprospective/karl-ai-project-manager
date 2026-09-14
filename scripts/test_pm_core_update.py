@@ -21,7 +21,22 @@ def check(name, cond, detail=""):
         fails.append(name)
 
 
-check("needs_agent_restart : seul scripts/karl-agent.py compte", C.needs_agent_restart(["scripts/karl-agent.py", "x"]) and not C.needs_agent_restart(["scripts/pm-task-add.py", "deploy/karl-agent/cockpit/index.html"]) and not C.needs_agent_restart([]))
+# RM3178 : l'agent IMPORTE une douzaine de modules de scripts/ — karl_api_routes, pm_log, pm_notify,
+# pm_bus, pm_modules… — dont plusieurs en import paresseux. Il garde en mémoire la version chargée au
+# démarrage : ne redémarrer que sur `karl-agent.py` laissait un module livré invisible, et le symptôme
+# (« route inconnue » sur une route déclarée partout) envoyait chercher n'importe où sauf là.
+check("needs_agent_restart : le démon lui-même", bool(C.needs_agent_restart(["scripts/karl-agent.py", "x"])))
+check("…et tout MODULE qu'il importe — c'est ce qui manquait (RM3178)",
+      bool(C.needs_agent_restart(["scripts/karl_api_routes.py"]))
+      and bool(C.needs_agent_restart(["scripts/pm_notify.py", "norms/NORMS.md"])))
+check("…y compris un script pm-* (il coûte un redémarrage de trop, jamais un défaut invisible)",
+      bool(C.needs_agent_restart(["scripts/pm-task-add.py"])))
+check("mais pas ce qui ne peut rien changer dans le processus",
+      not C.needs_agent_restart(["deploy/karl-agent/cockpit/index.html", "Changelog.md"])
+      and not C.needs_agent_restart(["scripts/INDEX.md"]) and not C.needs_agent_restart([]))
+check("les motifs sont RENDUS, pour dire pourquoi il a redémarré",
+      C.needs_agent_restart(["scripts/pm_bus.py", "scripts/karl-agent.py", "x.md"])
+      == ["scripts/karl-agent.py", "scripts/pm_bus.py"])
 with tempfile.TemporaryDirectory() as td:
     core = pathlib.Path(td) / "core"; (core / "scripts").mkdir(parents=True)
     (core / ".env").write_text('KARL_USER="mathieu"\n# commentaire\nPROJECTS_PATH=/p\nVIDE\n')

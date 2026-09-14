@@ -241,14 +241,11 @@ PAR_DOMAINE = "domaine cité dans les fiches du client"
 
 
 def _local_path():
-    # RM2992 : `PMConfig.load()` SORT (sys.exit) quand le `.env` canonique manque — un clone de dev.
-    # SystemExit n'est pas une Exception : les `except Exception` des appelants la laissaient
-    # remonter, et lire une association tuait le programme au lieu de rendre « je ne sais pas ».
+    # RM3119 : `PMConfig.load()` LÈVE (PMConfigError) quand la conf n'est pas résoluble — les
+    # `except Exception` des appelants s'en chargent. Avant, elle SORTAIT, et lire une association
+    # tuait le programme au lieu de rendre « je ne sais pas ».
     from pm_paths import PMConfig
-    try:
-        return Path(PMConfig.load().pm_dir) / "pm.config.local.yml"
-    except SystemExit:
-        raise RuntimeError("config PM non résoluble ici")
+    return Path(PMConfig.load().pm_dir) / "pm.config.local.yml"
 
 
 def associations() -> dict:

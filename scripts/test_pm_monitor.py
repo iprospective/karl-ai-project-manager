@@ -14,6 +14,8 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from test_support import hermetic_core            # noqa: E402  RM3119 : un test se donne
+hermetic_core()                                   # sa config, il ne compte pas sur celle du dépôt
 import pm_monitor as M                                   # noqa: E402
 FAIL = []
 

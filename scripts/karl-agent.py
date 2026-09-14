@@ -6301,10 +6301,21 @@ def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
     statut = str(payload.get("status") or "").strip()
     if statut not in pm_worklog_states.REQUEST_STATES:
         raise ApiError(400, "statut inconnu (" + " · ".join(sorted(pm_worklog_states.REQUEST_STATES)) + ")")
+    # RM3172 : DEUX identifiants de session, à ne pas prendre l'un pour l'autre. Le cockpit connaît
+    # l'identifiant tmux (« 3145 », « calymix ») ; le worklog, lui, est nommé par l'UUID de session
+    # Claude — `session-worklogs/<session_id>.json`. Passer le premier à `--session` ouvrait un
+    # worklog INEXISTANT : `load()` rendait une structure vide, et la demande n° N y était forcément
+    # « introuvable », alors qu'elle dormait dans l'autre fichier. La lecture faisait déjà cette
+    # résolution (`op_worklog`) ; c'est l'écriture qui l'avait oubliée.
+    session_id = (_key_info(sid) or {}).get("session_id")
+    if not session_id:
+        raise ApiError(404, f"session « {sid} » : aucun worklog connu (clé de session absente) — "
+                            "la demande ne peut pas être soldée depuis ici")
     script = Path(__file__).resolve().parent / "pm-session-status.py"
     if not script.is_file():
         raise ApiError(500, "pm-session-status introuvable")
-    cmd = [sys.executable, str(script), "--session", sid, "request", "--set", str(n), "--status", statut]
+    cmd = [sys.executable, str(script), "--session", session_id, "request", "--set", str(n),
+           "--status", statut]
     ticket = re.sub(r"^RM", "", str(payload.get("ticket") or "").strip(), flags=re.I)
     if ticket:
         if not ticket.isdigit():
@@ -6319,7 +6330,7 @@ def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
         raise ApiError(500, "pm-session-status : " + str(e))
     if r.returncode != 0:
         raise ApiError(400, (r.stderr or r.stdout or "").strip()[-400:] or "demande non modifiée")
-    _jlog("system", "info", f"demande #{n} → {statut}", sid=sid,
+    _jlog("system", "info", f"demande #{n} → {statut}", sid=session_id,
           by=str((auth_ctx or {}).get("user") or ""), rm=(ticket or None))
     return {"ok": True, "n": n, "status": statut, "ticket": ticket,
             "out": (r.stdout or "").strip()[-400:]}

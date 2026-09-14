@@ -29,6 +29,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `notifier(..., **champs)`. Même famille de faux positif que celui corrigé par RM3119, et même
   conséquence si on le laisse : un contrôle qui se trompe finit par être ignoré — puis c'est toute la
   suite qu'on cesse de lire. Le contrôle se contrôle désormais lui-même sur les trois formes.
+- **La branche d'un ticket se reprend, elle ne se recompose pas** (RM3152) : `pm-branch-start`
+  recalculait le nom à chaque prise depuis le nom de fichier, tronqué à 40 caractères, **sans jamais
+  regarder si le ticket avait déjà une branche**. Un slug plus long que la troncature — ou un titre
+  qui a changé — donnait donc un nom neuf, donc une **seconde branche** : tout partait dessus
+  pendant que la MR ouverte continuait de regarder la première. Elle restait « non mergeable », et
+  le ticket ne partait jamais en production. Le symptôme ne désignait pas la cause : on lit
+  « conflit », on cherche un conflit de contenu, et le résoudre ne débloque rien puisque la MR
+  regarde ailleurs. **RM3059 est resté ainsi plusieurs jours**, exclu de chaque passage de mise en
+  prod. Désormais : la fiche d'abord, le dépôt ensuite, et le nom recomposé seulement pour un ticket
+  qui n'a pas encore de branche. Une divergence est **dite** (`warn`, pas `info` — `info` est muet
+  en sortie dense, donc invisible, et c'était justement l'invisibilité le problème) ; plusieurs
+  branches pour un même ticket sont signalées avec la liste, la plus complète l'emportant — une
+  troncature ne produit que des noms plus courts. `--slug` explicite reste souverain : c'est le
+  geste par lequel on répare une divergence. Mesuré au passage : 26 tickets portent plusieurs
+  branches, mais une seule de ces branches surnuméraires n'est pas mergée, sur un ticket fermé — le
+  correctif est préventif, il n'y a rien d'autre à déboucher.
 
 - **L'en-tête s'allège : les portes passent en icône seule, groupées à gauche** (RM3150) : historique,
   aide, réglages, journal et annuaire ne portent plus leur libellé — leur nom apparaît au survol. Ce

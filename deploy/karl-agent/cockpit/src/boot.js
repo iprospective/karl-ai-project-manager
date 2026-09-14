@@ -391,6 +391,7 @@ const ticket = {
   stale: (rm) => ticketRepo.stale(rm),
   inFlight: (rm) => !!ticketRepo.inflight.resolve[String(rm)],   // RM2807 : garde anti fan-out des listes du monolithe
   ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force),
+  ensureBriefs: (ids) => ticketRepo.ensureBriefs(ids),   // RM3140 : une liste = UNE requête, pas N
   revalidate: (rm, after) => ticketRepo.revalidate(rm, after),
   /** Rechargement explicite (⟳) : recharge, puis re-rend ce que le monolithe affiche encore. */
   reload: (rm) => ticketRepo.ensureResolved(String(rm), true).then(() => {

@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une dérive ne rougit plus la suite de tests, elle se notifie** (RM2756) : la marge de sécurité de
+  la précharge NORMS (90 % du plafond) était tenue par un test, donc rouge en permanence pendant des
+  semaines — et un rouge permanent cesse d'être lu, puis entraîne à ignorer les autres. Le partage est
+  désormais écrit dans les normes : un **invariant** casse le test (le plafond dur reste tenu par
+  `pm-context-budget --check`), une **tendance** part dans le fil (`--notify`, travail quotidien
+  `norms-budget-watch`). Le message est stable et les chiffres en champs : une dérive qui dure fait une
+  entrée qui remonte, pas une par jour. Et un capteur de tendance n'ouvre plus de ticket tout seul —
+  un ticket est une décision de travail, pas un canal d'alerte. NORMS 2.47.0.
+
 - **Le fil de notifications sait à qui il parle, et le mail cesse de se répéter** (RM2792, lot 3) :
   une notification peut viser quelqu'un (`--user`), et l'être **en privé** — elle n'apparaît alors
   que dans la vue de cette personne, et personne d'autre ne peut la marquer. Le défaut est sûr :

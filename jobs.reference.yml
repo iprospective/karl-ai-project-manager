@@ -149,6 +149,18 @@ jobs:
       seule fois n'est pas son travail : l'empreinte du fil s'en charge. Réseau
       injoignable = pas d'alerte, une veille quotidienne peut rater un jour.
 
+  # ── Marge de contexte NORMS (RM2756 / RM2582) ───────────────────────────────
+  norms-budget-watch:
+    schedule: "10 8 * * *"
+    command: ["python3", "scripts/pm-context-budget.py", "--notify"]
+    description: >
+      Signale dans le fil que la précharge NORMS a entamé sa marge de sécurité
+      (≥ 90 % du plafond), et crie plus fort si le plafond est franchi. C'est une
+      TENDANCE, pas un invariant : elle s'entame sur des semaines, et un test rouge
+      pendant des semaines apprend seulement à ignorer les échecs. Le plafond dur,
+      lui, reste tenu par `pm-context-budget --check` dans la suite de tests. Le
+      message est stable, donc une dérive qui dure fait UNE entrée qui remonte.
+
   # ── Déclarés mais NON exécutés ──────────────────────────────────────────────
 
   bench-overhead:

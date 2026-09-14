@@ -1,5 +1,20 @@
 # Changelog des normes
 
+## [2.47.0] - 2026-09-14
+
+### Ajouté
+- **`testing` § « Invariant ou tendance : ce qui casse un test, ce qui se notifie »**
+  (RM2756). Un test échoue pour dire « ceci est cassé, maintenant » — pas « ceci dérive
+  depuis six semaines ». La confusion a un coût mesuré deux fois (RM2749, puis RM2756) :
+  un rouge permanent cesse d'être lu, et entraîne à ignorer tous les rouges de la suite.
+  Le partage est posé : un **invariant** casse le test et se répare avant de livrer ; une
+  **tendance** (marge qui s'entame, taille qui enfle, péremption qui approche) part dans
+  le fil de notifications, par un travail déclaré. Et un capteur de tendance n'ouvre pas
+  un ticket à chaque passage — un ticket est une décision de travail, pas un canal
+  d'alerte ; il émet une notification au message STABLE, chiffres en champs, pour qu'une
+  dérive qui dure fasse une entrée qui remonte et non une par jour. Référence :
+  `pm-context-budget --check` (invariant) vs `--notify` (tendance, `norms-budget-watch`).
+
 ## [2.45.0] - 2026-09-13
 
 ### Modifié

@@ -69,9 +69,17 @@ pires = [int(m.group(1).replace(",", ""))
          for m in re.finditer(r"^\S+\s+([\d,]+)", r.stdout, re.M)]
 plafond = int(re.search(r"^\s*default: (\d+)", (ROOT / "pm.config.yml").read_text(encoding="utf-8"),
                         re.M).group(1))
-if pires:
-    check(f"marge ≥ 10 % sous le plafond ({max(pires)} / {plafond})",
-          max(pires) <= plafond * 0.9)
+# RM2756 : la marge n'est PAS un invariant, c'est une tendance — elle s'entame sur des semaines.
+# Un test rouge pendant des semaines n'apprend plus rien : il apprend à ignorer les échecs rouges
+# (c'est exactement ce que RM2749 a constaté). Le plafond, lui, reste dur : `--check` ci-dessus.
+# La marge entamée part donc dans le FIL de notifications, par le travail `norms-budget-watch`.
+if pires and max(pires) > plafond * 0.9:
+    print(f"  ⚠ marge entamée : {max(pires)} / {plafond} "
+          f"({max(pires) / plafond * 100:.0f} %) — signalé au fil, pas ici (RM2756)")
+check("la marge entamée a un capteur qui NOTIFIE (pm-context-budget --notify)",
+      "--notify" in (HERE / "pm-context-budget.py").read_text(encoding="utf-8"))
+check("et ce capteur est un travail déclaré",
+      "norms-budget-watch:" in (ROOT / "jobs.reference.yml").read_text(encoding="utf-8"))
 
 # — garde-fou de fond : aucun module préchargé ne doit dépasser 5 000 tokens.
 #   Au-delà, c'est qu'on y a remis du mode d'emploi. —

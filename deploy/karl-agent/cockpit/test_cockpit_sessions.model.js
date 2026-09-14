@@ -46,6 +46,11 @@ const { fakeEl, settle, now, SETS, writable, mkRepo } = require("./test_cockpit_
   const cache = { "10": { state: "attention" }, "11": { state: "working" } };
   assert.strictEqual(M.approveShortcutVisible("10", cache), true); assert.strictEqual(M.approveShortcutVisible("11", cache), false); assert.strictEqual(M.approveShortcutVisible("99", cache), false); assert.strictEqual(M.approveShortcutVisible(null, cache), false);
   assert.strictEqual(M.effDisposition("idle", "parke"), "parke"); assert.strictEqual(M.effDisposition("idle", "termine"), "termine"); assert.strictEqual(M.effDisposition("idle", null), "a_traiter"); assert.strictEqual(M.effDisposition("idle", ""), "a_traiter");
+  // RM2792 : un clic fait l'aller-retour ; « terminé » revient à « à traiter » — cliquer sur une
+  // session éteinte, c'est la reprendre, pas la mettre en pause.
+  assert.strictEqual(M.toggleDisposition("a_traiter"), "parke"); assert.strictEqual(M.toggleDisposition("parke"), "a_traiter");
+  assert.strictEqual(M.toggleDisposition("termine"), "a_traiter"); assert.strictEqual(M.toggleDisposition(null), "a_traiter");
+  assert.strictEqual(M.DISP_LABEL.parke, "en pause", "RM2792 : « parké » était un mot d'implémentation");
   assert.strictEqual(M.effDisposition("working", "termine"), null); assert.strictEqual(M.effDisposition("attention", "parke"), null); assert.strictEqual(M.effDisposition("choice", "parke"), null, "RM2515 : cède au live");
   assert.strictEqual(M.sortFrozen(false, true, 0), false, "ordre stable → jamais gelé"); assert.strictEqual(M.sortFrozen(true, true, 99999), true); assert.strictEqual(M.sortFrozen(true, false, 500), true); assert.strictEqual(M.sortFrozen(true, false, 3000), false);
   assert.strictEqual(M.sessionInClient({ client: "acme", state: "working" }, null, ""), true); assert.strictEqual(M.sessionInClient({ client: "acme", state: "working" }, null, "acme"), true); assert.strictEqual(M.sessionInClient({ client: "bob", state: "working" }, null, "acme"), false);

@@ -52,6 +52,14 @@ export function effDisposition(state, disposition) {
   return disposition || "a_traiter";
 }
 
+/** RM2792 : les dispositions, dites comme on en parle. « parké » était un mot d'implémentation ;
+ *  ce qu'on fait, c'est mettre une session EN PAUSE. Même état, vocabulaire de l'usage. */
+export const DISP_LABEL = { a_traiter: "à traiter", parke: "en pause", termine: "terminé" };
+
+/** RM2792 : la bascule d'un clic. « terminé » revient à « à traiter » : cliquer sur une session
+ *  éteinte, c'est la reprendre — la mettre en pause depuis là n'aurait aucun sens. */
+export function toggleDisposition(disp) { return disp === "a_traiter" ? "parke" : "a_traiter"; }
+
 /** RM2346 : en tri dynamique, gel du réordonnancement pendant l'interaction (survol, ou souris bougée < 2 s). Stable → jamais gelé. */
 export function sortFrozen(dynSort, hot, msSinceMove) { return !!dynSort && (hot || msSinceMove < 2000); }
 

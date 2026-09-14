@@ -1,7 +1,7 @@
 // viewmodels/sessions/SessionsViewModel — ce que la liste « en cours » PRÉSENTE : tuiles vivantes et grises, en-têtes de groupe,
 // bandeau « à traiter », compteurs, titre de la session attachée. Inerte : ni réseau ni DOM. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
-import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge } from "./sessions.js";
+import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge, DISP_LABEL, toggleDisposition } from "./sessions.js";
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";   // RM3082 : la règle de fenêtre est écrite une fois, pour l'encart méta ET la tuile
 import { bindEntity } from "../../core/entities.js";
 
@@ -34,10 +34,17 @@ export class SessionTileViewModel extends EntityViewModel {
     const st = this.s.state;
     if (st === "attention") return { text: "⚠", style: "", title: "" };
     if (st === "choice") return { text: "❓", style: "color:var(--warn)", title: "" };
-    if (st === "idle") return this.disp === "parke" ? { text: "🔖", style: "", title: "parké — j'y reviens" }
+    if (st === "idle") return this.disp === "parke" ? { text: "🔖", style: "", title: "en pause — j'y reviens" }
       : this.disp === "termine" ? { text: "✅", style: "color:var(--ok)", title: "terminé — rien à faire, à fermer" }
       : { text: "💤", style: "opacity:.55", title: "à traiter" };
     return null;
+  }
+  /** RM2792 : ce que fait le clic, dit AVANT de cliquer — et où trouver les autres choix. */
+  get dispTip() {
+    const d = this.disp;
+    if (!d) return "";
+    return "Disposition : " + (DISP_LABEL[d] || d) + " · clic → « " + (DISP_LABEL[toggleDisposition(d)] || "")
+      + " » · clic droit → tous les choix";
   }
   get autoTitle() { return this.s.auto_yes_until ? "auto-oui armé — " + autoYesLeft(this.s.auto_yes_until) + " restantes" : ""; }
   /** RM3082 : jauge de contexte — null tant qu'aucun palier n'est atteint (silence sous le premier seuil). */

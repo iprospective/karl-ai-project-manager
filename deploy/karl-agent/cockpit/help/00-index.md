@@ -25,6 +25,7 @@ centre, en [onglet](onglets) :
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 | 📜 **journal** | ce que le serveur et le navigateur ont consigné (sévérité, catégorie) | [Journal](journal) |
+| 🔔 **fil** | ce qui demande ton attention, toutes sources confondues — une file qui se vide | [Fil de notifications](fil) |
 | 📋 **CDC** | le cahier des charges vivant du projet en contexte : onglets fonctionnalités · CDC · feuille de route (modèle POC AtomBox) | [CDC vivant](cdc) |
 | ✉ **compte-rendu** | ce qui est parti en production et n'a pas encore été annoncé au client : cocher, relire l'email, envoyer | [Compte-rendu client](compte-rendu) |
 

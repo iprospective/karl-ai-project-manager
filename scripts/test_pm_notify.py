@@ -101,6 +101,70 @@ with tempfile.TemporaryDirectory() as tmp:
     check("un fil inaccessible rend None plutôt que de lever", M.add("system", "info", "x") is None)
     check("et sa lecture rend une liste vide", M.feed() == [])
 
+with tempfile.TemporaryDirectory() as tmp:
+    N = frais(tmp)
+    print("\n[RM2792 lot 3] le fil par utilisateur")
+    g = N.add("system", "info", "sauvegarde nocturne terminée")
+    m = N.add("session", "warn", "ta session attend une réponse", user="Mathieu")
+    s1 = N.add("agent", "critical", "clé d'API à renouveler", user="mathieu", private=True)
+    autre = N.add("agent", "warn", "revue en attente", user="claire", private=True)
+    check("l'identifiant du destinataire est normalisé", m["user"] == "mathieu")
+    check("une entrée sans destinataire ne porte pas de user", "user" not in g)
+    check("une entrée privée sans destinataire est REFUSÉE",
+          N.add("system", "warn", "confidentiel sans personne", private=True) is None)
+
+    vus = [e["id"] for e in N.feed(etat=None, limit=50)]
+    check("sans lecteur déclaré, aucune entrée privée n'est rendue",
+          g["id"] in vus and m["id"] in vus and s1["id"] not in vus and autre["id"] not in vus)
+    vus = [e["id"] for e in N.feed(etat=None, limit=50, viewer="mathieu")]
+    check("le lecteur voit SA notification privée", s1["id"] in vus)
+    check("et pas celle d'un autre", autre["id"] not in vus)
+    vus = [e["id"] for e in N.feed(etat=None, limit=50, viewer="claire")]
+    check("réciproquement", autre["id"] in vus and s1["id"] not in vus)
+
+    vus = [e["id"] for e in N.feed(etat=None, limit=50, viewer="mathieu", user="mathieu")]
+    check("filtrer par utilisateur rend ce qui le CONCERNE — l'instance comprise",
+          g["id"] in vus and m["id"] in vus and s1["id"] in vus)
+    check("mais pas ce qui vise quelqu'un d'autre", autre["id"] not in vus)
+
+    check("on ne marque pas le privé d'autrui", N.mark(autre["id"], "traite", viewer="mathieu") == 0)
+    check("on marque bien le sien", N.mark(s1["id"], "lu", viewer="mathieu") == 1)
+    check("la pastille compte dans la vue du lecteur",
+          N.counts(viewer="claire")["open"] < N.counts(viewer="mathieu")["open"] + 1)
+    check("les destinataires du fil sont énumérables", N.users() == ["claire", "mathieu"])
+
+    print("\n[RM2792 lot 3] deux destinataires, deux fils")
+    a = N.add("session", "warn", "même phrase", user="mathieu")
+    b = N.add("session", "warn", "même phrase", user="claire")
+    check("le même message à deux personnes fait deux entrées", a["id"] != b["id"])
+
+with tempfile.TemporaryDirectory() as tmp:
+    N = frais(tmp)
+    print("\n[RM2792 lot 3] le canal mail n'envoie pas deux fois la même chose")
+    info = N.add("system", "info", "routine")
+    w = N.add("scheduler", "warn", "travail « backup » : échec", job="backup")
+    check("ce qui est sous le seuil ne part pas",
+          [e["id"] for e in N.pending_mail("warn")] == [w["id"]], str(N.pending_mail("warn")))
+    check("marquer l'envoi rend le nombre d'entrées notées", N.mark_mailed([w["id"]]) == 1)
+    check("une entrée déjà envoyée ne repart pas", N.pending_mail("warn") == [])
+    N.add("scheduler", "warn", "travail « backup » : échec", job="backup")
+    check("même répétée à l'identique, elle ne repart pas", N.pending_mail("warn") == [])
+    N.add("scheduler", "critical", "travail « backup » : échec", job="backup")
+    check("mais si elle EMPIRE, elle repart",
+          [e["id"] for e in N.pending_mail("warn")] == [w["id"]])
+    N.mark_mailed([w["id"]])
+    check("et une fois repartie au nouveau niveau, elle se tait de nouveau", N.pending_mail("warn") == [])
+    N.mark(w["id"], "traite")
+    N.add("scheduler", "critical", "travail « backup » : échec", job="backup")
+    check("une entrée traitée n'est jamais dans la file d'envoi",
+          all(e["id"] != w["id"] or e.get("etat") != "traite" for e in N.pending_mail("warn")))
+    check("le canal mail ne voit pas non plus le privé d'autrui",
+          N.add("agent", "critical", "secret", user="claire", private=True)
+          and [e["id"] for e in N.pending_mail("warn", viewer="mathieu")
+               if e.get("private")] == [])
+    check("une notification d'information ne part jamais par mail",
+          info["id"] not in [e["id"] for e in N.pending_mail("warn")])
+
 print("\n[RM2792] les sources sont câblées")
 for f, msg in (("pm-scheduler.py", "pm_notify.add(\"scheduler\""), ("pm-session-status.py", "pm_notify.add(\"session\"")):
     src = (HERE / f).read_text(encoding="utf-8")
@@ -110,6 +174,22 @@ ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
 check("le serveur sert le fil", "def op_notifications(" in ka and '"/notifications"' in ka)
 check("et sait le marquer", "def op_notifications_mark(" in ka and '"/notifications/mark"' in ka)
 check("marquer exige un état connu", 'raise ApiError(400, "état inconnu' in ka)
+check("le serveur lit le fil AU NOM de celui qui regarde", "viewer=" in ka.split("def op_notifications(")[1][:1200])
+check("et ne laisse pas marquer le privé d'autrui", "viewer=" in ka.split("def op_notifications_mark(")[1][:1400])
+mailer = HERE / "pm-notify-mail.py"
+check("le canal mail existe", mailer.is_file())
+if mailer.is_file():
+    src = mailer.read_text(encoding="utf-8")
+    check("il passe le corps par l'entrée standard, jamais en argument", '"--body", "-"' in src)
+    check("il note l'envoi pour ne pas recommencer", "mark_mailed(" in src)
+jobs = (HERE.parent / "jobs.reference.yml").read_text(encoding="utf-8")
+check("le canal mail est un travail déclaré", "notify-mail:" in jobs)
+check("la veille de publication est un travail déclaré", "release-watch:" in jobs)
+watch = HERE.parent / "releases.watch.yml"
+check("les veilles se déclarent, elles ne se codent pas", watch.is_file()
+      and "dani-garcia/vaultwarden" in watch.read_text(encoding="utf-8"))
+rw = (HERE / "pm-release-watch.py")
+check("la veille alimente le fil", rw.is_file() and 'N.add("forge"' in rw.read_text(encoding="utf-8"))
 
-print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm_notify (RM2792 lot 2)"))
+print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm_notify (RM2792 lots 2 et 3)"))
 sys.exit(1 if FAIL else 0)

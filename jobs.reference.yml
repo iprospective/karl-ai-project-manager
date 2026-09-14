@@ -126,6 +126,29 @@ jobs:
       Agrégation Pistes / Remarques / Structure de la veille. Rejoué une seule fois
       après une coupure, jamais une fois par jour manqué.
 
+  # ── Canal mail du fil de notifications (RM2792, lot 3) ──────────────────────
+  notify-mail:
+    schedule: "*/15 * * * *"
+    command: ["python3", "scripts/pm-notify-mail.py"]
+    description: >
+      Envoie en UN mail ce qui attend dans le fil au niveau « warn » et au-dessus,
+      et ne redit jamais ce qui est déjà parti (le fil retient l'envoi sur l'entrée,
+      avec son niveau ; une alerte qui EMPIRE repart, la même répétée non). Sans
+      destinataire déclaré (PM_NOTIFY_MAIL_TO), il le dit et ne fait rien : le fil
+      garde tout, rien n'est perdu. Toutes les 15 min : assez tôt pour alerter,
+      assez espacé pour grouper.
+
+  # ── Veille des publications attendues (RM2792 lot 4 / RM2429) ───────────────
+  release-watch:
+    schedule: "40 7 * * *"
+    command: ["python3", "scripts/pm-release-watch.py"]
+    description: >
+      Compare la dernière release des dépôts déclarés dans releases.watch.yml au
+      plancher qu'on attend, et notifie le fil quand c'est sorti — premier cas :
+      Vaultwarden > 1.37.1 pour le correctif upstream #7608 (RM2429). Prévenir une
+      seule fois n'est pas son travail : l'empreinte du fil s'en charge. Réseau
+      injoignable = pas d'alerte, une veille quotidienne peut rater un jour.
+
   # ── Déclarés mais NON exécutés ──────────────────────────────────────────────
 
   bench-overhead:

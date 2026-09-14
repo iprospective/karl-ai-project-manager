@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 2cae042820914c76 (36 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : a16023693f0013bb (37 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -14,6 +14,7 @@
   --ok: #3ad29f;
   --warn: #f5a742;
   --danger: #ff5d6c;
+  --attente: #f5d742; /* RM2792 : « ça t'attend » — jaune, distinct de l'orange « en pause » */
   /* RM2522 : fond/texte du terminal. Ils suivent le thème depuis que le
      cockpit possède la surface (avant : iframe cross-origin, --term-bg ne
      décrivait que le CADRE et valait #000 — repris tel quel pour le vrai
@@ -46,6 +47,7 @@
   --ok: #0f7350;
   --warn: #a35c06;
   --danger: #c62839;
+  --attente: #8a7000; /* RM2792 : le même sens, lisible sur fond clair */
   --term-bg: #fbfcfe;
   --term-fg: #1c2430; /* RM2522 — cf. bloc dark */
   --fg-strong: #0a1018;
@@ -122,6 +124,10 @@ header h1 {
   margin: 0;
   font-weight: 600;
   letter-spacing: 0.2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 header .brand {
@@ -1035,8 +1041,12 @@ html[data-layout=mobile] .foot {
   background: var(--ok);
 }
 
+/* RM2792 : le CLIGNOTEMENT dit « ça t'attend », la COULEUR dit de quelle attente il s'agit.
+   `idle` sans disposition = « à traiter » : le tour est fini, la session attend une suite — c'est
+   le cas le plus courant, et il n'était signalé par rien. */
 .tdot.st-idle {
-  background: var(--warn);
+  background: var(--attente);
+  animation: kblink 1.6s ease-in-out infinite;
 }
 
 .tdot.st-attention {
@@ -1058,13 +1068,19 @@ html[data-layout=mobile] .foot {
 
 /* RM2515 : disposition manuelle (ne s'applique visuellement que sur `idle`) —
    couleur + icône (badge), jamais la couleur seule. « à traiter » = défaut orange. */
+/* En pause : orange FIXE — rangée volontairement, elle n'attend plus rien de moi. */
 .tdot.disp-parke {
-  background: var(--accent);
-} /* parké : bleu */
+  background: var(--warn);
+  animation: none;
+}
+
+/* Terminé : éteint, et surtout immobile. */
 .tdot.disp-termine {
   background: var(--muted);
   box-shadow: none;
-} /* terminé : éteint */
+  animation: none;
+}
+
 .tdot.tdisp {
   cursor: pointer;
 }
@@ -4667,6 +4683,81 @@ button.mini.soft:hover {
 
 #cp-monitor .cdc-act button.mini, #cp-monitor .cdc-act select.mini {
   max-width: 100%;
+}
+
+.feed-filtres {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.feed-etat {
+  width: 1.2em;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.feed-src {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Le message peut être long : il enveloppe dans sa cellule plutôt que d'élargir le tableau. */
+.feed-msg {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.feed-rep {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.feed-user {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.feed-user.prive {
+  color: var(--warn);
+}
+
+.feed-rm {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.feed-rm:hover {
+  text-decoration: underline;
+}
+
+/* Traité : encore là, mais visiblement derrière soi. */
+.feed-traite {
+  opacity: 0.55;
+}
+
+/* Pastille du bouton d'en-tête : le compteur ne crie que si quelque chose attend. */
+#feedbtn .feed-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+#feedbtn.has-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+#feedbtn.has-critical {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: kblink 1s ease-in-out infinite;
 }
 
 .cn-head {

@@ -77,7 +77,12 @@ export function TicketsPane(vm, deps) {
       : html`<div class="ms" style="${muted}">${e === "untracked" ? "ticket non PM-tracké" : e === "slug-empty" ? "session slug — aucun ticket dans son worklog" : "session slug (sans ticket d’ancrage) — lecture du worklog…"}</div>`;
   }
   const sel = vm.sel;
-  return html`<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}">RM${t.rm}</button>`)}</div><div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
+  // RM3126 : le TITRE du ticket courant entre la liste des tickets et ses onglets. Sans lui, on
+  // navigue entre des numéros : « RM3126 » ne dit pas de quoi il s'agit, et le titre n'apparaissait
+  // qu'une fois l'onglet « détail » ouvert — donc jamais sur les autres facettes.
+  const titre = vm.currentTitle;
+  return html`<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}">RM${t.rm}</button>`)}</div>${titre
+    ? html`<div class="rtitle" title="${titre}">${titre}</div>` : ""}<div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
     : k === "notfound" ? html`<div class="ms"><h4>Ticket</h4>RM${sel} <span style="${muted}">non trouvé en local</span></div>`
     : k === "desc" ? TicketDesc(vm.desc(), deps)
     : k === "log" ? html`<div class="facetfull">${TicketLog(vm.log(), deps)}</div>`

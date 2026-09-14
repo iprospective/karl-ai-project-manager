@@ -93,6 +93,11 @@ export class TicketMetaViewModel extends EntityViewModel {
   get sel() { const l = this.list, cur = this.e.current == null ? null : String(this.e.current); return (cur && l.indexOf(cur) >= 0) ? cur : (l[0] || null); }
   get facet() { return facetOf(this.e.facet); }
   get tabs() { const s = this.sel; return this.list.map(t => ({ rm: t, active: t === s })); }
+
+  /** RM3126 : le titre du ticket sélectionné, pour la ligne entre la liste et les onglets.
+   *  Vide tant qu'il n'est pas chargé — une ligne de titre qui clignote « … » à chaque
+   *  changement d'onglet serait pire que pas de ligne du tout. */
+  get currentTitle() { const r = this.r; return (r && r.found && r.title) ? String(r.title) : ""; }
   get facets() { const f = this.facet; return FACETS.map(x => ({ key: x[0], label: x[1], active: x[0] === f })); }
   /** Rien à montrer : dire ce qui a VRAIMENT été regardé — le worklog compris (RM2673). */
   get emptyKind() { const a = this.e.attached; if (!a) return "none"; if (/^\d+$/.test(String(a))) return "untracked"; return this.e.worklogSeen ? "slug-empty" : "slug-loading"; }

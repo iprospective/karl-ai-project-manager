@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 16cf773a38fa24db (37 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : e09f7b8848c4f726 (37 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -2616,6 +2616,19 @@ iframe {
 
 .rels .pill {
   cursor: pointer;
+}
+
+/* RM3126 — le titre du ticket courant, entre la liste des tickets et ses onglets.
+   Sur deux lignes au plus : au-delà, c'est la fiche qu'on veut ouvrir, pas le panneau qu'on veut remplir. */
+.rtitle {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--fg);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable

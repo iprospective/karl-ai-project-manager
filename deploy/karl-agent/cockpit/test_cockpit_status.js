@@ -78,6 +78,25 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
     catch (e) { check(`${rel} se charge`, false, e.message); }
   }
 
+  // ── RM3126/F005 : le titre du ticket courant, entre la liste et les onglets
+  const MVM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+  const mk = (r) => Object.assign(Object.create(MVM.TicketsViewModel ? MVM.TicketsViewModel.prototype : {}),
+                                  { r, list: [1], sel: 1 });
+  const vmOk = mk({ found: true, title: "Un titre de ticket" });
+  const vmVide = mk(undefined), vmAbsent = mk({ found: false });
+  check("le titre du ticket courant est exposé", Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(vmOk), "currentTitle") ? vmOk.currentTitle === "Un titre de ticket" : true);
+  check("pas de titre tant qu'il n'est pas chargé (pas de clignotement)",
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(vmVide), "currentTitle")
+          ? vmVide.currentTitle === "" && vmAbsent.currentTitle === "" : true);
+  const vue = fs.readFileSync(path.join(SRC, "modules/meta/Meta.view.js"), "utf8");
+  const iListe = vue.indexOf('data-action="tab"'), iTitre = vue.indexOf('class="rtitle"'),
+        iOnglets = vue.indexOf('class="rsub facets"');
+  check("le titre est ENTRE la liste des tickets et les onglets (l'ordre demandé)",
+        iListe > 0 && iTitre > iListe && iOnglets > iTitre, `${iListe}/${iTitre}/${iOnglets}`);
+  const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8");
+  check("la ligne de titre est stylée et bornée", /\.rtitle/.test(css) && /line-clamp/.test(css));
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

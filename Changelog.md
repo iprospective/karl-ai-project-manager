@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une description de ticket se relit d'un seul tenant** (RM3137) : les fiches sont écrites repliées
+  vers 80 colonnes — c'est la convention d'écriture — et le dernier endroit qui les rendait dans un
+  `<pre>` préservait ces retours à la ligne, donc coupait le texte à l'écran quelle que soit la largeur
+  disponible. La description passe maintenant par le rendu markdown partout : les sauts de ligne simples
+  sont joints, une ligne vide sépare toujours deux paragraphes, et les blocs de code, listes et tableaux
+  gardent leur forme. C'est la fenêtre qui décide où la ligne s'arrête.
+
 - **Une dérive ne rougit plus la suite de tests, elle se notifie** (RM2756) : la marge de sécurité de
   la précharge NORMS (90 % du plafond) était tenue par un test, donc rouge en permanence pendant des
   semaines — et un rouge permanent cesse d'être lu, puis entraîne à ignorer les autres. Le partage est

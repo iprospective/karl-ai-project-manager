@@ -6536,6 +6536,62 @@ def _session_state(rm_id: str, engine) -> str:
     return "idle"
 
 
+# RM3131 — combien de tickets une session porte, et combien sont encore ouverts.
+# Le worklog de session (RM1875/RM2068) tient déjà la liste ; ce qu'il ne tient pas à jour,
+# c'est le STATUT — il l'a figé au moment où le ticket est entré dans la session. D'où la
+# résolution par l'index (RM3128) : un ticket fermé ailleurs doit sortir du compte, sinon la
+# carte annoncerait « 4 ouverts » sur des tickets clos depuis une semaine.
+_TICKET_REF = re.compile(r"^RM(\d+)$")
+
+
+def _session_ticket_counts(session_id: str) -> dict | None:
+    """{open, total} des tickets d'une session, ou None si elle n'en porte aucun.
+
+    None, et pas {0, 0} : une session sans ticket ne doit afficher AUCUN compteur, là où
+    « 0/0 » se lirait comme une information. Jamais fatal — l'absence d'index ou un worklog
+    illisible rend None, la carte s'affiche comme avant.
+    """
+    try:
+        f = WORKLOG_DIR / f"{session_id}.json"
+        if not f.is_file():
+            return None
+        data = json.loads(f.read_text(encoding="utf-8"))
+        refs, figes = [], {}
+        for it in (data.get("items") or []):
+            m = _TICKET_REF.match(str((it or {}).get("ref") or ""))
+            if m:
+                refs.append(int(m.group(1)))
+                figes[int(m.group(1))] = str(it.get("status") or "")
+        if not refs:
+            return None
+        vivants = _statuts_indexes(refs)
+        ouverts = sum(1 for rm in refs
+                      if (vivants.get(rm, figes.get(rm, "")) or "") not in ("ferme", "fermé"))
+        return {"open": ouverts, "total": len(refs)}
+    except Exception:                     # noqa: BLE001 — un compteur ne casse pas une liste
+        return None
+
+
+def _statuts_indexes(rm_ids: list) -> dict:
+    """{rm_id: statut} depuis l'index de requêtage. {} s'il n'existe pas — l'appelant
+    retombe alors sur les statuts figés du worklog, qui valent mieux que rien."""
+    try:
+        import pm_searchdb
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        if not pm_searchdb.db_path(cfg).exists():
+            return {}
+        con = pm_searchdb.connect(cfg)
+        try:
+            qs = ",".join("?" * len(rm_ids))
+            return {r["rm_id"]: r["status"]
+                    for r in con.execute(f"SELECT rm_id, status FROM tickets WHERE rm_id IN ({qs})",
+                                         rm_ids)}
+        finally:
+            con.close()
+    except (Exception, SystemExit):        # noqa: BLE001
+        return {}
+
+
 def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     """Sessions tmux vivantes, enrichies (moteur, session_id, client/projet via
     la jonction la plus récente, état heuristique RM2140) + filtres
@@ -6566,6 +6622,9 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             s["engine"] = k.get("engine")
             s["session_id"] = k.get("session_id")
             s["disposition"] = k.get("disposition")   # RM2515 : marque manuelle (idle uniquement, côté UI)
+        tc = _session_ticket_counts(s["rm_id"])
+        if tc:
+            s["tickets"] = tc          # RM3131 : « n ouverts / m » sur la carte de session
         r = latest.get(s["rm_id"]) if s.get("is_ticket") else None
         if r:
             s.setdefault("engine", r.get("engine"))

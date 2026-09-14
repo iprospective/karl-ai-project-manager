@@ -54,5 +54,23 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert.strictEqual(new VM.SessionTitleViewModel({ attached: null }).autoYesLabel, "⏱ auto-oui…");
   console.log("✓ ViewModels et vues : tuiles vivantes/grises, groupes, bandeau, bannière, revues, compteurs, titre — gestes en data-*, RM2673 selon setWritable, RM2795 marque");
 
+  // ── RM3131 : le compteur de tickets sur la carte de session
+  {
+    const ctx = Object.assign({}, base, { resolved: { found: true, title: "S" } });
+    const avec = new VM.SessionTileViewModel({ rm_id: "42", tickets: { open: 2, total: 5 } }, ctx);
+    const sans = new VM.SessionTileViewModel({ rm_id: "43" }, ctx);
+    const zero = new VM.SessionTileViewModel({ rm_id: "44", tickets: { open: 0, total: 0 } }, ctx);
+    const clos = new VM.SessionTileViewModel({ rm_id: "45", tickets: { open: 0, total: 3 } }, ctx);
+    assert.deepStrictEqual(avec.ticketCount, { open: 2, total: 5 });
+    assert.strictEqual(sans.ticketCount, null, "aucun ticket → AUCUN compteur, pas « 0/0 »");
+    assert.strictEqual(zero.ticketCount, null, "total nul → pas de compteur non plus");
+    assert.deepStrictEqual(clos.ticketCount, { open: 0, total: 3 }, "tout fermé se dit « 0/3 », pas rien");
+    const h = String(V.Tile(avec, lend));
+    assert(/class="tcount"[^>]*>2\/5</.test(h), "le compteur est rendu sur la tuile");
+    assert(/statuts résolus par l'index/.test(h), "l'infobulle dit d'où vient le compte");
+    assert(!/tcount/.test(String(V.Tile(sans, lend))), "pas de compteur sans ticket");
+    console.log("  ✓ RM3131 : compteur de tickets — n ouverts / total, absent quand il n'y a rien à compter");
+  }
+
   console.log("\nTous les tests des vues des sessions passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

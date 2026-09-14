@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.48.0] - 2026-09-14
+
+### Modifié
+- **L'index des scripts entre dans la table des déclencheurs** (RM3153, reste de RM3110). Le
+  déclencheur « je cherche si un geste a son outil PM » mène désormais d'abord à
+  `scripts/INDEX.md` — tous les scripts, par domaine, avec leur rôle — puis au module
+  `session-tooling-pratique` pour les idiomes. L'index existait depuis RM3110 mais n'était
+  atteignable que via `norms/CHEATSHEET.md` : un agent qui lit le KERNEL et ouvre les modules à
+  la demande ne savait pas qu'il existait. Vécu le 2026-09-11 : trois `ls scripts/` successifs
+  pour reconstituer une liste que l'index donnait déjà, et avec les rôles en plus.
+  **Enrichissement d'une ligne existante plutôt qu'ajout d'une ligne** — le budget de précharge
+  est à 96,6 % du plafond (28 025 / 29 000, cf. RM2756) : la formulation évite aussi deux
+  chemins concurrents pour une même question.
+
 ## [2.47.0] - 2026-09-14
 
 ### Ajouté

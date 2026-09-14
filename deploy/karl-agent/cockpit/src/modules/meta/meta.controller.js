@@ -48,7 +48,10 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     const base = { tickets: sessionTickets(), current: state.ticket, facet: state.facet, resolve: resolve().view, attached: a, worklogSeen: wlSeen };
     const probe = new TicketMetaViewModel(base), sel = probe.sel;
     // RM2807 : UN .then(render) par ticket en vol — jamais un par rendu (fan-out 2^N, fuite Firefox)
-    probe.list.forEach(t => { if (resolve().get(t) === undefined && !T.inFlight(t)) T.ensureResolved(t); });   // RM3005 : l'abonnement au store re-rend
+    // RM3140 : et UNE requête pour toute la liste, pas une par ticket. Une vue qui affiche N tickets
+    // n'a besoin que du titre, du statut et du projet ; la fiche entière (jusqu'à 6 000 caractères de
+    // description) ne sert qu'au ticket qu'on OUVRE — celui-là passe par `ensureResolved` plus bas.
+    T.ensureBriefs(probe.list);   // RM3005 : l'abonnement au store re-rend à l'arrivée
     if (sel && probe.facet === "workspace" && svc.workspace(sel) === undefined) refreshWorkspace(sel);
     const r = sel ? resolve().get(sel) : undefined;
     const card = (r && r.found && r.client && r.project) ? svc.projectCard(r.client, r.project, () => render()) : undefined;

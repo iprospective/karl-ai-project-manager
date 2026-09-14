@@ -936,7 +936,13 @@ console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut
   // RM3005 : plus de `.then(render)` du tout — la garde in-flight reste, le re-rendu vient d'UN abonnement au store de résolution
   { const tk = fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.controller.js"), "utf8"); assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\);/.test(tk) && /resolve\(\)\.subscribe\(/.test(tk) && !/ensureResolved\([^)]*\)\.then/.test(tk), "RM2807/RM3005 : garde in-flight + abonnement au store attendus dans le panneau tickets"); }
   // renderTickets a MIGRÉ (RM2889) : sa garde lit l'état en vol par la façade ticket
-  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\);/.test(metaCtrl) && /resolve\(\)\.subscribe\(/.test(metaCtrl) && !/ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807/RM3005 : garde in-flight + abonnement au store attendus dans l'encart");
+  // RM3140 : l'encart ne résout plus ticket par ticket — la liste part en UNE requête brève, et le
+  // re-rendu vient toujours de l'abonnement au store. La garde anti fan-out devient donc inutile là :
+  // il n'y a plus de boucle à garder. Ce qui doit rester vrai, c'est qu'aucun `.then(render)` par
+  // ticket ne revienne, et que rien ne reboucle sur `ensureResolved` dans un rendu.
+  assert(/T\.ensureBriefs\(probe\.list\)/.test(metaCtrl) && /resolve\(\)\.subscribe\(/.test(metaCtrl)
+         && !/ensureResolved\(t\)/.test(metaCtrl) && !/forEach\(t => \{[^}]*ensureResolved/.test(metaCtrl),
+    "RM3140/RM3005 : la liste de l'encart se résout en UN lot, et le re-rendu vient de l'abonnement");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe
   // la lit par un pont — une référence orpheline lèverait une ReferenceError au premier ticket non résolu.
   // RM2889 L6 : plus de script inline — les deux sites lisent la garde sur la façade ticket (boot.js)

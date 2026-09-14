@@ -47,8 +47,46 @@ const path = require("path"); const assert = require("assert"); const DIR = __di
   const [m1, m2] = await Promise.all([repo.ensureMergecheck("1"), repo.ensureMergecheck("1")]); assert.deepStrictEqual(m1, { verdict: { level: "ok" } }); assert.strictEqual(m2, undefined, "verrou in-flight : le second appel rend undefined, comme avant"); assert(repo.mcFresh("1")); assert.strictEqual(S.mc.get("1").mc.verdict.level, "ok");
   await repo.ensureUsage("1"); assert(repo.usageFresh("1") && !repo.usageInFlight("1")); assert.strictEqual(S.usage.get("1").meta.engine, "claude");
   await repo.ensureTicketSessions("1"); assert.deepStrictEqual(S.ts.get("1"), { handled: [] }); await repo.ensureTicketSessions("1"); assert.strictEqual(calls.filter(p => p.startsWith("/api/test-queue/ticket-sessions")).length, 1, "servi du cache sans force");
+
   A.configureApi({ fetch: async () => { throw new Error("réseau"); } }); await repo.ensureResolved("9", true); assert.strictEqual(S.resolve.get("9"), null, "échec → null en cache, pas d'exception");
   assert(S.resolve.stats().entries >= 2 && S.resolve.max === 500 && S.resolve.name === "ticket.resolve", "RM3005 : le dépôt range tout dans les stores nommés, bornés");
+
+  // — RM3140 : une VUE qui affiche N tickets ne doit pas coûter N requêtes —
+  // La garde est celle que le ticket demande explicitement : le nombre de requêtes ne croît PAS
+  // avec le nombre de tickets affichés. Sans elle, la régression reviendrait sans bruit (le
+  // symptôme n'est visible qu'à l'onglet réseau du navigateur).
+  KS.resetStores();
+  const S2 = KS.appStores({ now: () => now }); const appels = [];
+  A.configureApi({ fetch: async (p) => { appels.push(p);
+    const ids = decodeURIComponent((p.split("ids=")[1] || "")).split(",").filter(Boolean);
+    const tickets = {}; ids.forEach(id => { tickets[id] = { found: true, rm_id: id, title: "T" + id, status: "en_cours" }; });
+    return { ok: true, status: 200, statusText: "", headers: { get: () => "application/json" }, json: async () => ({ tickets }), text: async () => "" }; } });
+  // `defer` injecté : le test vide la file quand il veut, sans dépendre d'une minuterie réelle.
+  let vidange = null; const repoB = new TicketRepository({ stores: S2, now: () => now, defer: (fn) => { vidange = fn; return 1; } });
+  const vingt = Array.from({ length: 20 }, (_, i) => String(100 + i));
+  const attente = repoB.ensureBriefs(vingt);
+  repoB.ensureBriefs(vingt.slice(0, 5));      // une seconde vue se peint dans le même tour
+  assert.strictEqual(appels.length, 0, "rien ne part avant la vidange : la file groupe le tour");
+  vidange(); await attente;
+  assert.strictEqual(appels.length, 1, "vingt tickets affichés, UNE requête (RM3140)");
+  const envoyes = decodeURIComponent(appels[0].split("ids=")[1]).split(",");
+  assert.strictEqual(envoyes.length, 20, "et les vingt y sont, une seule fois chacun");
+  assert.strictEqual(new Set(envoyes).size, 20, "sans doublon, même quand deux vues demandent les mêmes");
+  assert.strictEqual(S2.resolve.get("100").title, "T100", "le store est semé pour toute la liste");
+  assert.strictEqual(S2.resolve.get("100").partial, true, "…en PARTIEL : un brief n'est pas une fiche");
+  await repoB.ensureBriefs(vingt);
+  assert.strictEqual(appels.length, 1, "ce qui est déjà là n'est jamais redemandé");
+  S2.resolve.set("777", { found: true, title: "riche" });
+  await repoB.ensureBriefs(["777"]);
+  assert.strictEqual(appels.length, 1, "et une résolution RICHE n'est pas écrasée par un brief");
+  // un lot qui échoue ne doit pas se redemander en boucle au rendu suivant
+  A.configureApi({ fetch: async () => { throw new Error("réseau"); } });
+  const ko = repoB.ensureBriefs(["900", "901"]); vidange(); await ko;
+  assert.deepStrictEqual(S2.resolve.get("900"), { found: false, rm_id: "900", partial: true }, "échec → « inconnu », affichable");
+  const encore = repoB.ensureBriefs(["900"]);
+  assert.strictEqual(vidange && encore instanceof Promise, true);
+  console.log("✓ résolution en lot (RM3140) : une liste = une requête, semée en partiel, sans boucle sur échec");
+
   console.log("✓ dépôt ticket : stores nommés (RM3005), fraîcheur douce, dédup en vol, révalidation, verrous, échec toléré");
   console.log("\nTous les tests du modèle ticket passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

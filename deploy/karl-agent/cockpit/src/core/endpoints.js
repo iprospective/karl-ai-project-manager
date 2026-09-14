@@ -131,6 +131,7 @@ export const ROUTES = {
   "voice.stt": { current: "/stt", target: "/api/voice/stt", lot: "L5", callers: 1 },
   "voice.tts": { current: "/tts", target: "/api/voice/tts", lot: "L5", callers: 1 },
   "worklog.batch": { current: "/worklog/batch", target: "/api/worklog/batch", lot: "L3,L4", callers: 3 },
+  "worklog.request": { current: "/worklog/request", target: "/api/worklog/request", lot: "L3", callers: 1 },
   "worklog.mr.batch": { current: "/mr/batch", target: "/api/worklog/mr/batch", lot: "L3", callers: 2 },
   "worklog.mr.merge": { current: "/mr/merge", target: "/api/worklog/mr/merge", lot: "L3", callers: 1 },
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },

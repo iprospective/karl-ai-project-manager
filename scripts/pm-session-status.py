@@ -84,8 +84,7 @@ NOTIFY_KEEP = 100          # garde-fou de taille du canal
 # Une demande formulée en séance n'existait que dans le fil : non ticketée
 # sur-le-champ, elle disparaissait au premier défilement. Le worklog ne
 # connaissait que les tickets — c'est-à-dire ce qui avait DÉJÀ été formalisé.
-REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee",
-                  "non_demande")
+REQUEST_STATES = pm_worklog_states.REQUEST_STATES   # RM3114 : même source que le cockpit
 # Statuts qui sortent une demande du « reste à traiter » : elle a trouvé sa
 # suite. `nouveau` est le seul qui appelle encore une décision.
 # RM2635 : `non_demande` en fait partie, mais il ne dit PAS la même chose que

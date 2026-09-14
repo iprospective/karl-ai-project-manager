@@ -4,10 +4,12 @@ import { Factory } from "../../core/Factory.js";
 import { get, post } from "../../core/api.js";
 
 export class WorklogRepository extends Repository {
-  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", spawn: "session.spawn" } }); }
+  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", request: "worklog.request", spawn: "session.spawn" } }); }
   /** force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel. */
   load(sid, force) { return get(this.path("worklog") + "/" + encodeURIComponent(sid) + (force ? "?force=1" : "")); }
   batch(body) { return post(this.path("batch"), body); }
+  /** RM3114 : solder une demande du registre — l'écriture reste côté outil PM. */
+  request(body) { return post(this.path("request"), body); }
   mrBatch(body) { return post(this.path("mrBatch"), body); }
   mrMerge(url) { return post(this.path("mrMerge"), { url, confirm: true }); }
   spawn(body) { return post(this.path("spawn"), body); }

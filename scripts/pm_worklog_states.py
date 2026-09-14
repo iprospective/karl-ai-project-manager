@@ -32,6 +32,12 @@ TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chif
 #: `nouveau` est le seul qui appelle encore une décision.
 REQUEST_DONE = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
 
+#: RM3114 — l'ensemble des états d'une demande, dans l'ordre où on les propose. Ils vivaient
+#: seulement dans `pm-session-status` : le serveur qui veut valider un état reçu du cockpit
+#: n'avait alors d'autre choix que de les recopier, et une liste recopiée finit par diverger
+#: (c'est exactement ce que RM3085 a corrigé pour `REQUEST_DONE`).
+REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee", "non_demande")
+
 
 def bucket(status: str) -> str:
     """La section d'un statut : done · mep · testing · waiting · todo. Pure.

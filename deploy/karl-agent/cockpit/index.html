@@ -126,6 +126,14 @@ if (window.matchMedia) {
     title="Commandes PM : le catalogue des actions du PM en un clic (ouvre un onglet central)">⚙ commandes pm</button>
   <button class="mini" id="setbtn" data-cmd="panel" data-arg="settings"
     title="Réglages : thème, voix, appareils, conf PM (ouvre un onglet central)">🔧 réglages</button>
+  <!-- RM3146 : l'annuaire (RM2703/RM3024) n'était atteignable que par un bouton enfoui
+       dans l'en-tête du panneau Projets. Sa place est ici, avec les surfaces d'ACTION
+       (RM2816) : on y va chercher quelqu'un, on en sort. Ni dans les réglages — ils
+       portent la configuration et les COMPTES, et NORMS écarte justement la confusion
+       entre « qui a un compte » et « qui l'on côtoie » — ni dans la colonne de gauche,
+       qui porte des files qu'on garde sous l'œil. -->
+  <button class="mini" id="contactsbtn" data-cmd="contacts"
+    title="Annuaire : une personne, une fiche — cherchable par nom ou par n'importe laquelle de ses adresses (ouvre un onglet central)">👤 annuaire</button>
   <!-- RM3011 : journal (serveur RM3010 + navigateur) — ouvre un onglet central ; le badge compte les erreurs du front non vues -->
   <button class="mini" id="journalbtn" data-cmd="panel" data-arg="journal" title="Journal : ce que le serveur et le navigateur ont consigné (sévérité, catégories, recherche)">📜 journal<span class="nbadge att" id="ln-journal" style="display:none"></span></button>
   <!-- RM2593 : aide intégrée du cockpit -->

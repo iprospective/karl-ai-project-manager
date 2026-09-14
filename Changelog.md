@@ -1137,6 +1137,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **L'annuaire de contacts est atteignable depuis le menu du haut** (RM3146). Il ne s'ouvrait
+  que par un bouton enfoui dans l'en-tête du panneau « Projets » : livré, mais introuvable
+  sans le savoir. Sa place est avec les surfaces d'**action** (RM2816 : « on y va, on fait, on
+  sort »), aux côtés de `⚙ commandes pm`, `🔧 réglages` et `📜 journal` — pas dans les réglages,
+  qui portent la configuration et les **comptes** du cockpit, là où NORMS écarte précisément la
+  confusion entre « qui a un compte » et « qui l'on côtoie » ; pas dans la colonne de gauche
+  non plus, dont les onglets sont des files qu'on garde sous l'œil, alors qu'on ne « traite »
+  pas un contact. Le 👤 du panneau Projets reste : c'est une entrée contextuelle légitime.
+  Une garde vérifie le câblage des deux — bouton présent et commande déclarée — parce qu'un
+  accès qui disparaît ne casse aucun test par lui-même.
 - **Le clic sur « 📧 emails » ne faisait rien** (RM3138). Une balise fermante orpheline dans
   `index.html` refermait `.lbody` juste avant `#lp-mail`, qui se retrouvait **dehors**.
   `switchPanel` commence par vérifier que le panneau demandé existe *dans* `.lbody` — garde

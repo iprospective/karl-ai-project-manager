@@ -594,6 +594,7 @@ const commands = mountCommands(document, {
   "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open(); },
   "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
+  "contacts": () => center.openContacts(""),          // RM3146 : l'annuaire, au centre
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
 // RM3044 : pages du CDC vivant ; RM3045 : onglet projets de la session (prête ses projets au choix du CDC en contexte)

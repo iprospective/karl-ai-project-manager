@@ -2,7 +2,7 @@
 // Tests du terminal et du composer migrés (RM2889) — porte RM2561 (origine du WebSocket), RM2807 (client maison opt-in), RM2700
 // (cookie de gate), RM2527 (garde d'état, historique, envoi client maison ou repli serveur, ↑/↓, Échap), RM2168/2631 (copies).
 "use strict";
-const path = require("path"); const assert = require("assert"); const DIR = __dirname; const settle = () => new Promise(r => setTimeout(r, 8));
+const fs = require("fs"); const path = require("path"); const assert = require("assert"); const DIR = __dirname; const settle = () => new Promise(r => setTimeout(r, 8));
 function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.assign({ id, style: {}, value: "", textContent: "", title: "", innerHTML: "", kids: {}, get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, querySelector(sel) { return self.kids[sel] || null; }, getElementsByTagName: () => [1, 2], contains: () => true, setSelectionRange(a, b) { self.sel = [a, b]; }, focus() { self.focused = true; },
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {}, stopPropagation() {} }, extra2 || {})); },
@@ -60,4 +60,37 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   ctr.unmount(); assert.strictEqual(composer.listenerCount + hist.listenerCount, 0);
   console.log("✓ contrôleur : client maison par défaut, repli injoignable annoncé, cookie de gate, composer (Entrée, garde, forçage, ↑/↓, historique, Échap), copies, démontage");
   console.log("\nTous les tests du terminal passent.");
+
+// ── RM3159 : le bouton « relancer » — écrire la demande, puis l'envoyer ──────
+{
+  const envoyes = [];
+  const repo = {
+    settings: async () => ({ settings: [{ key: "conf:sessions.relance_prompt", value: "Vérifie, ferme, mets en prod, enchaîne." },
+                                         { key: "conf:git.autocommit", value: true }] }),
+    send: async (sid, msg) => { envoyes.push([sid, msg]); return { sent: true }; },
+    capture: async () => "", buffer: async () => null, memdebug: async () => {},
+  };
+  const svc = new TerminalService({ repo, storage: null });
+  const t = await svc.relancePrompt();
+  assert.strictEqual(t, "Vérifie, ferme, mets en prod, enchaîne.", "le prompt vient des RÉGLAGES, pas du code");
+  const vide = new TerminalService({ repo: { ...repo, settings: async () => ({ settings: [] }) } });
+  assert.strictEqual(await vide.relancePrompt(), "", "réglage absent : chaîne vide, pas d'exception");
+
+  const src = fs.readFileSync(path.join(DIR, "src/modules/terminal/terminal.controller.js"), "utf8");
+  assert(/async function relance\(\)/.test(src), "le contrôleur porte le geste");
+  const corps = src.split("async function relance()")[1].split("async function composerSend")[0];
+  assert(/svc\.relancePrompt\(\)/.test(corps), "il demande le texte au service, il ne le connaît pas");
+  assert(/Aucune session attachée/.test(corps), "sans session attachée : il le dit et ne fait rien");
+  assert(/await composerSend\(\)/.test(corps),
+         "il passe par l'envoi NORMAL : gardes d'état, historique et message d'envoi s'appliquent — "
+         + "un bouton qui court-circuiterait tout cela serait un automate, pas une frappe");
+  assert(/ta\.value = texte/.test(corps), "le texte passe par le champ : la demande reste visible");
+  assert(!/core\/api\.js/.test(src), "un contrôleur ne parle pas au réseau (garde d'architecture core §)");
+
+  const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
+  assert(/id="cmprelance"[\s\S]*?data-action="relance"/.test(html), "le bouton est dans la barre du composer");
+  assert(/composer[\s\S]*?cmprelance/.test(html), "…donc invisible tant qu'aucune session n'est attachée");
+  console.log("✓ RM3159 : bouton de relance — prompt réglable, envoi normal, aucune session = rien");
+}
+
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

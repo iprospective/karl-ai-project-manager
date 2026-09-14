@@ -509,6 +509,11 @@ if (window.matchMedia) {
             <button class="mini" id="bufbtn" data-action="pull"
               title="📥 Récupérer la dernière copie faite DANS le terminal (ex. sélection copiée dans Claude Code, copy-mode tmux) vers ton presse-papier">📥 Copie</button>
             <span class="cmphint" id="cmphint"></span>
+            <!-- RM3159 : le prompt de relance, réglable (Réglages → Sessions). Le bouton ÉCRIT la
+                 demande dans le champ puis l'envoie : c'est une frappe, pas un automate — elle reste
+                 sous les yeux, et les gardes du composer s'appliquent comme pour tout envoi. -->
+            <button class="mini" id="cmprelance" data-action="relance"
+              title="Poster le prompt de relance dans la session (texte modifiable dans Réglages → Sessions)">↻ Relancer</button>
             <button class="mini primary" id="cmpsend" data-action="send"
               title="Envoyer à la session attachée (Entrée)">Envoyer ⏎</button>
           </div>

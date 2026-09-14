@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Tests des domaines commandes PM (RM2211) et réglages/thème (RM2213, RM2386) migrés — RM2889, L5.
 "use strict";
-const path = require("path"); const assert = require("assert"); const DIR = __dirname;
+const fs = require("fs"); const path = require("path"); const assert = require("assert"); const DIR = __dirname;
 function fakeElement() {
   const L = []; let inner = ""; const nodes = {};
   return { get innerHTML() { return inner; }, set innerHTML(v) { inner = v; }, contains: () => true, nodes,
@@ -116,4 +116,22 @@ function fakeElement() {
 
   console.log("✓ réglages et thème (RM2213/RM2386) : groupes, figés, sauvegarde confirmée, thème immédiat");
   console.log("\nTous les tests réglages / commandes PM passent.");
+
+// ── RM3159 : le type `text` — un réglage qu'on relit sur plusieurs lignes ────
+{
+  const vm = new SettingsViewModel({ settings: [
+    { key: "conf:sessions.relance_prompt", label: "Prompt de relance", group: "Sessions",
+      type: "text", rows: 5, value: "Vérifie, ferme, mets en prod.", help: "envoyé tel quel" }] });
+  const vue = SettingsBody(vm);
+  assert(/<textarea/.test(vue), "un texte se règle dans une zone MULTILIGNE : le tasser sur une ligne le rendrait illisible, donc impossible à amender");
+  assert(/rows="5"/.test(vue), "la hauteur vient du réglage");
+  assert(/Vérifie, ferme, mets en prod\./.test(vue), "la valeur courante est dans le champ");
+  assert(/envoyé tel quel/.test(vue), "l'aide du réglage est rendue : on ne modifie pas ce qu'on ne comprend pas");
+  assert(/data-action="save"/.test(vue), "…et un bouton pour enregistrer (pas d'envoi à chaque frappe)");
+  const ctrl = fs.readFileSync(path.join(DIR, "src/modules/settings/settings.controller.js"), "utf8");
+  assert(/querySelector\("input, textarea"\)/.test(ctrl),
+         "le bouton lit AUSSI les textarea — sinon il enregistre `undefined` sans rien dire");
+  console.log("✓ RM3159 : réglage de type texte (multiligne, aide, enregistrement explicite)");
+}
+
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

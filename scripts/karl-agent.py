@@ -11814,7 +11814,22 @@ def op_test_queue(qs: dict) -> list:
 #             le fichier canonique commenté n'est JAMAIS réécrit ;
 #  - tarifs → édition CIBLÉE de la ligne dans pm.pricing.yml (commentaires
 #             et structure intacts ; refus si la ligne n'existe pas).
+#: RM3159 — le prompt que le bouton « relancer » poste dans la session attachée. C'est un RÉGLAGE et
+#: non une constante : il est fait pour bouger, et le demandeur le dit lui-même (« on améliorera ce
+#: prompt au fil du temps »). Le défaut est son texte, mot pour mot.
+PROMPT_RELANCE_DEFAUT = (
+    "Vérifie ce qui a été déployé en prod, ferme ce qui est en prod et bouclé, "
+    "mets en prod (merge en main) ce qui est fait que je le déploie et teste, "
+    "et enchaîne les tickets de cette session à finir qui sont faisables "
+    "(pas de blocages/questions)"
+)
+
 _PM_SETTINGS_CONF = [
+    {"key": "conf:sessions.relance_prompt", "label": "Prompt du bouton « relancer la session »",
+     "group": "Sessions", "type": "text", "maxlen": 4000, "rows": 5,
+     "default": PROMPT_RELANCE_DEFAUT, "path": ["sessions", "relance_prompt"],
+     "help": "Envoyé tel quel dans le prompt de la session attachée, comme une frappe. "
+             "Il se modifie ici, sans toucher au code."},
     {"key": "conf:notifications.email_enabled", "label": "Notifs mail à chaque changement de statut",
      "group": "Conf PM", "type": "bool", "path": ["notifications", "email_enabled"]},
     {"key": "conf:git.autocommit", "label": "Auto-commit des écritures PM",
@@ -11920,6 +11935,8 @@ def _pm_settings() -> list:
         elif e["type"] == "number":
             val = cur if isinstance(cur, (int, float)) and not isinstance(cur, bool) \
                 else e.get("default")
+        elif e["type"] == "text":
+            val = cur if isinstance(cur, str) and cur.strip() else e.get("default", "")
         else:
             val = bool(cur)
         out.append({**e, "value": val})
@@ -11997,6 +12014,12 @@ def op_pm_settings_set(payload: dict) -> dict:
         val = str(raw)
         if val not in spec["options"]:
             raise ApiError(400, f"{key} : valeur hors options {spec['options']}")
+    elif spec["type"] == "text":
+        # RM3159 : du texte libre, multiligne. Borné en longueur — un réglage n'est pas un document,
+        # et une valeur sans borne finit par rendre le fichier de conf illisible.
+        val = str(raw if raw is not None else "")
+        if len(val) > spec.get("maxlen", 4000):
+            raise ApiError(400, f"{key} : {len(val)} caractères, maximum {spec.get('maxlen', 4000)}")
     else:
         try:
             val = float(raw)

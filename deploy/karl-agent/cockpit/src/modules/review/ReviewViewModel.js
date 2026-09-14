@@ -4,6 +4,8 @@ import { ticketVerdicts } from "../ticket/ticketStatus.js";
 import { promptTemplates } from "../ticket/prompts.js";
 import { sinceLabel } from "../ticket/ticketFormat.js";
 import { bindEntity } from "../../core/entities.js";
+import { mdToHtml } from "../../core/markdown.js";   // RM3137 : une description est du markdown, pas un listing
+import { raw } from "../../core/html.js";
 import { html } from "../../core/html.js";
 
 /** Les sessions d'un ticket (RM2726) et la consigne (RM2873). e = payload /ticket-sessions ou null ; ctx = { prompt } */
@@ -35,7 +37,12 @@ export class ReviewViewModel extends EntityViewModel {
             { id: "tags", title: "étiquettes", summary: true, body: () => this.tags.join(" · ") },
             { id: "environments", title: "environnements", body: () => { const e = this.environments; return e ? (e.test_url ? [["test", e.test_url]] : []).concat(e.list.map(x => [x.name || "env", x.url])) : null; }, empty: "aucun environnement" },
             { id: "protocol", title: "protocole de test", body: () => (this.protocol ? html`<pre>${this.protocol.text}</pre>` : null), empty: "pas de protocole" },
-            { id: "description", title: "description", level: "full", body: () => (r.description ? html`<pre>${r.description}</pre>` : null), empty: "pas de description" },
+            // RM3137 : la description est du MARKDOWN, et elle est repliée à la source vers 80 colonnes
+            // (c'est la convention d'écriture des fiches). Rendue dans un <pre>, ces retours à la ligne
+            // étaient préservés tels quels : le texte se coupait vers 82 caractères quelle que soit la
+            // largeur disponible. En markdown, un saut simple joint le paragraphe et c'est la fenêtre
+            // qui décide où la ligne s'arrête — les blocs de code, listes et tableaux gardent leur forme.
+            { id: "description", title: "description", level: "full", body: () => (r.description ? raw(mdToHtml(r.description)) : null), empty: "pas de description" },
             { id: "log", title: "dernière activité", level: "full", body: () => (r.log_tail ? html`<pre>${r.log_tail}</pre>` : null), empty: "aucune activité enregistrée" }];
   }
   get r() { return this.e.r; }

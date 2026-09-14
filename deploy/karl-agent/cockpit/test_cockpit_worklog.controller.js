@@ -46,5 +46,6 @@ const { settle, escO, fakeElement, CFG, SEL, W } = require("./test_cockpit_workl
   ctr.unmount(); assert.strictEqual(body.listenerCount + nav.listenerCount, 0);
   console.log("✓ contrôleur : chargé/rafraîchi/poussé, sous-onglets, sélection → boutons, lots (traiter, merger, fermer, embarquer) avec récapitulatif, MR mergée, gestes délégués");
   console.log("\nTous les tests du worklog passent.");
+
   console.log("\nTous les tests du contrôleur du worklog passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

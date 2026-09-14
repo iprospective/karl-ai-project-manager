@@ -34,6 +34,10 @@ export class WorklogViewModel extends EntityViewModel {
       status: r.status || "nouveau", ticket: r.ticket ? String(r.ticket).replace(/^RM/i, "") : "",
       note: r.note || "",
       suites: REQUEST_SUITES,
+      // RM3148 : le bouton n'a de sens que sur une demande SANS ticket — sinon la question
+      // est déjà tranchée, et un bouton de plus sur chaque ligne ne serait que du bruit.
+      canCheck: !r.ticket,
+      checked: (this.ctx.anteriority || {})[String(r.n)] || null,
     }));
   }
   /** RM3114 : ce qu'on peut faire d'une demande, dit avec les mots de l'usage. Les valeurs sont

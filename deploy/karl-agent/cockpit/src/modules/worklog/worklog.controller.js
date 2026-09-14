@@ -25,7 +25,7 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   const modal = ctx.modal || { open() {}, close() {}, content: () => null };
 
   function render() {
-    const vm = new WorklogViewModel({ data: svc.data, attached: attached(), branches: branches(), selected: new Set(svc.selection.keys()), sub: svc.sub }, { ago: ctx.ago, integration: (svc.data || {}).integration });   // RM3074 : la branche d'intégration vient du serveur
+    const vm = new WorklogViewModel({ data: svc.data, attached: attached(), branches: branches(), selected: new Set(svc.selection.keys()), sub: svc.sub }, { anteriority, ago: ctx.ago, integration: (svc.data || {}).integration });   // RM3074 : la branche d'intégration vient du serveur
     if (fresh) fresh.textContent = vm.fresh;
     if (bodyH) bodyH.update(WorklogPane(vm, deps));
     renderButtons();
@@ -139,12 +139,16 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
     const num = n.dataset.n, statut = n.dataset.status;
     if (!num || !statut) return;
     if (!attached()) { notify("aucune session attachée — le registre des demandes est celui d'une session", true); return; }
-    let ticket = "";
-    if (statut === "ticketee") {
+    // RM3148 : le ticket peut être DÉJÀ connu (rattachement depuis un résultat d'antériorité) —
+    // redemander à la saisie ce que l'utilisateur vient de désigner serait une question pour rien.
+    let ticket = String(n.dataset.ticket || "").trim();
+    if (statut === "ticketee" && !ticket) {
       const ask = ctx.prompt || (typeof prompt === "function" ? prompt : null);
       ticket = String((ask && ask("Numéro du ticket qui porte cette demande (RM…) :")) || "").trim();
       if (!ticket) return;                       // renoncer n'est pas solder
-      if (!/^(RM)?\d+$/i.test(ticket)) { notify("numéro de ticket attendu, par exemple RM3114", true); return; }
+    }
+    if (statut === "ticketee" && !/^(RM)?\d+$/i.test(ticket)) {
+      notify("numéro de ticket attendu, par exemple RM3114", true); return;
     }
     try {
       await svc.setRequestStatus(attached(), num, statut, ticket);
@@ -153,7 +157,35 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
     } catch (e) { notify(e.message, true); }
   }
 
-  const acts = { sub: (n) => setSub(n.dataset.key), open: (n) => openItem(n.dataset.ref), ticket: (n) => ctx.showTicket && ctx.showTicket(n.dataset.rm),
+  // RM3148 — l'état des recherches d'antériorité, par numéro de demande. Local au contrôleur :
+  // ce n'est ni une donnée du serveur ni une préférence, juste ce que l'utilisateur vient de
+  // demander à voir. Perdu au rechargement, et c'est très bien.
+  const anteriority = {};
+
+  async function checkRequest(num) {
+    if (!num) return;
+    const dem = ((svc.data || {}).requests_open || []).find(x => String(x.n) === String(num));
+    if (!dem) return;
+    anteriority[num] = { pending: true };
+    render();
+    try {
+      anteriority[num] = { results: await svc.anteriority(dem.text || "") };
+    } catch (e) {
+      delete anteriority[num];                 // pas de résultat figé sur un échec
+      notify(e.message, true);
+    }
+    render();
+  }
+
+  const acts = { sub: (n) => setSub(n.dataset.key),
+    "req-check": (n) => checkRequest(n.dataset.n),
+    // Rattachement : le MÊME chemin que le bouton « ticketée » du registre, avec le ticket déjà
+    // connu — pas un second mécanisme d'écriture.
+    "req-link": (n) => setRequestStatus({ dataset: { n: n.dataset.n, status: "ticketee",
+                                                     ticket: "RM" + n.dataset.rm } }),
+    "req-new": (n) => { const dem = ((svc.data || {}).requests_open || [])
+                          .find(x => String(x.n) === String(n.dataset.n));
+                        if (ctx.openNewTicket) ctx.openNewTicket(dem ? dem.text : ""); }, open: (n) => openItem(n.dataset.ref), ticket: (n) => ctx.showTicket && ctx.showTicket(n.dataset.rm),
     // RM3114 : une question se lit et se tranche dans la FICHE de revue (le carnet y est rendu
     // avec ses boutons ✅/❌) — le panneau méta, lui, ne montre pas le carnet.
     review: (n) => (ctx.openReview ? ctx.openReview(n.dataset.rm) : ctx.showTicket && ctx.showTicket(n.dataset.rm)),

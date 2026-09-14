@@ -61,3 +61,9 @@
 .oreq-acts { display: inline-flex; gap: 4px; margin-left: 6px; opacity: .35; transition: opacity .12s ease; }
 .oreq:hover .oreq-acts, .oreq-acts:focus-within { opacity: 1; }
 .oreq-note { color: var(--muted); font-size: 11px; font-style: italic; }
+
+/* RM3148 — ce qu'une recherche d'antériorité a trouvé, sous la demande. Discret : c'est une
+   aide à la décision, pas le sujet du panneau. */
+.oreq-ant { margin: 3px 0 2px 18px; font-size: 11px; }
+.oreq-ant .oreq-hit { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.oreq-ant .oreq-hit-t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

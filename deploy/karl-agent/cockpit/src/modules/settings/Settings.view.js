@@ -8,6 +8,10 @@ export function SettingsBody(vm) {
       ? html`<input type="checkbox" style="width:auto" data-setting="bool"${e.value ? " checked" : ""}><span style="font-size:12px;flex:1">${e.label}</span>`
       : e.type === "enum"
       ? html`<span style="font-size:12px;flex:1">${e.label}</span><select style="width:110px" data-setting="enum">${e.options.map(o => html`<option value="${o}"${o === e.value ? " selected" : ""}>${o}</option>`)}</select>`
+      : e.type === "text"
+      // RM3159 : un texte de travail se relit sur plusieurs lignes ; le tasser sur une ligne le
+      // rendrait illisible, donc impossible à amender — or il est fait pour être amendé.
+      ? html`<div style="flex:1"><div style="font-size:12px;margin-bottom:3px">${e.label}</div>${e.help ? html`<div style="font-size:11px;color:var(--muted);margin-bottom:4px">${e.help}</div>` : ""}<textarea data-setting="text" rows="${String(e.rows || 4)}" style="width:100%;font-size:12px;font-family:inherit">${e.value != null ? e.value : ""}</textarea></div><button class="mini" data-action="save">💾</button>`
       : html`<span style="font-size:12px;flex:1">${e.label}${e.pinned ? html` <span style="color:var(--muted)">🔒</span>` : ""}</span><input type="number" step="0.01" value="${e.value != null ? e.value : ""}" style="width:90px"${e.pinned ? html` disabled title="figé par ${e.pinned} (.env)"` : ""}><button class="mini" data-action="save"${e.pinned ? html` disabled title="figé par ${e.pinned} (.env)"` : ""}>💾</button>`}</div>`)}</details>`)}`;
 }
 

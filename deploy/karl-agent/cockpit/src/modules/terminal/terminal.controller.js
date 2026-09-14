@@ -80,6 +80,24 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
     if (btn) { btn.textContent = v.labels.btn; btn.title = v.labels.title; }
     if (hint) hint.textContent = v.labels.hint;
   }
+  /** RM3159 — le prompt de relance : réglable côté serveur, écrit dans le champ, puis envoyé.
+   *
+   *  Il passe par le champ et par `composerSend` À DESSEIN : la demande reste visible, l'historique
+   *  la garde, et les gardes d'envoi (agent occupé, question en attente) s'appliquent comme à toute
+   *  frappe. Un bouton qui court-circuiterait tout cela serait un automate — ce n'est pas ce qu'on
+   *  veut ici : on écrit une demande, quelqu'un la lit.
+   */
+  async function relance() {
+    const a = attached(); if (!a) { notify("Aucune session attachée", true); return; }
+    let texte = "";
+    try { texte = await svc.relancePrompt(); }
+    catch (e) { notify("Prompt de relance illisible : " + e.message, true); return; }
+    if (!texte.trim()) { notify("Prompt de relance vide — à renseigner dans Réglages → Sessions", true); return; }
+    const ta = q("#cmptext");
+    if (ta) { ta.value = texte; ta.focus(); }
+    await composerSend();
+  }
+
   async function composerSend(force) {
     const ta = q("#cmptext"), text = ta ? ta.value : ""; if (!text.trim()) return;
     const a = attached(); if (!a) { notify("Aucune session attachée", true); return; }
@@ -123,7 +141,7 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   const disposers = [];
   const listen = (el, type, fn) => { if (el && el.addEventListener) { el.addEventListener(type, fn); disposers.push(() => el.removeEventListener(type, fn)); } };
   listen(composer, "keydown", (e) => { if (e.target && e.target.id === "cmptext") composerKey(e); });
-  listen(composer, "click", (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (!n) return; const a = n.dataset.action; if (a === "send") composerSend(!composerGuard(sessState()).allow); else if (a === "history") historyToggle(); else if (a === "copy") copyCapture(!!e.altKey); else if (a === "pull") pullBuffer(); });
-  return { mountTerm, unmountTerm, fit, session: () => state.session, composerShow, composerRefresh, composerSend, composerKey, historyToggle, historyStep, copyCapture, pullBuffer, writeClip, state,
+  listen(composer, "click", (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (!n) return; const a = n.dataset.action; if (a === "send") composerSend(!composerGuard(sessState()).allow); else if (a === "history") historyToggle(); else if (a === "copy") copyCapture(!!e.altKey); else if (a === "pull") pullBuffer(); else if (a === "relance") relance(); });
+  return { mountTerm, unmountTerm, fit, session: () => state.session, composerShow, composerRefresh, composerSend, relance, composerKey, historyToggle, historyStep, copyCapture, pullBuffer, writeClip, state,
     unmount() { unmountTerm(); if (histH) histH.unmount(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

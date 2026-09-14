@@ -23,6 +23,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   et c'est une vraie fonctionnalité : `release-watch` expose l'état des veilles de publication, qui
   n'étaient jusque-là visibles qu'en ligne de commande. Le panneau et `mmi-pm module show` montrent
   désormais ce qu'un module sert et ce à quoi il réagit.
+- **Un bouton pour relancer la session, et son prompt réglable** (RM3159) : le geste « vérifie ce qui
+  est déployé, ferme ce qui est bouclé, mets en prod ce qui est fait, puis enchaîne » était devenu le
+  rythme de la journée — quatre passages en une séance, retapés à la main chaque fois. **↻ Relancer**,
+  dans la barre du composer, écrit ce texte dans le champ puis l'envoie. C'est une **frappe, pas un
+  automate** : la demande reste visible, elle entre dans l'historique, et la garde d'état s'applique
+  comme à tout envoi — la différence compte, car un automate lancé sur un malentendu produit deux
+  cents transitions avant qu'on ne s'en aperçoive. Le texte est un **réglage** (*Réglages → Sessions*),
+  parce qu'il est fait pour bouger. Les réglages du cockpit gagnent au passage un type **`text`**
+  générique : multiligne, borné en longueur, avec sa phrase d'explication — un prompt de travail se
+  relit sur plusieurs lignes, et le tasser sur une ligne le rendrait impossible à amender. Sans
+  session attachée, le composer est masqué : le bouton n'apparaît pas.
 
 - **Un onglet « Modules » dans les réglages** (RM3145, lot 3) : ce que l'instance porte, ce que chaque
   module fournit, ce dont il dépend — et surtout **ce qui le requiert lui**, parce que c'est la question

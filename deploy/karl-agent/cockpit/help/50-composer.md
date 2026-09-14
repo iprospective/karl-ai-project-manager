@@ -13,6 +13,34 @@ attachée.
 - L'**historique** des consignes est accessible (sans doublon, le plus récent en
   tête, plafonné).
 
+
+## ↻ Relancer — le prompt de travail, en un bouton
+
+Le bouton **↻ Relancer**, dans la barre du composer, écrit dans le champ un prompt enregistré, puis
+l'envoie. C'est une **frappe**, pas un automate : le texte reste visible, il entre dans l'historique,
+et la garde d'état s'applique comme à tout envoi — si la session affiche un menu ou attend un choix,
+l'envoi est retenu et le composer le dit.
+
+Ce texte est un **réglage** : *🔧 Réglages → Sessions → « Prompt du bouton "relancer la session" »*.
+Il est fait pour être amendé au fil de l'usage, sans toucher au code.
+
+Le prompt livré au départ enchaîne le cycle de travail : vérifier ce qui est déployé, fermer ce qui
+est en prod et bouclé, mettre en prod ce qui est fait, puis reprendre les tickets de la session qui
+sont faisables sans arbitrage.
+
+Quelques précisions gagnent à y figurer, parce qu'elles ont manqué à l'usage :
+
+- **l'ordre** — fermer d'abord, mettre en prod ensuite : l'inverse ferme ce qu'on vient d'y mettre ;
+- **ce qu'il ne faut pas forcer** — un ticket qui porte des questions non tranchées reste ouvert,
+  sauf mention explicite : ces questions sont le seul endroit où la réflexion non résolue survit ;
+- **un compte rendu chiffré** — combien fermés, combien mis en prod, et ce qui a été écarté avec son
+  motif : sans cela, un lot de deux cents transitions ne laisse aucune trace lisible ;
+- **ne pas toucher aux tickets portés par une autre session vivante** — deux agents sur un même
+  ticket se disputent sa fiche et sa branche ;
+- **un seul ticket à la fois**, livré de bout en bout, plutôt que trois entamés.
+
+Sans session attachée, le composer entier est masqué : le bouton n'apparaît pas.
+
 ## Dictée (micro / Whisper)
 
 Le bouton **🎤 dicter** capture le micro et transcrit la parole en texte à

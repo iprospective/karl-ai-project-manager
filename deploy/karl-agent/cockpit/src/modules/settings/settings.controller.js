@@ -51,7 +51,7 @@ export function mountSettings(el, themeEl, ctx = {}) {
   }
   const handle = mount(el, "", { events: [
     ["click", "[data-action]", (ev, n) => n.dataset.action === "help" ? ctx.help && ctx.help("reglages")
-      : n.dataset.action === "save" ? save(n.closest("[data-key]"), (n.closest("[data-key]").querySelector("input") || {}).value, n) : undefined],
+      : n.dataset.action === "save" ? save(n.closest("[data-key]"), (n.closest("[data-key]").querySelector("input, textarea") || {}).value, n) : undefined],
     ["change", "[data-setting]", (ev, n) => save(n.closest("[data-key]"), n.dataset.setting === "bool" ? n.checked : n.value, n)],
   ] });
   const themeHandle = themeEl ? mount(themeEl, "", { events: [["change", "[data-theme-local]", (ev, s) => setLocalTheme(s.value)], ["change", "[data-show-clientctx]", (ev, c) => setShowClientCtx(c.checked)], ["change", "[data-center-split]", (ev, c) => setCenterSplit(c.checked)], ["change", "[data-help-spots]", (ev, c) => setHelpSpots(c.checked)], ["change", "[data-show-monitor]", (ev, c) => setShowMonitor(c.checked)]] }) : null;

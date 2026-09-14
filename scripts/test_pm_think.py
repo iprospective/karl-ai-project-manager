@@ -403,6 +403,25 @@ for texte, attendu in [
     ("go 3015", "dette"),
     ("ajoute un réglage pour masquer les commandes tmux, ce serait bien", "dette"),
     ("mets les titres sur deux lignes, tu en penses quoi ?", "dette"),
+    # RM3141 — les six captures accidentelles d'une seule journée, chacune ayant bloqué une clôture.
+    # « ferme » manquait à la liste des ordres, et c'est le plus fréquent en fin de séance.
+    ("ferme tout ce qui a ete mis en prod, met en prod ce qui est fini", "dette"),
+    ("ferme tous les tickets du projet karl-PM qui sont en prod.", "dette"),
+    ("enchaine les tickets de cette session qui sont faisables", "dette"),
+    ("vérifie 1923 et avance sur 1777", "dette"),
+    # Une séance se donne en LISTE : la tête du message n'est pas un ordre, tout le reste en est.
+    ("* core update fait.\n* ferme ce qui est en prod et bouclé.\n* go 3140, 2941 (pas doublon ?)", "dette"),
+    ("- regarde 3070\n- 3004 : a verifier", "dette"),
+    # Un résumé de compaction est un artefact de session, pas une parole du demandeur.
+    ("This session is being continued from a previous conversation that ran out of context. Summary: …", "dette"),
+    # Ce qui doit RESTER une question — le correctif ne doit pas emporter les vraies.
+    ("j'aimerais un onglet dédié dans réglages pour les contacts, ou bien dans le panneau de gauche ? tu en penses quoi ?", "question"),
+    ("dans quel cas on voit le rouge ? je n'ai pas le souvenir de l'avoir déjà vu", "question"),
+    # RM3141 — les questions RÉELLES trouvées par l'audit des fiches, qui se posent sans « ? » :
+    # une question qui n'a pas la bonne forme reste une question, c'est l'arbitrage qui manque.
+    ("En mode multi-utilisateur, que fait-on du moteur « shell » ?", "question"),
+    ("Le calcul de similarité : Python pur, ou une dépendance ? lequel tient le mieux", "question"),
+    ("§6.1 « surtout pas de base de données » est-il encore tenable", "question"),
 ]:
     check("« " + texte[:52] + "… » → " + attendu, C.type_heuristique("M", texte) == attendu,
           C.type_heuristique("M", texte))

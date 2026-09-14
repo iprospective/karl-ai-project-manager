@@ -21,6 +21,7 @@ n'écrit à la main que le conseil et l'arbitrage.
 """
 import argparse
 import os
+import getpass
 import pathlib
 import sys
 from pathlib import Path
@@ -53,6 +54,28 @@ def _resync_questions(rm_id, sheet, kind=None):
         pass                    # une section de description ne doit jamais casser une consignation
 
 
+def _log_path(sheet):
+    """Le journal du ticket, à côté de sa fiche."""
+    return Path(str(sheet).replace(".md", ".log.md"))
+
+
+def _log_amendement(rm_id, sheet, rid, ancien, nouveau, par=None):
+    """Consigne l'amendement au journal : qui, quand, et surtout CE QUE ÇA DISAIT AVANT."""
+    from datetime import datetime
+    log = _log_path(sheet)
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Amendement du carnet ({rid})\n"
+            f"Tokens : 0 | Durée : 0 min\n\n"
+            f"Par {qui}.\n\n"
+            f"Avant : {ancien}\n\n"
+            f"Après : {nouveau}\n")
+    try:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass                      # un journal non écrivable ne doit pas empêcher l'amendement
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__)
@@ -62,6 +85,8 @@ def main():
         ap.add_argument(f"--{flag}", metavar="TEXTE")
     ap.add_argument("--set", metavar="ID", help="ligne dont on change l'état (avec --state)")
     ap.add_argument("--delete", metavar="ID", help="supprime la ligne pour de bon (entrée incohérente, RM3064)")
+    ap.add_argument("--text", metavar="TEXTE",
+                    help="RM3161 : AMENDER le texte de la ligne --set, sans toucher à son état")
     ap.add_argument("--state", choices=sorted(pm_think.STATES.values()))
     ap.add_argument("--dest", default="", help="« traitée par » d'une note (avec --set), ou renseigné à l'ajout")
     ap.add_argument("--by", default="A"); ap.add_argument("--sid", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
@@ -107,18 +132,34 @@ def main():
             pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.delete} supprimée")
         return
     if a.set:
-        if not a.state:
-            sys.exit("ERREUR : --set exige --state")
+        if not a.state and a.text is None:
+            sys.exit("ERREUR : --set exige --state ou --text")
         if a.dry_run:
-            print(f"{think.name} : {a.set} → {a.state}"); return
-        ok = pm_think.set_state(think, a.set, a.state, dest=a.dest)
+            print(f"{think.name} : {a.set}" + (f" → {a.state}" if a.state else "")
+                  + (" (texte amendé)" if a.text is not None else "")); return
+        # RM3161 : AMENDER d'abord, changer l'état ensuite — les deux se combinent, et l'amendement
+        # seul ne touche pas l'état : corriger le texte d'une décision validée la laisse validée.
+        ancien = None
+        if a.text is not None:
+            ok, ancien = pm_think.set_text(think, a.set, a.text)
+            if not ok:
+                sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
+            # L'ancien texte va au JOURNAL du ticket : git garde l'historique du fichier, mais le
+            # .log.md est ce qu'on relit — y retrouver « elle disait ceci, elle dit cela » évite
+            # d'aller fouiller un diff.
+            _log_amendement(a.rm_id, sheet, a.set, ancien, a.text, a.by)
+        ok = pm_think.set_state(think, a.set, a.state, dest=a.dest) if a.state else True
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
         _resync_questions(a.rm_id, sheet)
-        pmout.op("think", extra=f"RM{a.rm_id} {a.set} → {pm_think.STATE_ICON[a.state]}")
+        pmout.op("think", extra=f"RM{a.rm_id} {a.set}"
+                 + (f" → {pm_think.STATE_ICON[a.state]}" if a.state else "")
+                 + (" amendée" if a.text is not None else ""))
         if not a.no_commit:
-            pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.set} {a.state}")
+            quoi = (a.state or "") + (" amendée" if a.text is not None else "")
+            pm_git.autocommit([think, sheet, _log_path(sheet)],
+                              f"pm(think): RM{a.rm_id} {a.set} {quoi}".rstrip())
         return
 
     kind, text, prefix = None, None, None

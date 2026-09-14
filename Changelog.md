@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une décision s'amende au lieu de se réécrire** (RM3161) : corriger trois mots demandait de
+  l'invalider et d'en poser une autre — le carnet se remplissait de doublons dont l'un est barré, et
+  la décision qui fait foi devenait plus difficile à trouver, l'inverse de ce à quoi il sert.
+  `mmi-pm task-think <rm> --set <id> --text "…"` remplace le texte d'une ligne, toutes rubriques
+  confondues. **L'état n'est pas touché** : corriger une décision validée la laisse validée — le
+  revirement a son propre geste, et les deux se combinent en un appel. **La signature survit** aussi :
+  un amendement corrige les mots, pas la paternité, et savoir qui a décidé est justement ce qu'on
+  demande à une décision. L'ancien texte part au journal du ticket, avec qui l'a amendée et quand :
+  git garde l'historique du fichier, mais le `.log.md` est ce qu'on relit.
+
 - **Une consigne de séance n'est plus prise pour une question** (RM3141) : le critère qui sépare la
   DEMANDE de la QUESTION ignorait le verbe « ferme » — le plus fréquent en fin de séance — et ne
   regardait que la tête du message, alors qu'une séance se donne souvent en liste à puces. Un « ? »

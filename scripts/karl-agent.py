@@ -8834,6 +8834,83 @@ def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
     return p.stdout.strip()
 
 
+# ── RM3145 (lot 4) : les routes que les MODULES servent ──────────────────────
+#
+# Un module déclare ses routes ; le noyau les monte sous `/api/modules/<nom>/…`. Jusqu'ici, ajouter
+# une route demandait d'éditer le dispatch de ce fichier — c'est-à-dire de modifier le noyau pour
+# ajouter une extension, exactement ce que le chantier des modules supprime.
+#
+# ⚠ C'est le premier endroit où du code de MODULE s'exécute dans le processus du serveur. Tant que
+# les modules sont livrés avec le noyau, le risque est celui du code qu'on écrit soi-même. Si un jour
+# ils s'installent depuis une source tierce (question ouverte du ticket), ce point précis devra être
+# isolé — sous-processus, ou bac à sable — et c'est ici qu'il faudra revenir.
+_MODULE_ROUTES: dict = {}
+_MODULE_ROUTES_AT: float = 0.0
+_MODULE_ROUTES_TTL = 30.0
+
+
+def _module_routes(force: bool = False) -> dict:
+    """{(méthode, url): (module, fichier, fonction)} — relu au plus toutes les 30 s.
+
+    Un rechargement à chaque requête relirait le disque pour rien ; ne jamais recharger obligerait à
+    redémarrer le serveur pour poser une route. Trente secondes est le compromis."""
+    global _MODULE_ROUTES, _MODULE_ROUTES_AT
+    if not force and _MODULE_ROUTES and (time.time() - _MODULE_ROUTES_AT) < _MODULE_ROUTES_TTL:
+        return _MODULE_ROUTES
+    table = {}
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_modules
+        for rt in pm_modules.routes(REPO_ROOT):
+            if not rt.ok:
+                continue
+            fichier, fonction = rt.cible()
+            table[(rt.method, rt.url)] = (rt.module, fichier, fonction)
+    except Exception as e:      # noqa: BLE001 — un registre cassé ne doit pas tuer le serveur
+        _jlog("system", "warn", f"routes de modules illisibles : {e}")
+    _MODULE_ROUTES, _MODULE_ROUTES_AT = table, time.time()
+    return table
+
+
+def _module_handler(module: str, fichier: str, fonction: str):
+    """Importe le contrôleur d'un module et rend sa fonction. Tout est validé AVANT l'import : le nom
+    du module et celui du fichier viennent d'un manifeste, donc du disque — jamais de l'URL."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    import importlib.util
+    racine = pm_modules.racine(REPO_ROOT)
+    chemin = (racine / module / "controllers" / (fichier + ".py")).resolve()
+    # Garde de traversée : le fichier DOIT rester sous le dossier du module. Les noms sont déjà
+    # contraints par le registre ; cette vérification tient même si cette contrainte changeait.
+    if not str(chemin).startswith(str((racine / module).resolve()) + os.sep) or not chemin.is_file():
+        raise ApiError(500, f"contrôleur introuvable : {module}/{fichier}")
+    spec = importlib.util.spec_from_file_location(f"pm_module_{module}_{fichier}", chemin)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    fn = getattr(mod, fonction, None)
+    if not callable(fn):
+        raise ApiError(500, f"« {fonction} » absent de {module}/{fichier}")
+    return fn
+
+
+def op_module_route(method: str, path: str, qs: dict, payload=None, auth_ctx=None):
+    """Sert une route de module, ou rend None si personne ne la déclare (le noyau continue son
+    dispatch). Une erreur du module est rendue comme une erreur d'API, avec SON nom : sans cela,
+    un incident dans un module se lirait comme une panne du cockpit."""
+    cible = _module_routes().get((method, path))
+    if cible is None:
+        return None
+    module, fichier, fonction = cible
+    fn = _module_handler(module, fichier, fonction)
+    try:
+        return fn(qs=qs, payload=payload, auth_ctx=auth_ctx) or {}
+    except ApiError:
+        raise
+    except Exception as e:      # noqa: BLE001
+        _jlog("system", "warn", f"module « {module} » : {type(e).__name__} {e}", tool="module-route")
+        raise ApiError(500, f"module « {module} » : {e}")
+
+
 def op_modules() -> dict:
     """RM3145 (lot 3) — ce que l'instance porte comme modules, et ce qu'elle porte encore SANS module.
 
@@ -8864,6 +8941,7 @@ def op_modules() -> dict:
             "inventory": inv, "core_version": pm_modules.CORE_VERSION,
             "kinds": list(pm_modules.KINDS),
             "root": str(pm_modules.racine(REPO_ROOT)),
+            "routes": [rt.as_dict() for rt in pm_modules.routes(REPO_ROOT, mods)],
             "bus": _bus_sante()}
 
 
@@ -12803,6 +12881,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, op_engines())
         if path == "/modules":               # RM3145 : les modules de l'instance, et l'écart
             return self._send_json(200, op_modules())
+        if path.startswith("/api/modules/"):  # RM3145 (lot 4) : une route servie par un MODULE
+            qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+            r = op_module_route("GET", path, qs, auth_ctx=self.auth_ctx)
+            if r is not None:
+                return self._send_json(200, r)
         if path == "/pm/provider-types":     # RM3068 : catalogue des types de fournisseurs
             return self._send_json(200, op_provider_types())
         if path == "/pm/providers":          # RM3068 : instances, défauts, ÉTAT des clés, affectations
@@ -13203,6 +13286,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path.startswith("/api/modules/"):  # RM3145 (lot 4) : une route servie par un MODULE
+                r = op_module_route("POST", path, {}, payload=payload, auth_ctx=self.auth_ctx)
+                if r is not None:
+                    return self._send_json(200, r)
             if path == "/worklog/request":     # RM3114 : solder une demande du registre
                 return self._send_json(200, op_worklog_request(payload, self.auth_ctx))
             if path == "/mr/batch":            # RM2720 : merger un lot de MR

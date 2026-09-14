@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un module peut servir sa propre API** (RM3145, lot 4) : il déclare ses routes dans `routes/*.yml`,
+  et le noyau les monte sous `/api/modules/<nom>/…`. Jusqu'ici, ajouter une route demandait d'éditer le
+  dispatch d'un fichier de 13 000 lignes — c'est-à-dire de **modifier le noyau pour ajouter une
+  extension**, exactement ce que ce chantier supprime. Le préfixe n'est pas décoratif : il dit quel
+  module répond, dans le journal comme dans le navigateur. Un module bloqué ou désactivé ne sert rien,
+  deux routes ne peuvent pas se recouvrir, une traversée de chemin est refusée dès la déclaration, et
+  l'import d'un contrôleur ne peut pas sortir du dossier de son module. Premier module qui s'en sert,
+  et c'est une vraie fonctionnalité : `release-watch` expose l'état des veilles de publication, qui
+  n'étaient jusque-là visibles qu'en ligne de commande. Le panneau et `mmi-pm module show` montrent
+  désormais ce qu'un module sert et ce à quoi il réagit.
+
 - **Un onglet « Modules » dans les réglages** (RM3145, lot 3) : ce que l'instance porte, ce que chaque
   module fournit, ce dont il dépend — et surtout **ce qui le requiert lui**, parce que c'est la question
   qu'on se pose au moment de désactiver quelque chose, et qu'elle ne se répond pas en lisant son propre

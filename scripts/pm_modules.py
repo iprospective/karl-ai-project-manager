@@ -345,6 +345,101 @@ def triggers(root=None, modules=None) -> list:
     return out
 
 
+# ── les routes : l'API PROPRE à un module (RM3145, lot 4) ───────────────────────────────────────
+#
+# Elles se déclarent dans `modules/<nom>/routes/*.yml` et sont servies sous un préfixe qui dit d'où
+# elles viennent : `/api/modules/<nom>/<chemin>`. Sans cela, ajouter une route demandait d'éditer le
+# `if path == "…"` d'un fichier de 13 000 lignes — c'est-à-dire de modifier le noyau pour ajouter une
+# extension, exactement ce que ce chantier supprime.
+#
+#     path: watches               # sans barre de tête ; le préfixe est ajouté par le noyau
+#     method: GET                 # GET ou POST
+#     handler: watches:etat       # <fichier de controllers/>:<fonction>
+#
+# Le préfixe n'est pas décoratif : dans le journal comme dans le navigateur, il dit quel module
+# répond. Une route qui pourrait se confondre avec celles du noyau rendrait un incident illisible.
+
+ROUTES = "routes"
+_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_HANDLER = re.compile(r"^([a-z0-9_]{1,64}):([a-z0-9_]{1,64})$")
+METHODES = ("GET", "POST")
+
+
+class Route:
+    """Une route déclarée par un module. Inerte : elle décrit, elle n'importe rien."""
+
+    def __init__(self, module: str, fichier: Path, data: dict):
+        d = data or {}
+        self.module = module
+        self.file = fichier
+        self.path = str(d.get("path") or "").strip().strip("/")
+        self.method = str(d.get("method") or "GET").strip().upper()
+        self.handler = str(d.get("handler") or "").strip()
+        self.errors = []
+        if not self.path or not all(_SEGMENT.match(x) for x in self.path.split("/")):
+            self.errors.append(f"« path » invalide : {self.path!r} (segments en minuscules, sans « .. »)")
+        if self.method not in METHODES:
+            self.errors.append(f"« method » {self.method} — attendu " + " ou ".join(METHODES))
+        if not _HANDLER.match(self.handler):
+            self.errors.append(f"« handler » invalide : {self.handler!r} (attendu « fichier:fonction »)")
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+    @property
+    def url(self) -> str:
+        """L'URL servie. Le préfixe DIT quel module répond — c'est ce qui rend un incident lisible."""
+        return f"/api/modules/{self.module}/{self.path}"
+
+    def cible(self) -> tuple:
+        m = _HANDLER.match(self.handler)
+        return (m.group(1), m.group(2)) if m else ("", "")
+
+    def as_dict(self) -> dict:
+        return {"module": self.module, "path": self.path, "method": self.method,
+                "handler": self.handler, "url": self.url, "ok": self.ok,
+                "errors": list(self.errors), "file": str(self.file)}
+
+
+def routes(root=None, modules=None) -> list:
+    """Les routes des modules ACTIFS et résolus, dans l'ordre de chargement.
+
+    Un module bloqué ne sert rien : une route qui répondrait alors que son module n'a pas pu se
+    charger donnerait des réponses à moitié, et personne ne saurait pourquoi."""
+    mods = decouvre(root) if modules is None else modules
+    r = resout(mods)
+    par_nom = {m.name: m for m in mods}
+    out, vues = [], {}
+    for nom in r["ordre"]:
+        m = par_nom.get(nom)
+        if m is None:
+            continue
+        d = m.path.parent / ROUTES
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.yml")):
+            if yaml is None:
+                continue
+            try:
+                data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError as e:
+                rt = Route(nom, f, {})
+                rt.errors = [f"YAML illisible — {e}"]
+                out.append(rt)
+                continue
+            rt = Route(nom, f, data if isinstance(data, dict) else {})
+            # Deux modules qui servent la même URL : le préfixe par module rend le cas presque
+            # impossible, mais « presque » ne suffit pas pour du routage.
+            cle = (rt.method, rt.url)
+            if rt.ok and cle in vues:
+                rt.errors.append(f"URL déjà servie par « {vues[cle]} »")
+            elif rt.ok:
+                vues[cle] = nom
+            out.append(rt)
+    return out
+
+
 # ── l'inventaire de l'EXISTANT — ce que les sept registres contiennent aujourd'hui ──────────────
 #
 # Un inventaire qui ne montrerait que les modules déclarés serait flatteur et faux : au lot 0, rien

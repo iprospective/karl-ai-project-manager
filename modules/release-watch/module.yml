@@ -10,3 +10,4 @@ requires:
 provides:
   - {kind: job, name: release-watch}
   - {kind: watch, name: vaultwarden}
+  - {kind: route, name: watches}

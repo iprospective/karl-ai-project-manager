@@ -1,0 +1,5 @@
+# RM3145 (lot 4) : l'état des veilles, servi PAR LE MODULE.
+# Servi sous /api/modules/release-watch/watches — le préfixe dit qui répond.
+path: watches
+method: GET
+handler: watches:etat

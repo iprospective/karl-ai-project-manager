@@ -24,6 +24,8 @@ export class ModulesViewModel extends EntityViewModel {
       requires: m.requires || [],
       // Ce qui casserait si on le désactivait — la question qu'on se pose au moment de cliquer.
       requiredBy: m.required_by || [],
+      routes: ((this.d.routes || []).filter(r => r.module === m.name)
+        .map(r => ({ method: r.method, url: r.url, handler: r.handler, ok: r.ok, errors: r.errors || [] }))),
       triggers: (m.triggers || []).map(t => ({ on: t.on, run: (t.run || []).join(" "),
                                                when: Object.entries(t.when || {}).map(([k, v]) => k + "=" + v).join(", "),
                                                ok: t.ok, errors: t.errors || [] })),

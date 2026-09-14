@@ -42,6 +42,8 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
       provider: [{ item: "forge/gogs", decrit: true }, { item: "task/gogs_issues", decrit: true },
                  { item: "llm/ollama", decrit: false }],
       job: [{ item: "wiki-sync", decrit: false }, { item: "lock-gc", decrit: false }] } },
+    routes: [{ module: "forge-gogs", method: "GET", url: "/api/modules/forge-gogs/etat",
+               handler: "ctrl:etat", ok: true, errors: [] }],
     bus: { pending: 2, errors: 1, by_name: { "task.created": 2 },
            last_errors: [{ name: "task.created", ts: "2026-09-14T04:00:00+02:00", error: "abonné : code 3" }] },
   };
@@ -56,6 +58,8 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert.deepStrictEqual(rows[2].motifs, ["description manquante"], "un manifeste cassé dit pourquoi");
   assert.deepStrictEqual(rows[3].motifs, ["dépendance absente : fantome"], "un module bloqué aussi");
   assert.strictEqual(rows[1].triggers.length, 2);
+  // RM3145 lot 4 : les routes qu'un module SERT — le préfixe dit qui répond, c'est ce qui rend un incident lisible
+  assert.deepStrictEqual(rows[0].routes.map(r => r.url), ["/api/modules/forge-gogs/etat"]);
   assert.strictEqual(rows[1].triggers[1].ok, false, "un abonnement invalide se voit");
   const inv = vm.inventaire;
   assert.strictEqual(inv.pct, 40, "l'écart est chiffré");
@@ -70,6 +74,8 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/description manquante/.test(card) && /dépendance absente/.test(card), "les motifs sont rendus");
   assert(/llm\/ollama/.test(card), "l'écart est visible, pas seulement compté");
   assert(/abonné : code 3/.test(card), "un abonné en échec se voit — sinon le module semble branché");
+  const ouvertRoute = String(V.ModulesCard(new VM.ModulesViewModel({ data, open: "forge-gogs" })));
+  assert(/\/api\/modules\/forge-gogs\/etat/.test(ouvertRoute), "les routes servies par le module sont lisibles");
   assert(!/\son(click|change|input)=/.test(card), "aucun handler inline");
   const ouvert = String(V.ModulesCard(new VM.ModulesViewModel({ data, open: "forge-gogs" })));
   assert(/requis par/.test(ouvert) && /task-gogs-issues/.test(ouvert), "le détail ouvert dit qui dépend de lui");

@@ -148,6 +148,38 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
           TM.facetOf("conso") === "conso");
   }
 
+  // ── RM3164 : le survol déclaré PAR TYPE dans le registre
+  {
+    const B = await import("file://" + path.join(SRC, "modules/tickets/briefs.js"));
+    const E = await import("file://" + path.join(SRC, "core/entities.js"));
+    const plein = { found: true, title: "Un titre", status: "en_cours", completion_pct: 40,
+                    type: "feature", priority: "normal", client: "acme", project: "site" };
+    check("le survol d'un ticket monte les champs DÉCLARÉS par son type",
+          E.hoverText("review", "3164", plein) === "RM3164 — Un titre\nen_cours · 40 % · feature\nacme/site");
+    check("un champ à sa valeur par défaut est tu (priorité « normal »)",
+          !/priorité/.test(E.hoverText("review", "1", plein)) &&
+          /priorité high/.test(E.hoverText("review", "1", Object.assign({}, plein, { priority: "high" }))));
+    check("« pas encore chargé » et « inconnu » ne se disent PAS pareil",
+          /chargement…/.test(E.hoverText("review", "1", undefined)) &&
+          /inconnu en local/.test(E.hoverText("review", "1", null)) &&
+          /inconnu en local/.test(E.hoverText("review", "1", { found: false })));
+    check("le préfixe d'identifiant vient du type", E.labelOf("review", "42") === "RM42" &&
+          E.labelOf("project", "a/b") === "a/b");
+
+    // La généralisation : d'autres types ont leur survol, sans une ligne de moteur en plus.
+    const sess = E.hoverText("session", "42", { found: true, title: "S", state: "working",
+                                                engine: "claude", alive: true, client: "a", project: "b" });
+    check("une SESSION a son propre jeu de champs", /working · claude · vivante/.test(sess) && /a\/b/.test(sess));
+    check("un type sans champs déclarés rend « identifiant — titre », comme les autres",
+          E.hoverText("file", "x", { found: true, title: "doc.md" }) === "x — doc.md");
+
+    // Et l'appelant historique passe par là, sans changer de contrat.
+    check("briefs.ticketTipText délègue au registre (une seule source)",
+          B.ticketTipText("3164", plein) === E.hoverText("review", "3164", plein));
+    check("… en gardant SON contrat : ici null veut dire « pas encore chargé »",
+          /chargement…/.test(B.ticketTipText("3164", null)));
+  }
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

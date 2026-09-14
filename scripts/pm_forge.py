@@ -591,9 +591,45 @@ class GogsForge(Forge):
                             access_level_model="gitea")
 
     def token(self, role):
-        # Optionnel : le flux « lien-compare » n'appelle aucune API Gogs (pas d'API
-        # PR) et le push utilise l'auth git du dépôt (clé SSH / helper), pas ce token.
-        return os.environ.get("GOGS_TOKEN", "")
+        # Optionnel POUR LES PR : le flux « lien-compare » n'appelle aucune API Gogs (pas d'API
+        # PR) et le push utilise l'auth git du dépôt (clé SSH / helper), pas ce token. Il devient
+        # nécessaire pour les ISSUES (RM3113), d'où les variantes par instance, sur le modèle de
+        # GitHub — un dev tient un jeton par serveur dans son .env utilisateur.
+        slug = lambda x: "".join(c if c.isalnum() else "_" for c in str(x)).upper()
+        inst = getattr(getattr(self, "instance", None), "name", "") or ""
+        for var in ([f"GOGS__{slug(inst)}__TOKEN"] if inst else []) + ["GOGS_TOKEN"]:
+            tok = os.environ.get(var)
+            if tok:
+                return tok
+        return ""
+
+    def api(self, method, path, token, fields=None):
+        """(status, parsed_json|None, raw). API v1 de style GitHub — Gogs la mime, en-tête
+        `Authorization: token <jeton>`. Pas de PR ici (Gogs n'en a pas), mais tout le reste :
+        issues, commentaires, labels. Jamais d'exception sur 4xx/5xx."""
+        if not self.base:
+            return 0, None, ("URL de l'instance Gogs inconnue : déclare-la dans "
+                             "pm.config.yml :: providers.servers, ou pose GOGS_URL.")
+        url = path if path.startswith("http") else self.base + "/api/v1" + path
+        data = json.dumps(fields).encode() if fields is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        if token:
+            req.add_header("Authorization", f"token {token}")
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", "replace")
+                status = r.status
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            status = e.code
+        except Exception as e:      # noqa: BLE001
+            return 0, None, str(e)
+        try:
+            return status, json.loads(raw), raw
+        except Exception:           # noqa: BLE001
+            return status, None, raw
 
     def resolve_project(self, token):
         # Gogs adresse par owner/repo directement (ni id numérique, ni %2F).

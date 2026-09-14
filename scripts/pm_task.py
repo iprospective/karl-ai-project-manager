@@ -255,7 +255,121 @@ class GitlabIssuesTaskProvider(TaskProvider):
         raise TaskProviderError("gitlab_issues : parent non modélisé (liens GitLab)")
 
 
-_BACKENDS = {"redmine": RedmineTaskProvider, "gitlab_issues": GitlabIssuesTaskProvider}
+class _GithubStyleIssuesTaskProvider(TaskProvider):
+    """Base commune aux issues de **GitHub** et de **Gogs** (RM3113).
+
+    Gogs mime l'API de GitHub : même forme d'URL (`/repos/<owner>/<repo>/issues`), mêmes champs
+    (`number`, `title`, `body`, `state`), même notion de commentaire. Écrire deux backends aurait
+    donc voulu dire recopier l'un dans l'autre, puis les laisser diverger. Ce qui diffère tient
+    en deux choses — la base de l'API et la forme de l'en-tête d'autorisation — et c'est la forge
+    qui les porte déjà.
+
+    Un ticket est identifié par son **numéro dans le dépôt**, pas par un identifiant global : le
+    même décalage de modèle que le PoC GitLab avait mis au jour. Lecture d'abord (RM3113 §4) :
+    l'écriture suppose des champs que les issues n'ont pas, et cette question n'est pas tranchée.
+    """
+    #: la classe de forge qui porte le transport (token + api)
+    forge_class = None
+
+    def __init__(self, instance=None, repo=None, role="worker"):
+        super().__init__(instance)
+        if self.forge_class is None:
+            raise TaskProviderError(f"{self.name} : backend incomplet (aucune forge de transport)")
+        opts = (instance.options if instance and instance.options else {}) or {}
+        repo_path = repo or opts.get("repo") or ""
+        if not repo_path:
+            raise TaskProviderError(
+                f"{self.name} : 'repo' requis (instance.options.repo ou argument repo=)")
+        self.repo_path = repo_path
+        self._forge = self.forge_class(repo_path, instance)
+        self._role = role
+        self._token_cache = None
+
+    def _token(self):
+        if self._token_cache is None:
+            self._token_cache = self._forge.token(self._role)
+        return self._token_cache
+
+    def _get(self, path, quoi):
+        st, data, raw = self._forge.api("GET", path, self._token())
+        if st != 200 or data is None:
+            raise TaskProviderError(f"{self.name} : {quoi} — HTTP {st} {str(raw)[:200]}")
+        return data
+
+    # ── lecture ──────────────────────────────────────────────────────────
+    def fetch_issue(self, issue_id, include=None):
+        return self._get(f"/repos/{self.repo_path}/issues/{issue_id}",
+                         f"issue #{issue_id} de {self.repo_path}")
+
+    def fetch_project(self, project_id):
+        try:
+            return self._get(f"/repos/{self.repo_path}", f"dépôt {self.repo_path}")
+        except TaskProviderError:
+            return {}           # contrat : un appelant qui reçoit {} s'abstient de trancher
+
+    def list_issues(self, params=None, limit=25):
+        import urllib.parse
+        qp = dict(params or {})
+        qp.setdefault("per_page", limit)
+        # Une *pull request* est une issue côté API GitHub : sans ce tri, la liste des
+        # tickets contiendrait les demandes de fusion, qui ne sont pas des tickets.
+        data = self._get(f"/repos/{self.repo_path}/issues?" + urllib.parse.urlencode(qp, doseq=True),
+                         f"issues de {self.repo_path}")
+        if not isinstance(data, list):
+            raise TaskProviderError(f"{self.name} : réponse inattendue pour {self.repo_path}")
+        return [i for i in data if isinstance(i, dict) and not i.get("pull_request")][:limit]
+
+    def search_issues(self, query, limit=15):
+        """Pas de recherche plein-texte déclarée : on filtre ce qu'on liste, et on le DIT.
+
+        Prétendre chercher côté serveur alors qu'on filtre en local donnerait des résultats
+        silencieusement partiels — la capability `full_text_search` reste donc à False."""
+        q = str(query or "").strip().lower()
+        if not q:
+            return []
+        return [i for i in self.list_issues(limit=100)
+                if q in str(i.get("title") or "").lower()
+                or q in str(i.get("body") or "").lower()][:limit]
+
+    # ── écriture : hors périmètre (RM3113 §4) ─────────────────────────────
+    def add_note(self, issue_id, note):
+        raise TaskProviderError(f"{self.name} : écriture hors périmètre (lecture d'abord, RM3113)")
+
+    def create_issue(self, **kw):
+        raise TaskProviderError(f"{self.name} : écriture hors périmètre (lecture d'abord, RM3113)")
+
+    def set_parent(self, issue_id, parent_id):
+        raise TaskProviderError(f"{self.name} : pas de parent natif (les issues n'en ont pas)")
+
+
+class GithubIssuesTaskProvider(_GithubStyleIssuesTaskProvider):
+    """Issues GitHub (RM3113). Transport : `pm_forge.GithubForge` (auth Bearer, api.github.com,
+    ou l'API d'une instance Enterprise via l'option `api_url`)."""
+    name = "github_issues"
+    capabilities = TaskCapabilities()      # ni CF, ni temps, ni wiki, ni parent, ni tag IA
+
+    @property
+    def forge_class(self):
+        from pm_forge import GithubForge
+        return GithubForge
+
+
+class GogsIssuesTaskProvider(_GithubStyleIssuesTaskProvider):
+    """Issues Gogs (RM3113). Transport : `pm_forge.GogsForge`, API v1 de style GitHub.
+
+    Gogs n'a pas d'API de *pull request* — ce qui a longtemps fait croire qu'il n'avait pas
+    d'API du tout. Les issues, elles, en ont une."""
+    name = "gogs_issues"
+    capabilities = TaskCapabilities()
+
+    @property
+    def forge_class(self):
+        from pm_forge import GogsForge
+        return GogsForge
+
+
+_BACKENDS = {"redmine": RedmineTaskProvider, "gitlab_issues": GitlabIssuesTaskProvider,
+             "github_issues": GithubIssuesTaskProvider, "gogs_issues": GogsIssuesTaskProvider}
 
 
 def _backend_for(instance):
@@ -263,8 +377,8 @@ def _backend_for(instance):
     backend = _BACKENDS.get(itype)
     if backend is None:
         raise TaskProviderError(
-            f"backend task '{itype}' non supporté "
-            f"(seuls 'redmine' et 'gitlab_issues' ; cf. CDC RM2530)")
+            f"backend task '{itype}' non supporté (connus : "
+            + ", ".join(sorted(_BACKENDS)) + " ; cf. CDC RM2530)")
     return backend
 
 

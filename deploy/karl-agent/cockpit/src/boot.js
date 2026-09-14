@@ -446,6 +446,12 @@ tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedca
   resolve: () => stores.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
   clientContext: () => launcher.clientContext(), spawnBatch: (items, btn, opts) => worklogCtl.spawnBatch(items, btn, opts),
 });
+
+// RM3131 : l'entrée vers la page de gestion des tickets, en tête du panneau gauche.
+{
+  const b = byId("btn-manage-tickets");
+  if (b) b.addEventListener("click", () => center.openTickets({}));
+}
 // la recherche de tickets (RM2770/2639/2830) : projets connus, contexte client, statuts NORMS, lien de titre, épinglage prêtés ;
 // un résultat cliqué prépare le lanceur, une étiquette chargée alimente aussi le menu du triage
 const search = mountSearch(byId("searchcard"), {

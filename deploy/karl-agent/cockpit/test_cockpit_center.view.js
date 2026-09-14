@@ -65,5 +65,36 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   const cf = String(V.ConfView({ label: "calicote/prestashop", name: "meta.yml", content: "slug: x\nrepos:\n  - <b>a</b>\n" }));
   assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml") && cf.includes("&lt;b&gt;a&lt;/b&gt;") && cf.includes("slug: x") && cf.includes("mmi-pm")); assert(String(V.ConfView({})).includes("meta.yml"));
   console.log("✓ fiche client et conf (RM2768) : contacts, partage, docs au centre, conf telle quelle");
+  // ── RM3131 : la page de gestion des tickets
+  {
+    const data = { indexed: true, tickets: [{ rm_id: 42, status: "en_cours", entity: "acme",
+                                              project: "site", title: "Un <b>titre" }],
+                   by_status: { en_cours: 3, ferme: 9 }, by_project: { "acme/site": 3 } };
+    const mv = (f) => new VM.TicketsManageViewModel(data, { filters: f || {} });
+    const h = String(V.TicketsManageView(mv()));
+    assert(/RM42/.test(h) && /pill st-encours/.test(h), "le ticket est listé, son statut coloré");
+    assert(!/<b>/.test(h) && /&lt;b&gt;/.test(h), "titre échappé");
+    assert(/data-action="mstatus" data-value="en_cours">en_cours \(3\)/.test(h),
+           "les filtres PROPOSÉS portent leur compte — on n'offre pas un filtre qui ne ramène rien");
+    assert(/data-action="mproject" data-value="acme\/site"/.test(h));
+    assert(!/onclick=/.test(h));
+
+    const actif = String(V.TicketsManageView(mv({ status: "en_cours" })));
+    assert(/class="mini primary" data-action="mstatus" data-value="en_cours"/.test(actif),
+           "le filtre actif est marqué");
+
+    // Sans index, la page le DIT au lieu d'afficher une liste vide qui se lirait comme un fait.
+    const sansIndex = String(V.TicketsManageView(new VM.TicketsManageViewModel(
+      { indexed: false, hint: "index absent" }, { filters: {} })));
+    assert(/index n'est pas construit/.test(sansIndex) && /searchdb rebuild|index absent/.test(sansIndex));
+    assert(!/aucun ticket avec ces filtres/.test(sansIndex),
+           "« aucun ticket » et « pas d'index » ne se disent pas pareil");
+
+    const vide = String(V.TicketsManageView(new VM.TicketsManageViewModel(
+      { indexed: true, tickets: [], by_status: {}, by_project: {} }, { filters: {} })));
+    assert(/aucun ticket avec ces filtres/.test(vide));
+    console.log("  ✓ RM3131 : page de gestion — filtres comptés, index absent dit, rien d'inventé");
+  }
+
   console.log("\nTous les tests des vues du centre passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

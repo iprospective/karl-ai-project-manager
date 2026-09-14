@@ -18,6 +18,16 @@ export class CenterRepository extends Repository {
                      contacts: "project.contacts", contact: "project.contact" } });
     this.git = git; this.mail = mail;
   }
+  /** RM3131 — la page de gestion des tickets, servie par l'index (pas par un scan). */
+  manage({ status, project, q, limit } = {}) {
+    const p = new URLSearchParams();
+    if (status) p.set("status", status);
+    if (project) p.set("project", project);
+    if (q) p.set("q", q);
+    if (limit) p.set("limit", String(limit));
+    return get("/tickets/manage" + (p.toString() ? "?" + p : ""));
+  }
+
   /** Un document PM, en texte ; lève « erreur <status> » comme avant. */
   async docFile(path) { const r = await raw(this.path("doc") + "?path=" + enc(path)); return r.text(); }
   fsFile(wt, tag, path, ctx) { return get(this.path("fsFile") + "?" + fsQuery(wt, tag, ctx) + "&path=" + enc(path)); }

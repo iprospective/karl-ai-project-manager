@@ -7394,6 +7394,44 @@ def op_tags() -> list:
     return tags_in_use(metas)
 
 
+def op_tickets_manage(status=None, project=None, q=None, limit=200) -> dict:
+    """La page de gestion des tickets (RM3131) : filtrer et trier sur plusieurs axes.
+
+    Servie par l'INDEX (RM3128), pas par un scan : c'est l'usage qui l'a justifié — filtrer
+    statut × projet × texte demande de relire tout le corpus à chaque changement de filtre,
+    ce qui tient à 1 500 fiches et plus du tout à 20 000.
+
+    Rend aussi les FACETTES (comptes par statut, par projet) pour que l'interface propose des
+    filtres qui ramènent quelque chose — une liste de filtres dont la moitié donne zéro
+    résultat se traverse à l'aveugle.
+    """
+    try:
+        import pm_searchdb
+        from pm_paths import PMConfig
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        if not pm_searchdb.db_path(cfg).exists():
+            return {"indexed": False, "tickets": [], "by_status": {}, "by_project": {},
+                    "hint": "index absent — `mmi-pm searchdb rebuild`"}
+        con = pm_searchdb.connect(cfg)
+        try:
+            tickets = pm_searchdb.query(cfg, text=(q or None), status_=(status or None),
+                                        project=(project or None), limit=int(limit or 200),
+                                        con=con)
+            by_status = {r["status"]: r["c"] for r in con.execute(
+                "SELECT status, COUNT(*) c FROM tickets GROUP BY status ORDER BY c DESC")}
+            by_project = {f"{r['entity']}/{r['project']}": r["c"] for r in con.execute(
+                "SELECT entity, project, COUNT(*) c FROM tickets "
+                "WHERE status != 'ferme' GROUP BY entity, project ORDER BY c DESC LIMIT 40")}
+            return {"indexed": True, "tickets": tickets, "by_status": by_status,
+                    "by_project": by_project}
+        finally:
+            con.close()
+    except (Exception, SystemExit) as e:   # noqa: BLE001
+        print(f"⚠ tickets/manage: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"indexed": False, "tickets": [], "by_status": {}, "by_project": {},
+                "hint": str(e)}
+
+
 def op_anteriority(q="", limit=6) -> list:
     """Ce sujet a-t-il DÉJÀ un ticket ? (RM3148, moteur de RM3130)
 
@@ -13008,6 +13046,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/notifications":     # RM2792 : le fil de l'instance, toutes sources
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_notifications(qs, self.auth_ctx))
+            if path == "/tickets/manage":         # RM3131 : la page de gestion des tickets
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_tickets_manage(qs.get("status"), qs.get("project"),
+                                                              qs.get("q"), qs.get("limit", 200)))
             if path == "/tickets/anteriority":    # RM3148 : ce sujet a-t-il déjà un ticket ?
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"results": op_anteriority(qs.get("q", ""),

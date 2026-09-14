@@ -2,6 +2,7 @@
 // Balisage repris de renderCenterTabs, histListHtml, renderCurTitle, fileViewHtml,
 // dirViewHtml, mailViewHtml, clientViewHtml, confViewHtml, viewErrorHtml ; gestes en data-*.
 import { html, raw } from "../../core/html.js";
+import { pillClass } from "../../core/status.js";
 
 export function Tabs(vm) {
   return html`${vm.entries().map(t => html`<span class="${t.cls}" data-action="activate" data-id="${t.id}" title="${t.tooltip}"><span>${t.icon}</span><span class="lbl">${t.label}</span>${t.fixed ? "" : html`<span class="pin" data-action="pin" data-id="${t.id}" title="${t.pinTitle}">${t.pinned ? "📌" : "⇧"}</span><span class="x" data-action="close" data-id="${t.id}" title="Fermer">✕</span>`}</span>`)}`;
@@ -121,4 +122,22 @@ export function ViewError(quoi, message) {
 /** Bouton « ⤢ au centre » posé dans une vue historique (chaîne onclick prêtée au monolithe). */
 export function centerBtnHtml(call, quoi) {
   return '<button class="mini" onclick="' + call + '" title="Afficher ' + quoi + ' dans un onglet du panneau central">⤢ au centre</button>';
+}
+
+
+/** RM3131 — la page de gestion des tickets. */
+export function TicketsManageView(vm) {
+  if (!vm.indexed) {
+    return html`<div class="ms"><h4>Gestion des tickets</h4><div class="empty">l'index n'est pas construit — ${vm.hint || "lance `mmi-pm searchdb rebuild`"}.<br>Cette page s'appuie sur lui : sans index, chaque changement de filtre relirait tout le corpus.</div></div>`;
+  }
+  const f = vm.filters;
+  const chip = (act, key, label, n, active) =>
+    html`<button class="mini${active ? " primary" : ""}" data-action="${act}" data-value="${key}">${label}${n != null ? html` (${n})` : ""}</button>`;
+  return html`<div class="ms"><h4>Gestion des tickets</h4>
+    <div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">${chip("mstatus", "", "tous", null, !f.status)}${vm.statuses.map(s => chip("mstatus", s.key, s.key, s.n, s.active))}</div>
+    <div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">${chip("mproject", "", "tous projets", null, !f.project)}${vm.projects.map(p => chip("mproject", p.key, p.key, p.n, p.active))}</div>
+    <div class="cmpbar" style="margin-bottom:8px"><input type="text" data-filter="q" placeholder="chercher dans les titres et les corps…" value="${f.q || ""}" style="flex:1"></div>
+    <div style="color:var(--muted);font-size:11px;margin-bottom:4px">${vm.total} ticket(s)${vm.truncated ? " — liste tronquée, affine les filtres" : ""}</div>
+    ${vm.tickets.map(t => html`<div class="oline" style="white-space:normal;cursor:pointer" data-action="open-ticket" data-rm="${t.rm_id}" title="${t.title}"><span class="rmref">RM${t.rm_id}</span> <span class="${pillClass(t.status)}">${t.status}</span> <span style="color:var(--muted)">${t.entity}/${t.project}</span> ${t.title}</div>`)}
+    ${vm.tickets.length ? "" : html`<div class="empty">aucun ticket avec ces filtres.</div>`}</div>`;
 }

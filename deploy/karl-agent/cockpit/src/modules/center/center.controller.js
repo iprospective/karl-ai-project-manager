@@ -87,7 +87,7 @@ export function mountCenter(hosts, ctx = {}) {
   const api = {
     surface: (name, verb, ...args) => surfaces[name] && surfaces[name][verb] && surfaces[name][verb](...args),
     openSessionTab, openDashboard: () => openDashboard(), openFile: (...a) => openFile(...a), openDir: (...a) => openDir(...a), openCommit: (...a) => openCommit(...a),
-    openMail: (...a) => openMail(...a), openClient: (...a) => openClient(...a), openConf: (...a) => openConf(...a), openPanel: (n) => openPanel(n),
+    openMail: (...a) => openMail(...a), openClient: (...a) => openClient(...a), openTickets: (...a) => openTickets(...a), openConf: (...a) => openConf(...a), openPanel: (n) => openPanel(n),
     openContacts: (...a) => openContacts(...a), openContact: (...a) => openContact(...a),
   };
   function togglePin(id) {
@@ -202,6 +202,17 @@ export function mountCenter(hosts, ctx = {}) {
     const liste = Array.isArray(all) ? all : Object.values(all || {});
     return liste.filter(x => x && String(x.client || "") === String(client));
   }
+  // RM3131 — la page de gestion des tickets. Ses filtres vivent ici : la vue doit rester une
+  // fonction de ses arguments, et un filtre stocké dans la vue se perdrait à chaque rendu.
+  const manageFilters = { status: "", project: "", q: "", limit: 200 };
+  function openTickets(patch) {
+    Object.assign(manageFilters, patch || {});
+    return openView("tickets", viewKey(["manage"]), "🎫 gestion",
+                    async () => TicketsManageView(
+                      new TicketsManageViewModel(await repo.manage(manageFilters),
+                                                 { filters: manageFilters })));
+  }
+
   function openClient(client, tab) {
     const key = viewKey([client]);
     if (tab) clientTab[client] = tab;
@@ -265,7 +276,11 @@ export function mountCenter(hosts, ctx = {}) {
   // fonction serait sûre, mais le motif « let après usage » est celui qui a
   // coûté un ReferenceError silencieux au boot (RM2889).
   let contactsTimer = null;
-  const gestures = { ctab: (n) => openClient(n.dataset.client, n.dataset.tab),   // RM3132 : le client vient du geste
+  const gestures = {
+    mstatus: (n) => openTickets({ status: n.dataset.value }),
+    mproject: (n) => openTickets({ project: n.dataset.value }),
+    "open-ticket": (n) => ctx.showTicket && ctx.showTicket(n.dataset.rm),
+    ctab: (n) => openClient(n.dataset.client, n.dataset.tab),   // RM3132 : le client vient du geste
     activate: (n) => activate(n.dataset.id), pin: (n) => togglePin(n.dataset.id), close: (n) => closeTab(n.dataset.id),
     goto: (n) => histGoTo(n.dataset.id),
     "open-dir": (n) => openDir(n.dataset.src, n.dataset.wt, n.dataset.path, n.dataset.tag),

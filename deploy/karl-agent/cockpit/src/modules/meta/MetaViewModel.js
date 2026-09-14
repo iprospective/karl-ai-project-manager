@@ -144,6 +144,20 @@ export class TicketMetaViewModel extends EntityViewModel {
     return { total: fmtTokens(tokTot), breakdown: hasBd ? { input: fmtTokens(bd.input), output: fmtTokens(bd.output), cache: fmtTokens(bd.cache_read) + " / " + fmtTokens(bd.cache_creation) } : null,
       cost: m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—", ai: fmtMin(m.ai_time_total_minutes), human: fmtMin(m.human_time_total_minutes), updated: m.updated || "—" };
   }
+  /** RM3164 — les sessions qui traitent ce ticket. `null` tant qu'on ne sait pas (en vol) :
+   *  la vue montre « … » plutôt qu'un « aucune session », qui serait un mensonge pendant le
+   *  chargement — et c'est exactement le moment où l'on regarde. */
+  ticketSessions() {
+    const d = this.e.ts;
+    if (d === undefined || d === null) return { kind: d === null ? "loading" : "none" };
+    if (d.error) return { kind: "error" };
+    const rows = (d.handled || []).map(s => ({
+      sid: String(s.rm_id || s.sid || s.name || ""), name: s.name || s.title || String(s.rm_id || ""),
+      alive: !!s.alive, title: s.title || "",
+    })).filter(r => r.sid);
+    return { kind: rows.length ? "ok" : "empty", rows, candidates: (d.candidates || []).length };
+  }
+
   workspace() {
     const ws = this.e.ws;
     if (ws === undefined) return { kind: "loading" };

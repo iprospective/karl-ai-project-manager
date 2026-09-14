@@ -2,7 +2,10 @@
 // calcule sans DOM ni réseau. RM2889 (revue 3/3). Porte RM2173/2579/2673/2797/2614/2714/2860.
 
 /** Les facettes d'un ticket dans l'encart, dans l'ordre d'affichage (RM2579, RM2797). */
-export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "conso"], ["workspace", "workspace"]];
+// RM3164 : « conso » s'appelle « temps & coût » — l'onglet portait déjà les tokens, le COÛT et
+// les temps IA/humain, mais son nom ne disait que la moitié : on ne l'ouvrait pas pour chercher
+// un temps. La clé ne bouge pas (elle est dans les URL de vue et les préférences).
+export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["workspace", "workspace"]];
 export function facetOf(f) { return FACETS.some(x => x[0] === f) ? f : "detail"; }
 
 export const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };

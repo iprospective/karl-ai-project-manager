@@ -542,6 +542,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   ticket, notify: notify.toast, md: mdToHtml, ago: ago, tipAttr: (id) => tickets.tipAttr(id),
   resolve: () => stores.resolve, sess: () => stores.sess, usage: () => stores.usage,
   attached: () => attachCtl.current(), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
+  attachSession: (sid) => attachCtl.attach(sid),   // RM3164 : retourner à la session depuis la fiche
   showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: (rm) => launcher.goto(rm), reopen: (rm) => launcher.reopen(rm),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,

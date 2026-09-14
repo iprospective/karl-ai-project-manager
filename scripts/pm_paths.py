@@ -34,6 +34,30 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 
+def runtime_script(nom: str, depuis=None):
+    """(chemin STABLE du script `nom`, erreur) — pour une unité systemd ou un cron. RM3151.
+
+    Un worktree de session (`envs/<repo>-rmXXXX`) est détruit à la livraison : une unité qui y
+    pointe cesse de tourner le jour où le ticket se ferme, **en silence**. On vise donc le runtime
+    canonique (`PM_CORE_DIR`), et on refuse d'installer depuis un worktree quand on ne sait pas le
+    résoudre — mieux vaut un refus lisible qu'un déclencheur mort dans six mois.
+
+    Le fichier peut ne pas encore exister à la cible : on installe parfois depuis un worktree, et le
+    runtime le recevra au prochain `core update`. C'est à l'unité de patienter (`ConditionPathExists`).
+    """
+    depuis = Path(depuis) if depuis else None
+    core = os.environ.get("PM_CORE_DIR")
+    if core:
+        d = Path(core).expanduser() / "scripts"
+        if d.is_dir():
+            return (d / nom).resolve(), None
+    ici = (depuis or Path(__file__)).resolve().parent / nom
+    if f"{os.sep}envs{os.sep}" in str(ici):
+        return None, (f"{ici} vit dans un worktree de session, qui sera détruit.\n"
+                      "  Relance depuis le runtime, ou pose PM_CORE_DIR=<chemin .mmi-pm-core>.")
+    return ici.resolve(), None
+
+
 class PMConfigError(Exception):
     """La configuration PM n'est pas résoluble ici. RM3119.
 

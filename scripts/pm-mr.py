@@ -327,6 +327,89 @@ def check_no_ticket_args(args):
                  "ticket à faire transiter.")
 
 
+#: Les fichiers que TOUT LE MONDE touche : les signaler ferait crier l'avertissement à chaque MR, et
+#: un signal qui se déclenche toujours cesse d'être lu. Ils sont d'ailleurs conçus pour l'ajout
+#: parallèle — les conflits qu'ils produisent sont mécaniques, pas des collisions de raisonnement.
+FICHIERS_PARTAGES = {"Changelog.md", "scripts/INDEX.md", "norms/NORMS.md", "norms/VERSION",
+                     "norms/src/_frontmatter.txt", "norms/src/_full-body.md",
+                     "deploy/karl-agent/cockpit/cockpit.css", "deploy/karl-agent/cockpit/src/core/endpoints.js"}
+
+
+# >>> collisions — pure (testée par test_pm_mr_collisions.py)
+def collisions(mes_fichiers, autres: dict, exclus=None) -> list:
+    """[(branche, [fichiers communs])] — qui d'autre touche à ce que je touche. Pure. RM3157.
+
+    Deux sessions ont corrigé le même défaut le même jour sans se voir (RM3142 et RM3143) : les
+    TICKETS étaient différents — la garde de RM3086 ne pouvait rien dire — mais le CODE était
+    commun. La seconde MR a été mergée par-dessus la première et a laissé `dev` mélangé.
+
+    Git ne prévient pas : il ne voit un conflit que si les lignes se chevauchent exactement, et il
+    le voit au merge, quand les deux raisonnements sont déjà écrits. Ici on regarde plus tôt et plus
+    large : le même FICHIER suffit à mériter un coup d'œil.
+    """
+    exclus = FICHIERS_PARTAGES if exclus is None else exclus
+    miens = {f for f in (mes_fichiers or []) if f not in exclus}
+    out_ = []
+    for branche, fichiers in sorted((autres or {}).items()):
+        communs = sorted(miens & {f for f in (fichiers or []) if f not in exclus})
+        if communs:
+            out_.append((branche, communs))
+    return out_
+# <<< collisions
+
+
+# >>> texte_collisions — pure
+def texte_collisions(collisions_, ouvertes=None) -> str:
+    """Le message, ou "" s'il n'y a rien à dire. Avertit, n'interdit pas : travailler à deux sur un
+    fichier est parfois voulu, et un refus se contournerait — c'est un coup d'œil qu'on demande."""
+    if not collisions_:
+        return ""
+    ouvertes = ouvertes or {}
+    L = [f"⚠ {len(collisions_)} autre(s) branche(s) de ticket touchent les mêmes fichiers :"]
+    for branche, communs in collisions_:
+        mr = ouvertes.get(branche)
+        # sans information sur la MR, on nomme la branche sans rien affirmer : prétendre « pas de MR »
+        # sur la foi d'une absence de donnée enverrait chercher au mauvais endroit.
+        L.append(f"  · {branche}" + (f" (MR !{mr})" if mr else ""))
+        L.append("      " + ", ".join(communs[:6]) + (" …" if len(communs) > 6 else ""))
+    L.append("  Regarde ces MR avant de merger : git ne signalera un conflit que si les lignes se")
+    L.append("  chevauchent exactement, et la seconde mergée écrase le raisonnement de la première.")
+    return "\n".join(L)
+# <<< texte_collisions
+
+
+def _fichiers_de(repo, base, branche):
+    """Les fichiers que `branche` change par rapport à `base`. [] si on ne sait pas dire."""
+    r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", f"{base}...{branche}"],
+                       capture_output=True, text=True)
+    return [x.strip() for x in r.stdout.splitlines() if x.strip()] if r.returncode == 0 else []
+
+
+def avertir_collisions(repo, src, tgt, rm_id=None):
+    """Dit si d'autres branches de ticket non mergées touchent les mêmes fichiers. Jamais bloquant."""
+    try:
+        base = f"origin/{tgt}"
+        miens = _fichiers_de(repo, base, src)
+        if not miens:
+            return ""
+        r = subprocess.run(["git", "-C", str(repo), "branch", "-r", "--no-merged", base,
+                            "--format=%(refname:short)"], capture_output=True, text=True)
+        if r.returncode != 0:
+            return ""
+        autres = {}
+        for ref in r.stdout.splitlines():
+            ref = ref.strip()
+            nom = ref.split("origin/")[-1]
+            if not re.match(r"^\d+-", nom) or nom == src:
+                continue
+            if rm_id and nom.startswith(f"{rm_id}-"):      # mes propres branches, même ticket
+                continue
+            autres[nom] = _fichiers_de(repo, base, ref)
+        return texte_collisions(collisions(miens, autres))
+    except Exception:      # noqa: BLE001 — un avertissement ne fait JAMAIS échouer une livraison
+        return ""
+
+
 def cmd_create(args, forge, token):
     repo = args.repo
     check_no_ticket_args(args)
@@ -351,6 +434,12 @@ def cmd_create(args, forge, token):
     tgt = args.target or integration_branch(project.path)
     if src == tgt:
         sys.exit(f"ERREUR : branche courante == cible ({tgt}).")
+
+    # RM3157 : qui d'autre touche à ce que je touche ? C'est ICI que l'information existe (on connaît
+    # enfin les fichiers) et qu'elle sert encore (on n'a pas mergé).
+    mot = avertir_collisions(repo, src, tgt, rm_id=getattr(args, "rm_id", None))
+    if mot:
+        out.warn(mot)
 
     if not args.no_push:
         p = subprocess.run(["git", "-C", str(repo), "push", "-u", "origin", src],

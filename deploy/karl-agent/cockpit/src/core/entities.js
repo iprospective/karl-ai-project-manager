@@ -15,8 +15,17 @@ const avec = (tete, suite) => (suite ? tete + " — " + suite : tete);
 
 const DEFAULT = Object.freeze({
   icon: "•", label: "",
-  /** infobulle d'un onglet : (key, parts, lbl, resolu) → texte */
+  /** infobulle d'un ONGLET : (key, parts, lbl, resolu) → texte */
   tooltip: (key, parts, lbl) => lbl || key,
+  /** RM3164 — le SURVOL d'une mention (un « RM3164 » dans du texte, une pastille de projet…).
+   *  Distinct de `tooltip`, qui ne sert que les onglets : ici on part d'un identifiant et d'une
+   *  donnée résolue, et chaque type dit QUELS CHAMPS il montre. C'est la généralisation demandée
+   *  — le survol enrichi existait pour les tickets seuls, écrit en dur dans leur module.
+   *  (id, data) → texte ; `data` undefined = pas encore chargé, null = inconnu. */
+  hover: (id, data) => (data && data.title) ? String(data.title) : String(id),
+  /** Les champs que ce type montre au survol, dans l'ordre. Déclaratif : ajouter un champ ne
+   *  demande pas de toucher au moteur, et deux types ne divergent pas par accident. */
+  hoverFields: [],
   /** libellé court d'un onglet de vue : (parts, hint) → texte */
   tabLabel: (parts, hint) => String(hint || "vue"),
   errorTitle: "Contenu indisponible",
@@ -39,6 +48,37 @@ export function entityTypes() { return [...REG.keys()]; }
 export function iconOf(type) { return entity(type).icon; }
 export function surfaceTypes() { return entityTypes().filter(t => REG.get(t).surface); }
 export function panelTypes() { return entityTypes().filter(t => REG.get(t).panel); }
+/** RM3164 — le texte de survol d'une mention, monté depuis les CHAMPS déclarés par le type.
+ *
+ *  Trois états, et ils ne se disent pas pareil : `undefined` (pas encore chargé) ne doit jamais
+ *  se lire comme `null` (inconnu), sinon le survol annonce « inconnu » le temps d'une requête —
+ *  juste au moment où l'on regarde.
+ */
+export function hoverText(type, id, data) {
+  const e = entity(type);
+  if (data === undefined) return labelOf(type, id) + " — chargement…";
+  if (data === null || data.found === false) return labelOf(type, id) + " — inconnu en local";
+  if (e.hover !== DEFAULT.hover) return e.hover(id, data);
+  const tete = labelOf(type, id) + " — " + (data.title || "(sans titre)");
+  const bits = [];
+  for (const f of e.hoverFields) {
+    const v = typeof f.value === "function" ? f.value(data) : data[f.key];
+    if (v === null || v === undefined || v === "" || (f.skip && f.skip(v))) continue;
+    bits.push(f.label ? f.label + " " + v : String(v));
+  }
+  const lignes = [tete];
+  if (bits.length) lignes.push(bits.join(" · "));
+  const ou = e.hoverWhere ? e.hoverWhere(data) : "";
+  if (ou) lignes.push(ou);
+  return lignes.join("\n");
+}
+
+/** Le préfixe lisible d'un identifiant, par type : « RM3164 », « acme/site »… */
+export function labelOf(type, id) {
+  const e = entity(type);
+  return e.idPrefix ? e.idPrefix + id : String(id);
+}
+
 /** Infobulle d'un onglet (RM2775) : `parse` = parseViewKey ; `rcache` = résolutions indexées (store.view). */
 export function tooltipOf(tab, rcache, parse) {
   const t = tab || {}; if (!t.kind && !t.key && !t.label) return "";
@@ -51,9 +91,26 @@ export function tabLabelOf(kind, parts, hint) { return entity(kind).tabLabel(par
 // ── les types du cockpit ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 defineEntity("dash",      { icon: "📊", label: "tableau de bord", fixed: true, tooltip: () => "tableau de bord", open: (api) => api.openDashboard() });
 defineEntity("session",   { icon: "▶", label: "session", surface: true, restorable: false,
-  tooltip: (key, p, lbl, resolu) => avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key, resolu(key)), open: (api, t) => api.openSessionTab(t.key) });
-defineEntity("review",    { icon: "🧪", label: "ticket", surface: true, tooltip: (key, p, lbl, resolu) => avec("RM" + key, resolu(key)), open: (api, t) => api.surface("review", "open", t.key) });
-defineEntity("project",   { icon: "📁", label: "projet", surface: true, tooltip: (key) => avec("fiche projet", key), open: (api, t) => api.surface("project", "open", t.key) });
+  tooltip: (key, p, lbl, resolu) => avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key, resolu(key)),
+  hoverFields: [{ key: "state" }, { key: "engine" },
+                { key: "alive", value: (d) => (d.alive ? "vivante" : "éteinte") }],
+  hoverWhere: (d) => (d.client && d.project) ? d.client + "/" + d.project : "",
+  open: (api, t) => api.openSessionTab(t.key) });
+defineEntity("review",    { icon: "🧪", label: "ticket", surface: true, idPrefix: "RM",
+  tooltip: (key, p, lbl, resolu) => avec("RM" + key, resolu(key)),
+  // RM3164 : les champs du survol d'un ticket — repris tels quels de `briefs.js`, où ils étaient
+  // écrits en dur pour ce seul type. Déclarés ici, ils servent partout où un RM-id est mentionné.
+  hoverFields: [{ key: "status" },
+                { key: "completion_pct", value: (d) => (d.completion_pct == null ? "" : d.completion_pct + " %") },
+                { key: "type" },
+                { key: "priority", label: "priorité", skip: (v) => v === "normal" }],
+  hoverWhere: (d) => (d.client && d.project) ? d.client + "/" + d.project : (d.client || ""),
+  open: (api, t) => api.surface("review", "open", t.key) });
+defineEntity("project",   { icon: "📁", label: "projet", surface: true,
+  tooltip: (key) => avec("fiche projet", key),
+  hoverFields: [{ key: "open", label: "ouverts" }, { key: "total", label: "sur" },
+                { key: "repo" }],
+  open: (api, t) => api.surface("project", "open", t.key) });
 defineEntity("newticket", { icon: "＋", label: "nouveau ticket", surface: true, closeLast: true, tooltip: () => "nouveau ticket", open: (api) => api.surface("newticket", "open") });
 defineEntity("client",    { icon: "🏢", label: "client", tooltip: (key, p) => avec("fiche client", p[0] || key), open: (api, t, p) => api.openClient(p[0]) });
 defineEntity("contacts", { icon: "👤", label: "annuaire", tooltip: (key, p) => avec("annuaire", p[0] ? "« " + p[0] + " »" : ""), tabLabel: (p) => p[0] ? "👤 " + p[0] : "annuaire", open: (api, t, p) => api.openContacts(p[0]) });

@@ -8,7 +8,7 @@ onglets ne font que donner un ordre à ce qui s'empilait en une seule colonne.
 - **⚙ Instance** — les réglages du serveur (liste blanche) et la sonde mémoire : ce qui vaut pour tout le
   monde sur cette instance.
 - **🔌 Fournisseurs** — tickets, dépôts, documentation, coffres, modèles de travail.
-- **🧩 Moteurs** — moteurs de session et serveurs de modèles.
+- **🧩 Moteurs** — moteurs de session et serveurs de modèles ; installation, et options de lancement.
 - **🎨 Affichage** — thème, colonne de droite, préférences de sessions, voix. Tout y est local à ce
   navigateur.
 - **👤 Compte** — connexion et comptes. L'onglet n'apparaît pas tant qu'il n'a rien à montrer.
@@ -192,3 +192,28 @@ une question ouverte (RM3070).
 
 **Une mise à jour est refusée tant que des sessions tournent** sur ce moteur : les couper d'abord, ou forcer
 en connaissance de cause. Le bouton « tester » vérifie simplement que l'outil répond.
+
+### Lancement : ce que PM ajoute à la ligne de commande
+
+Installer un moteur est une chose, le **lancer** en est une autre. La section **Lancement** de la même
+carte règle la seconde : pour chaque moteur, les options que PM ajoutera quand il ouvrira une session.
+
+- **Les cases à cocher** sont déclarées par le moteur, avec leur raison d'être en infobulle. Pour Claude
+  Code : *désactiver les connecteurs MCP* (`--strict-mcp-config`), **cochée par défaut** — les serveurs MCP
+  du compte injectent leurs noms d'outils et leurs instructions dans chaque session (8 179 tokens mesurés),
+  payés au démarrage puis relus à chaque appel d'outil, pour des connecteurs qu'une session PM n'utilise pas.
+- **Le champ « options libres »** prend ce que le catalogue ne prévoit pas, écrit comme au terminal.
+- **La commande affichée** est celle qui sera réellement lancée — spawn et reprise. Elle vient du serveur,
+  pas du navigateur : elle décrit l'état **enregistré**, pas le brouillon en cours.
+
+**Ce qui est refusé l'est au réglage, pas au lancement.** Un drapeau que PM pose lui-même (`--session-id`,
+`--resume`, `--model`), une option inconnue du catalogue, un doublon, des guillemets non fermés : le
+message arrive quand vous enregistrez. C'est voulu — une option invalide ne fait pas échouer bruyamment le
+moteur, elle le fait sortir aussitôt, et l'on ne voit qu'une session morte-née sans raison lisible
+(incident RM2951).
+
+Ce qui est coché s'écrit dans `pm.config.local.yml`, la surcharge de cette instance — jamais dans le
+`pm.config.yml` de référence, qui est commenté, versionné et lu par des humains. Une option laissée à sa
+valeur par défaut n'y est pas consignée : le jour où ce défaut change, parce qu'on a compris quelque chose,
+l'instance suit au lieu de rester figée sur l'état du jour où elle a été réglée.
+

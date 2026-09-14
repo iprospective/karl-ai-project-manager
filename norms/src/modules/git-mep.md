@@ -237,3 +237,35 @@ pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Ac
 
 Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
 tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**
+
+### Audit hebdomadaire des environnements (RM3163)
+
+**Pourquoi.** Le 2026-09-14, sur calyclay/calymix, sept commits poussés sur la branche RM2264
+**après** le merge de sa MR, et un document de RM1937 (juillet), n'avaient jamais atteint `master`.
+Personne ne l'a vu pendant un mois : les branches suivantes sont parties sans, une correction
+validée par le demandeur est « revenue », et des documents périmés ont dû être repris à la main,
+puis rendus cohérents avec ce qui avait été écrit entre-temps. Le teardown par ticket et le GC
+sont événementiels ; rien ne faisait de point d'ensemble. **Décision Mathieu : un audit
+hebdomadaire, outillé, avec historique des contrôles.**
+
+**La règle.**
+- **Chaque semaine** (début de semaine), et **à la reprise d'un projet resté > 7 jours sans
+  session**, lancer `pm-env-audit --fetch` sur **l'ensemble des workspaces** (`--workspace
+  client/projet` pour un seul). `pm-env-audit --last` répond « de quand date le dernier ? » :
+  au-delà de 7 jours, on relance avant de reprendre du code.
+- L'audit **enregistre** chaque contrôle dans `var/env-audit/history.jsonl` (date, périmètre,
+  anomalies par type et gravité) : c'est l'historique des checks, la preuve qu'il a eu lieu.
+- Ce qu'il signale : **BRANCHE** (commits absents *par contenu* de l'intégration — `git cherry`,
+  un cherry-pick compte comme intégré), gravité selon le ticket : fermé / en MEP → ÉLEVÉE
+  (le cas RM2264), sans MR → moyenne, MR renseignée → info ; **SALE** (fichiers non commités,
+  âge du plus ancien, alerte > 7 j) ; **RETARD** (intégration locale derrière le remote) ;
+  **STASH** oubliés ; **FERMÉ** (worktree de ticket fermé → `pm-env-gc`) ; **REMOTE** (fetch
+  impossible).
+- **Traitement** : une anomalie ÉLEVÉE se traite **avant** de reprendre le projet — ouvrir la MR
+  manquante, reprendre les commits (cherry-pick sur la branche courante, en **relisant** ce que
+  d'autres ont écrit depuis : le contenu ancien peut contredire le CDC à jour), ou retirer ce qui
+  est obsolète ; on note ce qu'on a fait dans le ticket concerné. Une anomalie moyenne se
+  traite dans la semaine ; une info se lit.
+- **Corollaire du tripwire #3** : un commit poussé sur une branche de ticket **après** le merge
+  de sa MR est orphelin tant qu'une nouvelle MR ne le porte pas → MR dans la foulée, ou pas de
+  push. L'audit est le filet, pas la règle.

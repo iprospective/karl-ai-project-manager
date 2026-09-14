@@ -1,5 +1,24 @@
 # Changelog des normes
 
+## [2.49.0] - 2026-09-14
+
+### Ajouté
+- **`git-mep` § « Audit hebdomadaire des environnements »** + déclencheur KERNEL « début de
+  semaine / reprise après > 7 jours » → `pm-env-audit --fetch` (RM3163). Incident fondateur du
+  2026-09-14 (calyclay/calymix) : 7 commits poussés sur la branche RM2264 **après** le merge de sa
+  MR, et un document de RM1937 (juillet), jamais fusionnés dans `master` — un mois sans que
+  personne ne le voie, branches suivantes parties sans, correction validée « revenue », docs
+  périmés repris à la main. Le nouvel outil fait un point sur **tous** les workspaces (branches
+  avec commits absents *par contenu* de l'intégration, gravité selon l'état du ticket ; fichiers
+  non commités anciens ; intégration en retard ; stash ; worktrees de tickets fermés ; fetch
+  impossible) et **consigne chaque contrôle** dans `var/env-audit/history.jsonl` (`--last` = de
+  quand date le dernier). Décision Mathieu : « lancer le script de vérif sur l'ensemble des envs
+  chaque semaine ».
+
+### Modifié
+- **Tripwire #3** : phrase ajoutée — une MR mergée clôt sa branche pour le contenu ; tout commit
+  poussé ensuite sur la branche de ticket est orphelin tant qu'une nouvelle MR ne le porte pas.
+
 ## [2.48.0] - 2026-09-14
 
 ### Modifié

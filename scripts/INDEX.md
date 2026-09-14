@@ -78,6 +78,7 @@
 
 ### Environnements
 
+- `pm-env-audit` — audit hebdomadaire de TOUS les environnements
 - `pm-env-deploy` — déployer la branche d'un ticket dans un env PARTAGÉ du projet
 - `pm-env-expose` — expose un env de test via un hostname normalisé
 - `pm-env-gc` — GC des worktrees & branches locales des tickets fermés

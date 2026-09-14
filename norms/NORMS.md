@@ -1,10 +1,10 @@
 ---
-schema_version: "2.48.0"
+schema_version: "2.49.0"
 updated: 2026-09-14
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 <<<<<<< HEAD
-# Normes de gestion des tâches — v2.48.0
+# Normes de gestion des tâches — v2.49.0
 =======
 # Normes de gestion des tâches — v2.42.0
 >>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
@@ -35,6 +35,7 @@ updated: 2026-09-14
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
+| **début de semaine**, ou reprise d'un projet après > 7 jours : l'audit des envs date de quand ? | `modules/git-mep.md` § « Audit hebdomadaire des environnements » (RM3163) | `pm-env-audit --fetch` (`--last` = date du dernier) |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
@@ -90,7 +91,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
-3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé).
+3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé). **Une MR mergée clôt sa branche pour le contenu** : tout commit poussé sur une branche de ticket **après** le merge de sa MR est **orphelin** tant qu'une nouvelle MR ne le porte pas — MR dans la foulée, ou pas de push (incident RM2264 : 7 commits oubliés un mois ; l'audit hebdomadaire `pm-env-audit` les traque, RM3163).
    **Exception — dépôts de DONNÉES PM (`*-core`), RM2440 :** un dépôt portant un `.mmi-pm/` ou `.mmi-pm-client/` **réel** à sa racine (*symlink* = workspace de code, **pas** un core) n'a ni code ni revue possible — l'historique git **est** l'audit. Sa branche de prod accepte le **push direct** (`push=Developer`) : les scripts pm-* y écrivent sans branche ni MR. Pas un contournement : `allow_force_push=false` reste posé, l'historique ne peut que **croître**. **Et on n'en parle pas** : cette plomberie est muette en restitution → tripwire #15. → `modules/git-mep.md`
 4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
@@ -3081,6 +3082,38 @@ pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Ac
 
 Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
 tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**
+
+### Audit hebdomadaire des environnements (RM3163)
+
+**Pourquoi.** Le 2026-09-14, sur calyclay/calymix, sept commits poussés sur la branche RM2264
+**après** le merge de sa MR, et un document de RM1937 (juillet), n'avaient jamais atteint `master`.
+Personne ne l'a vu pendant un mois : les branches suivantes sont parties sans, une correction
+validée par le demandeur est « revenue », et des documents périmés ont dû être repris à la main,
+puis rendus cohérents avec ce qui avait été écrit entre-temps. Le teardown par ticket et le GC
+sont événementiels ; rien ne faisait de point d'ensemble. **Décision Mathieu : un audit
+hebdomadaire, outillé, avec historique des contrôles.**
+
+**La règle.**
+- **Chaque semaine** (début de semaine), et **à la reprise d'un projet resté > 7 jours sans
+  session**, lancer `pm-env-audit --fetch` sur **l'ensemble des workspaces** (`--workspace
+  client/projet` pour un seul). `pm-env-audit --last` répond « de quand date le dernier ? » :
+  au-delà de 7 jours, on relance avant de reprendre du code.
+- L'audit **enregistre** chaque contrôle dans `var/env-audit/history.jsonl` (date, périmètre,
+  anomalies par type et gravité) : c'est l'historique des checks, la preuve qu'il a eu lieu.
+- Ce qu'il signale : **BRANCHE** (commits absents *par contenu* de l'intégration — `git cherry`,
+  un cherry-pick compte comme intégré), gravité selon le ticket : fermé / en MEP → ÉLEVÉE
+  (le cas RM2264), sans MR → moyenne, MR renseignée → info ; **SALE** (fichiers non commités,
+  âge du plus ancien, alerte > 7 j) ; **RETARD** (intégration locale derrière le remote) ;
+  **STASH** oubliés ; **FERMÉ** (worktree de ticket fermé → `pm-env-gc`) ; **REMOTE** (fetch
+  impossible).
+- **Traitement** : une anomalie ÉLEVÉE se traite **avant** de reprendre le projet — ouvrir la MR
+  manquante, reprendre les commits (cherry-pick sur la branche courante, en **relisant** ce que
+  d'autres ont écrit depuis : le contenu ancien peut contredire le CDC à jour), ou retirer ce qui
+  est obsolète ; on note ce qu'on a fait dans le ticket concerné. Une anomalie moyenne se
+  traite dans la semaine ; une info se lit.
+- **Corollaire du tripwire #3** : un commit poussé sur une branche de ticket **après** le merge
+  de sa MR est orphelin tant qu'une nouvelle MR ne le porte pas → MR dans la foulée, ou pas de
+  push. L'audit est le filet, pas la règle.
 > 📂 **Module `git-mep-pratique` — quand lire ceci :** je prépare une MEP · je bute sur le transport git (SSH/token, submodules) · l'API GitLab répond de travers · ticket d'interface · projet versionné · une base de dev partagée me surprend.
 > **Outils :** `pm-mr`, `pm-promote`, `glab` · **Préchargé par :** *(personne — ouvert à la demande)*.
 

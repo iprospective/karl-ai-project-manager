@@ -36,6 +36,7 @@ Le moteur est injectable pour les tests : `PM_CLASSIFY_CMD` reçoit le prompt su
 import argparse
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -95,11 +96,27 @@ Les tours "rien" peuvent être omis."""
 # tout le reste devenait une note, et la question posée ce jour-là a fini en note.
 #
 # En cas de doute : note. Une note mal classée se trie ; une question perdue ne se retrouve pas.
-_ORDRE = re.compile(r"^\s*(fais|fait|ajoute|cr[ée]e|corrige|livre|merge|pousse|lance|refais|relance|"
-                    r"mets?|met |applique|supprime|renomme|d[ée]place|continue|reprends?|go\b|ok\b|"
-                    r"consigne|note |ticket|traite|termine|finis)", re.I)
+# RM3141 : la liste des verbes n'est pas décorative — un verbe absent fait passer une DEMANDE pour
+# une question, et une question ouverte bloque la clôture d'un ticket. « ferme » manquait, et c'est
+# l'ordre le plus fréquent de fin de séance : six captures accidentelles en une seule journée.
+_ORDRE = re.compile(r"^\s*(?:[-*•]\s*)?(fais|fait|ajoute|cr[ée]e|corrige|livre|merge|pousse|lance|"
+                    r"refais|relance|mets?|met |applique|supprime|renomme|d[ée]place|continue|"
+                    r"reprends?|go\b|ok\b|consigne|note |ticket|traite|termine|finis|ferme|"
+                    r"encha[îi]ne|v[ée]rifie|regarde|[ée]tudie|avance|requalifie|teste|d[ée]ploie|"
+                    r"promeus|analyse|pr[ée]pare|passe|rends?|garde|laisse|arr[êe]te|stoppe|"
+                    r"compacte|bascule|migre|renseigne|remplace|all[ée]ge|s[ée]pare)", re.I)
+#: RM3141 : un résumé de compaction est un ARTEFACT de session, jamais une parole du demandeur.
+#: Il en est arrivé un entier dans les questions ouvertes d'un ticket (RM1923).
+_ARTEFACT = re.compile(r"(This session is being continued|Summary:|<command-name>|"
+                       r"system-reminder|Analysis:\s*$)", re.I | re.M)
+# RM3141 : les six questions RÉELLES que l'audit signalait à tort — elles se posent sans « ? » et
+# sans marque interrogative de la première liste. Une question qui n'a pas la bonne forme reste une
+# question ; c'est l'arbitrage qui manque, pas la ponctuation.
 _INTERRO = re.compile(r"(?:^|[\s(])(est-ce que|pourquoi|comment|combien|qui |quoi|quel(?:le|s|les)?\b|"
-                      r"faut-il|peut-on|doit-on|serait-il|y a-t-il|à quoi|dans quel)", re.I)
+                      r"faut-il|peut-on|doit-on|serait-il|y a-t-il|à quoi|dans quel|"
+                      r"que fait-on|on fait quoi|lequel|laquelle|lesquel(?:le)?s|"
+                      r"l'id[ée]al (?:c'est|serait)|vaut-il mieux|ou bien\b|"
+                      r"reste[- ]t[- ]il|tenable\b|à trancher|à arbitrer)", re.I)
 
 
 def type_heuristique(role: str, texte: str) -> str:
@@ -108,10 +125,22 @@ def type_heuristique(role: str, texte: str) -> str:
     Une question est reconnue à deux marques conjointes : une forme interrogative et l'absence
     d'ordre en tête. « fais-moi X, tu en penses quoi ? » est un ordre : il appelle une action, pas
     un arbitrage — c'est la distinction demande / question de RM3015-C008."""
-    txt = " ".join(str(texte or "").split())
+    brut = str(texte or "")
+    txt = " ".join(brut.split())
     if role != "M" or not txt:
         return "dette"
-    if _ORDRE.match(txt):
+    if _ARTEFACT.search(brut):
+        return "dette"
+    # RM3141 : l'ordre se cherche en tête de CHAQUE ligne, pas du seul message. Une séance se donne
+    # souvent en liste — « * core update fait. * ferme ce qui est en prod. * go 3140 » — et la tête
+    # du message n'y est alors pas un ordre, alors que tout le reste en est. Le « ? » d'une ligne
+    # suffisait alors à faire classer l'ENSEMBLE comme une question, qui bloquait ensuite une clôture.
+    lignes = [l for l in brut.splitlines() if l.strip()]
+    if any(_ORDRE.match(l) for l in (lignes or [txt])):
+        return "dette"
+    # Plusieurs demandes dans un même message : ce n'est pas UNE question. En cas de doute, note —
+    # une note mal classée se trie, une question perdue ne se retrouve pas (règle ci-dessus).
+    if len(lignes) > 2:
         return "dette"
     interro = txt.rstrip().endswith("?") or bool(_INTERRO.search(txt))
     return "question" if interro else "dette"
@@ -348,8 +377,68 @@ def passe(tp: Path, rm_id, a) -> dict:
             "cout_usd": round(cout, 4), "items": retenus}
 
 
+_Q_LIGNE = re.compile(r"^\|\s*(Q\d{3})\s*\|\s*(.*?)\s*\|[^|]*\|[^|]*\|\s*(\S+)\s*\|\s*$")
+
+
+def audit_questions(racine=None) -> list:
+    """RM3141 — les questions OUVERTES qui n'en sont pas, d'après le critère courant.
+
+    Six captures accidentelles en une journée ont bloqué autant de clôtures : un message de séance,
+    un résumé de compaction, une liste de consignes. Corriger le critère empêche les suivantes ; il
+    reste à voir celles qui dorment déjà dans les fiches. Cet audit LIT et signale — il ne réécrit
+    rien : une question mal classée se tranche à la main, avec sa réponse, pas par un script."""
+    base = pathlib.Path(racine) if racine else None
+    if base is None:
+        try:
+            from pm_paths import PMConfig
+            base = pathlib.Path(PMConfig.load().projects_root)
+        except Exception:      # noqa: BLE001
+            # Depuis un worktree de dev, la config PM ne se charge pas : le `.mmi-pm` du repo courant
+            # est alors la bonne racine. Sans ce repli, l'audit rendait « 0 suspecte » — un zéro faux
+            # est pire qu'une erreur, parce qu'on le croit.
+            local = None
+            for cand in [pathlib.Path(__file__).resolve().parent.parent] + list(
+                    pathlib.Path(__file__).resolve().parents):
+                if (cand / ".mmi-pm").exists():
+                    local = cand / ".mmi-pm"
+                    break
+                if (cand / "projects" / "clients").is_dir():
+                    local = cand / "projects"
+                    break
+            if local is None:
+                return []
+            base = local
+    out = []
+    for f in sorted(base.rglob("*.think.md")):
+        try:
+            lignes = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for l in lignes:
+            m = _Q_LIGNE.match(l)
+            if not m or "🕐" not in m.group(3):
+                continue
+            qid, texte = m.group(1), m.group(2)
+            if type_heuristique("M", texte) == "question":
+                continue
+            # Le MOTIF, parce qu'ils n'ont pas la même force : un artefact de session ou un ordre
+            # reconnu est une capture certaine ; « plusieurs lignes » est un doute, et une vraie
+            # question longue existe. Un audit qui crierait au loup ne serait pas relu.
+            brut = texte
+            motif = ("artefact de session" if _ARTEFACT.search(brut)
+                     else "commence par un ordre" if _ORDRE.match(brut)
+                     else "plusieurs demandes" if len([l for l in brut.splitlines() if l.strip()]) > 2
+                     else "rien d'interrogatif")
+            out.append({"fiche": f.name, "id": qid, "texte": texte[:160],
+                        "taille": len(texte), "motif": motif,
+                        "certain": motif in ("artefact de session", "commence par un ordre")})
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--audit-questions", action="store_true",
+                    help="RM3141 : lister les questions ouvertes que le critère courant ne tiendrait PAS pour des questions")
     ap.add_argument("--transcript"); ap.add_argument("--session"); ap.add_argument("--rm", type=int)
     ap.add_argument("--all", action="store_true"); ap.add_argument("--since"); ap.add_argument("--limit", type=int)
     ap.add_argument("--apply", action="store_true"); ap.add_argument("--model", default=MODEL)
@@ -359,6 +448,21 @@ def main():
                              else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+
+    if a.audit_questions:
+        susp = audit_questions()
+        if a.json:
+            print(json.dumps({"suspectes": susp, "total": len(susp)}, ensure_ascii=False, indent=1))
+            return 0
+        for x in susp:
+            print(f"  {'✗' if x['certain'] else '?'} {x['fiche'].split('_')[0]:<8} {x['id']}  "
+                  f"{x['motif']:<22} {x['texte'][:70]}")
+        certains = sum(1 for x in susp if x["certain"])
+        print(f"\n  {len(susp)} question(s) ouverte(s) à revoir — dont {certains} capture(s) certaine(s) (✗)."
+              + ("\n  Chacune se tranche à la main : `mmi-pm task-think <rm> --set <id> --state invalide --note \"…\"`."
+                 if susp else ""))
+        return 0
+
     if not (os.environ.get("LLM_BASE_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY")
             or os.environ.get("ANTHROPIC_API_KEY") or "--engine" in sys.argv):
         eng, mod = moteur_du_registre()            # RM3067 : le modèle de travail vient du registre des providers

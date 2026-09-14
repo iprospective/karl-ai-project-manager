@@ -13,6 +13,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une consigne de séance n'est plus prise pour une question** (RM3141) : le critère qui sépare la
+  DEMANDE de la QUESTION ignorait le verbe « ferme » — le plus fréquent en fin de séance — et ne
+  regardait que la tête du message, alors qu'une séance se donne souvent en liste à puces. Un « ? »
+  perdu dans une ligne suffisait alors à faire classer l'ensemble comme question ouverte, ce qui
+  **bloque la clôture d'un ticket**. Six captures en une seule journée, dont un résumé de compaction
+  entier. Le critère cherche désormais l'ordre en tête de chaque ligne, connaît vingt verbes de plus,
+  écarte les artefacts de session, et tient un message à plusieurs demandes pour une note. Dans
+  l'autre sens, il reconnaît les questions qui se posent sans point d'interrogation (« que fait-on
+  de… », « est-il encore tenable ») : une question qui n'a pas la bonne forme reste une question.
+  `mmi-pm think-classify --audit-questions` retrouve celles qui dorment déjà dans les fiches, avec
+  le motif — une capture certaine ne se confond pas avec un doute. Treize captures anciennes
+  nettoyées, dont deux qui portaient une vraie demande : celle-là a été préservée en note, verbatim.
+
 - **Un module peut servir sa propre API** (RM3145, lot 4) : il déclare ses routes dans `routes/*.yml`,
   et le noyau les monte sous `/api/modules/<nom>/…`. Jusqu'ici, ajouter une route demandait d'éditer le
   dispatch d'un fichier de 13 000 lignes — c'est-à-dire de **modifier le noyau pour ajouter une

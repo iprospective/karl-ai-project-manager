@@ -78,6 +78,24 @@ export function TicketConso(c) {
     ? html`${kv("↳ entrée", c.breakdown.input)}${kv("↳ sortie", c.breakdown.output)}<div class="kv"><span class="k" style="${muted}">cache lu / écrit</span><span class="v" style="${muted}" title="information complémentaire, hors total">${c.breakdown.cache}</span></div>` : ""}${kv("coût", c.cost)}${kv("temps IA", c.ai)}${kv("temps humain", c.human)}${kv("dernière activité", c.updated)}</div>`;
 }
 
+/** RM3164 — ce que le ticket a touché : les fichiers, agrégés sur sa branche.
+ *
+ *  Pas une seconde vue git : RM2602 donne déjà les commits un par un. Ici on répond à la
+ *  question inverse, celle qu'on se pose en reprenant un ticket froid — « qu'est-ce que ça a
+ *  remué ? » — qu'aucune vue de commits ne dit sans les lire toutes.
+ */
+export function TicketImpact(im, rm) {
+  if (im.kind === "none") return html`<div class="ms" style="${muted}">impact non chargé.</div>`;
+  if (im.kind === "loading") return html`<div class="ms"><h4>Impact</h4><span style="${muted}">…</span></div>`;
+  if (im.kind === "error") return html`<div class="ms"><h4>Impact</h4><span style="${muted}">indisponible</span></div>`;
+  if (im.kind === "nogit") return html`<div class="ms"><h4>Impact</h4><span style="${muted}">pas un dépôt git</span></div>`;
+  if (im.kind === "pmdata") return html`<div class="ms"><h4>Impact</h4><span style="${muted}">dépôt de DONNÉES PM — ses commits sont des auto-commits, les lister ferait passer du bruit pour du travail.</span></div>`;
+  const tete = html`<h4>Impact <span style="text-transform:none;${muted}">(${im.commits} commit(s)${im.base ? " depuis " + im.base : ""})</span></h4>`;
+  if (im.kind === "empty") return html`<div class="ms">${tete}<span style="${muted}">aucun fichier touché sur cette branche.</span></div>`;
+  return html`<div class="ms">${tete}${im.files.map(f => html`<div class="kv"><span class="k" title="${f.path}">${f.path}</span><span class="v">${f.n}</span></div>`)}${im.total > im.files.length
+    ? html`<div style="${muted};font-size:11px">… ${im.total - im.files.length} autre(s) fichier(s)</div>` : ""}</div>`;
+}
+
 export function TicketWorkspace(w, rm) {
   const refresh = html`<span class="pill" data-action="refresh-ws" data-rm="${rm}">↻</span>`;
   return html`<div class="ms"><h4>Workspace <span style="text-transform:none;${muted}">(git · intérim RM1883)</span></h4>${w.kind === "loading" ? html`<span style="${muted}">…</span> ${refresh}`
@@ -108,6 +126,7 @@ export function TicketsPane(vm, deps) {
     : k === "desc" ? TicketDesc(vm.desc(), deps)
     : k === "log" ? html`<div class="facetfull">${TicketLog(vm.log(), deps)}</div>`
     : k === "conso" ? TicketConso(vm.conso())
+    : k === "impact" ? TicketImpact(vm.impact(), sel)
     : k === "workspace" ? TicketWorkspace(vm.workspace(), sel)
     : TicketDetail(vm, deps)}`;
 }

@@ -19,7 +19,7 @@ const { settle, fakeElement, JOURNAL, S, U, R } = require("./test_cockpit_meta.h
   assert.deepEqual(M.logEntries(""), []); assert.deepEqual(M.logEntries(null), []); assert.strictEqual(M.logEntries("juste du texte\nsans en-tête").length, 1); assert.strictEqual(M.logEntries("## titre sans horodatage")[0].title, "titre sans horodatage"); assert.strictEqual(M.logEntries("## titre sans horodatage")[0].ts, "");
   for (const v of ["null", "~", "None", null]) assert.strictEqual(M.cval(v), ""); assert.strictEqual(M.cval("  x  "), "x");
   assert.strictEqual(M.fmtTokens(1234567), "1.2 M"); assert.strictEqual(M.fmtTokens(1500), "2 k"); assert.strictEqual(M.fmtTokens(null), "—"); assert.strictEqual(M.fmtMin(75), "1 h 15"); assert.strictEqual(M.fmtMin(9), "9 min"); assert.strictEqual(M.tmuxName("42"), "karl-RM42"); assert.strictEqual(M.tmuxName("slug"), "karl-slug");
-  assert.strictEqual(M.facetOf("conso"), "conso"); assert.strictEqual(M.facetOf("zzz"), "detail"); assert.deepStrictEqual(M.FACETS.map(f => f[0]), ["detail", "desc", "log", "conso", "workspace"]);
+  assert.strictEqual(M.facetOf("conso"), "conso"); assert.strictEqual(M.facetOf("zzz"), "detail"); assert.deepStrictEqual(M.FACETS.map(f => f[0]), ["detail", "desc", "log", "conso", "impact", "workspace"]);
   console.log("✓ modèle (RM2673/2797/2714) : tickets d'une session sans doublon, journal découpé, valeurs YAML nulles filtrées");
 
   const A = await import(path.join(DIR, "src/core/api.js")); let calls = []; const realFetch = globalThis.fetch;

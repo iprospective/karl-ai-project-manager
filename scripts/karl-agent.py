@@ -7885,6 +7885,62 @@ def _unpushed_shas(cwd, limit):
     return set(raw.split()) if rc == 0 else set()
 
 
+_SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def op_ticket_impact(rm_id: str, qs: dict) -> dict:
+    """RM3164 — ce que ce ticket a TOUCHÉ : fichiers et dépôt, agrégés.
+
+    Pas une seconde vue git : RM2602 donne déjà `log`, `show` et `diff`, c'est-à-dire les
+    commits un par un. Ce qu'on cherche en reprenant un ticket froid ou en préparant une revue,
+    c'est l'inverse — « quels fichiers ce ticket a-t-il remués », qu'aucune de ces vues ne dit
+    sans les lire toutes.
+
+    Compté sur la branche du ticket, par rapport à sa base d'intégration : le reste de l'histoire
+    du dépôt n'est pas son impact.
+    """
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    cwd, origine = _ticket_repo(rm_id)
+    vide = {"rm_id": rm_id, "cwd": str(cwd), "origin": origine, "is_git": False,
+            "files": [], "commits": 0, "base": ""}
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return vide
+    if _is_pm_data_repo(cwd):
+        # Même raison que le log : un dépôt de données n'a que des auto-commits, les lister
+        # ferait passer du bruit pour du travail.
+        return dict(vide, is_git=True, pm_data_repo=True)
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    branch = (branch or "").strip()
+    base = ""
+    for cand in ("origin/dev", "origin/main", "origin/master"):
+        if _git(cwd, "rev-parse", "--verify", "--quiet", cand)[0] == 0:
+            rc, mb, _ = _git(cwd, "merge-base", cand, "HEAD")
+            if rc == 0 and mb.strip():
+                base = cand
+                break
+    plage = f"{base}...HEAD" if base else "-30"
+    rc, raw, err = _git(cwd, "log", "--name-only", "--format=%H", plage, timeout=20)
+    if rc != 0:
+        return dict(vide, is_git=True, error=err[:200])
+    # Lecture ligne à ligne : découper sur les lignes vides comptait le SHA du commit SUIVANT
+    # comme un fichier dès qu'un commit n'en touchait aucun (un merge, typiquement).
+    fichiers, commits = {}, 0
+    for ligne in raw.splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if _SHA40_RE.match(ligne):
+            commits += 1
+            continue
+        fichiers[ligne] = fichiers.get(ligne, 0) + 1
+    top = sorted(fichiers.items(), key=lambda kv: (-kv[1], kv[0]))[:int(qs.get("limit") or 40)]
+    return {"rm_id": rm_id, "cwd": str(cwd), "origin": origine, "is_git": True,
+            "pm_data_repo": False, "branch": branch, "base": base, "commits": commits,
+            "files": [{"path": f, "n": n} for f, n in top], "total_files": len(fichiers)}
+
+
 def op_git_log(rm_id: str, qs: dict) -> dict:
     """RM2602 : commits de la branche du ticket, poussés ou non."""
     if not _RM_ID_RE.match(rm_id):
@@ -13208,6 +13264,9 @@ class Handler(BaseHTTPRequestHandler):
                 g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_conf(g.get("scope", ""), g.get("client", ""),
                                                     g.get("project")))
+            if path.startswith("/ticket-impact/"):   # RM3164 : fichiers touchés par le ticket
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_ticket_impact(path[len("/ticket-impact/"):], qs))
             if path.startswith("/git/log/"):        # RM2602 : lecture seule
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))

@@ -213,6 +213,30 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
           mk({ 1: undefined, 2: undefined, 3: undefined }, undefined, "").ticketProjects.length === 0);
   }
 
+  // ── RM3164 : l'onglet « impact »
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const im = (v) => { const o = Object.create(MM.TicketMetaViewModel.prototype); o.e = { imp: v };
+                        return o.impact.call(o); };
+    check("trois états distincts, comme pour les sessions",
+          im(undefined).kind === "none" && im(null).kind === "loading" && im({ error: true }).kind === "error");
+    const ok = im({ is_git: true, commits: 3, base: "origin/dev", total_files: 9,
+                    files: [{ path: "a.js", n: 2 }, { path: "b.js", n: 1 }] });
+    const h = String(MV.TicketImpact(ok, "1"));
+    check("les fichiers touchés sont listés avec leur compte", /a\.js/.test(h) && />2</.test(h));
+    check("l'entête dit sur QUOI c'est compté (commits et base)",
+          /3 commit\(s\)/.test(h) && /depuis origin\/dev/.test(h));
+    check("le reste est annoncé plutôt que tu", /7 autre\(s\) fichier/.test(h));
+    check("un dépôt de DONNÉES PM est refusé explicitement — ses auto-commits ne sont pas du travail",
+          im({ pm_data_repo: true, is_git: true }).kind === "pmdata" &&
+          /bruit pour du travail/.test(String(MV.TicketImpact(im({ pm_data_repo: true, is_git: true }), "1"))));
+    check("hors dépôt git, le dire", im({ is_git: false }).kind === "nogit");
+    check("branche sans fichier touché → le dire, pas un vide",
+          /aucun fichier touché/.test(String(MV.TicketImpact(im({ is_git: true, files: [], commits: 1 }), "1"))));
+    check("aucun onclick", !/onclick=/.test(h));
+  }
+
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);
 })();

@@ -190,6 +190,19 @@ export class TicketMetaViewModel extends EntityViewModel {
     return { kind: rows.length ? "ok" : "empty", rows, candidates: (d.candidates || []).length };
   }
 
+  /** RM3164 — l'impact du ticket : fichiers touchés, agrégés. Mêmes trois états que les
+   *  sessions : « pas demandé », « en vol » et « inconnu » ne se disent pas pareil. */
+  impact() {
+    const d = this.e.imp;
+    if (d === undefined || d === null) return { kind: d === null ? "loading" : "none" };
+    if (d.error) return { kind: "error" };
+    if (d.pm_data_repo) return { kind: "pmdata" };
+    if (!d.is_git) return { kind: "nogit" };
+    return { kind: (d.files || []).length ? "ok" : "empty", files: d.files || [],
+             commits: d.commits || 0, base: d.base || "", branch: d.branch || "",
+             total: d.total_files || 0 };
+  }
+
   workspace() {
     const ws = this.e.ws;
     if (ws === undefined) return { kind: "loading" };

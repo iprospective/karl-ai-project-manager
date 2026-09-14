@@ -68,6 +68,7 @@ export const ROUTES = {
   "pm.engine_options": { current: "/engines/options", target: "/api/pm/engine-options", lot: "L5", callers: 2 },
   "pm.engines": { current: "/pm/engines", target: "/api/pm/engines", lot: "L5", callers: 1 },
   "pm.llm_models": { current: "/pm/llm-models", target: "/api/pm/llm-models", lot: "L5", callers: 1 },
+  "pm.modules": { current: "/modules", target: "/api/pm/modules", lot: "L5", callers: 1 },
   "pm.provider_assign": { current: "/pm/provider-assign", target: "/api/pm/provider-assign", lot: "L5", callers: 1 },
   "pm.provider_secret": { current: "/pm/provider-secret", target: "/api/pm/provider-secret", lot: "L5", callers: 1 },
   "pm.provider_types": { current: "/pm/provider-types", target: "/api/pm/provider-types", lot: "L5", callers: 1 },
@@ -121,6 +122,7 @@ export const ROUTES = {
   "test_queue.ticket_sessions": { current: "/ticket-sessions", target: "/api/test-queue/ticket-sessions", lot: "L3", callers: 1 },
   "test_queue.ticket_transitions": { current: "/ticket-transitions", target: "/api/test-queue/ticket-transitions", lot: "L3", callers: 1 },
   "ticket.brief": { current: "/tickets/brief", target: "/api/ticket/brief", lot: "L3", callers: 1 },
+  "ticket.impact": { current: "/ticket-impact", target: "/api/ticket/impact", lot: "L3", callers: 1 },
   "ticket.mergecheck": { current: "/mergecheck", target: "/api/ticket/mergecheck", lot: "L3", callers: 1 },
   "ticket.resolve": { current: "/resolve", target: "/api/ticket/resolve", lot: "L3,L5", callers: 2 },
   "ticket.tickets": { current: "/tickets", target: "/api/ticket/tickets", lot: "L2,L3", callers: 2 },
@@ -135,7 +137,6 @@ export const ROUTES = {
   "worklog.mr.batch": { current: "/mr/batch", target: "/api/worklog/mr/batch", lot: "L3", callers: 2 },
   "worklog.mr.merge": { current: "/mr/merge", target: "/api/worklog/mr/merge", lot: "L3", callers: 1 },
   "worklog.request": { current: "/worklog/request", target: "/api/worklog/request", lot: "L3", callers: 1 },
-  "modules.list": { current: "/modules", target: "/api/pm/modules", lot: "L5", callers: 1 },
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },
 };
 

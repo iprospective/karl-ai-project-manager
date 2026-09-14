@@ -65,7 +65,8 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     // elles s'affichent. Les charger à chaque rendu de n'importe quel onglet serait une requête
     // par frappe pour une information qu'on ne regarde pas.
     const ts = (sel && probe.facet === "detail") ? svc.ticketSessions(sel, () => render()) : undefined;
-    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card, ts }), vmCtx), deps));
+    const imp = (sel && probe.facet === "impact") ? svc.ticketImpact(sel, () => render()) : undefined;
+    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card, ts, imp }), vmCtx), deps));
   }
   function render() { renderInfos(); renderTickets(); }
 

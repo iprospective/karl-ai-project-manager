@@ -376,10 +376,14 @@ def audit_repo(cfg, ws: Path, repo: Path, label: str, fetch: bool, max_age: floa
     if hors_convention:
         add("BRANCHE", LOW, f"{hors_convention} branche(s) distante(s) hors convention RM non examinée(s) (--all-branches)",
             key="hors-convention")
-    # 2. stash oubliés
-    st = git(["stash", "list"], repo).stdout.strip().splitlines()
-    if st:
-        add("STASH", MED, f"{len(st)} entrée(s) de stash : {st[0][:80]}", key="stash")
+    # 2. stash oubliés — `git stash list` se tait dans un bare (« must be run in a work tree ») :
+    # on lit le reflog de refs/stash, partagé par tous les worktrees du dépôt.
+    if ref_exists(repo, "refs/stash"):
+        st = git(["log", "-g", "--format=%cs %gs", "refs/stash"], repo).stdout.strip().splitlines()
+        if st:
+            oldest = min(l[:10] for l in st)
+            add("STASH", MED, f"{len(st)} entrée(s) de stash (la plus ancienne : {oldest}) — dernière : {st[0][11:80]}",
+                key="stash", entrees=len(st), plus_ancienne=oldest)
     # 3. worktrees : fichiers sales, intégration en retard, tickets fermés
     for wt in worktrees(repo):
         path = Path(wt["path"])

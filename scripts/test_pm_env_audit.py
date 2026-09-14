@@ -208,6 +208,18 @@ def test_closed_ticket_worktree():
         assert f"pm-env-gc --apply --workspace {ws}" in kinds["FERMÉ"]["quoi"], kinds["FERMÉ"]
 
 
+def test_stash_in_bare():
+    """Le stash vit dans le bare (refs/stash) : `git stash list` y est muet, le reflog non."""
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ws, bare, wt, origin, seed = make_layout(root)
+        (wt / "a.txt").write_text("modif\n")
+        sh(["git", "stash", "push", "-q", "-m", "essai"], wt)
+        f = ea.audit_repo(Cfg({}), ws, bare, "app.git", fetch=False, max_age=7, use_forge=False)
+        st = [x for x in f if x["type"] == "STASH"]
+        assert len(st) == 1 and st[0]["entrees"] == 1 and "essai" in st[0]["quoi"], f
+
+
 def test_remote_branches_hors_convention():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

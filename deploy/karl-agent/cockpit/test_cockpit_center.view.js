@@ -46,11 +46,22 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   const CLI = { client: "calicote", name: "Calicote", status: "active", type: "client", created: "2026-05-19", redmine_project_id: "calicote", redmine_project_url: "https://r.test/projects/calicote",
     contacts: [{ first_name: "Sandrine", last_name: "Roche", email: "s@calicote.test", role: "owner", title: "Gérante" }, { name: "Mathieu", email: "m@ipro.test", role: "owner", internal: true }],
     defaults: { priority: "normal", team: [{ username: "iprospective" }] }, projects: [{ project: "prestashop", value: "calicote/prestashop" }], projects_used: ["iprospective/nc-clients"], docs: [{ name: "overview.md", path: "projects/clients/calicote/client/overview.md" }] };
-  const cv = String(V.ClientView(new VM.ClientViewModel(CLI)));
+  // RM3132 : la fiche client est à ONGLETS — l'en-tête est commun, le reste se demande.
+  const cvTab = (tab, ctx) => String(V.ClientView(new VM.ClientViewModel(CLI, ctx), tab));
+  const cv = cvTab("resume"), cvProj = cvTab("projets");
   assert(cv.includes("Calicote") && cv.includes("calicote") && cv.includes("Sandrine Roche") && cv.includes("Gérante") && cv.includes("interne"));
-  assert(/data-action="open-project" data-value="calicote\/prestashop"/.test(cv) && cv.includes("Projets utilisés") && cv.includes("iprospective/nc-clients"));
+  assert(/data-action="open-project" data-value="calicote\/prestashop"/.test(cvProj) &&
+         cvProj.includes("Projets utilisés") && cvProj.includes("iprospective/nc-clients"),
+         "RM3132 : les projets sont dans LEUR onglet");
+  assert(!/data-action="open-project"/.test(cv), "… et plus dans le résumé");
+  assert(/data-action="ctab" data-tab="sessions"/.test(cv), "la barre d'onglets est rendue");
+  assert(/aucune session en cours/.test(cvTab("sessions")), "onglet sessions : état vide explicite");
+  assert(/data-action="attach" data-sid="42"/.test(cvTab("sessions", { sessions: [{ rm_id: "42", project: "p", state: "working" }] })),
+         "les sessions du client sont prêtées par le centre, pas inventées");
   assert(/data-action="open-file" data-src="doc" data-wt="" data-path="projects\/clients\/calicote\/client\/overview\.md"/.test(cv) && cv.includes('href="https://r.test/projects/calicote"') && !/onclick=/.test(cv));
-  const cvMin = String(V.ClientView(new VM.ClientViewModel({ client: "x" }))); assert(cvMin.includes("aucun projet") && !cvMin.includes("Contacts")); assert(String(V.ClientView(new VM.ClientViewModel(null))).includes("client"));
+  // RM3132 : « aucun projet » vit désormais dans l'onglet projets — le résumé, lui, reste sobre.
+  const cvMin = String(V.ClientView(new VM.ClientViewModel({ client: "x" }), "projets"));
+  assert(cvMin.includes("aucun projet") && !cvMin.includes("Contacts")); assert(String(V.ClientView(new VM.ClientViewModel(null))).includes("client"));
   const cf = String(V.ConfView({ label: "calicote/prestashop", name: "meta.yml", content: "slug: x\nrepos:\n  - <b>a</b>\n" }));
   assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml") && cf.includes("&lt;b&gt;a&lt;/b&gt;") && cf.includes("slug: x") && cf.includes("mmi-pm")); assert(String(V.ConfView({})).includes("meta.yml"));
   console.log("✓ fiche client et conf (RM2768) : contacts, partage, docs au centre, conf telle quelle");

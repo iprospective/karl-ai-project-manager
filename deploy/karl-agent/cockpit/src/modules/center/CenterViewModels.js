@@ -109,6 +109,11 @@ export class ClientViewModel extends EntityViewModel {
   get priority() { return (this.e.defaults || {}).priority || ""; }
   get projects() { return this.e.projects || []; }
   get used() { return this.e.projects_used || []; }
+
+  /** RM3132 : les sessions qui travaillent pour ce client. Prêtées par le centre (elles ne
+   *  viennent pas de la fiche) ; tableau vide si la surface des sessions n'est pas là — on
+   *  n'invente pas une liste pour remplir un onglet. */
+  get sessions() { return (this.ctx && this.ctx.sessions) || []; }
   get docs() { return this.e.docs || []; }
   get type() { return "client"; }
   get title() { return this.name; }

@@ -192,9 +192,23 @@ export function mountCenter(hosts, ctx = {}) {
     const key = viewKey([mkey]);
     return openView("mail", key, viewTabLabel("mail", [mkey], sujet), async () => MailView(new EmailViewModel(await repo.email(mkey))));
   }
-  function openClient(client) {
+  // RM3132 : la fiche client est à onglets, et l'onglet courant vit ici — pas dans la vue, qui
+  // doit rester une fonction de ses arguments. Les sessions sont PRÊTÉES par la surface des
+  // sessions et filtrées sur le client : la fiche ne sait pas les chercher, et ne doit pas.
+  const clientTab = {};
+  function clientSessions(client) {
+    const s = surfaces.session || {};
+    const all = s.sessions ? s.sessions() : null;
+    const liste = Array.isArray(all) ? all : Object.values(all || {});
+    return liste.filter(x => x && String(x.client || "") === String(client));
+  }
+  function openClient(client, tab) {
     const key = viewKey([client]);
-    return openView("client", key, client, async () => ClientView(new ClientViewModel(await repo.client(client))));
+    if (tab) clientTab[client] = tab;
+    const t = clientTab[client] || "resume";
+    return openView("client", key, client,
+                    async () => ClientView(new ClientViewModel(await repo.client(client),
+                                                               { sessions: clientSessions(client) }), t));
   }
   // RM3024 — l'annuaire et la fiche d'une personne. La requête garde les
   // mots-clés dans la clé de vue : rouvrir l'onglet rejoue la MÊME recherche,
@@ -251,7 +265,7 @@ export function mountCenter(hosts, ctx = {}) {
   // fonction serait sûre, mais le motif « let après usage » est celui qui a
   // coûté un ReferenceError silencieux au boot (RM2889).
   let contactsTimer = null;
-  const gestures = {
+  const gestures = { ctab: (n) => openClient(n.dataset.client, n.dataset.tab),   // RM3132 : le client vient du geste
     activate: (n) => activate(n.dataset.id), pin: (n) => togglePin(n.dataset.id), close: (n) => closeTab(n.dataset.id),
     goto: (n) => histGoTo(n.dataset.id),
     "open-dir": (n) => openDir(n.dataset.src, n.dataset.wt, n.dataset.path, n.dataset.tag),

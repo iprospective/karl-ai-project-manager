@@ -29,6 +29,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   disponible. La description passe maintenant par le rendu markdown partout : les sauts de ligne simples
   sont joints, une ligne vide sépare toujours deux paragraphes, et les blocs de code, listes et tableaux
   gardent leur forme. C'est la fenêtre qui décide où la ligne s'arrête.
+- **Une config PM manquante ne tue plus son appelant** (RM3119) : `PMConfig.load()` **sortait**
+  (`sys.exit`) quand le `.env` canonique n'était pas résoluble — le cas normal d'un clone de dev.
+  Or `SystemExit` n'hérite pas d'`Exception` : toute bibliothèque qui se protégeait par
+  `except Exception`, la forme normale, la laissait remonter et **mourait**. Symptôme trompeur :
+  **17 tests rouges** dans n'importe quel worktree, avec pour seul indice un message d'aide sur le
+  `.env` et aucun nom de test — on cherchait un problème d'environnement là où il y avait un
+  problème de contrat, et la garde de livraison `mmi-pm test` était inutilisable hors du core.
+  `load()` lève désormais une **`PMConfigError`**, une vraie `Exception`. L'ergonomie du CLI ne
+  change pas d'un caractère : un `sys.excepthook` posé par `pm_paths` rend le même message et le
+  même code 1, sans trace — les 109 appelants n'ont pas une ligne à changer, et les bibliothèques
+  n'ont plus qu'à répondre « je ne sais pas ». Une garde de test refuse le retour d'un `sys.exit`
+  dans `PMConfig`, et vérifie que les cinq résolveurs (`pm_stores`, `pm_log`, `pm_notify`,
+  `pm_monitor`) rendent une valeur au lieu de mourir.
+- **`pm-worklog-merge` recopiait la résolution des worklogs** (RM3119, en marge de RM2992) : il
+  avait déjà divergé — un repli vers `~/.local/state/karl-agent/session-worklogs`, un dossier qui
+  n'a jamais existé. Il passe par `pm_stores`, comme le reste. C'est la garde posée par RM2992 qui
+  l'a attrapé, le jour même de son arrivée.
 
 - **Une dérive ne rougit plus la suite de tests, elle se notifie** (RM2756) : la marge de sécurité de
   la précharge NORMS (90 % du plafond) était tenue par un test, donc rouge en permanence pendant des

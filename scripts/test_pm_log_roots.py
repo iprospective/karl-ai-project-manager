@@ -14,6 +14,8 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from test_support import hermetic_core            # noqa: E402  RM3119 : un test se donne
+hermetic_core()                                   # sa config, il ne compte pas sur celle du dépôt
 FAIL = []
 
 
@@ -139,12 +141,17 @@ def _noms_visibles(tree, lineno):
     glob |= {t.id for n in tree.body if isinstance(n, ast.Assign) for t in ast.walk(n) if isinstance(t, ast.Name)}
     glob |= {a.asname or a.name.split(".")[0] for n in ast.walk(tree)
              if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    # RM3119 : `except X as e` lie `e` par un CHAMP de l'ExceptHandler, pas par un ast.Name en Store —
+    # l'oublier faisait crier au nom inexistant sur `journal.warn(..., err=str(e))`, le motif le plus
+    # courant qui soit. Un contrôle statique qui se trompe finit par être ignoré.
+    glob |= {h.name for h in ast.walk(tree) if isinstance(h, ast.ExceptHandler) and h.name}
     for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
         fin = max((getattr(x, "lineno", fn.lineno) for x in ast.walk(fn)), default=fn.lineno)
         if fn.lineno <= lineno <= fin:
             loc = {a.arg for a in fn.args.args + fn.args.kwonlyargs}
             loc |= {t.id for x in ast.walk(fn) for t in ast.walk(x)
                     if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
+            loc |= {h.name for h in ast.walk(fn) if isinstance(h, ast.ExceptHandler) and h.name}
             return glob | loc
     return glob
 

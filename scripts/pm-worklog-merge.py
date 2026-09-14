@@ -24,6 +24,9 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_stores   # noqa: E402  RM2992 : une seule résolution des stores
+
 #: identité d'une entrée, par collection — ce qui permet de dire « c'est la même »
 CLES = {
     "items": lambda e: str(e.get("ref") or e.get("id")),
@@ -34,7 +37,8 @@ CLES = {
 
 
 def ancien_dir() -> Path:
-    return Path(os.environ.get("PM_WORKLOG_OLD_DIR") or (Path.home() / ".claude" / "session-worklogs"))
+    # RM2992 : le chemin d'AVANT le déplacement — figé ici, c'est son rôle (on vient le vider).
+    return Path(os.environ.get("PM_WORKLOG_OLD_DIR") or pm_stores.WORKLOG_LEGACY).expanduser()
 
 
 def nouveau_dir() -> Path:
@@ -48,13 +52,10 @@ def nouveau_dir() -> Path:
         return Path(d)
     core = os.environ.get("PM_CORE_DIR")
     if core:
-        return Path(core) / "var" / "session-worklogs"
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from pm_paths import PMConfig
-        return Path(PMConfig.load().pm_dir) / "var" / "session-worklogs"
-    except Exception:
-        return Path.home() / ".local" / "state" / "karl-agent" / "session-worklogs"
+        return Path(core) / "var" / pm_stores.WORKLOG_SUB
+    # RM2992 : la résolution vient de `pm_stores`, jamais recopiée — recopiée, elle avait déjà
+    # divergé ici (un repli vers `~/.local/state/karl-agent/session-worklogs`, qui n'a jamais existé).
+    return pm_stores.worklog_dir()
 
 
 def _lire(p: Path) -> dict:

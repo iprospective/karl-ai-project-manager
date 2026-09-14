@@ -29,7 +29,10 @@ def check(name, cond, detail=""):
 
 print("[RM3068] catalogue")
 cat = ka.op_provider_types()
-check("les cinq axes, dans l'ordre", [a["axis"] for a in cat["axes"]] == ["task", "forge", "doc", "secret", "llm"])
+# RM3112 a ajouté l'axe `monitoring` (Zabbix) sans toucher ce test : rouge depuis, pour un
+# catalogue pourtant juste. Un test qui décrit un état périmé finit par être ignoré.
+check("les six axes, dans l'ordre", [a["axis"] for a in cat["axes"]] == ["task", "forge", "doc", "secret", "llm", "monitoring"],
+      str([a["axis"] for a in cat["axes"]]))
 check("redmine, gogs, gitlab, github et les moteurs y sont", {"redmine", "gogs", "gitlab", "github", "ollama", "lemonade"} <= {t["type"] for t in cat["types"]})
 ol = next(t for t in cat["types"] if t["type"] == "ollama")
 check("ollama : url + modèle, et une clé nommée (pas de valeur)", {f["name"] for f in ol["fields"]} == {"url", "model"} and ol["secrets"][0]["key"] == "API_KEY")

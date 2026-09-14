@@ -113,10 +113,7 @@ def state_root(env=None):
         try:
             from pm_paths import PMConfig
             _ROOT_CACHE[key] = Path(PMConfig.load().state_dir)
-        except (Exception, SystemExit):
-            # `PMConfig.load()` SORT (sys.exit) quand le `.env` canonique manque — le cas d'un clone
-            # de dev. SystemExit n'est pas une Exception : sans elle ici, résoudre un chemin de store
-            # tuerait le hook qui le demande.
+        except Exception:      # noqa: BLE001 — PMConfigError (RM3119) ou conf illisible : on ne sait pas
             _ROOT_CACHE[key] = None
     return _ROOT_CACHE[key]
 

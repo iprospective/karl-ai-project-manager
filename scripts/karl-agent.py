@@ -7270,6 +7270,11 @@ def op_resolve(rm_id: str) -> dict:
         "environments": envs, "active_env": _env_for_status(status, envs),
         "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
         "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        # RM3126 : le PROVIDER du ticket — quelle instance de gestion le porte. Évident tant
+        # qu'il n'y en a qu'une ; plus du tout depuis que l'axe `task` est une liste (RM2653),
+        # et c'est précisément quand un ticket vit chez un partenaire qu'on veut le savoir
+        # sans ouvrir le meta.yml.
+        "provider": _task_provider_of(client, project),
         # RM2695 : avancement = la checklist des critères d'acceptation, seule
         # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
         # statut, une liste d'ids n'apprenant rien sur l'avancement.
@@ -7430,6 +7435,31 @@ def op_tickets_manage(status=None, project=None, q=None, limit=200) -> dict:
         print(f"⚠ tickets/manage: {type(e).__name__}: {e}", file=sys.stderr)
         return {"indexed": False, "tickets": [], "by_status": {}, "by_project": {},
                 "hint": str(e)}
+
+
+def _task_provider_of(client: str, project: str) -> dict:
+    """{name, type, url, slug, secondaries} de l'instance de tickets d'un projet (RM3126).
+
+    {} si la résolution échoue : un panneau ne doit pas tomber parce qu'un registre est
+    incomplet — l'absence d'information se montre, elle ne se plante pas.
+    """
+    try:
+        from pm_paths import PMConfig
+        from pm_registry import Registry, resolve_instance, secondaries
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        meta = cfg.project_meta(client, project) if hasattr(cfg, "project_meta") else None
+        if meta is None:
+            mp = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+            meta = yaml.safe_load(mp.read_text(encoding="utf-8")) if mp.is_file() else {}
+        reg = Registry.from_config(cfg.providers)
+        r = resolve_instance(meta or {}, "task", reg)
+        inst = r.instance
+        return {"name": inst.name, "type": inst.type, "url": inst.url,
+                "slug": (inst.options or {}).get("slug", ""),
+                "secondaries": [x.instance.name for x in secondaries(meta or {}, "task", reg)]}
+    except (Exception, SystemExit) as e:   # noqa: BLE001
+        print(f"⚠ provider({client}/{project}): {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
 
 
 def op_anteriority(q="", limit=6) -> list:

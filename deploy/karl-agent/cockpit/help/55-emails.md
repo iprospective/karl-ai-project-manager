@@ -65,3 +65,19 @@ La case **« traités »** ré-affiche les emails déjà créés ou écartés.
   de production, elle reste en ligne de commande.
 
 Voir aussi : [Commandes & actions](commandes) pour les mêmes gestes en CLI.
+
+## Qui est l'expéditeur
+
+Chaque email affiche son expéditeur **par son nom** quand l'annuaire le connaît
+— cliquable, il ouvre sa fiche : ses adresses, ses téléphones, et chez quels
+clients il intervient. La pastille **interne** signale une personne des nôtres.
+
+Quand l'annuaire ne le connaît pas, un bouton **＋ annuaire** propose sa fiche,
+pré-remplie depuis l'email. La confirmation montre le découpage prénom / NOM
+avant d'écrire : la convention prend le dernier mot pour le nom, ce qui se
+trompe sur un nom composé — `pm-contact set` le corrige d'un geste. Une fois la
+fiche créée, la file se relit et l'expéditeur est reconnu.
+
+C'est aussi ce qui rend lisible le routage (RM2669) : on comprend *pourquoi* un
+email a été rattaché à tel client.
+

@@ -174,6 +174,13 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
   notify: notify.toast,
   help: (t) => doc.openHelp(t),
   openCenter: (k, sujet) => center.openMail(k, sujet),
+  // RM3147 : l'annuaire depuis la file. L'écriture passe par le CATALOGUE
+  // (pm-contact.py reste le seul point d'écriture) — pas d'endpoint bespoke.
+  openContact: (ref) => center.openContact(ref),
+  // `pmcmd` est monté plus bas : la flèche ne l'évalue qu'au clic, bien après.
+  // Même motif que `panelLoaders` juste au-dessus — une capture, pas une
+  // référence au niveau module (ce qui, elle, serait une TDZ ; cf. RM2889).
+  addContact: (champs) => pmcmd.run("annuaire-add", champs),
   badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
 });
 

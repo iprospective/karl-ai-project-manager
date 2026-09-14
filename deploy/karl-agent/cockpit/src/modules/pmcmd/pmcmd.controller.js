@@ -28,5 +28,13 @@ export function mountPmCommands(el, ctx = {}) {
   };
   const handle = mount(el, "", { events: [["click", "[data-action]", (ev, n) => { const g = gestures[n.dataset.action]; if (g) return g(n); }]] });
   paint();
-  return Object.assign(handle, { load, state });
+  /** RM3147 — exécuter une commande du catalogue depuis un AUTRE module (le
+   *  panneau emails, pour créer une fiche d'annuaire). On prête le service déjà
+   *  chargé plutôt que d'en instancier un second : deux catalogues en mémoire,
+   *  c'est deux vérités sur ce que le serveur accepte. Charge à la demande. */
+  const runFor = async (name, values) => {
+    if (!svc.commands.length) await load();
+    return svc.run(name, values);
+  };
+  return Object.assign(handle, { load, run: runFor, state });
 }

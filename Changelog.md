@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Ticketer une demande depuis le worklog fonctionne** (RM3172) : le geste livré par RM3114 ne
+  faisait rien, et disait « demande introuvable ». Deux identifiants de session étaient pris l'un pour
+  l'autre — le cockpit envoyait l'identifiant tmux (« 3145 », « calymix ») là où l'outil attend l'UUID
+  qui nomme le fichier de worklog. L'outil ouvrait donc un worklog **inexistant** : la demande y était
+  forcément absente, alors qu'elle dormait dans l'autre fichier. La lecture faisait déjà cette
+  résolution ; c'est l'écriture qui l'avait oubliée. Une session sans worklog connu est maintenant
+  refusée avec un motif qui le dit, au lieu d'envoyer chercher au mauvais endroit. Le test de RM3114
+  ne pouvait pas voir le défaut : il vérifiait que la commande était bien FORMÉE, pas ce qu'elle
+  visait — il regarde désormais la valeur passée à `--session`.
+
 - **Le cycle de session devient une procédure nommée** (RM3162) : le texte du bouton ↻ Relancer
   (RM3159) était une procédure déguisée en presse-papier — quatre étapes, un ordre qui compte, des
   règles qui ne se devinent pas. Rangé dans un réglage d'instance, il se recopiait sur chaque machine

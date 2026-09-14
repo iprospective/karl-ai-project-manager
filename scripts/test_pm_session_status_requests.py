@@ -171,6 +171,13 @@ try:
     check("par l'OUTIL, jamais par une écriture directe du serveur",
           any("pm-session-status.py" in a for a in appels[0])
           and "request" in appels[0] and "--set" in appels[0] and "1" in appels[0])
+    # RM3172 : LE test qui manquait. Vérifier que la commande est bien FORMÉE ne dit rien de la
+    # cible : il y a deux identifiants de session, et passer celui du cockpit là où l'outil attend
+    # l'UUID du worklog ouvrait un fichier inexistant — la demande y était « introuvable » alors
+    # qu'elle dormait dans l'autre. C'est la VALEUR de --session qu'il faut regarder.
+    i = appels[0].index("--session")
+    check("--session reçoit l'UUID du worklog, pas l'identifiant tmux du cockpit",
+          appels[0][i + 1] == "sess-1")
     appels.clear()
     r = ka.op_worklog_request({"sid": "2635", "n": "2", "status": "ticketee", "ticket": "RM3114"})
     check("« ticketée » emporte son rattachement", "--ticket" in appels[0] and "RM3114" in appels[0])
@@ -185,6 +192,18 @@ try:
             check(f"refusé : {motif}", False, "aucune erreur levée")
         except ka.ApiError:
             check(f"refusé : {motif}", True)
+
+    # RM3172 : une session dont la clé est absente n'a pas de worklog à écrire — le dire, plutôt
+    # que d'aller échouer plus loin sur une « demande introuvable » qui envoie chercher ailleurs.
+    _vrai_key = ka._key_info
+    ka._key_info = lambda sid: None
+    try:
+        ka.op_worklog_request({"sid": "2635", "n": "1", "status": "repondu"})
+        check("session sans worklog connu : refusée avec un motif", False, "aucune erreur levée")
+    except ka.ApiError as e:
+        check("session sans worklog connu : refusée avec un motif", "aucun worklog connu" in str(e))
+    finally:
+        ka._key_info = _vrai_key
 
     appels.clear()
 

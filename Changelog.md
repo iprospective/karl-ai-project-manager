@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
+  si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —
+  `karl_api_routes`, `pm_log`, `pm_notify`, `pm_bus`, `pm_modules`, `pm_monitor`, `pm_secrets`… — dont
+  plusieurs en import paresseux, au fil des fonctions. Le processus garde en mémoire la version chargée
+  au démarrage : livrer un module sans toucher à l'agent ne changeait donc **rien**, et le symptôme
+  (« route inconnue » sur une route pourtant déclarée partout) envoyait chercher n'importe où sauf là.
+  La règle d'origine disait « les `pm-*` sont relus à chaque appel » : c'est vrai des **scripts**,
+  lancés en sous-processus, pas des **modules**, importés une fois. Tout fichier Python de `scripts/`
+  déclenche maintenant le redémarrage, et le message nomme ceux qui l'ont motivé. Un redémarrage de
+  trop coûte une reconnexion du cockpit, sessions tmux intactes ; un redémarrage manquant coûte un
+  défaut invisible et la confiance dans le déploiement.
+
 - **Le bouton « déjà ticketé ? » répond** (RM3174) : il échouait à sa première ligne —
   `this.api is undefined` — parce que la méthode appelait une propriété que le service n'a jamais eue.
   Le geste n'a donc **jamais fonctionné depuis sa livraison**, et le ticket qui le portait avait été

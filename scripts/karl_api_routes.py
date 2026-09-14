@@ -118,6 +118,7 @@ TARGET_TO_CURRENT = {
     "/api/terminal/memdebug": "/memdebug",
     "/api/test-queue/ticket-sessions": "/ticket-sessions",
     "/api/test-queue/ticket-transitions": "/ticket-transitions",
+    "/api/ticket/anteriority": "/tickets/anteriority",
     "/api/ticket/brief": "/tickets/brief",
     "/api/ticket/impact": "/ticket-impact",
     "/api/ticket/mergecheck": "/mergecheck",

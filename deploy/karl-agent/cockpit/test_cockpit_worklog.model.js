@@ -2,7 +2,7 @@
 // Tests du domaine worklog — MODÈLE (RM3019, scindé de test_cockpit_worklog.js) : décors RM2466, sections/onglets/documents, groupes RM2798,
 // étape de MR RM2801, dérive RM2796, avancement RM2695, branches RM2591, lots RM2786/2720/2823/2719.
 "use strict";
-const path = require("path"); const assert = require("assert"); const DIR = __dirname;
+const fs = require("fs"); const path = require("path"); const assert = require("assert"); const DIR = __dirname;
 const { settle, escO, fakeElement, CFG, SEL, W } = require("./test_cockpit_worklog.helpers.js");
 (async () => {
   const M = await import(path.join(DIR, "src/modules/worklog/worklog.js"));
@@ -41,5 +41,30 @@ const { settle, escO, fakeElement, CFG, SEL, W } = require("./test_cockpit_workl
   const scoped = M.scopeItems([{ rm_id: "10", points: ["a", "b"] }, { rm_id: "11", points: ["c"] }], [{ ref: "10", value: "a", checked: true }, { ref: "10", value: "b", checked: false }, { ref: "11", value: "c", checked: true }]); assert.deepStrictEqual(scoped[0].scope, ["a"], "RM2719 : un point décoché restreint la portée"); assert.strictEqual(scoped[1].scope, undefined, "tous cochés = ticket entier");
   const lignes = M.spawnConfirmLines(homo, { engine: "claude", model: "opus" }, { titre: "Ouvrir une session sur ce lot", reste: "⊘ 2 au-delà" }); assert(/Ouvrir une session sur ce lot pour 2 ticket\(s\)/.test(lignes[0]) && lignes.includes("projet : acme / boutique") && lignes.includes("ancrage : RM10") && lignes.includes("moteur : claude  ·  modèle : opus") && lignes.includes("⊘ 2 au-delà"));
   console.log("✓ lots (RM2786/2720/2823/2719) : boutons selon la règle serveur, fermeture avec raisons, embarquement par projet, portée par points");
+  // ── RM3174 : « déjà ticketé ? » — le geste doit RÉPONDRE, pas seulement exister ──────────────
+  // Le premier jet appelait `this.api.get(...)` sur un service qui n'a pas d'`api` : la méthode
+  // levait à sa première ligne, et le bouton n'a jamais pu fonctionner depuis sa livraison. Un test
+  // qui ne lit que la forme du code ne voit pas ça — celui-ci APPELLE, et regarde l'URL demandée.
+  {
+    const A = await import(path.join(DIR, "src/core/api.js"));
+    const { WorklogService } = await import(path.join(DIR, "src/modules/worklog/worklog.service.js"));
+    const vus = [];
+    A.configureApi({ fetch: async (p) => { vus.push(p);
+      return { ok: true, status: 200, statusText: "", headers: { get: () => "application/json" },
+               json: async () => ({ results: [{ rm_id: "3070", title: "sudo" }] }), text: async () => "" }; } });
+    const svc = new WorklogService({});
+    const r = await svc.anteriority("installer karl en mode sudo");
+    assert.deepStrictEqual(r, [{ rm_id: "3070", title: "sudo" }], "l'antériorité répond");
+    assert(/\/api\/ticket\/anteriority\?q=/.test(vus[0]), "…par la route déclarée : " + vus[0]);
+    assert(/limit=6/.test(vus[0]), "…avec sa borne");
+    assert.deepStrictEqual(await svc.anteriority("   "), [], "une recherche vide ne rend rien");
+    assert.strictEqual(vus.length, 1, "…et ne part pas sur le réseau pour rien");
+    const src = fs.readFileSync(path.join(DIR, "src/modules/worklog/worklog.service.js"), "utf8");
+    // On cherche un USAGE, pas une mention : le commentaire qui explique le défaut cite `this.api`.
+    assert(!/this\.api\s*\.\s*\w/.test(src), "RM3174 : l'accès réseau passe par le DÉPÔT, pas par le service");
+    assert(/this\.repo\.anteriority\(/.test(src), "…et le service délègue au dépôt");
+    console.log("✓ antériorité (RM3148/RM3174) : le geste répond, par la route déclarée, sans requête inutile");
+  }
+
   console.log("\nTous les tests du modèle du worklog passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

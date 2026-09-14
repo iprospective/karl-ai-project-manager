@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le bouton « déjà ticketé ? » répond** (RM3174) : il échouait à sa première ligne —
+  `this.api is undefined` — parce que la méthode appelait une propriété que le service n'a jamais eue.
+  Le geste n'a donc **jamais fonctionné depuis sa livraison**, et le ticket qui le portait avait été
+  fermé. L'accès réseau descend dans le dépôt, où vit celui de tous les autres gestes du worklog, et
+  la route est enfin déclarée aux trois endroits où les autres le sont — table de migration,
+  `endpoints.js`, alias serveur. Le test appelle désormais la méthode et vérifie l'URL demandée : lire
+  la forme du code ne pouvait pas voir ce défaut, cliquer une fois si. Cockpit 3.18.1.
+
 - **Ticketer une demande depuis le worklog fonctionne** (RM3172) : le geste livré par RM3114 ne
   faisait rien, et disait « demande introuvable ». Deux identifiants de session étaient pris l'un pour
   l'autre — le cockpit envoyait l'identifiant tmux (« 3145 », « calymix ») là où l'outil attend l'UUID

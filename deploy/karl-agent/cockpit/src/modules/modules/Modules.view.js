@@ -21,6 +21,7 @@ const Ligne = (m) => html`<div class="mdl-row${m.open ? " on" : ""}">
     <div><span class="mdl-k">requis par</span> ${m.requiredBy.length
       ? html`<b title="Désactiver ce module casserait ceux-ci">${m.requiredBy.join(", ")}</b>`
       : "personne"}</div>
+    ${m.routes.length ? html`<div class="mdl-trigs"><span class="mdl-k">sert</span>${m.routes.map(r => html`<div class="mdl-trig${r.ok ? "" : " ko"}">${r.ok ? "→" : "✗"} <b>${r.method}</b> <code>${r.url}</code>${r.errors.map(e => html` <span class="mdl-motif">${e}</span>`)}</div>`)}</div>` : ""}
     ${m.triggers.length ? html`<div class="mdl-trigs"><span class="mdl-k">réagit à</span>${m.triggers.map(Trigger)}</div>` : ""}
     ${m.motifs.map(x => html`<div class="mdl-motif">⚠ ${x}</div>`)}
   </div>` : ""}</div>`;

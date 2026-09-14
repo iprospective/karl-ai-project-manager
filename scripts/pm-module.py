@@ -43,6 +43,8 @@ def cmd_list(a) -> int:
         print(f"  {ETAT[m.ok]} {m.name:24} {m.version:8} {etat:10} {m.label}")
         for k, n in m.fournit():
             print(f"  {'':26} · {k} {n}")
+        for r in [x for x in M.routes(modules=mods) if x.module == m.name and x.ok]:
+            print(f"  {'':26} → {r.method} {r.url}")
         for motif in m.errors + r["bloques"].get(m.name, []):
             print(f"  {'':26} ⚠ {motif}")
     print(f"\n  {len(mods)} module(s) · ordre de chargement : " + (" → ".join(r["ordre"]) or "—"))
@@ -68,6 +70,14 @@ def cmd_show(a) -> int:
     dependants = sorted(x.name for x in mods if any(d == m.name for d, _, _ in x.deps()))
     print(f"  requis par " + (", ".join(dependants) or "personne"))
     print(f"  fournit    " + (", ".join(f"{k} {n}" for k, n in m.fournit()) or "rien"))
+    # `r` porte déjà la résolution : une boucle qui le réutiliserait écraserait les motifs de blocage.
+    for rt in [x for x in M.routes(modules=mods) if x.module == m.name]:
+        print(f"  {'sert' if rt.ok else '⚠   ':<10} {rt.method} {rt.url}  → {rt.handler}"
+              + ("" if rt.ok else "  " + " ; ".join(rt.errors)))
+    trs = [t for t in M.triggers(modules=mods) if t.module == m.name]
+    for t in trs:
+        print(f"  {'réagit' if t.ok else '⚠     ':<10} {t.on or '?'} → {' '.join(t.run) or '?'}"
+              + ("" if t.ok else "  " + " ; ".join(t.errors)))
     for motif in m.errors + r["bloques"].get(m.name, []):
         print(f"  ⚠ {motif}")
     return 0

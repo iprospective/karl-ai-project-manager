@@ -1,0 +1,12 @@
+name: monitoring-zabbix
+version: 1.0.0
+label: "Supervision · Zabbix"
+description: >
+  Les alertes d'un parc Zabbix, situées chez un client par leur hôte, et ticketables au bon
+  endroit. Le cockpit ne parle jamais à l'observateur : il demande au serveur, qui sait
+  lequel répond et détient sa clé.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: provider, axis: monitoring, type: zabbix}
+  - {kind: panel, name: monitor}

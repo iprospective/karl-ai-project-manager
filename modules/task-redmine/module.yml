@@ -1,0 +1,14 @@
+name: task-redmine
+version: 1.0.0
+label: "Tickets · Redmine"
+description: >
+  Le gestionnaire de tickets de référence : champs personnalisés, saisies de temps, wiki,
+  recherche serveur et tag IA. C'est lui qui porte le modèle PM complet — chiffrage,
+  reporting, relations — que les issues d'une forge ne savent pas porter.
+requires:
+  - core >= 3.0
+provides:
+  - {kind: provider, axis: task, type: redmine}
+  - {kind: provider, axis: doc, type: redmine_wiki}
+  - {kind: job, name: wiki-sync}
+  - {kind: job, name: task-report}

@@ -162,7 +162,7 @@ def cmd_cheatsheet(args):
         "pm-task-log", "pm-task-status-update", "pm-task-comment", "pm-task-deliver",
         "pm-task-protocol", "pm-task-link", "pm-task-sync", "pm-task-think",
         "pm-task-blockers", "pm-task-description-update", "pm-task-deploy",
-        "pm-task-implementation", "pm-task-cd",
+        "pm-task-implementation", "pm-task-cd", "pm-task-estimate",
         # code, branche, livraison
         "pm-branch-start", "pm-mr", "pm-promote", "pm-worktree", "pm-test",
         # environnements de travail

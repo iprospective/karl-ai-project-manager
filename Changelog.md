@@ -59,6 +59,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`Changelog.md`, `INDEX.md`, `NORMS.md`, `cockpit.css`…) sont exclus — un signal qui se déclenche
   à chaque MR cesse d'être lu. Rien ne s'affiche quand il n'y a pas de recoupement, et aucune erreur
   de ce contrôle ne peut faire échouer une livraison.
+- **`mmi-pm task-estimate` — réviser l'estimation d'un ticket** (RM3155). Le chiffrage est le
+  *livrable* de la phase d'étude — le workflow en fait la condition de sortie vers
+  `etude_chiffrage_a_valider` — mais aucun outil ne l'écrivait : `pm-task-add` le pose à la
+  création (donc avant l'étude), `pm-task-metrics-push` le pousse vers Redmine, `pm-task-tick`
+  incrémente le réel. On éditait donc le frontmatter **à la main**, en refaisant soi-même
+  l'optimistic locking — ce que le tripwire #1 proscrit. Constaté sur RM3107 : 60 min posées à
+  la création, 930 min après étude. L'outil verrouille, relit, recalcule `time_minutes` pour
+  qu'il ne diverge pas de ses composantes, remet `estimated_by`/`estimated_at` sur la **révision**
+  (sans quoi on ne sait plus si l'on lit un chiffrage d'étude ou le nombre initial), écrit
+  l'avant→après au journal, et pousse vers Redmine en réutilisant `pm-task-metrics-push`.
+  Le **coût prévu n'est jamais dérivé des tokens** : le prix dépend de la répartition
+  (cache_read 0,50 $/Mtok contre output 25 — un facteur 50), inconnue avant d'avoir travaillé.
 
 - **Les modules peuvent réagir à ce qui se passe** (RM3145, lot 2) : PM publiait déjà des *sujets*
   pour réveiller le cockpit (RM3006), mais rien ne retenait les **faits** — « le statut de RM3145 est

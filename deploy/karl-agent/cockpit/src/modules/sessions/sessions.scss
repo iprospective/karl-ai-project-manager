@@ -10,7 +10,10 @@
 /* état heuristique des sessions (RM2140, intérim RM1874) */
 .tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; display: inline-block; }
 .tdot.st-working { background: var(--ok); }
-.tdot.st-idle { background: var(--warn); }
+/* RM2792 : le CLIGNOTEMENT dit « ça t'attend », la COULEUR dit de quelle attente il s'agit.
+   `idle` sans disposition = « à traiter » : le tour est fini, la session attend une suite — c'est
+   le cas le plus courant, et il n'était signalé par rien. */
+.tdot.st-idle { background: var(--attente); animation: kblink 1.6s ease-in-out infinite; }
 .tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
 /* RM2327 : question à choix multiple (≠ oui/non) — en attente aussi, réponse humaine */
 .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
@@ -18,8 +21,10 @@
 .tdot.st-ghost { background: var(--muted); opacity: .5; }
 /* RM2515 : disposition manuelle (ne s'applique visuellement que sur `idle`) —
    couleur + icône (badge), jamais la couleur seule. « à traiter » = défaut orange. */
-.tdot.disp-parke { background: var(--accent); }             /* parké : bleu */
-.tdot.disp-termine { background: var(--muted); box-shadow: none; }  /* terminé : éteint */
+/* En pause : orange FIXE — rangée volontairement, elle n'attend plus rien de moi. */
+.tdot.disp-parke { background: var(--warn); animation: none; }
+/* Terminé : éteint, et surtout immobile. */
+.tdot.disp-termine { background: var(--muted); box-shadow: none; animation: none; }
 .tdot.tdisp { cursor: pointer; }
 .tdot.tdisp:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 

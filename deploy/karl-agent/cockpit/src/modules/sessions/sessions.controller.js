@@ -11,7 +11,7 @@ import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewM
 import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle } from "./Sessions.view.js";
 import { contextGauge, contextCrossed } from "./sessions.js";                      // RM3082
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";           // RM3082
-import { effDisposition, restartTip, approveShortcutVisible, tmuxName } from "./sessions.js";
+import { effDisposition, restartTip, approveShortcutVisible, tmuxName, toggleDisposition } from "./sessions.js";
 import { mount, paint } from "../../core/dom.js";
 import { raw } from "../../core/html.js";
 
@@ -26,7 +26,15 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const sets = () => (ctx.sets ? ctx.sets() : { sets: [], current: "default", view: "set" });
   const lend = { pin: (k, key) => (ctx.pin ? ctx.pin(k, key) : "") || "", titleLink: (rm, t) => (ctx.titleLink ? ctx.titleLink(rm, t) : "") || "" };
   const state = { ordered: [], groups: {}, byKey: {} };
-  const h = hosts.list ? mount(hosts.list, raw(hosts.list.innerHTML || ""), { events: [["click", "[data-action]", (ev, el) => onAction(ev, el)]] }) : null;
+  const h = hosts.list ? mount(hosts.list, raw(hosts.list.innerHTML || ""), { events: [
+    ["click", "[data-action]", (ev, el) => onAction(ev, el)],
+    // RM2792 : le menu complet au clic droit — le navigateur, lui, n'a rien d'utile à proposer ici.
+    ["contextmenu", "[data-action=\"disp\"]", (ev, el) => {
+      const s = el.dataset.k ? state.byKey[el.dataset.k] : null;
+      if (!s) return;
+      if (ev.preventDefault) ev.preventDefault();
+      if (ctx.openDispositionMenu) ctx.openDispositionMenu(s, el);
+    }]] }) : null;
   const disposers = [];
   const listen = (node, type, fn) => { if (node && node.addEventListener) { node.addEventListener(type, fn); disposers.push(() => node.removeEventListener(type, fn)); } };
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
@@ -102,7 +110,13 @@ export function mountSessions(hosts = {}, ctx = {}) {
     else if (a === "approve") approve(s ? s.rm_id : attached());                              // RM2302 : « Oui » direct depuis la liste
     else if (a === "kill") { if (s && ctx.kill) ctx.kill(s.rm_id); }
     else if (a === "drop") { if (s && ctx.drop) ctx.drop(s); }                                  // RM2446 : ⊖ sort du jeu sans fermer
-    else if (a === "disp") { if (s && ctx.openDispositionMenu) ctx.openDispositionMenu(s, el); }   // RM2515
+    // RM2792 : un clic BASCULE (« à traiter » ⇄ « en pause ») — c'est le geste de tous les jours.
+    // Le menu complet reste à un clic droit (ou alt/maj-clic), pour « terminé » et la fermeture.
+    else if (a === "disp") {
+      if (!s) return;
+      if (ev && (ev.altKey || ev.shiftKey)) { if (ctx.openDispositionMenu) ctx.openDispositionMenu(s, el); return; }
+      if (ctx.setDisposition) ctx.setDisposition(s.rm_id, toggleDisposition(effDisposition(s.state, s.disposition)));
+    }
     else if (a === "restart") { if (s && ctx.toggleRestart) ctx.toggleRestart(s); }
     else if (a === "forget") { if (s && ctx.forget) ctx.forget(s); }
     else if (a === "group") { if (ctx.openProject) ctx.openProject(el.dataset.key); }           // RM2353

@@ -22,6 +22,6 @@ export function chipList(actions, attached) {
 /** RM2720 : les actions PM d'un ticket, dans l'ordre du catalogue (l'index est celui qu'attend sendPmAction). */
 export function pmActions(actions) { return (actions || []).filter(a => a && a.ticket_only); }
 /** RM2515 : les dispositions d'une session — à traiter / parké / terminé. */
-export const DISPOSITIONS = [["a_traiter", "🟠 à traiter"], ["parke", "🔖 parké"], ["termine", "✅ terminé"]];
+export const DISPOSITIONS = [["a_traiter", "🟡 à traiter"], ["parke", "🔖 en pause"], ["termine", "✅ terminé"]];
 export function dispositionItems(current) { const cur = current || "a_traiter"; return DISPOSITIONS.map(([v, l]) => ({ value: v, label: l, on: v === cur })); }
 export function tmuxLabel(rmId) { return /^\d+$/.test(String(rmId)) ? "karl-RM" + rmId : "karl-" + rmId; }

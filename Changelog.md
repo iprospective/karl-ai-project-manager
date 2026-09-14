@@ -26,6 +26,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   **empire** repart, parce que c'est une nouvelle. Sans destinataire configuré il le dit et ne fait
   rien, plutôt que d'échouer toutes les quinze minutes.
 
+- **Le fil de notifications s'affiche dans le cockpit** (RM2792, lot 3) : le bouton 🔔 de l'en-tête
+  compte ce qui attend — et ne dit rien quand rien n'attend ; il vire à l'orange, et clignote en rouge
+  si quelque chose de critique traîne. Le panneau est une **file**, pas un journal de plus : ○ lue
+  laisse l'entrée dans la file, ✓ traitée l'en sort, et « ✓ tout » annonce combien il emporte avant de
+  le faire. Une entrée privée est marquée d'un cadenas et la page dit **au nom de qui** le fil est lu —
+  c'est ce qui explique ce qu'on n'y voit pas. Le compteur suit le tick de rafraîchissement qui existe
+  déjà, bridé à une lecture par minute : pas de minuterie de plus. Cockpit 3.14.0.
+  Au passage, le **titre de l'en-tête cède la place** quand la barre se remplit : un bouton de plus y
+  poussait la page entière vers la droite — un flex item textuel refuse par défaut de passer sous la
+  largeur de son contenu. Attrapé par le test navigateur, invisible aux suites node.
+
+- **Les sessions qui attendent une suite le disent enfin** (RM2792, lot 3) : `idle` sans disposition —
+  le tour est fini, la session attend qu'on la relance — était rendu par un point orange **fixe**,
+  c'est-à-dire par rien du tout. Il clignote maintenant en **jaune** : le clignotement dit « ça
+  t'attend », la couleur dit de quelle attente il s'agit. En pause, c'est un orange **immobile** ;
+  terminé reste éteint. Et le clic sur la pastille **bascule** directement entre « à traiter » et « en
+  pause » au lieu d'ouvrir un menu : le geste de tous les jours coûte un clic. Le menu complet reste à
+  un clic droit (ou alt-clic). « Parké » devient **« en pause »** partout dans l'interface — même état,
+  le vocabulaire de l'usage.
+
 - **Les publications qu'on attend se déclarent au lieu de s'écrire** (RM2792 lot 4, RM2429) :
   `mmi-pm release-watch` compare la dernière release des dépôts listés dans `releases.watch.yml` au
   plancher qu'on attend et notifie le fil quand c'est sorti. Premier cas, celui qui a motivé tout le

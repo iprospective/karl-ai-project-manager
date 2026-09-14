@@ -30,6 +30,31 @@ export class ProjectSheetViewModel extends EntityViewModel {
   get byStatus() { const bs = this.e.open_by_status || {}; return Object.keys(bs).sort().map(st => ({ status: st, n: bs[st] })); }
   row(t) { return { rm_id: String(t.rm_id), status: t.status || "?", title: t.title || "", when: t.mtime && this.ctx.ago ? this.ctx.ago(t.mtime) : "" }; }
   get openRecent() { return (this.e.open_recent || []).map(t => this.row(t)); }
+
+  /** RM3132 — la SANTÉ du projet : ce qu'on veut savoir en arrivant dessus, et qu'il fallait
+   *  jusqu'ici chercher à trois endroits.
+   *
+   *  Construite à partir de ce que la fiche a DÉJÀ. Ce qui manque (dernière MEP, divergence
+   *  dev/main, état des tests) n'est pas inventé ni approximé : `pending` le dit, et la vue
+   *  l'affiche comme non renseigné. Une santé à moitié fausse serait pire que pas de santé.
+   */
+  health() {
+    const ouverts = this.byStatus.reduce((a, s) => a + (s.n || 0), 0);
+    const attente = this.byStatus.filter(s => /^(a_tester|a_mep|en_mep)/.test(s.status))
+                                 .reduce((a, s) => a + (s.n || 0), 0);
+    const bloques = this.byStatus.filter(s => s.status === "en_pause" || s.status === "a_corriger")
+                                 .reduce((a, s) => a + (s.n || 0), 0);
+    const vieux = (this.e.open_recent || []).filter(t => t.mtime)
+                    .sort((x, y) => (x.mtime || 0) - (y.mtime || 0))[0];
+    return {
+      ouverts, attente, bloques,
+      total: this.e.total || 0,
+      doyen: vieux && this.ctx.ago ? { rm: String(vieux.rm_id), age: this.ctx.ago(vieux.mtime) } : null,
+      envs: this.environments.length,
+      // Non renseigné tant que la fiche ne le porte pas — dit, jamais deviné.
+      pending: ["dernière MEP", "divergence dev/main", "état des tests"],
+    };
+  }
   get closedRecent() { return (this.e.closed_recent || []).map(t => this.row(t)); }
 }
 

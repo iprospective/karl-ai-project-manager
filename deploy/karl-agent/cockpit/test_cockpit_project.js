@@ -93,15 +93,33 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   // ── RM3132 : la barre d'onglets elle-même
   {
     assert.deepStrictEqual(V.PROJECT_TABS.map(t => t[0]),
-                           ["resume", "tickets", "docs", "sessions", "files"]);
+                           ["resume", "sante", "tickets", "docs", "sessions", "files"]);
     assert.strictEqual(V.projectTabOf("zzz"), "resume", "un onglet inconnu retombe sur le résumé");
     assert.strictEqual(V.projectTabOf(undefined), "resume", "pas d'onglet → résumé");
     assert.strictEqual(V.projectTabOf("worklog"), "resume",
                        "« worklog » a son propre rendu, hors de ces facettes");
     const barre = String(V.ProjectTabs("docs"));
     assert(/class="active" data-action="ptab" data-tab="docs"/.test(barre), "l'onglet actif est marqué");
-    assert((barre.match(/data-action="ptab"/g) || []).length === 5, "cinq onglets, pas un de plus");
+    assert((barre.match(/data-action="ptab"/g) || []).length === 6, "six onglets, pas un de plus");
     assert(!/onclick=/.test(barre));
+
+    // ── l'onglet Santé (RM3132)
+    const vmS = new VM.ProjectSheetViewModel(
+      { name: "A", total: 12, open_by_status: { en_cours: 2, a_tester_demandeur: 3, en_pause: 1 },
+        open_recent: [{ rm_id: "5", status: "en_cours", mtime: 1000 },
+                      { rm_id: "9", status: "a_faire", mtime: 9000 }], environments: [{ name: "prod" }] },
+      { key: "a/b", sessions: [], ago: () => "il y a 3 mois" });
+    const h = vmS.health();
+    assert.strictEqual(h.ouverts, 6, "somme des tickets ouverts");
+    assert.strictEqual(h.attente, 3, "a_tester_* et a_mep comptent comme « ne dépend plus du dev »");
+    assert.strictEqual(h.bloques, 1, "en_pause et a_corriger comptent comme bloqués");
+    assert.strictEqual(h.doyen.rm, "5", "le plus ANCIEN ouvert, pas le plus récent");
+    const sante = String(V.ProjectSheet(vmS, (r, t) => t, "", "sante"));
+    assert(/Santé du projet/.test(sante) && /RM5/.test(sante));
+    assert(/non renseigné ici/.test(sante) && /dernière MEP/.test(sante),
+           "ce que la fiche ne porte pas est DIT, jamais deviné");
+    const vmVide = new VM.ProjectSheetViewModel({ name: "B" }, { key: "a/b", sessions: [], ago: () => "" });
+    assert.strictEqual(vmVide.health().doyen, null, "sans ticket daté : pas de doyen inventé");
     console.log("  ✓ RM3132 : onglets de la fiche projet — actif marqué, inconnu ramené au résumé");
   }
 

@@ -68,9 +68,23 @@ def git(core_dir, *a, check=False, env=None):
     return run(["git", "-C", str(core_dir), *a], check=check, env=env)
 
 
-def needs_agent_restart(changed_files) -> bool:
-    """RM2308 : seul un changement du démon lui-même impose son redémarrage (les pm-* sont relus à chaque appel)."""
-    return "scripts/karl-agent.py" in {f.strip() for f in changed_files if f.strip()}
+def needs_agent_restart(changed_files) -> list:
+    """Les fichiers Python de `scripts/` qui viennent de changer — donc ce qui impose un redémarrage.
+
+    RM2308 posait la règle « seul le démon lui-même », au motif que « les pm-* sont relus à chaque
+    appel ». C'est vrai des SCRIPTS `pm-*.py`, lancés en sous-processus. Ça ne l'est pas des MODULES
+    `pm_*.py` : l'agent en importe au moins treize — `karl_api_routes`, `pm_log`, `pm_notify`,
+    `pm_bus`, `pm_modules`, `pm_monitor`, `pm_secrets`… — dont plusieurs en import paresseux, au
+    fil des fonctions. Le processus garde en mémoire la version importée au démarrage, et un module
+    livré restait donc invisible (RM3178 : une route déclarée partout rendait « route inconnue »).
+
+    Suivre la liste exacte des imports serait plus fin et plus fragile : un import ajouté demain
+    rouvrirait le trou sans prévenir. Le compromis est franc — un redémarrage de trop coûte une
+    reconnexion du cockpit, sessions tmux intactes (KillMode=process) ; un redémarrage manquant coûte
+    un défaut invisible, et la confiance dans le déploiement.
+    """
+    return sorted(f.strip() for f in (changed_files or [])
+                  if f.strip().startswith("scripts/") and f.strip().endswith(".py"))
 
 
 def hooks_plan(core_dir: Path):
@@ -226,18 +240,21 @@ def sync_user_provisioning(core_dir: Path):
         log("⚠ skills NON liés (occupés par un dossier ou un autre lien) : " + ", ".join(manual))
 
 
-def restart_karl_agent(core_dir: Path):
+def restart_karl_agent(core_dir: Path, motifs=None):
+    """`motifs` : les fichiers qui l'imposent. Les NOMMER évite la question « pourquoi a-t-il
+    redémarré ? » — et, quand il ne redémarre pas, de chercher ailleurs pendant une heure."""
+    quoi = ", ".join(motifs[:4]) + ("…" if motifs and len(motifs) > 4 else "") if motifs else "karl-agent.py"
     ku = read_env(core_dir / ".env").get("KARL_USER") or ""
     uid = run(["id", "-u", ku]).stdout.strip() if ku else ""
     if not (ku and uid):
-        log("⚠ karl-agent.py modifié — KARL_USER inconnu dans .env ; si cette instance fait tourner l'agent : systemctl --user restart karl-agent"); return
+        log(f"⚠ {quoi} modifié — KARL_USER inconnu dans .env ; si cette instance fait tourner l'agent : systemctl --user restart karl-agent"); return
     base = ["runuser", "-u", ku, "--", "env", f"XDG_RUNTIME_DIR=/run/user/{uid}", "systemctl", "--user"]
     if run(base + ["is-active", "--quiet", "karl-agent.service"]).returncode != 0:
-        log(f"⚠ karl-agent.py modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user {ku})"); return
+        log(f"⚠ {quoi} modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user {ku})"); return
     if run(base + ["restart", "karl-agent.service"]).returncode == 0:
-        log("karl-agent.py modifié → karl-agent.service redémarré (KillMode=process : sessions tmux intactes)")
+        log(f"{quoi} modifié → karl-agent.service redémarré (KillMode=process : sessions tmux intactes)")
     else:
-        log(f"⚠ karl-agent.py modifié mais restart ÉCHOUÉ — l'agent sert l'ancien code ; relancer en tant que {ku} : systemctl --user restart karl-agent")
+        log(f"⚠ {quoi} modifié mais restart ÉCHOUÉ — l'agent sert l'ancien code ; relancer en tant que {ku} : systemctl --user restart karl-agent")
 
 
 def migrate_stores(core_dir: Path, dry: bool):
@@ -344,8 +361,9 @@ def update(core_dir: Path, dry: bool) -> int:
     log("hooks PM du core posés/rafraîchis (post-commit, pre-push, pre-commit)")
     if old not in ("?", new):
         changed = git(core_dir, "diff", "--name-only", old, new).stdout.splitlines()
-        if needs_agent_restart(changed):
-            restart_karl_agent(core_dir)
+        motifs = needs_agent_restart(changed)
+        if motifs:
+            restart_karl_agent(core_dir, motifs)
     migrate_stores(core_dir, dry)
     install_scheduler_timer(core_dir, dry)
     for src, dst, ref, todo in deploy_plan(core_dir):

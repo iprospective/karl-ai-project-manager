@@ -130,10 +130,17 @@ Le filtre **« Clients »** de l'en-tête (contexte client, pré-filtre global) 
 
 ## Fournisseurs
 
-La carte 🔌 **Fournisseurs** déclare ce que karl utilise : les **tickets** (Redmine), les **dépôts** (GitLab,
-Gogs, GitHub), la **documentation**, les **coffres à secrets** et les **modèles de travail** (Lemonade sur
-Ryzen AI, Ollama, serveur compatible OpenAI, API Anthropic). Chaque axe peut porter **plusieurs instances**
-— deux Redmine, par exemple — et l'une d'elles est le défaut.
+La carte 🔌 **Fournisseurs** déclare ce que karl utilise : les **tickets** (Redmine, ou les *issues* d'un
+dépôt GitLab, GitHub ou Gogs), les **dépôts** (GitLab, Gogs, GitHub), la **documentation**, les **coffres à
+secrets** et les **modèles de travail** (Lemonade sur Ryzen AI, Ollama, serveur compatible OpenAI, API
+Anthropic). Chaque axe peut porter **plusieurs instances** — deux Redmine, par exemple — et l'une d'elles
+est le défaut.
+
+**Les issues comme gestionnaire de tickets** se déclarent avec le **dépôt** qui les porte
+(`groupe/projet`). Le panneau le dit avant que tu déclares l'instance : une forge n'a ni champs
+personnalisés ni saisies de temps, donc un projet dont les tickets vivent là **n'aura ni chiffrage en
+tokens ni reporting de temps**. La lecture est complète (lire un ticket, lister, chercher) ; l'écriture
+attend une décision, parce qu'un ticket PM suppose des champs que les issues n'ont pas.
 
 **Les clés ne se lisent pas, elles se remplacent.** Le panneau dit seulement « posée » ou « non renseignée »,
 et le champ de saisie est vide : il est vidé dès l'enregistrement, et aucune route ne renvoie une valeur.

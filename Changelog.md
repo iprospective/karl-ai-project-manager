@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les issues d'une forge peuvent porter les tickets d'un projet** (RM3113) : GitLab, GitHub et Gogs
+  rejoignent Redmine sur l'axe « Tickets » des fournisseurs, et se déclarent donc depuis les réglages —
+  une URL, le dépôt qui porte les tickets, un jeton en écriture seule. GitHub et Gogs partagent **un
+  seul** backend : Gogs mime l'API de GitHub, et deux copies auraient fini par diverger. Ce que ces
+  fournisseurs ne savent pas faire est dit dans le catalogue, avant de déclarer l'instance plutôt qu'à
+  l'usage : ni champs personnalisés, ni saisies de temps — donc ni chiffrage en tokens, ni reporting de
+  temps. La lecture d'abord (lire un ticket, lister, chercher) ; l'écriture attend que la question des
+  champs manquants soit tranchée. Au passage, une **demande de fusion n'est pas un ticket** : l'API
+  GitHub les mélange, la liste les écarte.
+
 - **Le worklog mène quelque part** (RM3114) : « ❓ à trancher » affichait des numéros de tickets et un
   compte de questions, mais le clic ouvrait le panneau méta — qui ne montre pas le carnet de réflexion.
   Il ouvre maintenant la **fiche de revue**, seul endroit où les questions se lisent ET se tranchent

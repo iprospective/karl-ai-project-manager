@@ -11,11 +11,29 @@ secrets vivent dans un `.env` (voir `pm-provider-secret.py`) et rien ne les reli
 #: champ : (nom, libellé, requis, aide)
 _URL = ("url", "URL", True, "adresse du service, sans barre finale")
 _MODEL = ("model", "Modèle", False, "identifiant du modèle servi (ex. qwen3-8b)")
+#: RM3113 : le dépôt qui porte les issues — « groupe/projet » chez GitLab, « compte/dépôt » ailleurs.
+_REPO = ("repo", "Dépôt", True, "chemin du dépôt qui porte les tickets, ex. iprospective/mon-projet")
 
 CATALOGUE = {
     # ── axe task : le gestionnaire de tickets ────────────────────────────────
     "redmine": {"axis": "task", "label": "Redmine", "fields": [_URL],
                 "secrets": [("API_KEY", "Clé d'API")], "prefix": "REDMINE"},
+    # RM3113 : les *issues* d'une forge comme gestionnaire de tickets. Elles n'ont ni champs
+    # personnalisés ni saisies de temps : un projet qui les déclare renonce au chiffrage en
+    # tokens et au reporting de temps. C'est dit ici, dans le catalogue, pour que ce soit lu
+    # AVANT de déclarer l'instance — pas découvert à l'usage.
+    "gitlab_issues": {"axis": "task", "label": "GitLab · issues", "fields": [_URL, _REPO],
+                      "secrets": [("TOKEN", "Jeton d'accès")], "prefix": "GITLAB",
+                      "note": "pas de champs personnalisés ni de temps : ni chiffrage ni reporting PM"},
+    "github_issues": {"axis": "task", "label": "GitHub · issues",
+                      "fields": [("url", "URL", False, "https://github.com par défaut"), _REPO,
+                                 ("api_url", "URL de l'API", False,
+                                  "https://api.github.com par défaut ; à poser pour GitHub Enterprise")],
+                      "secrets": [("TOKEN", "Jeton d'accès")], "prefix": "GITHUB",
+                      "note": "pas de champs personnalisés ni de temps : ni chiffrage ni reporting PM"},
+    "gogs_issues": {"axis": "task", "label": "Gogs · issues", "fields": [_URL, _REPO],
+                    "secrets": [("TOKEN", "Jeton d'accès")], "prefix": "GOGS",
+                    "note": "API de style GitHub ; pas de champs personnalisés ni de temps"},
     # ── axe forge : le dépôt de code ─────────────────────────────────────────
     "gitlab": {"axis": "forge", "label": "GitLab", "fields": [_URL,
                ("ssh_aliases", "Alias SSH", False, "alias de ~/.ssh/config qui atteignent cette forge, séparés par des virgules")],

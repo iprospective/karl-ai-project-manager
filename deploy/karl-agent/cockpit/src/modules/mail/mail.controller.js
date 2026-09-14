@@ -50,6 +50,27 @@ export function mountMailPanel(el, ctx = {}) {
     refresh: ()    => refresh(),
     toggle:  (key) => { state.openKey = state.openKey === key ? null : key; return refresh(); },
     center:  (key) => ctx.openCenter && ctx.openCenter(key, (state.emails.find(e => e.key === key) || {}).subject || ""),
+    // RM3147 — l'expéditeur : sa fiche s'il est connu, sa création sinon.
+    contact: (key) => {
+      const e = state.emails.find(x => x.key === key) || {};
+      const ref = ((e.contact || {}).known && e.contact.ref) || "";
+      if (ref && ctx.openContact) ctx.openContact(ref);
+    },
+    "contact-add": async (key) => {
+      const e = state.emails.find(x => x.key === key);
+      if (!e || !ctx.addContact) return;
+      const champs = new EmailViewModel(e, {}).newContact;
+      if (!champs.email) { notify("cet email n'a pas d'adresse d'expéditeur", true); return; }
+      // Montrer le DÉCOUPAGE, pas seulement le nom : la convention « dernier mot
+      // = nom » se trompe sur un nom composé, et c'est ici qu'on peut s'en
+      // apercevoir avant d'écrire.
+      const apercu = [champs.first_name, champs.last_name].filter(Boolean).join(" / ") || champs.email;
+      if (!ask.confirm("Créer dans l'annuaire ?\n\nprénom / NOM : " + apercu
+                       + "\nadresse : " + champs.email)) return;
+      const r = await ctx.addContact(champs);
+      notify(r && r.message, !(r && r.ok));
+      await refresh();          // la file se relit : l'expéditeur devient reconnu
+    },
     draft:   (key) => run(svc.draft(key, state.fullBody)),
     create:  (key) => {
       const fields = { project: field("ml-project"), title: field("ml-title"), priority: field("ml-prio") };

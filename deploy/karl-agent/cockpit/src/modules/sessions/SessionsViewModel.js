@@ -16,6 +16,15 @@ export class SessionTileViewModel extends EntityViewModel {
   constructor(session, ctx = {}) { super(Object.assign({ id: String(session.rm_id), type: "session" }, session), ctx); this.s = session; }
   // RM3002 : les quatre niveaux (core/entities) se composent d'ici — la tuile historique reste la vue de la liste « en cours »
   get subtitle() { return this.s.client && this.s.project ? this.s.client + "/" + this.s.project : ""; }
+
+  /** RM3131 : « n ouverts / m » — les tickets que cette session porte. `null` quand elle n'en
+   *  porte aucun : une session sans ticket ne doit afficher AUCUN compteur, là où « 0/0 » se
+   *  lirait comme une information. Le serveur résout les statuts par l'index (RM3128), donc un
+   *  ticket fermé ailleurs sort du compte — le worklog, lui, fige le statut d'entrée. */
+  get ticketCount() {
+    const t = this.s.tickets;
+    return (t && t.total) ? { open: t.open || 0, total: t.total } : null;
+  }
   get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); return out; }
   sections() {
     return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["depuis", this.age]].filter(([, v]) => v) },

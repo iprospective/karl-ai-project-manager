@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 81e865273e397ab5 (37 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : a34a747d84ada6dc (37 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1472,6 +1472,15 @@ html[data-layout=mobile] .foot {
     animation: none;
   }
 }
+/* RM3131 — le compteur de tickets d'une session, discret : il informe au passage,
+   il ne dispute pas la place au titre ni à la jauge de contexte. */
+.runitem .tcount {
+  margin-left: 4px;
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
 #authgate {
   position: fixed;

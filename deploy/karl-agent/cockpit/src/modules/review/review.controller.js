@@ -178,6 +178,7 @@ export function mountReview(el, ctx = {}) {
   const gestures = {
     reload: () => T.reload(state.current), "think-state": (n) => thinkState(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
     verdict: (n) => verdict(n.dataset.rm, n.dataset.kind, n), pm: (n) => ctx.sendPmAction && ctx.sendPmAction(Number(n.dataset.i), n.dataset.rm, n),
+    "open-contact": (n) => ctx.openContact && ctx.openContact(n.dataset.value),   // RM3149
     attach: (n) => ctx.attach && ctx.attach(n.dataset.sid), spawn: (n) => spawnTicket(n.dataset.rm, n), send: (n) => sendToSession(n.dataset.rm, n),
     "env-deploy": (n) => ctx.tq && ctx.tq.deploy(n.dataset.rm, n), "env-teardown": (n) => ctx.tq && ctx.tq.teardown(n.dataset.rm, n), "env-shared": (n) => ctx.tq && ctx.tq.deployShared(n.dataset.rm, n),
   };

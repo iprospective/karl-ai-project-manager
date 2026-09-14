@@ -161,6 +161,48 @@ check("la sous-commande est imposée par le catalogue, pas par le client",
       all(a.get("const") for n in ("annuaire-list", "annuaire-add")
           for a in noms[n]["args"] if a["name"] == "cmd"))
 
+# ── 6. RM3149 : le demandeur d'un ticket ─────────────────────────────────────
+# Le demandeur est le membre `owner` de team[] — `creator` est un nom
+# d'utilisateur PM, pas une identité : c'est l'ADRESSE qui rejoint l'annuaire.
+def meta_team(*membres, creator="iprospective"):
+    return {"creator": creator, "team": list(membres)}
+
+OWNER = {"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}
+AUTRE = {"username": "noe", "email": "noe@calyclay.com", "role": "intervenant"}
+
+r = ka.requester_of(meta_team(AUTRE, OWNER), PAR_EMAIL, ANN)
+check("le demandeur est le membre « owner », pas le premier venu",
+      r["known"] and r["ref"] == "iprospective")
+check("…rendu par son nom d'annuaire", r["name"] == "Mathieu Moulin")
+check("…avec sa qualité d'interne", r["internal"] is True)
+r2 = ka.requester_of(meta_team(AUTRE), PAR_EMAIL, ANN)
+check("sans owner, le premier membre fait foi", r2["ref"] == "solsona-noe")
+r3 = ka.requester_of(meta_team({"username": "zoe", "email": "zoe@ailleurs.fr"}), PAR_EMAIL, ANN)
+check("un demandeur hors annuaire reste LISIBLE, il ne disparaît pas",
+      r3["known"] is False and r3["name"] == "zoe")
+r4 = ka.requester_of(meta_team({"username": "sanmail"}), PAR_EMAIL, ANN)
+check("sans adresse, le nom d'utilisateur suffit à l'afficher",
+      r4 and r4["known"] is False and r4["name"] == "sanmail")
+r5 = ka.requester_of({"creator": "iprospective", "team": []}, PAR_EMAIL, ANN)
+check("team vide : on retombe sur creator", r5 and r5["name"] == "iprospective")
+check("…sans prétendre le connaître (creator n'est pas une adresse)",
+      r5["known"] is False)
+check("ni team ni creator ⇒ rien à dire", ka.requester_of({}, PAR_EMAIL, ANN) is None)
+check("une entrée de team mal formée est ignorée sans planter",
+      ka.requester_of({"team": ["pas un dict"], "creator": "x"}, PAR_EMAIL, ANN)["name"] == "x")
+
+# Le drapeau : le parseur du parc ne paie pas ce que seul le cockpit demande.
+import inspect as _insp
+_sig = _insp.signature(ka._read_task_meta)
+check("_read_task_meta lit team/creator SUR DEMANDE",
+      "with_team" in _sig.parameters and _sig.parameters["with_team"].default is False)
+_f = ka._find_task_file("3149")
+if _f:
+    check("drapeau éteint : le parc ne lit pas team[]",
+          ka._read_task_meta(_f)["team"] == [])
+    check("drapeau allumé : team[] est lu",
+          len(ka._read_task_meta(_f, with_team=True)["team"]) >= 1)
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails))

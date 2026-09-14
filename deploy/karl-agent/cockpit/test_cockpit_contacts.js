@@ -191,4 +191,27 @@ const path = require("path"); const assert = require("assert"); const DIR = __di
   assert(/annuaire-add/.test(boot),
     "RM3147 : la création doit passer par la commande catalogue annuaire-add (pm-contact reste le seul point d'écriture)");
   console.log("✓ câblage (RM3147) : gestes déclarés, écriture par le catalogue");
+
+  // — 8. RM3149 : le demandeur d'un ticket —
+  const RVM = await import(path.join(DIR, "src/modules/review/ReviewViewModel.js"));
+  // `this.r` est l'entité du ticket, portée par `e.r` (cf. ReviewViewModel).
+  const mk = (req) => new RVM.ReviewViewModel({ r: { found: true, title: "T", requester: req } }, { rm: "1" });
+  const dConnu = String(mk({ known: true, ref: "iprospective", name: "Mathieu Moulin", internal: true }).requester);
+  assert(/data-action="open-contact" data-value="iprospective"/.test(dConnu),
+    "un demandeur connu ouvre sa fiche");
+  assert(/Mathieu Moulin/.test(dConnu) && /interne/.test(dConnu),
+    "…par son nom, avec sa pastille interne");
+  const dInconnu = String(mk({ known: false, name: "zoe", email: "zoe@ailleurs.fr" }).requester);
+  assert(/zoe/.test(dInconnu), "un demandeur hors annuaire reste lisible");
+  assert(!/open-contact/.test(dInconnu), "…et n'ouvre pas une fiche qui n'existe pas");
+  assert.strictEqual(mk(null).requester, null, "aucun demandeur : la section reste vide");
+  assert.strictEqual(mk({ known: false }).requester, null,
+    "un demandeur sans nom ni adresse n'est pas affiché à moitié");
+  const dXss = String(mk({ known: true, ref: "r", name: "<img src=x>" }).requester);
+  assert(!/<img/.test(dXss), "le nom du demandeur est échappé");
+  const sections = mk({ known: true, ref: "r", name: "N" }).sections().map(x => x.id);
+  assert(sections.includes("requester"), "la fiche porte une section « demandeur »");
+  const revCtl = fs.readFileSync(path.join(DIR, "src/modules/review/review.controller.js"), "utf8");
+  assert(/"open-contact":/.test(revCtl), "RM3149 : le geste doit être déclaré dans le panneau ticket");
+  console.log("✓ demandeur d'un ticket (RM3149) : connu cliquable, inconnu lisible, échappement");
 })().catch(e => { console.error(e && e.message || e); process.exit(1); });

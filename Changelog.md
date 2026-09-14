@@ -1191,6 +1191,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **La fiche d'un ticket dit qui l'a demandé** (RM3149). Le demandeur y est désormais nommé,
+  et cliquable vers sa fiche d'annuaire quand celui-ci le connaît — la dernière des entrées
+  contextuelles ouvertes par RM3147. Il est pris dans `team[]` au membre **owner** (à défaut le
+  premier, à défaut `creator`) et rapproché **par son adresse** : `creator` est un nom
+  d'utilisateur PM, pas une identité, et l'annuaire n'indexe que des adresses. Un demandeur
+  hors annuaire reste **lisible** au lieu de disparaître. Le point délicat était ailleurs :
+  `creator`/`team[]` n'étaient lus par personne, et les ajouter au parseur du parc coûtait
+  **+17 %** sur un balayage complet — mesuré, 94,5 → 110,2 ms sur 1 480 fiches. Ils sont donc
+  lus **sur demande** (`with_team`), ce qui ramène le balayage à 91-94 ms, son coût d'origine,
+  tandis que le brief d'un ticket — borné à quelques ids — les obtient. Une seconde voie de
+  lecture du frontmatter aurait évité la mesure, mais deux lectures du même fichier finissent
+  toujours par diverger.
 - **La file emails reconnaît l'expéditeur** (RM3147). Elle affichait une adresse nue là où
   l'annuaire sait souvent qui écrit — et quand il ne sait pas, c'est le bon moment pour le lui
   apprendre. Un expéditeur connu apparaît désormais par son **nom**, cliquable vers sa fiche,

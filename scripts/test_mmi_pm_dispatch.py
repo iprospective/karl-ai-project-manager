@@ -24,23 +24,22 @@ check("argv_for : mmi-<domaine> préfixe", M.argv_for("/usr/local/bin/mmi-core",
 check("argv_for : mmi-<domaine> seul → liste du domaine", M.argv_for("mmi-task", []) == ["--list", "task"] and M.argv_for("mmi-env", ["--help"]) == ["--list", "env"])
 t, r = M.resolve("core", ["update", "--dry-run"]); check("repli nom verbe → pm-core-update.py, verbe consommé", t.name == "pm-core-update.py" and r == ["--dry-run"])
 t, r = M.resolve("task-show", ["42"]); check("cmd direct → pm-task-show.py, args intacts", t.name == "pm-task-show.py" and r == ["42"])
-# RM3142 : `index` appartient désormais à l'index de REQUÊTAGE (RM3128) ; l'annuaire des projets,
-# qui portait ce nom avant, est devenu `projects-index`. RM3128 avait écrasé son module sans le voir,
-# et ses quatre commandes appelaient depuis des fonctions disparues — mortes sans un mot.
-t, r = M.resolve("index", ["add", "a/b"]); check("index <verbe> → pm-index.py, verbe passé en argument", t.name == "pm-index.py" and r == ["add", "a/b"])
-t, r = M.resolve("projects-index", ["add", "a/b"]); check("projects-index add → pm-projects-index-add.py", t.name == "pm-projects-index-add.py" and r == ["a/b"])
-t, r = M.resolve("index", ["rebuild"]); check("index rebuild → l'index de requêtage, sans ambiguïté possible", t.name == "pm-index.py" and r == ["rebuild"])
+# RM3143 a rendu son nom à l'index des PROJETS (`pm_index`, les liens de co-localisation) et déplacé
+# l'index de requêtage de RM3128 sous `searchdb` : c'est le nouveau venu qui bouge, pas l'existant.
+t, r = M.resolve("index", ["add", "a/b"]); check("index add → pm-index-add.py", t.name == "pm-index-add.py" and r == ["a/b"])
+t, r = M.resolve("searchdb", ["rebuild"]); check("searchdb <verbe> → pm-searchdb.py, verbe en argument", t.name == "pm-searchdb.py" and r == ["rebuild"])
 
-# la garde : deux scripts ne doivent pas se disputer un domaine. `pm-<x>.py` ET `pm-<x>-<v>.py`
-# ensemble, c'est un `<v>` qui peut être lu comme un sous-verbe de l'un OU comme un script à part —
-# et le dispatch tranche en silence. La liste blanche dit « on sait, et il n'y a pas d'homonyme ».
+# RM3142 — la garde : deux scripts ne doivent pas se disputer un domaine. `pm-<x>.py` ET
+# `pm-<x>-<v>.py` ensemble, c'est un `<v>` qui se lit comme un sous-verbe de l'un OU comme un script
+# à part — et le dispatch tranche en silence. C'est ainsi que `index rebuild` a changé de sens sans
+# que personne ne le voie. La liste blanche dit « on sait, et il n'y a pas d'homonyme ».
 COHABITENT = {"cdc", "notify"}      # pm-cdc/pm-cdc-features, pm-notify/pm-notify-mail : aucun verbe commun
 _S = pathlib.Path(__file__).resolve().parent
 _simples = {q.stem[3:] for q in _S.glob("pm-*.py") if q.stem.count("-") == 1}
 _disputes = sorted(d for d in _simples if list(_S.glob(f"pm-{d}-*.py")) and d not in COHABITENT)
 check("aucun domaine partagé entre un script simple et des scripts composés (RM3142)", not _disputes, str(_disputes))
 check("inconnu → None", M.resolve("zz", ["x"]) == (None, ["x"]) and M.resolve("core", ["--dry-run"]) == (None, ["--dry-run"]))
-cmds = M._list_commands(); check("--list voit les verbes portés", all(c in cmds for c in ("core-update", "projects-index-add", "projects-index-remove", "projects-index-rebuild", "projects-index-list", "env-vhost", "task-add")))
+cmds = M._list_commands(); check("--list voit les verbes portés", all(c in cmds for c in ("core-update", "index-add", "index-remove", "index-rebuild", "index-list", "env-vhost", "task-add")))
 
 with tempfile.TemporaryDirectory() as td:
     core = pathlib.Path(td); sc = core / "scripts"; sc.mkdir()

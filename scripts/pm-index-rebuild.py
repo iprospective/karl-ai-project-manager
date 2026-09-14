@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""pm-projects-index-rebuild — index des projets PM : les liens de co-localisation (RM3033 ; renomme par RM3142). Voir pm_projects_index.py.
-Usage : mmi-pm projects-index-rebuild [--dry-run]"""
+"""pm-index-rebuild — index des projets PM : les liens de co-localisation (RM3033). Voir pm_index.py.
+Usage : mmi-pm index-rebuild [--dry-run]"""
 import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
-import pm_projects_index as pm_index  # noqa: E402
+import pm_index  # noqa: E402
 
 
 def main():

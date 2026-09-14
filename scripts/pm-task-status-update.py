@@ -1157,6 +1157,15 @@ def main():
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
     if not args.dry_run:   # RM3006 : le cockpit affiche le nouveau statut tout de suite (tickets, worklog, alertes)
         pm_events.publish(["tickets", "sessions", "pending", "worklog", "dashboard"], source="pm-task-status-update", rm_id=str(args.rm_id), status=args.status)
+        # RM3145 : et le FAIT est retenu, pour les modules qui y réagissent. Deux gestes proches et
+        # deux natures : au-dessus on prévient un écran, ici on consigne un événement. Jamais
+        # bloquant — un module qui écoute ne doit pas pouvoir ralentir un changement de statut.
+        try:
+            import pm_bus
+            pm_bus.publish("task.status.changed", source="pm-task-status-update",
+                           rm_id=str(args.rm_id), **{"from": old_status, "to": args.status})
+        except Exception:      # noqa: BLE001
+            pass
 
 
 if __name__ == "__main__":

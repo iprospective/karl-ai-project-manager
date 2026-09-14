@@ -161,6 +161,18 @@ jobs:
       lui, reste tenu par `pm-context-budget --check` dans la suite de tests. Le
       message est stable, donc une dérive qui dure fait UNE entrée qui remonte.
 
+  # ── Bus d'événements : les modules réagissent (RM3145, lot 2) ───────────────
+  bus-drain:
+    schedule: "*/5 * * * *"
+    command: ["python3", "scripts/pm-bus-drain.py"]
+    description: >
+      Exécute les abonnements des modules actifs sur les événements en attente. Les
+      émetteurs de PM sont des processus courts : ils déposent un fait et meurent, ce
+      travail est ce qui le fait vivre. Un abonné en échec n'affecte ni l'émetteur —
+      parti depuis longtemps — ni les autres abonnés, et ne rejoue pas indéfiniment :
+      l'événement est marqué avec son erreur, et le fil le dit. Sans ce travail, les
+      événements s'accumulent sans que personne n'y réagisse.
+
   # ── Déclarés mais NON exécutés ──────────────────────────────────────────────
 
   bench-overhead:

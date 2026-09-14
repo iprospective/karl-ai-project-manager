@@ -175,6 +175,7 @@
 
 ### Divers
 
+- `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
@@ -187,6 +188,7 @@
 
 ## Bibliothèques (importées, pas lancées)
 
+- `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP
 - `pm_concurrent` — qui travaille DÉJÀ sur ce ticket. RM3086 (lot L3 de RM3015).

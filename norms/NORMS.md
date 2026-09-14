@@ -1,10 +1,10 @@
 ---
-schema_version: "2.47.0"
+schema_version: "2.48.0"
 updated: 2026-09-14
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 <<<<<<< HEAD
-# Normes de gestion des tâches — v2.47.0
+# Normes de gestion des tâches — v2.48.0
 =======
 # Normes de gestion des tâches — v2.42.0
 >>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
@@ -45,7 +45,7 @@ updated: 2026-09-14
 | je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC de ticket** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
-| je cherche si un geste a son outil PM, ou l'invocation exacte d'un `pm-*` | `modules/session-tooling-pratique.md` (trous connus, idiomes) | tous les `pm-*` |
+| je cherche si un geste a son outil PM, ou l'invocation exacte d'un `pm-*` | `scripts/INDEX.md` (TOUS les scripts, par domaine — jamais `ls scripts/`) puis `modules/session-tooling-pratique.md` (trous connus, idiomes) | tous les `pm-*` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
 | un événement notable arrive en séance (secret affiché, action refusée, garde-fou déclenché, outil PM en défaut, décision qui bloque) | `modules/session-tooling.md` § « Notifications importantes » | `pm-session-status.py notify` |
 | le contexte se remplit, une compaction approche, ou je rends la main en fin de séance | `modules/session-tooling.md` § « Avant une compaction » | `pm-session-status set --next`, `pm-task-think` |

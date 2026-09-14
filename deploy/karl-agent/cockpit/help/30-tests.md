@@ -1,6 +1,7 @@
 # À tester & revue
 
-Le panneau **🧪 à tester** liste les tickets en `a_tester_demandeur` (pastille
+Le panneau **🧪 à tester** — placé juste après **▶ en cours**, ce sont les deux files qu'on
+regarde en arrivant — liste les tickets en `a_tester_demandeur` (pastille
 « demandeur ») ou `a_tester_dev` (« dev »), enrichis de leur branche et de leur
 environnement de test.
 
@@ -25,3 +26,6 @@ Deux natures d'env, avec un indicateur ● (en ligne) / ⚠ (indisponible) :
     auto-signé une fois ; terminal et micro exigent ce contexte sécurisé).
 
 Une instance de test se relance donc **en un clic** ; inutile de repasser en CLI.
+
+Le **compteur** de l'onglet dit combien de tickets attendent d'être testés. Il compte la file
+entière, pas la vue filtrée — et disparaît à zéro : un badge « 0 » n'informe pas, il occupe.

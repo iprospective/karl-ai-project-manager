@@ -1,6 +1,6 @@
 # Projets — clients, projets et leurs fiches
 
-Le panneau **📁 projets** liste tout ce que le PM connaît : les clients, et sous chacun
+Le panneau **📁 clients/projets** liste tout ce que le PM connaît : les clients, et sous chacun
 ses projets. Un clic sur un projet ouvre sa **fiche** dans le panneau central.
 
 ## Pourquoi ce panneau existe

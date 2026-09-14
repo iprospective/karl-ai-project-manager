@@ -5,7 +5,7 @@
 // RM3164 : « conso » s'appelle « temps & coût » — l'onglet portait déjà les tokens, le COÛT et
 // les temps IA/humain, mais son nom ne disait que la moitié : on ne l'ouvrait pas pour chercher
 // un temps. La clé ne bouge pas (elle est dans les URL de vue et les préférences).
-export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["workspace", "workspace"]];
+export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["impact", "impact"], ["workspace", "workspace"]];
 export function facetOf(f) { return FACETS.some(x => x[0] === f) ? f : "detail"; }
 
 export const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };

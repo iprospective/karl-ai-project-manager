@@ -7,6 +7,7 @@ export class MetaService {
   /** RM3164. Tolère un dépôt qui ne l'implémente pas (doubles de test partiels) : le panneau
    *  affiche alors « pas demandé » au lieu de tomber — une information en moins ne vaut pas
    *  un encart mort. */
+  ticketImpact(rm, onLoad) { return this.repo.ticketImpact ? this.repo.ticketImpact(rm, onLoad) : undefined; }
   ticketSessions(rm, onLoad) {
     return this.repo.ticketSessions ? this.repo.ticketSessions(rm, onLoad) : undefined;
   }

@@ -109,6 +109,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /stt	L5	voice	/api/voice/stt	1	serverDictate
 /tags	L3	search	/api/search/tags	1	loadTags
 /tickets	L2,L3	sessions	/api/ticket/tickets	2	createTicket;submitNewTicket
+/ticket-impact	L3	tickets	/api/ticket/impact	1	ticketImpact
 /tickets/brief	L3	tickets	/api/ticket/brief	1	requestBriefs
 /ticket-sessions	L3	testqueue	/api/test-queue/ticket-sessions	1	ensureTicketSessions
 /tickets/search	L3	search	/api/search/tickets	1	search

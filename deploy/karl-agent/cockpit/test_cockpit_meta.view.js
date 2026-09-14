@@ -41,7 +41,8 @@ const { settle, fakeElement, JOURNAL, S, U, R } = require("./test_cockpit_meta.h
   // — l'onglet tickets : facettes —
   const pane = (e) => String(V.TicketsPane(new VM.TicketMetaViewModel(Object.assign({ tickets: ["42", "43"], current: "42", facet: "detail", resolve: { "42": R, "43": undefined }, attached: "42", worklogSeen: true, ws: undefined, card: null }, e), { now: Date.parse("2026-09-05T11:00") }), { md: (s) => "<md>" + s + "</md>", tip: (id) => ' data-tip-rm="' + id + '" title="tip"' }));
   const d = pane({});
-  assert(/<button class="active" data-action="tab" data-rm="42">RM42<\/button>/.test(d) && /data-action="tab" data-rm="43"/.test(d), "un sous-onglet par ticket, l'actif marqué");
+  // RM3164 : l'onglet porte aussi le projet du ticket en infobulle.
+  assert(/<button class="active" data-action="tab" data-rm="42"[^>]*>RM42<\/button>/.test(d) && /data-action="tab" data-rm="43"/.test(d), "un sous-onglet par ticket, l'actif marqué");
   for (const f of ["detail", "desc", "log", "conso", "workspace"]) assert(new RegExp('data-action="facet" data-facet="' + f + '"').test(d), "facette routée : " + f);
   assert(/RM42 ↗/.test(d) && /data-action="launcher" data-rm="42"/.test(d) && /data-action="review" data-rm="42"/.test(d) && /data-action="reload" data-rm="42"/.test(d) && /version<\/span>[\s\S]*2026-09-05T10:00[\s\S]*\(il y a 1 h\)/.test(d));
   assert(/data-action="status" data-rm="42">ferme ⇄/.test(d), "RM2888 : la pastille de phase ouvre le menu de statut"); assert(/data-action="reopen" data-rm="42"/.test(d), "fermé : rouvrir proposé"); assert(!/data-action="reopen"/.test(pane({ resolve: { "42": Object.assign({}, R, { status: "en_cours" }) } })));

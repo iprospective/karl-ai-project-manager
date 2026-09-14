@@ -6777,7 +6777,7 @@ def _scalar(line: str) -> str:
     return "" if v in _NULLISH else v
 
 
-def _read_task_meta(path: Path) -> dict:
+def _read_task_meta(path: Path, with_team: bool = False) -> dict:
     """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
     Retourne {title, status, priority, type, test_url, target_env, schema_version,
     git_branch, tags:[...]}.
@@ -6788,7 +6788,14 @@ def _read_task_meta(path: Path) -> dict:
     """
     meta = {"title": "", "status": "", "priority": "", "type": "",
             "test_url": "", "target_env": "", "schema_version": "",
-            "git_branch": "", "tags": [], "notify_queued": ""}
+            "git_branch": "", "tags": [], "notify_queued": "",
+            # RM3149 : qui a demandé, et avec qui. Lus ICI et non par une seconde
+            # voie — deux lectures du même frontmatter finissent par diverger —
+            # mais SUR DEMANDE (`with_team`). Mesuré sur les 1 480 fiches du
+            # parc : 94,5 ms sans, 110,2 ms si on les lit toujours (+17 %),
+            # 91,3 ms avec le drapeau éteint. Les contrôles qui balaient le parc
+            # n'en ont pas l'usage ; le cockpit, qui affiche UN ticket, si.
+            "creator": "", "team": []}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -6799,6 +6806,7 @@ def _read_task_meta(path: Path) -> dict:
     fm = text[3:end] if end != -1 else text
     in_tags = False
     in_git = False
+    in_team = False               # RM3149 : bloc team[] (liste de dicts)
     in_cn = False                 # RM3026 : bloc client_notify (file de notif client)
     _cn_q = _cn_s = ""
     for line in fm.splitlines():
@@ -6808,6 +6816,19 @@ def _read_task_meta(path: Path) -> dict:
                 meta["tags"].append(s[2:].strip().strip("'\""))
                 continue
             in_tags = False
+        if in_team:
+            # `- username: x` ouvre un membre, `  email: y` le complète. On ne
+            # garde que ce qui sert à le reconnaître : l'annuaire indexe par
+            # ADRESSE, le reste serait du poids mort sur 1 480 fiches.
+            if line.startswith("- ") or line.startswith("  "):
+                cle, _, val = line.lstrip("- ").partition(":")
+                cle = cle.strip()
+                if line.startswith("- "):
+                    meta["team"].append({})
+                if meta["team"] and cle in ("username", "email", "role"):
+                    meta["team"][-1][cle] = val.strip().strip("'\"")
+                continue
+            in_team = False
         if in_git:
             if line.startswith("  "):
                 if line.strip().startswith("branch:"):
@@ -6843,6 +6864,10 @@ def _read_task_meta(path: Path) -> dict:
             meta["target_env"] = _scalar(line)
         elif line.startswith("tags:"):
             in_tags = True
+        elif with_team and line.startswith("creator:"):
+            meta["creator"] = _scalar(line)
+        elif with_team and line.startswith("team:"):
+            in_team = True
     # RM3026 : « en file de notif client » = queued_at posé ET sent_at vide/null.
     meta["notify_queued"] = _cn_q if (_cn_q and not _cn_s) else ""
     return meta
@@ -9265,6 +9290,36 @@ def _brief_from_redmine(rm_id: str) -> dict:
     return base
 
 
+# >>> requester_of — pure (testée par test_karl_agent_contacts.py)
+def requester_of(meta, par_email, annuaire):
+    """Qui a demandé ce ticket, rapproché de l'annuaire (RM3149).
+
+    Le demandeur est le membre `owner` de `team[]` — à défaut le premier, à
+    défaut `creator` seul. On le rapproche par son ADRESSE, la seule clé que
+    l'annuaire indexe : `creator` est un nom d'utilisateur PM, pas une identité.
+
+    Rend toujours quelque chose quand il y a de quoi : un ticket dont le
+    demandeur n'est pas à l'annuaire doit rester lisible, pas disparaître."""
+    membres = [m for m in (meta or {}).get("team") or [] if isinstance(m, dict)]
+    m = next((x for x in membres if (x.get("role") or "") == "owner"), None) \
+        or (membres[0] if membres else None)
+    email = ((m or {}).get("email") or "").strip().lower()
+    username = ((m or {}).get("username") or (meta or {}).get("creator") or "").strip()
+    if not (email or username):
+        return None
+    c = contact_of_email(email, par_email, annuaire) if email else None
+    if c and c.get("known"):
+        return {"known": True, "ref": c["ref"], "name": c["name"],
+                "email": email, "username": username, "internal": c["internal"]}
+    return {"known": False, "name": username or email, "email": email,
+            "username": username, "internal": False}
+# <<< requester_of
+
+
+def _requester(meta, ann, par_email):
+    return requester_of(meta, par_email, ann)
+
+
 def op_tickets_brief(ids, remote=True) -> dict:
     """RM2619 : {rm_id: {title, status, type, priority, completion_pct, client,
     project}} pour une liste de tickets. Un id inconnu rend `found: false` —
@@ -9276,6 +9331,12 @@ def op_tickets_brief(ids, remote=True) -> dict:
     déclenchent un, et le nombre d'ids est déjà borné par BRIEF_MAX_IDS.
     """
     out = {}
+    # L'annuaire lu UNE fois pour le lot, comme pour la file emails (RM3147).
+    ann = _annuaire()
+    par_email = {}
+    for _ref, _p in ann.items():
+        for _e in (_p or {}).get("emails") or []:
+            par_email.setdefault(str(_e).strip().lower(), _ref)
     for rm_id in list(ids or [])[:BRIEF_MAX_IDS]:
         rm_id = str(rm_id).strip()
         if not _RM_ID_RE.match(rm_id):
@@ -9284,7 +9345,9 @@ def op_tickets_brief(ids, remote=True) -> dict:
         if not tf:
             out[rm_id] = _brief_from_redmine(rm_id) if remote else {"found": False, "rm_id": rm_id}
             continue
-        meta = _read_task_meta(tf)
+        # RM3149 : `with_team` ici et pas dans les balayages du parc — ce brief
+        # porte sur une liste BORNÉE d'ids (BRIEF_MAX_IDS), pas sur 1 480 fiches.
+        meta = _read_task_meta(tf, with_team=True)
         client, project = _task_client_project(tf)
         out[rm_id] = {
             "found": True, "rm_id": rm_id, "title": meta.get("title") or "",
@@ -9292,6 +9355,7 @@ def op_tickets_brief(ids, remote=True) -> dict:
             "priority": meta.get("priority") or "",
             "completion_pct": _task_completion(tf),
             "client": client, "project": project,
+            "requester": _requester(meta, ann, par_email),
         }
     return out
 

@@ -499,6 +499,7 @@ review = mountReview(byId("reviewpane"), {
   filesEnsure: () => { if (layout.rightVisible("files")) files.ensure(); },
   afterStatus: (rm) => { if (launcher && launcher.rm() === String(rm)) launcher.resolve(); if (attachCtl.current() && layout.rightVisible("state")) worklogCtl.load(true); },
   attach: (rm) => attachCtl.attach(rm), warnSpawn: (r) => setsCtl.warnSpawn(r), filterByTag: (tag) => { layout.switchPanel("tickets"); search.setTag(tag); },
+  openContact: (ref) => center.openContact(ref),      // RM3149 : le demandeur, vers sa fiche
   pmTarget: (rm) => actions.pmTarget(rm),
   sendPmAction: (idx, rm, btn) => actions.sendPmAction(idx, rm, btn),
   launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),

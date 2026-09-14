@@ -31,10 +31,25 @@ export class ReviewViewModel extends EntityViewModel {
   get title() { return this.found && this.r.title ? this.r.title : "RM" + this.rm; }
   get subtitle() { return this.found && this.r.client && this.r.project ? this.r.client + "/" + this.r.project : ""; }
   get badges() { const out = []; if (this.status) out.push({ text: this.status, cls: /^ferme|termine/.test(this.status) ? "ok" : /a_corriger|bloqu/.test(this.status) ? "danger" : /a_tester|a_mep|en_mep/.test(this.status) ? "accent" : "" }); if (this.found && this.r.priority) out.push({ text: this.r.priority, cls: /urgent|high/.test(this.r.priority) ? "warn" : "" }); return out; }
+  /** Le demandeur, cliquable s'il est à l'annuaire (RM3149). */
+  get requester() {
+    const d = (this.r || {}).requester;
+    if (!d || !(d.name || d.email)) return null;
+    const nom = d.name || d.email;
+    const pastille = d.internal ? html` <span class="pill">interne</span>` : "";
+    if (!d.known) return html`${nom}${pastille}`;
+    return html`<span style="cursor:pointer;text-decoration:underline dotted"
+      data-action="open-contact" data-value="${d.ref}"
+      title="Fiche de ${d.ref}">${nom}</span>${pastille}`;
+  }
   sections() {
     const r = this.r || {};
     return [{ id: "links", title: "liens", summary: true, body: () => this.links.map(l => html`<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`), empty: "aucun lien" },
             { id: "tags", title: "étiquettes", summary: true, body: () => this.tags.join(" · ") },
+            // RM3149 : qui a demandé. Cliquable vers sa fiche quand l'annuaire le
+            // connaît ; sinon lisible tel quel — un demandeur hors annuaire ne
+            // doit pas disparaître de la fiche.
+            { id: "requester", title: "demandeur", summary: true, body: () => this.requester, empty: "inconnu" },
             { id: "environments", title: "environnements", body: () => { const e = this.environments; return e ? (e.test_url ? [["test", e.test_url]] : []).concat(e.list.map(x => [x.name || "env", x.url])) : null; }, empty: "aucun environnement" },
             { id: "protocol", title: "protocole de test", body: () => (this.protocol ? html`<pre>${this.protocol.text}</pre>` : null), empty: "pas de protocole" },
             // RM3137 : la description est du MARKDOWN, et elle est repliée à la source vers 80 colonnes

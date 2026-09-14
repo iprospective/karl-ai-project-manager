@@ -1,10 +1,10 @@
 ---
-schema_version: "2.46.0"
+schema_version: "2.47.0"
 updated: 2026-09-14
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 <<<<<<< HEAD
-# Normes de gestion des tâches — v2.46.0
+# Normes de gestion des tâches — v2.47.0
 =======
 # Normes de gestion des tâches — v2.42.0
 >>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
@@ -3584,6 +3584,31 @@ recette d'intégration, après fusion.
 L'option se pose avec `pm-project-config --client <c> --project <p> --browser-test true`,
 et se lit dans le meta du projet : un agent qui livre du front sur un tel projet doit
 vérifier ce drapeau **avant** de conclure que ses tests suffisent.
+
+## Invariant ou tendance : ce qui casse un test, ce qui se notifie
+
+Un test **échoue** pour dire « ceci est cassé, maintenant ». Il n'est pas fait pour dire
+« ceci dérive depuis six semaines ». La confusion coûte cher : un échec rouge permanent
+cesse d'être lu, et il entraîne à ignorer **tous** les rouges de la suite — c'est le
+constat de RM2749, vérifié une seconde fois par RM2756.
+
+Le partage :
+
+- **Invariant** — une condition qui doit être vraie à chaque commit, dont la violation
+  rend le système faux ou bloqué : plafond dépassé, index périmé, règle perdue, appel à
+  un nom qui n'existe pas. **Le test casse**, et on répare avant de livrer.
+- **Tendance** — une mesure qui glisse lentement et qu'on veut voir venir : une marge qui
+  s'entame, une taille qui enfle, une péremption qui approche. **Ça se notifie**
+  (`pm_notify`, via un travail de `jobs.reference.yml`), ça ne rougit pas la suite.
+
+Le capteur de tendance n'ouvre pas non plus un **ticket** à chaque passage : un ticket est
+une décision de travail, pas un canal d'alerte. Il émet une notification au **message
+stable** — les chiffres en champs, jamais dans le texte — de sorte qu'une dérive qui dure
+produise une entrée qui remonte, et non une par jour. Le ticket vient après, si l'humain
+décide qu'il y a du travail.
+
+Exemple de référence : `pm-context-budget --check` (invariant : le plafond) et
+`pm-context-budget --notify` (tendance : la marge de 10 %), travail `norms-budget-watch`.
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 

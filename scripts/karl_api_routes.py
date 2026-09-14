@@ -18,6 +18,7 @@ TARGET_TO_CURRENT = {
     "/api/clientnotify/test": "/client-notify/test",
     "/api/core/update-status": "/core/update-status",
     "/api/dashboard/alerts": "/alerts",
+    "/api/worklog/request": "/worklog/request",
     "/api/dashboard/notifications": "/notifications",
     "/api/dashboard/notifications-mark": "/notifications/mark",
     "/api/dashboard/overview": "/overview",

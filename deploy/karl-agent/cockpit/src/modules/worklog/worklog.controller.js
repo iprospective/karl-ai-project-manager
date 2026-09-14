@@ -133,7 +133,31 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   async function offload(btn) { if (!svc.selection.size) return; await spawnBatch(svc.selected, btn, { apres: (plan) => { if (ctx.forgetOpened) plan.targets.forEach(t => ctx.forgetOpened(t.rm_id)); svc.clearSelection(); renderButtons(); } }); }
   function onModalAction(action, n) { if (action === "send-batch") sendBatch(n); else if (action === "send-mr") sendMr(n); else if (action === "send-close") sendClose(n); else if (action === "merge-one") mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n); }
 
+  /** RM3114 : solder une demande. « ticketée » demande son numéro — sans lui, le rattachement
+   *  serait perdu et la demande sortirait du « à traiter » sans dire où elle a atterri. */
+  async function setRequestStatus(n) {
+    const num = n.dataset.n, statut = n.dataset.status;
+    if (!num || !statut) return;
+    if (!attached()) { notify("aucune session attachée — le registre des demandes est celui d'une session", true); return; }
+    let ticket = "";
+    if (statut === "ticketee") {
+      const ask = ctx.prompt || (typeof prompt === "function" ? prompt : null);
+      ticket = String((ask && ask("Numéro du ticket qui porte cette demande (RM…) :")) || "").trim();
+      if (!ticket) return;                       // renoncer n'est pas solder
+      if (!/^(RM)?\d+$/i.test(ticket)) { notify("numéro de ticket attendu, par exemple RM3114", true); return; }
+    }
+    try {
+      await svc.setRequestStatus(attached(), num, statut, ticket);
+      notify("demande #" + num + " → " + statut + (ticket ? " (" + ticket.replace(/^RM/i, "RM") + ")" : ""));
+      await load(true);
+    } catch (e) { notify(e.message, true); }
+  }
+
   const acts = { sub: (n) => setSub(n.dataset.key), open: (n) => openItem(n.dataset.ref), ticket: (n) => ctx.showTicket && ctx.showTicket(n.dataset.rm),
+    // RM3114 : une question se lit et se tranche dans la FICHE de revue (le carnet y est rendu
+    // avec ses boutons ✅/❌) — le panneau méta, lui, ne montre pas le carnet.
+    review: (n) => (ctx.openReview ? ctx.openReview(n.dataset.rm) : ctx.showTicket && ctx.showTicket(n.dataset.rm)),
+    request: (n) => setRequestStatus(n),
     toggle: (n) => toggle(n.dataset.ref, n.dataset.status, n.dataset.label, !!n.checked), status: (n, e) => ctx.openStatusMenu && ctx.openStatusMenu(n.dataset.ref, n, e),
     "mr-stage": (n) => ctx.openExternal && ctx.openExternal(n.dataset.url), "merge-one": (n) => mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n) };
   const bodyH = body ? mount(body, "", { events: [["click", "[data-action]", (e, n) => { const f = acts[n.dataset.action]; if (!f) return; e.stopPropagation(); if (n.dataset.action !== "toggle") e.preventDefault(); f(n, e); }]] }) : null;

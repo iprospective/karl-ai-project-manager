@@ -6204,6 +6204,52 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
 # <<< batch_prompt
 
 
+def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
+    """RM3114 — traiter une DEMANDE du registre depuis le cockpit.
+
+    Les demandes s'affichaient sans dire à quoi elles menaient ni comment les solder : on les
+    voyait s'accumuler sans pouvoir rien en faire. Le registre et ses états existaient pourtant
+    (RM2621), mais seulement en ligne de commande.
+
+    Le cockpit ne touche pas au worklog : il appelle l'outil (`pm-session-status request --set`),
+    qui reste le seul écrivain — sinon deux écrivains finiraient par se marcher dessus, et les
+    règles d'état seraient recopiées ici pour diverger ensuite."""
+    sid = str(payload.get("sid") or payload.get("rm_id") or "").strip()
+    if not _valid_sid(sid):
+        raise ApiError(400, "session invalide")
+    try:
+        n = int(str(payload.get("n") or "").strip())
+    except (TypeError, ValueError):
+        raise ApiError(400, "numéro de demande requis")
+    if n < 1:
+        raise ApiError(400, "numéro de demande invalide")
+    statut = str(payload.get("status") or "").strip()
+    if statut not in pm_worklog_states.REQUEST_STATES:
+        raise ApiError(400, "statut inconnu (" + " · ".join(sorted(pm_worklog_states.REQUEST_STATES)) + ")")
+    script = Path(__file__).resolve().parent / "pm-session-status.py"
+    if not script.is_file():
+        raise ApiError(500, "pm-session-status introuvable")
+    cmd = [sys.executable, str(script), "--session", sid, "request", "--set", str(n), "--status", statut]
+    ticket = re.sub(r"^RM", "", str(payload.get("ticket") or "").strip(), flags=re.I)
+    if ticket:
+        if not ticket.isdigit():
+            raise ApiError(400, "numéro de ticket invalide")
+        cmd += ["--ticket", "RM" + ticket]
+    note = str(payload.get("note") or "").strip()
+    if note:
+        cmd += ["--note", note[:500]]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ApiError(500, "pm-session-status : " + str(e))
+    if r.returncode != 0:
+        raise ApiError(400, (r.stderr or r.stdout or "").strip()[-400:] or "demande non modifiée")
+    _jlog("system", "info", f"demande #{n} → {statut}", sid=sid,
+          by=str((auth_ctx or {}).get("user") or ""), rm=(ticket or None))
+    return {"ok": True, "n": n, "status": statut, "ticket": ticket,
+            "out": (r.stdout or "").strip()[-400:]}
+
+
 def op_worklog_batch(payload: dict) -> dict:
     """RM2716 — compose (et, sauf `dry_run`, envoie) la consigne de lot à la
     session attachée. `dry_run` sert le récapitulatif AVANT confirmation : rien
@@ -12818,6 +12864,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/worklog/request":     # RM3114 : solder une demande du registre
+                return self._send_json(200, op_worklog_request(payload, self.auth_ctx))
             if path == "/mr/batch":            # RM2720 : merger un lot de MR
                 return self._send_json(200, op_mr_batch(payload))
             if path == "/mr/merge":            # RM2723 : merger UNE MR (par URL)

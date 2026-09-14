@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : a16023693f0013bb (37 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 1914a39c63685043 (37 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -2369,6 +2369,26 @@ iframe {
 
 .mrnudge:hover {
   color: var(--accent);
+}
+
+/* RM3114 : une demande se solde depuis la ligne où on la lit. Les suites restent discrètes
+   tant qu'on ne survole pas — elles ne doivent pas concurrencer le texte de la demande. */
+.oreq-acts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.oreq:hover .oreq-acts, .oreq-acts:focus-within {
+  opacity: 1;
+}
+
+.oreq-note {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
 }
 
 /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.

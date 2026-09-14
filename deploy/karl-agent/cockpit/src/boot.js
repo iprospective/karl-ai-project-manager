@@ -450,6 +450,7 @@ worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), na
   attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG, resolve: () => stores.resolve,
   tipAttr: (id) => tickets.tipAttr(id), pinOf: (k, key) => center.pinOf(k, key), linkify: (s) => links.linkify(s),
   openReview: (rm) => review.open(rm), openStatusMenu: (ref, n, e) => review.openStatusMenu(ref, n, e), showTicket: (rm) => meta && meta.showTicket(rm),
+  prompt: (m) => window.prompt(m),   // RM3114 : le numéro du ticket qui porte une demande
   modal: { open: (t, f, on) => doc.openCustom(t, f, on), close: () => doc.closeDoc(), content: () => doc.contentEl() },
   launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
   warnSpawn: (r) => setsCtl.warnSpawn(r), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm), forgetOpened: (rm) => tickets.forget(rm),

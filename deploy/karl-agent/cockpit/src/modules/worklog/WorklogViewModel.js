@@ -1,5 +1,14 @@
 // viewmodels/worklog/WorklogViewModel — le worklog de la session et ses écrans de lot, décidés. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
+
+/** RM3114 : les suites d'une demande, dans l'ordre où on les propose. Une demande « nouvelle »
+ *  attend une décision ; chacune de ces suites en est une, et la sort du « à traiter ». */
+export const REQUEST_SUITES = [
+  { status: "ticketee", icon: "🎫", label: "ticketée", tip: "Un ticket la porte — son numéro est demandé" },
+  { status: "repondu", icon: "💬", label: "répondu", tip: "Traitée par une réponse, sans ticket" },
+  { status: "non_demande", icon: "🗒", label: "pas une demande", tip: "Collage de console, contexte : ce n'était pas une demande" },
+  { status: "annulee", icon: "🚫", label: "annulée", tip: "Abandonnée — elle reste au registre" },
+];
 import { worklogSections, worklogDocs, worklogTabList, notifyDecor, groupWorklogItems, mrStage, statusInfo, worklogProgress, branchesByRm, isTicketRef, refId, mrCycle, mrTodoCount, MR_GROUPS } from "./worklog.js";
 
 /** e = { data (worklog), attached, branches (registre), selected (Set de refs), sub } ; ctx = { ago } */
@@ -17,7 +26,18 @@ export class WorklogViewModel extends EntityViewModel {
     return MR_GROUPS.map(g => ({ key: g.key, icon: g.icon, label: g.label, hint: g.hint,
       rows: (cycle[g.key] || []).map(m => mrDetail(m, this.ctx)) })).filter(g => g.rows.length);
   }
-  requests() { return (this.w.requests_open || []).map(r => ({ n: String(r.n), text: r.text || "", ts: r.ts || "" })); }
+  /** RM3114 : une demande se lisait sans qu'on sache à quoi elle mène ni comment la solder.
+   *  Elle porte donc son état, son rattachement s'il existe, et les suites qu'on peut lui donner. */
+  requests() {
+    return (this.w.requests_open || []).map(r => ({
+      n: String(r.n), text: r.text || "", ts: r.ts || "",
+      status: r.status || "nouveau", ticket: r.ticket ? String(r.ticket).replace(/^RM/i, "") : "",
+      note: r.note || "",
+      suites: REQUEST_SUITES,
+    }));
+  }
+  /** RM3114 : ce qu'on peut faire d'une demande, dit avec les mots de l'usage. Les valeurs sont
+   *  celles du registre (`pm_worklog_states.REQUEST_STATES`) — l'UI ne s'en invente pas. */
   /** RM3088 : « à trancher » — les questions ouvertes des tickets de la session. Une DEMANDE appelle
    *  une action, une QUESTION un arbitrage (RM3015-C008) : deux blocs, côte à côte, jamais fondus. */
   questions() { return (this.w.questions_open || []).map(q => ({ ref: String(q.ref || ""), rm: String(q.rm || ""), n: Number(q.n) || 0 })); }

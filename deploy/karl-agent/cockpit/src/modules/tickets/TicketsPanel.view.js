@@ -1,5 +1,6 @@
 // views/tickets/TicketsPanel — la carte « Tickets ouverts » et la liste de triage ROI. Balisage repris ; gestes en data-*. RM2889.
 import { html, raw } from "../../core/html.js";
+import { pillClass } from "../../core/status.js";
 const muted = "color:var(--muted)";
 
 export function OpenedList(vm, { tip, pin }) {
@@ -11,12 +12,12 @@ export function OpenedList(vm, { tip, pin }) {
     : html`<div class="cmpbar" style="margin-bottom:6px">${clear}</div>`}${vm.families.length > 1
     ? html`<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px"><button class="mini${vm.familyAll ? " primary" : ""}" data-action="family" data-family="">tous</button>${vm.families.map(f => html`<button class="mini${f.active ? " primary" : ""}" data-action="family" data-family="${f.key}">${f.label} (${f.n})</button>`)}</div>` : ""}${groups.map(g =>
     html`<div style="margin:6px 0 2px;${muted};font-size:10.5px">${g.label} (${g.items.length})</div>${g.items.map(it =>
-      html`<div class="oline otix" data-action="open" data-rm="${it.rm}" title="Ouvrir la fiche"><div class="otix-head"><span class="pill"${raw(tip(it.rm))}>RM${it.rm}</span>${raw(pin("review", it.rm))}<span class="pill" style="opacity:.85">${it.status}</span><span style="flex:1"></span><button class="mini" title="Retirer de la liste" data-action="forget" data-rm="${it.rm}">✕</button></div><div class="otix-title">${it.title}</div></div>`)}`)}${!groups.length
+      html`<div class="oline otix" data-action="open" data-rm="${it.rm}" title="Ouvrir la fiche"><div class="otix-head"><span class="pill"${raw(tip(it.rm))}>RM${it.rm}</span>${raw(pin("review", it.rm))}<span class="${pillClass(it.status)}" title="${it.status}">${it.status}</span><span style="flex:1"></span><button class="mini" title="Retirer de la liste" data-action="forget" data-rm="${it.rm}">✕</button></div><div class="otix-title">${it.title}</div></div>`)}`)}${!groups.length
     ? html`<div style="${muted};font-size:11.5px">aucun ticket dans ce filtre — « tous » les ramène.</div>` : ""}`;
 }
 
 export function TriageRow(r) {
-  return html`<div class="tr-row" data-action="open" data-rm="${r.rm}" title="Ouvrir la fiche du ticket"><span class="tr-rank">${r.rank}</span><span class="tr-score" title="score ROI = gain € × priorité / coût">${r.score}</span><span class="tr-rm">RM${r.rm}</span><span class="tr-title">${r.title}</span><span class="tr-meta"><span class="pill">${r.status}</span> <span class="tr-prio tr-prio-${r.priority}">${r.priority}</span>${r.time ? html` <span class="tr-time">${r.time}</span>` : ""}${r.badges.length ? html` ${r.badges.map((b, i) => html`${i ? " " : ""}<span class="tr-badge ${b.cls}" title="${b.tip}">${b.text}</span>`)}` : ""}</span></div>`;
+  return html`<div class="tr-row" data-action="open" data-rm="${r.rm}" title="Ouvrir la fiche du ticket"><span class="tr-rank">${r.rank}</span><span class="tr-score" title="score ROI = gain € × priorité / coût">${r.score}</span><span class="tr-rm">RM${r.rm}</span><span class="tr-title">${r.title}</span><span class="tr-meta"><span class="${pillClass(r.status)}">${r.status}</span> <span class="tr-prio tr-prio-${r.priority}">${r.priority}</span>${r.time ? html` <span class="tr-time">${r.time}</span>` : ""}${r.badges.length ? html` ${r.badges.map((b, i) => html`${i ? " " : ""}<span class="tr-badge ${b.cls}" title="${b.tip}">${b.text}</span>`)}` : ""}</span></div>`;
 }
 
 export function TriageList(vm) {

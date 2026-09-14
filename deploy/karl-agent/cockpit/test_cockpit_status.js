@@ -1,0 +1,83 @@
+// test_cockpit_status — la table des statuts montée dans le socle (RM3126).
+// Ce qui est vérifié ici : le code couleur est UNE fonction pour tout le cockpit, les familles
+// n'ont pas bougé en déménageant, et aucune vue ne se remet à écrire une couleur en dur.
+"use strict";
+const fs = require("fs"), path = require("path");
+const DIR = __dirname, SRC = path.join(DIR, "src");
+let ko = 0;
+const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${label}${ok ? "" : " — " + (detail || "")}`); if (!ok) ko++; };
+
+(async () => {
+  const S = await import("file://" + path.join(SRC, "core/status.js"));
+  const O = await import("file://" + path.join(SRC, "modules/tickets/openedTickets.js"));
+
+  // ── la classe rendue
+  check("statusTone rend st-<famille>", S.statusTone("en_cours") === "st-encours" &&
+        S.statusTone("ferme") === "st-ferme" && S.statusTone("a_mep") === "st-mep");
+  check("un statut RENSEIGNÉ mais inconnu tombe en st-autre (il doit se voir)",
+        S.statusTone("zzz") === "st-autre");
+  check("un statut ABSENT ne reçoit AUCUNE classe — absent n'est pas inconnu",
+        S.statusTone("") === "" && S.statusTone(null) === "" && S.statusTone(undefined) === "" &&
+        S.statusTone("?") === "" && S.statusTone("  ") === "");
+  check("statusTone ne rend JAMAIS une couleur en dur",
+        !/#|rgb|var\(/.test(S.statusTone("en_cours")));
+  check("pillClass rend `pill` SEUL sans famille — pas d'espace parasite dans le balisage",
+        S.pillClass("?") === "pill" && S.pillClass("") === "pill" &&
+        S.pillClass("a_faire") === "pill st-todo" && S.pillClass("a_faire", "x") === "pill st-todo x");
+
+  // ── les cinq familles demandées sont couvertes
+  const demandees = { en_cours: "st-encours", a_faire: "st-todo", a_tester_demandeur: "st-test",
+                      en_pause: "st-pause", ferme: "st-ferme" };
+  for (const [st, tone] of Object.entries(demandees))
+    check(`famille de ${st}`, S.statusTone(st) === tone, S.statusTone(st));
+
+  // ── le déménagement n'a rien changé (RM2883 → core)
+  check("openedTickets ré-exporte la table, les appelants n'ont pas bougé",
+        typeof O.ticketStatusFamily === "function" && typeof O.ticketStatusRank === "function");
+  for (const st of ["en_cours", "ferme", "a_mep", "a_tester_dev", "nouveau", "en_pause", "zzz"])
+    check(`famille inchangée pour ${st}`, O.ticketStatusFamily(st) === S.ticketStatusFamily(st));
+  check("ordre de lecture inchangé : l'action avant le clos",
+        S.ticketStatusRank("a_corriger") < S.ticketStatusRank("a_faire") &&
+        S.ticketStatusRank("a_faire") < S.ticketStatusRank("ferme"));
+  check("un statut inconnu passe AVANT fermé (il demande un regard)",
+        S.ticketStatusRank("zzz") < S.ticketStatusRank("ferme"));
+
+  // ── libellés
+  check("statusLabel rend un libellé lisible", S.statusLabel("a_tester_demandeur") === "à tester" &&
+        S.statusLabel("ferme") === "clôturé");
+  check("statusLabel rend le statut BRUT s'il est inconnu (pas de mensonge)",
+        S.statusLabel("zzz") === "zzz");
+
+  // ── la palette existe, et une seule fois
+  const scss = fs.readFileSync(path.join(SRC, "styles/_base.scss"), "utf8");
+  for (const f of ["todo", "encours", "test", "mep", "pause", "ferme", "autre"])
+    check(`la palette définit .pill.st-${f}`, scss.includes(`.pill.st-${f}`));
+
+  // ── la garde : aucune vue ne recrée sa propre couleur de statut
+  const vues = [];
+  (function walk(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walk(p); else if (e.name.endsWith(".view.js")) vues.push(p);
+  } })(path.join(SRC, "modules"));
+  const fautives = vues.filter(p => {
+    const s = fs.readFileSync(p, "utf8");
+    // Fautif = une pastille qui rend un statut SANS sa famille — et sans porter non plus de classe
+    // SÉMANTIQUE explicite (warn / dang / ok). Cette tolérance n'est pas une échappatoire : une
+    // pastille d'alerte est un choix d'affichage assumé, qui prime sur la famille (cas du ticket
+    // « drifted » dans le worklog : la dérive est plus urgente à voir que la phase).
+    return /class="pill(?![^"]*(?:statusTone|warn|dang|ok))[^"]*"[^>]*>\$\{[a-z]+\.status/.test(s) ||
+           /class="\$\{pillClass\([^)]*\)\}"/.test(s) === false && /\$\{[a-z]+\.status\}<\/span>/.test(s) && !/pillClass/.test(s);
+  }).map(p => path.relative(SRC, p));
+  check("aucune vue ne rend un statut en pastille SANS sa famille", !fautives.length,
+        fautives.join(", "));
+
+  // ── les vues touchées se chargent (RM2889 : une ES qui casse au boot est silencieuse)
+  for (const rel of ["meta/Meta.view.js", "projects/ProjectPane.view.js", "review/Review.view.js",
+                     "tickets/TicketsPanel.view.js", "worklog/Worklog.view.js"]) {
+    try { await import("file://" + path.join(SRC, "modules", rel)); check(`${rel} se charge`, true); }
+    catch (e) { check(`${rel} se charge`, false, e.message); }
+  }
+
+  console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
+  process.exit(ko ? 1 : 0);
+})();

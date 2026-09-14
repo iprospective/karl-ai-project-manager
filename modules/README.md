@@ -42,3 +42,34 @@ enabled: true                     # absent = activé
 Les natures acceptées pour `provides` : `provider`, `job`, `panel`, `route`, `hook`,
 `trigger`, `skill`, `watch`, `engine`. Une nature inconnue fait **rejeter** le manifeste :
 mieux vaut un module refusé qu'un module qui croit fournir ce que personne ne lira.
+
+
+## Réagir à un événement (`triggers/`)
+
+Un module déclare ses abonnements dans `triggers/*.yml`, un fichier par abonnement :
+
+```yaml
+event: task.status.changed          # le NOM de l'événement — c'est un contrat
+when: {to: a_tester_demandeur}      # filtre facultatif ; une liste vaut « l'un de »
+run: ["python3", "modules/<nom>/services/prevenir.py"]
+```
+
+⚠ La clé est **`event`**, pas `on` : en YAML, `on` est un **booléen** (comme `yes` et
+`off`), donc `on: task.status.changed` produit une clé `True` et l'abonnement écoute le
+vide, sans rien dire. `on:` est rattrapé quand même — l'habitude est trop forte — mais
+`event` est la forme juste.
+
+`run` est une **liste d'arguments**, jamais une ligne de shell : un abonné ne doit pas
+pouvoir faire dépendre son exécution d'une interprétation de la ligne de commande.
+
+L'événement arrive par l'environnement : `PM_EVENT_NAME`, `PM_EVENT_ID`, et
+`PM_EVENT_PAYLOAD` (du JSON).
+
+Les noms d'événements connus sont déclarés dans `scripts/pm_bus.py` — un nom inconnu est
+refusé à l'émission plutôt que déposé en silence, et un abonné à un nom mal orthographié
+se tairait pour toujours.
+
+**Qui exécute** : `mmi-pm bus-drain`, appelé par l'ordonnanceur. Les émetteurs de PM sont
+des processus courts — ils déposent un fait et meurent. La réaction attend donc un tour
+d'ordonnanceur ; ce qui doit être instantané (rafraîchir un écran) passe par `pm_events`,
+le canal de push vers le cockpit, qui est un autre mécanisme et porte un autre nom.

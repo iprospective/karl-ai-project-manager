@@ -13,6 +13,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les modules peuvent réagir à ce qui se passe** (RM3145, lot 2) : PM publiait déjà des *sujets*
+  pour réveiller le cockpit (RM3006), mais rien ne retenait les **faits** — « le statut de RM3145 est
+  passé de a_faire à en_cours » — ni ne permettait d'y réagir. Un journal d'événements métier les
+  retient (`pm_bus`), et `mmi-pm bus-drain`, appelé par l'ordonnanceur, exécute les abonnements
+  déclarés par les modules actifs. Le choix structurant : l'émetteur **dépose et part**, il n'appelle
+  personne — sinon le geste le plus fréquent de PM ralentirait à proportion des modules installés, et
+  se coupleraient à eux ceux qui n'ont rien demandé. Prix assumé : la réaction attend un tour
+  d'ordonnanceur. Un abonné qui échoue n'affecte ni l'émetteur — parti depuis longtemps — ni les
+  autres abonnés du même événement, et ne rejoue pas indéfiniment : l'événement est marqué avec son
+  erreur et le fil le dit. Premier émetteur câblé : le changement de statut d'un ticket.
+
+- **Le contrôle statique des journaux voyait faux sur `**kwargs`** (RM3145) : il ignorait `*args`,
+  `**kwargs` et les paramètres positionnels-seuls, et criait donc au nom inexistant sur
+  `notifier(..., **champs)`. Même famille de faux positif que celui corrigé par RM3119, et même
+  conséquence si on le laisse : un contrôle qui se trompe finit par être ignoré — puis c'est toute la
+  suite qu'on cesse de lire. Le contrôle se contrôle désormais lui-même sur les trois formes.
+
 - **L'en-tête s'allège : les portes passent en icône seule, groupées à gauche** (RM3150) : historique,
   aide, réglages, journal et annuaire ne portent plus leur libellé — leur nom apparaît au survol. Ce
   sont des **portes** (on y va, on en revient), pas des actions sur le travail en cours : une icône

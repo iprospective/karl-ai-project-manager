@@ -8834,6 +8834,54 @@ def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
     return p.stdout.strip()
 
 
+def op_modules() -> dict:
+    """RM3145 (lot 3) — ce que l'instance porte comme modules, et ce qu'elle porte encore SANS module.
+
+    Un panneau qui ne montrerait que les modules déclarés serait flatteur et faux : PM porte sept
+    registres d'extension, et presque rien n'y est encore décrit. L'écart est donc rendu avec le
+    reste — c'est l'avancement réel du chantier, et non une impression.
+
+    Lecture seule : aucun code de module n'est importé ni exécuté ici."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    mods = pm_modules.decouvre(REPO_ROOT)
+    r = pm_modules.resout(mods)
+    triggers = [t.as_dict() for t in pm_modules.triggers(REPO_ROOT, mods)]
+    out = []
+    for m in sorted(mods, key=lambda x: x.name):
+        d = m.as_dict()
+        d["blocked"] = r["bloques"].get(m.name, [])
+        # Ce qui CASSERAIT si on le désactivait : c'est la question qu'on se pose au moment de
+        # cliquer, et elle ne se répond pas en lisant le manifeste du module lui-même.
+        d["required_by"] = sorted(x.name for x in mods
+                                  if any(dep == m.name for dep, _, _ in x.deps()))
+        d["state"] = ("erreur" if not m.ok else "désactivé" if not m.enabled
+                      else "bloqué" if m.name in r["bloques"] else "actif")
+        d["triggers"] = [t for t in triggers if t["module"] == m.name]
+        out.append(d)
+    inv = pm_modules.inventaire(REPO_ROOT, mods)
+    return {"modules": out, "order": r["ordre"], "cycles": r["cycles"],
+            "inventory": inv, "core_version": pm_modules.CORE_VERSION,
+            "kinds": list(pm_modules.KINDS),
+            "root": str(pm_modules.racine(REPO_ROOT)),
+            "bus": _bus_sante()}
+
+
+def _bus_sante() -> dict:
+    """La santé du bus : ce qui attend, et ce qui a échoué. Un panneau de modules qui ne dirait pas
+    qu'un abonné casse laisserait croire que tout réagit."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_bus
+        c = pm_bus.counts()
+        recents = [e for e in pm_bus._lire() if e.get("error")][-5:]
+        return {"pending": c["pending"], "errors": c["errors"], "by_name": c["by_name"],
+                "last_errors": [{"name": e.get("name"), "ts": e.get("ts"),
+                                 "error": e.get("error")} for e in recents]}
+    except Exception:      # noqa: BLE001 — un bus absent ne casse pas le panneau
+        return {"pending": 0, "errors": 0, "by_name": {}, "last_errors": []}
+
+
 def op_provider_types() -> dict:
     """Le catalogue : axes, types, champs, le NOM des clés attendues — jamais leur valeur — et les
     services LLM prédéfinis (RM3072), pour déclarer un fournisseur sans retrouver son URL de mémoire."""
@@ -12753,6 +12801,8 @@ class Handler(BaseHTTPRequestHandler):
                                    data or {"error": "topic d'aide inconnu"})
         if path == "/pm/engines":            # RM3069 : catalogue + état des moteurs et serveurs
             return self._send_json(200, op_engines())
+        if path == "/modules":               # RM3145 : les modules de l'instance, et l'écart
+            return self._send_json(200, op_modules())
         if path == "/pm/provider-types":     # RM3068 : catalogue des types de fournisseurs
             return self._send_json(200, op_provider_types())
         if path == "/pm/providers":          # RM3068 : instances, défauts, ÉTAT des clés, affectations

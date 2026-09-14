@@ -7369,6 +7369,35 @@ def op_tags() -> list:
     return tags_in_use(metas)
 
 
+def op_anteriority(q="", limit=6) -> list:
+    """Ce sujet a-t-il DÉJÀ un ticket ? (RM3148, moteur de RM3130)
+
+    Distinct de `op_search`, et volontairement : celui-ci cherche un ticket qu'on CONNAÎT
+    (match sur id, titre, tags — rapide et ciblé). Ici on part d'une demande formulée en
+    langage naturel, qui n'a presque aucune chance de tomber sur un titre : il faut le
+    CORPS et les `.think.md`, les tickets FERMÉS (souvent la meilleure réponse), et un
+    classement par pertinence. Élargir `op_search` aurait changé le comportement de la
+    recherche du cockpit pour tout le monde.
+    """
+    if not str(q or "").strip():
+        return []
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "pm_task_search", str(Path(__file__).resolve().parent / "pm-task-search.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        from pm_paths import PMConfig      # import local : karl-agent ne charge pas la conf PM
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        return mod.search(cfg, str(q), limit=int(limit or 6))
+    except (Exception, SystemExit) as e:   # noqa: BLE001
+        # Une garde muette avait masqué un bug réel pendant la mise au point : la recherche
+        # rendait [] et rien ne disait pourquoi. On journalise — un endpoint qui échoue en
+        # silence coûte plus cher que celui qui le dit.
+        print(f"⚠ anteriority: {type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
 def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
     """Recherche sur les MD de tâches locaux (RM1893 §7). Match q sur id/titre/tags ;
     filtres status/client/project/tag. Trié par rm_id décroissant."""
@@ -12759,6 +12788,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/notifications":     # RM2792 : le fil de l'instance, toutes sources
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_notifications(qs, self.auth_ctx))
+            if path == "/tickets/anteriority":    # RM3148 : ce sujet a-t-il déjà un ticket ?
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, {"results": op_anteriority(qs.get("q", ""),
+                                                                       qs.get("limit", 6))})
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})

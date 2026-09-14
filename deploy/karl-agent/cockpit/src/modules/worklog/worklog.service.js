@@ -13,6 +13,16 @@ export class WorklogService {
   }
   clear() { this.data = { found: false, buckets: {} }; }
   /** RM3114 : le registre des demandes n'est écrit que par l'outil PM — le serveur l'appelle. */
+  /** RM3148 : ce sujet a-t-il déjà un ticket ? Cherche titre, corps et réflexion, fermés
+   *  inclus — un ticket clos est souvent la meilleure réponse à « est-ce déjà fait ? ». */
+  async anteriority(text, limit = 6) {
+    const q = String(text || "").trim();
+    if (!q) return [];
+    const r = await this.api.get("/tickets/anteriority?q=" + encodeURIComponent(q) +
+                                 "&limit=" + encodeURIComponent(limit));
+    return (r && r.results) || [];
+  }
+
   async setRequestStatus(sid, n, status, ticket) {
     return this.repo.request({ sid: String(sid), n: String(n), status, ticket: ticket || "" });
   }

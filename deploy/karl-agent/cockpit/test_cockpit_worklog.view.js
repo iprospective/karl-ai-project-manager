@@ -35,5 +35,37 @@ const { settle, escO, fakeElement, CFG, SEL, W } = require("./test_cockpit_workl
   const mbDev = String(V.MrBatch(new VM.MrBatchViewModel({ mode: "dev", live: [], skipped: [], runs: [{ rm_ids: ["10"], source: "10-x", target: "dev" }] }))); assert(/10-x → dev/.test(mbDev) && !/promotion emporte/.test(mbDev) && /data-action="send-mr"/.test(mbDev)); const mbProd = String(V.MrBatch(new VM.MrBatchViewModel({ mode: "prod", live: ["11"], skipped: [{ rm_id: "13", reason: "aucune branche" }], runs: [{ rm_ids: ["10", "11"], source: "dev", target: "main" }] }))); assert(/emporte TOUT ce que « dev »/.test(mbProd) && /dev → main/.test(mbProd) && /session encore vivante pour RM11/.test(mbProd) && /⊘ écartés \(1\)/.test(mbProd) && /aucune branche/.test(mbProd)); assert(/rien à merger/.test(String(V.MrBatch(new VM.MrBatchViewModel({ mode: "dev", runs: [] })))));
   const cp = String(V.ClosePlan(M.closeBatchPlan(SEL, CFG))); assert(/Seront fermés \(1\)/.test(cp) && /<b>RM3<\/b>/.test(cp) && /Écartés \(3\)/.test(cp) && /data-action="send-close"/.test(cp) && /pm-task-status-update/.test(cp)); assert(!/send-close/.test(String(V.ClosePlan(M.closeBatchPlan([{ rm_id: "1", status: "a_faire" }], CFG)))), "rien de fermable : pas de bouton");
   console.log("✓ vue : notifications avant le travail, sous-onglets, lignes de ticket complètes, groupes, dérive, étape MR, documents, écrans de lot");
+  // ── RM3148 : l'antériorité d'une demande — vue et ViewModel
+  {
+    const dem = (r) => new VM.WorklogViewModel(
+      { data: { found: true, requests_open: [r] }, attached: "42", branches: [], selected: new Set(), sub: "todo" },
+      { ago: () => "1min", anteriority: ANT }).requests()[0];
+    let ANT = {};
+    assert.strictEqual(dem({ n: 3, text: "fais x" }).canCheck, true, "sans ticket : le bouton a un sens");
+    assert.strictEqual(dem({ n: 3, text: "x", ticket: "RM9" }).canCheck, false,
+                       "déjà rattachée : pas de bouton, la question est tranchée");
+
+    ANT = { 3: { pending: true } };
+    assert(/recherche…/.test(String(V.Anteriority(dem({ n: 3, text: "x" })))));
+
+    ANT = { 3: { results: [] } };
+    const vide = String(V.Anteriority(dem({ n: 3, text: "x" })));
+    assert(/il paraît neuf/.test(vide) && /data-action="req-new"/.test(vide),
+           "aucun résultat → on PROPOSE de créer, on ne crée pas");
+
+    ANT = { 3: { results: [{ rm_id: 2621, status: "ferme", title: "Registre <b>" }] } };
+    const h = String(V.Anteriority(dem({ n: 3, text: "x" })));
+    assert(/data-action="req-link" data-n="3" data-rm="2621"/.test(h), "rattachement en un geste");
+    assert(/pill st-ferme/.test(h), "le statut du candidat est coloré (RM3126)");
+    assert(!/<b>/.test(h) && /&lt;b&gt;/.test(h), "titre échappé");
+    assert(!/onclick=/.test(h));
+
+    assert.strictEqual(String(V.Anteriority(dem({ n: 3, text: "x" }))).length >= 0, true);
+    ANT = {};
+    assert.strictEqual(String(V.Anteriority(dem({ n: 3, text: "x" }))), "",
+                       "rien tant qu'on n'a pas cherché : pas de bloc vide");
+    console.log("  ✓ RM3148 : antériorité d'une demande — bouton pertinent, résultats, jamais d'action automatique");
+  }
+
   console.log("\nTous les tests des vues du worklog passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

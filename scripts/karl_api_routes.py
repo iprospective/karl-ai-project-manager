@@ -133,6 +133,7 @@ TARGET_TO_CURRENT = {
     "/api/worklog/mr/merge": "/mr/merge",
     "/api/pm/modules": "/modules",
     "/api/worklog/request": "/worklog/request",
+    "/api/ticket/anteriority": "/tickets/anteriority",
     "/api/worklog/worklog": "/worklog",
 }
 

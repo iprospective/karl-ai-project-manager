@@ -538,6 +538,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   opencode et vibe étaient déclarés absents alors qu'ils sont installés chez le développeur. Le panneau dit
   où l'outil est posé et pour qui. Cockpit 3.9.1.
 
+- **Wiki sync : références « Doc partagée » cliquables et page index toujours présente** (RM3059) :
+  la référence posée par `pm-task-doc` en description mettait le lien wiki **entre backticks** —
+  en Markdown un `[[…]]` dans un code span n'est jamais linkifié : dix tickets listaient leurs
+  docs sans aucun lien. Nouveau format `docs/<slug>.md — page wiki [[Titre]] (URL)`, et
+  `pm-task-doc --fix-refs [projet]` reformate l'existant (idempotent, `--dry-run`). Côté
+  `pm-wiki-sync`, la page de départ `Wiki` (index des documents) n'était régénérée qu'en sync
+  complet, jamais en `--aspect` — le seul mode qu'emploie `pm-task-doc --sync` : un projet
+  documenté aspect par aspect n'avait **aucun index**. L'index est désormais régénéré à chaque
+  push d'aspect, sur tous les aspects du projet.
 - **`pm-core-update` provisionne aussi l'utilisateur de l'instance** (RM3054) : étape 7 — hooks
   Claude Code manquants posés par `pm-claude-hooks-sync` (ajout seulement) et symlinks
   `~/.claude/skills/<nom>` → `<core>/skills/<nom>` pour les skills du core (jamais d'écrasement

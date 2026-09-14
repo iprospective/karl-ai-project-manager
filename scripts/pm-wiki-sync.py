@@ -511,6 +511,13 @@ def collect_aspects(docs_dir, only_aspect=None):
     return aspects
 
 
+def index_wanted(do_aspects, args):
+    """La page index (dérivée, pas de fold-back) se régénère dès qu'on pousse des aspects —
+    aussi en `--aspect` ciblé (RM3059 : `pm-task-doc --sync` ne synchronise qu'aspect par
+    aspect, un projet n'avait donc jamais de page de départ `Wiki`). Jamais en pull-only."""
+    return bool(do_aspects) and not getattr(args, "pull_only", False)
+
+
 def build_index_body(project_name, aspects, sha):
     lines = [f"{_BANNER_PREFIX} (index) depuis git @ {sha}. Liste des documents de "
              f"design synchronisés.\n", f"# {project_name}\n", "## Documents synchronisés\n"]
@@ -809,9 +816,11 @@ def sync_one_project(cfg, url, key, slug, args):
                                  repo=repo, state=state, state_dir=state_dir, maps=maps, args=args)
             counts[r] = counts.get(r, 0) + 1
 
-        # Page index (régénérée — pas de fold-back, dérivée) sauf en sync ciblé / pull-only.
-        if do_aspects and not args.aspect and not args.pull_only:
-            idx = build_index_body(project_name, aspects, git_short_sha(repo, "."))
+        # Page index (régénérée — pas de fold-back, dérivée) sauf en pull-only. En sync
+        # ciblé (--aspect) l'index couvre TOUS les aspects du projet, pas seulement la cible.
+        if index_wanted(do_aspects, args):
+            idx_aspects = collect_aspects(docs_dir) if args.aspect else aspects
+            idx = build_index_body(project_name, idx_aspects, git_short_sha(repo, "."))
             if args.dry_run:
                 print(f"  ✎ index → [[{args.index_title}]] (simulé)")
             else:

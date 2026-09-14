@@ -89,6 +89,26 @@ check("référence : le titre wiki vient de la règle partagée",
 check("référence : pointe docs/, pas project/", "docs/cockpit-architecture.md" in mod.ref_line("cockpit-architecture"))
 
 print()
+
+# — RM3059 : la référence « Doc partagée » doit rendre un lien wiki cliquable —
+# En Markdown (format des instances Redmine), un `[[…]]` entre backticks n'est jamais
+# linkifié : le lien doit vivre hors code span, avec l'URL explicite en secours.
+line = mod.ref_line("migration-plan-etapes", "https://rm.example/projects/p/wiki/Migration-plan-etapes")
+check("ref_line : lien wiki hors backticks", "`[[" not in line and "[[Migration-plan-etapes]]" in line, line)
+check("ref_line : marqueur docs/<slug>.md conservé (idempotence ensure_ref)", "docs/migration-plan-etapes.md" in line, line)
+check("ref_line : URL explicite en secours", "(https://rm.example/projects/p/wiki/Migration-plan-etapes)" in line, line)
+check("ref_line : sans URL, pas de parenthèses vides", mod.ref_line("x-y").endswith("[[X-y]].") , mod.ref_line("x-y"))
+
+old = ("## Contexte\n\nDoc partagée : `docs/migration-sf7-cdc.md` (aspect projet, publié en page wiki "
+       "`[[Migration-sf7-cdc]]`).\n\nDoc partagée : `docs/orm-fusion-matrice-chaines.md` (aspect projet, "
+       "publié en page wiki `[[Orm-fusion-matrice-chaines]]`).\n\nTexte avec `[[Autre]]` en code, à laisser.\n")
+new = mod.refresh_refs(old, lambda s: f"https://rm.example/projects/p/wiki/{mod.wiki_title_for_slug(s)}")
+check("refresh_refs : les deux références reformatées", new.count("— page wiki [[") == 2 and "`[[Migration-sf7-cdc]]`" not in new, new)
+check("refresh_refs : URL par slug", "(https://rm.example/projects/p/wiki/Orm-fusion-matrice-chaines)" in new, new)
+check("refresh_refs : le reste du texte est intact", "Texte avec `[[Autre]]` en code, à laisser." in new and "## Contexte" in new, new)
+check("refresh_refs : idempotent", mod.refresh_refs(new, lambda s: "https://x") == new)
+check("OLD_REF_RE : ne matche pas le nouveau format", not mod.OLD_REF_RE.search(new))
+
 if fails:
     print(f"ÉCHECS ({len(fails)}) :")
     for f in fails:

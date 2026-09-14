@@ -381,14 +381,14 @@ def _index_touch(paths):
     """Réindexe les fiches écrites (RM3128). Silencieux et sans effet si l'index n'a
     jamais été construit — on ne le crée pas en douce au détour d'un commit."""
     try:
-        import pm_index
+        import pm_searchdb
         from pm_paths import PMConfig
         cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
-        if not pm_index.db_path(cfg).exists():
+        if not pm_searchdb.db_path(cfg).exists():
             return
         for p in paths:
             if p.name.startswith("RM") and p.name.endswith(".md"):
-                pm_index.touch(cfg, p)
+                pm_searchdb.touch(cfg, p)
     except (Exception, SystemExit):      # PMConfig.load() peut sys.exit() hors PM
         return
 

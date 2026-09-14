@@ -45,6 +45,7 @@ updated: 2026-09-14
 | je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC de ticket** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
+| **« fais le cycle de session »** (bouton ↻ Relancer) — constater le déployé, fermer, mettre en prod, enchaîner un ticket | `modules/session-tooling-pratique.md` § « Le CYCLE DE SESSION » — l'ordre compte, et ce qui ne se force pas y est dit | `pm-task-status-update`, `pm-promote` |
 | je cherche si un geste a son outil PM, ou l'invocation exacte d'un `pm-*` | `scripts/INDEX.md` (TOUS les scripts, par domaine — jamais `ls scripts/`) puis `modules/session-tooling-pratique.md` (trous connus, idiomes) | tous les `pm-*` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
 | un événement notable arrive en séance (secret affiché, action refusée, garde-fou déclenché, outil PM en défaut, décision qui bloque) | `modules/session-tooling.md` § « Notifications importantes » | `pm-session-status.py notify` |
@@ -955,6 +956,49 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Le CYCLE DE SESSION — une procédure nommée (RM3162)
+
+**Invocation :** « fais le cycle de session » (bouton **↻ Relancer** du cockpit, RM3159).
+Le nom suffit : le texte vit ici, une seule fois, et s'amende par MR comme le reste des normes.
+
+Pourquoi ce nom plutôt que « enchaîne » : *enchaîne* sert couramment à dire « continue ». Un mot qui
+déclenche des fermetures et des mises en production ne doit pas pouvoir être écrit par hasard.
+
+### Les quatre temps, dans cet ordre
+
+1. **Constater** — ce qui est réellement déployé. Le core de prod suit `main` : ce qui y est mergé
+   **est** en production, quel que soit le statut du ticket. C'est le statut qui retarde, pas le code.
+2. **Fermer** ce qui est en prod depuis le cycle précédent et qui est bouclé.
+3. **Mettre en prod** (promotion vers `main`) ce qui est fini, pour que le demandeur déploie et teste.
+4. **Enchaîner** sur **un** ticket de la session, faisable sans arbitrage, livré de bout en bout —
+   tests, MR, promotion, protocole de test. Dire lequel, et pourquoi lui.
+
+**L'ordre n'est pas décoratif** : mettre en prod avant de fermer ferme ce qu'on vient d'y mettre.
+
+### Ce qui ne se force pas
+
+- **Les questions ouvertes.** Un ticket qui en porte reste ouvert, et on dit lesquelles. C'est le seul
+  endroit où la réflexion non tranchée survit ; l'escamoter revient à la perdre. Le demandeur peut
+  demander de passer outre — c'est alors sa décision, tracée dans la note.
+- **Les critères d'acceptation non cochés** se passent outre en traçant le motif : ils décrivent
+  souvent une hygiène passée, pas un travail inachevé.
+- **Les tickets portés par une autre session vivante** (`pm_concurrent`) : deux agents sur un même
+  ticket se disputent sa fiche, sa branche et son statut.
+- **Un parent dont une sous-tâche est ouverte** : Redmine refuse *silencieusement* (PUT 204, statut
+  inchangé). Ne pas s'acharner, le dire.
+
+### Rendre compte
+
+Trois chiffres, toujours : **fermés**, **mis en prod**, **écartés avec leur motif**. Un lot de deux
+cents transitions ne laisse sinon aucune trace lisible, et personne ne peut vérifier ce qui a été
+fait. Ce qui a été volontairement laissé de côté se nomme — un silence se lit comme un oubli.
+
+### Si quelque chose cloche
+
+Le dire **avant** d'agir, pas après. Le malentendu fondateur de cette procédure (« en prod » : le
+statut, ou le code dans `main` ?) aurait coûté une phrase ; il a coûté deux passages et une
+quarantaine de tickets fermés au mauvais moment.
 
 ## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
 

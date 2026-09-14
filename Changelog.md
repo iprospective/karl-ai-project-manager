@@ -13,6 +13,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le cycle de session devient une procédure nommée** (RM3162) : le texte du bouton ↻ Relancer
+  (RM3159) était une procédure déguisée en presse-papier — quatre étapes, un ordre qui compte, des
+  règles qui ne se devinent pas. Rangé dans un réglage d'instance, il se recopiait sur chaque machine
+  et divergeait sans que rien ne le dise. Il est désormais écrit **une fois dans NORMS** et invoqué
+  par son nom ; le mécanisme n'avait rien à inventer, le KERNEL étant déjà une table « mot-clé →
+  module ». La procédure vit dans un module **hors précharge** (elle ne coûte qu'aux sessions qui
+  s'en servent) et le déclencheur au KERNEL coûte **83 tokens mesurés** — pour rendre toute une
+  procédure invocable. Le réglage porte désormais l'**invocation** (« Fais le cycle de session. »),
+  plus le texte. Le nom n'est pas « enchaîne » : ce mot sert couramment à dire « continue » — cinq
+  fois dans la seule journée qui a précédé — et un mot qui déclenche des fermetures et des mises en
+  production ne doit pas pouvoir s'écrire par hasard. La procédure écrit enfin ce qui manquait :
+  l'ordre (fermer **avant** de mettre en prod, sinon on ferme ce qu'on vient d'y mettre), ce qui ne
+  se force pas (questions ouvertes, tickets d'une autre session vivante, parent dont une sous-tâche
+  est ouverte — que Redmine refuse *silencieusement*), le compte rendu en trois chiffres, et « dis-le
+  avant d'agir, pas après ». NORMS 2.48.0.
+
 - **Une décision s'amende au lieu de se réécrire** (RM3161) : corriger trois mots demandait de
   l'invalider et d'en poser une autre — le carnet se remplissait de doublons dont l'un est barré, et
   la décision qui fait foi devenait plus difficile à trouver, l'inverse de ce à quoi il sert.

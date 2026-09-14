@@ -95,4 +95,27 @@ check("aucun module préchargé ne dépasse 5 000 tokens" + (" — " + ", ".join
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
+
+# ── RM3162 : le CYCLE DE SESSION, procédure nommée ──────────────────────────
+# Écrite UNE fois, hors précharge, et trouvable par son seul nom. Le texte vivait dans un réglage
+# d'instance (RM3159) : recopié sur chaque machine, il aurait divergé sans que rien ne le dise.
+SRC = pathlib.Path(__file__).resolve().parent.parent / "norms" / "src"
+proc = (SRC / "modules" / "session-tooling-pratique.md").read_text(encoding="utf-8")
+kern = (SRC / "NORMS-KERNEL.md").read_text(encoding="utf-8")
+check("la procédure est écrite dans un module HORS précharge (elle ne coûte qu'à qui s'en sert)",
+      "Le CYCLE DE SESSION" in proc)
+check("le KERNEL porte son déclencheur : le nom suffit à la trouver",
+      "cycle de session" in kern.lower())
+check("…et il renvoie au bon module", "session-tooling-pratique" in kern)
+for mot, quoi in (("l'ordre", "L'ordre n'est pas décoratif"), ("les questions ouvertes", "Les questions ouvertes"),
+                  ("le compte rendu", "fermés**, **mis en prod**"), ("les sessions concurrentes", "autre session vivante"),
+                  ("le refus silencieux de Redmine", "silencieusement")):
+    check(f"la procédure dit ce qui manquait : {mot}", quoi in proc)
+check("la procédure n'est PAS recopiée dans un module préchargé (elle y serait payée par tous)",
+      all("Le CYCLE DE SESSION" not in (SRC / "modules" / f"{m}.md").read_text(encoding="utf-8")
+          for m in ("session-tooling", "status-workflow", "git-mep")))
+ka = (pathlib.Path(__file__).resolve().parent / "karl-agent.py").read_text(encoding="utf-8")
+check("le bouton du cockpit envoie l'INVOCATION, plus le texte — une seule définition",
+      'PROMPT_RELANCE_DEFAUT = "Fais le cycle de session."' in ka)
+
 print("OK — tests précharge NORMS RM2582 passent")

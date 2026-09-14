@@ -62,6 +62,49 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
 
+## Le CYCLE DE SESSION — une procédure nommée (RM3162)
+
+**Invocation :** « fais le cycle de session » (bouton **↻ Relancer** du cockpit, RM3159).
+Le nom suffit : le texte vit ici, une seule fois, et s'amende par MR comme le reste des normes.
+
+Pourquoi ce nom plutôt que « enchaîne » : *enchaîne* sert couramment à dire « continue ». Un mot qui
+déclenche des fermetures et des mises en production ne doit pas pouvoir être écrit par hasard.
+
+### Les quatre temps, dans cet ordre
+
+1. **Constater** — ce qui est réellement déployé. Le core de prod suit `main` : ce qui y est mergé
+   **est** en production, quel que soit le statut du ticket. C'est le statut qui retarde, pas le code.
+2. **Fermer** ce qui est en prod depuis le cycle précédent et qui est bouclé.
+3. **Mettre en prod** (promotion vers `main`) ce qui est fini, pour que le demandeur déploie et teste.
+4. **Enchaîner** sur **un** ticket de la session, faisable sans arbitrage, livré de bout en bout —
+   tests, MR, promotion, protocole de test. Dire lequel, et pourquoi lui.
+
+**L'ordre n'est pas décoratif** : mettre en prod avant de fermer ferme ce qu'on vient d'y mettre.
+
+### Ce qui ne se force pas
+
+- **Les questions ouvertes.** Un ticket qui en porte reste ouvert, et on dit lesquelles. C'est le seul
+  endroit où la réflexion non tranchée survit ; l'escamoter revient à la perdre. Le demandeur peut
+  demander de passer outre — c'est alors sa décision, tracée dans la note.
+- **Les critères d'acceptation non cochés** se passent outre en traçant le motif : ils décrivent
+  souvent une hygiène passée, pas un travail inachevé.
+- **Les tickets portés par une autre session vivante** (`pm_concurrent`) : deux agents sur un même
+  ticket se disputent sa fiche, sa branche et son statut.
+- **Un parent dont une sous-tâche est ouverte** : Redmine refuse *silencieusement* (PUT 204, statut
+  inchangé). Ne pas s'acharner, le dire.
+
+### Rendre compte
+
+Trois chiffres, toujours : **fermés**, **mis en prod**, **écartés avec leur motif**. Un lot de deux
+cents transitions ne laisse sinon aucune trace lisible, et personne ne peut vérifier ce qui a été
+fait. Ce qui a été volontairement laissé de côté se nomme — un silence se lit comme un oubli.
+
+### Si quelque chose cloche
+
+Le dire **avant** d'agir, pas après. Le malentendu fondateur de cette procédure (« en prod » : le
+statut, ou le code dans `main` ?) aurait coûté une phrase ; il a coûté deux passages et une
+quarantaine de tickets fermés au mauvais moment.
+
 ## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
 
 Détail du tripwire #18. La règle est **permanente** : il n'existe aucun moment

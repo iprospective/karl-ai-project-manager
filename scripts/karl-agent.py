@@ -11852,15 +11852,15 @@ def op_test_queue(qs: dict) -> list:
 #             le fichier canonique commenté n'est JAMAIS réécrit ;
 #  - tarifs → édition CIBLÉE de la ligne dans pm.pricing.yml (commentaires
 #             et structure intacts ; refus si la ligne n'existe pas).
-#: RM3159 — le prompt que le bouton « relancer » poste dans la session attachée. C'est un RÉGLAGE et
-#: non une constante : il est fait pour bouger, et le demandeur le dit lui-même (« on améliorera ce
-#: prompt au fil du temps »). Le défaut est son texte, mot pour mot.
-PROMPT_RELANCE_DEFAUT = (
-    "Vérifie ce qui a été déployé en prod, ferme ce qui est en prod et bouclé, "
-    "mets en prod (merge en main) ce qui est fait que je le déploie et teste, "
-    "et enchaîne les tickets de cette session à finir qui sont faisables "
-    "(pas de blocages/questions)"
-)
+#: RM3159 puis RM3162 — ce que le bouton « ↻ Relancer » poste dans la session attachée.
+#:
+#: Ce n'est plus le texte de la procédure mais son NOM : elle est écrite une seule fois, dans NORMS
+#: (`session-tooling-pratique` § « Le CYCLE DE SESSION »), et le KERNEL porte le déclencheur qui y
+#: mène. Un texte recopié dans le réglage de chaque instance aurait divergé d'une machine à l'autre,
+#: sans que rien ne le dise ; une procédure nommée s'amende par MR, en un endroit, pour tout le monde.
+#:
+#: Reste un RÉGLAGE : on peut vouloir autre chose ici — une consigne du jour, une autre procédure.
+PROMPT_RELANCE_DEFAUT = "Fais le cycle de session."
 
 _PM_SETTINGS_CONF = [
     {"key": "conf:sessions.relance_prompt", "label": "Prompt du bouton « relancer la session »",

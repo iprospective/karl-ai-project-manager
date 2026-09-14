@@ -78,3 +78,4 @@ Quand on apprend quelque chose de **non-trivial** sur un produit (un comportemen
 surprenant, une commande non documentée, un workaround), capitaliser ici plutôt que de
 le re-découvrir à la prochaine occurrence. Garder les fichiers actionnables (pas de
 blabla).
+- [dovecot](./dovecot/) — boîte karl@ : dossiers, règle Sieve réelle et ses deux écarts (liste statique, aucune condition d'authenticité), capacités du serveur (RM2667)

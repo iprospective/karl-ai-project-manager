@@ -22,7 +22,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   temps. La lecture d'abord (lire un ticket, lister, chercher) ; l'écriture attend que la question des
   champs manquants soit tranchée. Au passage, une **demande de fusion n'est pas un ticket** : l'API
   GitHub les mélange, la liste les écarte.
-
+- **Un domaine ne se partage plus entre deux scripts** (RM3142) : `pm-<x>.py` et `pm-<x>-<verbe>.py`
+  pouvaient coexister, et le dispatch tranchait en silence — c'est ainsi que `mmi-pm index rebuild`
+  a changé de sens sans que personne ne le voie, quand RM3128 a posé un `pm-index.py` à côté des
+  `pm-index-<verbe>.py` existants. Une garde de test refuse désormais cette cohabitation, liste
+  blanche à l'appui pour les deux cas sans homonyme (`cdc`, `notify`). La réparation de fond — rendre
+  son nom à l'index des projets et déplacer l'index de requêtage sous `searchdb` — est celle de
+  **RM3143**, trouvée en parallèle et meilleure : c'est le nouveau venu qui bouge, pas l'existant.
 - **Le worklog mène quelque part** (RM3114) : « ❓ à trancher » affichait des numéros de tickets et un
   compte de questions, mais le clic ouvrait le panneau méta — qui ne montre pas le carnet de réflexion.
   Il ouvre maintenant la **fiche de revue**, seul endroit où les questions se lisent ET se tranchent

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pm-index-rebuild — index des projets PM (RM3033, porté de `bin/mmi-pm index rebuild`). Voir pm_index.py.
+"""pm-index-rebuild — index des projets PM : les liens de co-localisation (RM3033). Voir pm_index.py.
 Usage : mmi-pm index-rebuild [--dry-run]"""
 import argparse
 import sys

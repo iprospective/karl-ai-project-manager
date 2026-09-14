@@ -149,7 +149,62 @@ check("avec leur numéro d'ordre, celui que `request --set` attend",
 check("ni les ticketées ni les non-demandes ne reviennent hanter le panneau",
       len(wl["requests_open"]) == 1)
 
+# ── RM3114 : solder une demande DEPUIS LE COCKPIT ────────────────────────────
+# Le registre et ses états existaient, mais seulement en ligne de commande : depuis le
+# cockpit, une demande se regardait s'accumuler. La route délègue à l'outil — elle ne
+# réécrit pas le worklog elle-même, sinon deux écrivains finiraient par se contredire.
+import subprocess as _sp                                               # noqa: E402
+import pm_worklog_states                                               # noqa: E402
+appels = []
+
+
+def _faux_run(cmd, **kw):
+    appels.append(list(cmd))
+    return _sp.CompletedProcess(cmd, 0, stdout="✓ demande #1 → repondu", stderr="")
+
+
+_vrai_run = ka.subprocess.run
+ka.subprocess.run = _faux_run
+try:
+    r = ka.op_worklog_request({"sid": "2635", "n": "1", "status": "repondu"})
+    check("la demande est soldée", r.get("ok") and r["status"] == "repondu")
+    check("par l'OUTIL, jamais par une écriture directe du serveur",
+          any("pm-session-status.py" in a for a in appels[0])
+          and "request" in appels[0] and "--set" in appels[0] and "1" in appels[0])
+    appels.clear()
+    r = ka.op_worklog_request({"sid": "2635", "n": "2", "status": "ticketee", "ticket": "RM3114"})
+    check("« ticketée » emporte son rattachement", "--ticket" in appels[0] and "RM3114" in appels[0])
+
+    for payload, motif in (({"sid": "2635", "n": "1", "status": "inventé"}, "statut inconnu"),
+                           ({"sid": "2635", "n": "0", "status": "repondu"}, "numéro invalide"),
+                           ({"sid": "2635", "status": "repondu"}, "numéro absent"),
+                           ({"sid": "2635", "n": "1", "status": "ticketee", "ticket": "pas-un-nombre"},
+                            "ticket non numérique")):
+        try:
+            ka.op_worklog_request(payload)
+            check(f"refusé : {motif}", False, "aucune erreur levée")
+        except ka.ApiError:
+            check(f"refusé : {motif}", True)
+
+    appels.clear()
+
+    def _run_ko(cmd, **kw):
+        appels.append(list(cmd))
+        return _sp.CompletedProcess(cmd, 1, stdout="", stderr="demande 9 inconnue")
+
+    ka.subprocess.run = _run_ko
+    try:
+        ka.op_worklog_request({"sid": "2635", "n": "9", "status": "repondu"})
+        check("un refus de l'outil remonte tel quel", False, "aucune erreur levée")
+    except ka.ApiError as e:
+        check("un refus de l'outil remonte tel quel", "inconnue" in str(e))
+finally:
+    ka.subprocess.run = _vrai_run
+
+check("les états d'une demande ont UNE source, partagée avec le cockpit",
+      tuple(pss.REQUEST_STATES) == tuple(pm_worklog_states.REQUEST_STATES))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — tests registre des demandes RM2635 passent")
+print("OK — tests registre des demandes RM2635/RM3114 passent")

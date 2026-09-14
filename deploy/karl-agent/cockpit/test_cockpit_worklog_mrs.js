@@ -91,8 +91,33 @@ assert.ok(/❓ à trancher \(5\)/.test(hq), "le compteur additionne les question
 assert.ok(/>1<\/span> question sans réponse/.test(hq) && />4<\/span> questions sans réponse/.test(hq),
   "singulier et pluriel — le nombre est une pastille, la phrase s'accorde avec");
 assert.ok(hq.indexOf("à trancher") < hq.indexOf("demandes à traiter"), "à trancher AVANT à traiter : l'arbitrage débloque le reste");
-assert.ok(/data-action="ticket" data-rm="3015"/.test(hq), "le ticket est cliquable depuis le bloc");
+// RM3114 : le clic ne mène plus au panneau méta mais à la FICHE de revue — c'est là que le carnet
+// de réflexion est rendu, avec ses boutons ✅/❌ : c'est le seul endroit où l'on tranche.
+assert.ok(/data-action="review" data-rm="3015"/.test(hq), "le ticket mène là où les questions se tranchent");
+assert.ok(/data-action="review" data-rm="3015"[^>]*>→ trancher</.test(hq.replace(/\n/g, "")) || /→ trancher/.test(hq),
+  "et le geste est nommé : « trancher », pas seulement un numéro cliquable");
 assert.ok(!/à trancher/.test(String(WorklogPane(new WorklogViewModel({ data: { found: true, buckets: {}, docs: {} }, attached: true }, {}), { tip: () => "", pin: () => "", linkify: (s) => s }))),
   "aucune question ouverte : pas de bloc vide");
 
+// ── RM3114 : une demande se solde depuis la ligne où on la lit ──────────────
+// Elle s'affichait sans dire à quoi elle menait ni comment la refermer : on la voyait
+// s'accumuler sans pouvoir rien en faire. Le registre et ses états existaient (RM2621),
+// mais seulement en ligne de commande.
+const wr = { found: true, buckets: {}, docs: {}, requests_open: [
+  { n: 1, text: "une demande non ticketée" },
+  { n: 2, text: "une demande déjà portée", ticket: "RM3114", note: "vue en séance" }] };
+const vmr = new WorklogViewModel({ data: wr, attached: true }, { ago: () => "2min" });
+const rq = vmr.requests();
+assert.strictEqual(rq[0].status, "nouveau", "sans statut, une demande est neuve");
+assert.strictEqual(rq[1].ticket, "3114", "le rattachement est rendu sans son préfixe, comme partout ailleurs");
+assert.deepStrictEqual(rq[0].suites.map(x => x.status), ["ticketee", "repondu", "non_demande", "annulee"],
+  "les suites sont celles du registre, dans l'ordre où on les propose");
+const hr = String(WorklogPane(vmr, { tip: () => "", pin: () => "", linkify: (s) => s }));
+assert.ok(/data-action="request" data-n="1" data-status="ticketee"/.test(hr), "chaque suite est un geste porté par la ligne");
+assert.ok(/data-action="request" data-n="2" data-status="annulee"/.test(hr));
+assert.ok(/data-action="ticket" data-rm="3114"/.test(hr), "une demande déjà portée mène à SON ticket");
+assert.ok(/vue en séance/.test(hr), "et la note qui l'accompagne se lit");
+assert.ok(!/\son(click|change)=/.test(hr), "aucun handler inline");
+
 console.log("✓ bloc « à trancher » (RM3088) : compteur, singulier/pluriel, ordre, ticket cliquable");
+console.log("✓ demandes actionnables (RM3114) : état, rattachement, suites du registre, gestes délégués");

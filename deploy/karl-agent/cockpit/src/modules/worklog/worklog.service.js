@@ -12,6 +12,10 @@ export class WorklogService {
     this.pending = null; return this.data;
   }
   clear() { this.data = { found: false, buckets: {} }; }
+  /** RM3114 : le registre des demandes n'est écrit que par l'outil PM — le serveur l'appelle. */
+  async setRequestStatus(sid, n, status, ticket) {
+    return this.repo.request({ sid: String(sid), n: String(n), status, ticket: ticket || "" });
+  }
   /** Le composite /refresh pousse un worklog frais (RM2763). */
   setFromRefresh(data) { this.data = data || this.data; }
   // ── sélection (RM2716/2719) ──

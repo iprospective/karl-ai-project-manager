@@ -73,6 +73,24 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(/data-action="env-deploy"/.test(fiche({ q: { test_host: "h", env_reason: "down" } })) && /down/.test(fiche({ q: { test_host: "h", env_reason: "down" } })), "env présent mais indisponible → re-déployer");
   assert(/data-action="env-shared"/.test(fiche({ q: { deployable: true } })) && /hors layout/.test(fiche({ q: {} })) && /n’est plus dans la file de test/.test(fiche({ q: undefined })) && /data-action="close"/.test(fiche({ q: undefined })));
   assert(/hors file de test/.test(fiche({ q: undefined, tqLoaded: false, tqSize: 3 })) && /chargement de l’état/.test(fiche({ q: undefined, tqLoaded: false, tqSize: 0 })));
+  // RM3137 : une description est repliée à la source vers 80 colonnes (convention d'écriture des
+  // fiches). Rendue dans un <pre>, ces retours à la ligne étaient préservés : le texte se coupait à
+  // l'écran quelle que soit la largeur disponible. Le niveau « full » du registre d'entités était le
+  // dernier endroit qui la rendait ainsi — la fiche de revue, elle, passait déjà par le markdown.
+  const repliee = "Une phrase assez longue qui a été coupée par l'auteur\nvers quatre-vingts colonnes, et qui doit se relire\nd'un seul tenant.\n\nUn second paragraphe.\n\n```\nbloc  de   code\nligne 2\n```\n\n- une puce\n- une autre";
+  const secDesc = (d) => String(new VM.ReviewViewModel({ r: Object.assign({}, R, { description: d }) }, { rm: "2726" })
+    .sections().find(x => x.id === "description").body());
+  const md3137 = secDesc(repliee);
+  assert(!/<pre>Une phrase/.test(md3137), "la description n'est plus un listing brut");
+  assert(/<p>Une phrase assez longue qui a été coupée par l'auteur vers quatre-vingts colonnes, et qui doit se relire d'un seul tenant.<\/p>/.test(md3137),
+         "les sauts de ligne simples sont JOINTS — c'est la fenêtre qui décide où la ligne s'arrête");
+  assert(/<p>Un second paragraphe.<\/p>/.test(md3137), "une ligne vide sépare toujours deux paragraphes");
+  assert(/bloc  de   code/.test(md3137) && /<pre>/.test(md3137), "un bloc de code garde sa forme, espaces compris");
+  assert(/une puce/.test(md3137) && /<li>|<ul>/.test(md3137), "une liste reste une liste");
+  assert(/class="mdview"/.test(md3137), "le rendu porte la classe qui l'habille (retour à la ligne normal)");
+  assert(!/<script>/.test(secDesc("<script>alert(1)</script>")),
+         "et le markdown échappe avant de transformer — une description est du texte d'utilisateur");
+
   const fEnCours = fiche({ r: Object.assign({}, R, { status: "en_cours" }) }); assert(!/data-action="verdict"/.test(fEnCours) && /Aucun verdict à rendre/.test(fEnCours) && /data-action="pm"/.test(fEnCours), "ticket en cours : actions PM oui, verdicts non");
   assert(/vérification de la mergeabilité en cours/.test(fiche({ mc: null })));
   console.log("✓ fiche de revue : en-tête daté, protocole, env de test (6 états), cohérence git, actions filtrées par statut");

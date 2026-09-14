@@ -13,6 +13,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le worklog mène quelque part** (RM3114) : « ❓ à trancher » affichait des numéros de tickets et un
+  compte de questions, mais le clic ouvrait le panneau méta — qui ne montre pas le carnet de réflexion.
+  Il ouvre maintenant la **fiche de revue**, seul endroit où les questions se lisent ET se tranchent
+  (✅ / ❌), et le geste est nommé : « → trancher ». Les « 📥 demandes à traiter », elles, ne disaient
+  ni à quoi elles se rattachaient ni comment les refermer : chaque demande porte désormais son ticket
+  quand elle en a un, la note qui l'accompagne, et les quatre suites du registre — ticketée (son numéro
+  est demandé, sinon le rattachement serait perdu), répondu, pas une demande, annulée. Le cockpit
+  n'écrit pas le worklog lui-même : il appelle `pm-session-status`, qui en reste le seul écrivain.
+  Cockpit 3.15.0.
+
+- **Une description de ticket se relit d'un seul tenant** (RM3137) : les fiches sont écrites repliées
+  vers 80 colonnes — c'est la convention d'écriture — et le dernier endroit qui les rendait dans un
+  `<pre>` préservait ces retours à la ligne, donc coupait le texte à l'écran quelle que soit la largeur
+  disponible. La description passe maintenant par le rendu markdown partout : les sauts de ligne simples
+  sont joints, une ligne vide sépare toujours deux paragraphes, et les blocs de code, listes et tableaux
+  gardent leur forme. C'est la fenêtre qui décide où la ligne s'arrête.
+
 - **Une dérive ne rougit plus la suite de tests, elle se notifie** (RM2756) : la marge de sécurité de
   la précharge NORMS (90 % du plafond) était tenue par un test, donc rouge en permanence pendant des
   semaines — et un rouge permanent cesse d'être lu, puis entraîne à ignorer les autres. Le partage est

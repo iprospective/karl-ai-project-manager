@@ -148,13 +148,24 @@ def _noms_visibles(tree, lineno):
     for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
         fin = max((getattr(x, "lineno", fn.lineno) for x in ast.walk(fn)), default=fn.lineno)
         if fn.lineno <= lineno <= fin:
-            loc = {a.arg for a in fn.args.args + fn.args.kwonlyargs}
+            # RM3145 : `*args` et `**kwargs` sont liés par des champs à part (`vararg`/`kwarg`), et
+            # les paramètres positionnels-seuls par `posonlyargs`. Les oublier faisait crier au nom
+            # inexistant sur `notifier(..., **champs)` — même famille de faux positif que RM3119
+            # ci-dessus, et même conséquence : un contrôle qui se trompe finit par être ignoré.
+            loc = {a.arg for a in (fn.args.args + fn.args.kwonlyargs
+                                   + getattr(fn.args, "posonlyargs", []))}
+            loc |= {a.arg for a in (fn.args.vararg, fn.args.kwarg) if a is not None}
             loc |= {t.id for x in ast.walk(fn) for t in ast.walk(x)
                     if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
             loc |= {h.name for h in ast.walk(fn) if isinstance(h, ast.ExceptHandler) and h.name}
             return glob | loc
     return glob
 
+
+# Le contrôle se contrôle : ces trois formes de liaison lui ont manqué une fois chacune.
+_sonde = ast.parse("def f(a, /, b, *rest, c=1, **kw):\n    journal.info('x', u=a, v=b, w=rest, x=c, y=kw)\n")
+_vus = _noms_visibles(_sonde, 2)
+assert {"a", "b", "rest", "c", "kw"} <= _vus, "le contrôle statique ne voit pas toutes les formes de paramètres"
 
 mauvais = []
 for f in sorted(HERE.glob("pm-*.py")):

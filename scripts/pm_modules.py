@@ -251,6 +251,100 @@ def resout(modules, core_version=CORE_VERSION) -> dict:
             "cycles": cycles}
 
 
+# ── les abonnements : ce à quoi un module RÉAGIT (RM3145, lot 2) ────────────────────────────────
+#
+# Ils se déclarent dans `modules/<nom>/triggers/*.yml`, pas dans le manifeste : un abonnement est du
+# câblage, il change plus souvent que l'identité du module, et le lire à part évite de rouvrir le
+# manifeste pour ajouter une réaction.
+#
+#     event: task.status.changed
+#     when: {to: a_tester_demandeur}     # facultatif — sans lui, tout passe
+#     run: ["python3", "modules/<nom>/services/prevenir.py"]
+#
+# ⚠ La clé est `event`, pas `on` : en YAML 1.1, `on` est un BOOLÉEN (comme `yes` et `off`), donc
+# `on: task.status.changed` produit une clé `True` et l'abonnement écoute le vide. Le piège est
+# silencieux, et il a coûté une heure à GitHub Actions avant nous. `on:` reste accepté — sous ses
+# deux formes, la chaîne et le booléen — parce qu'il vient naturellement sous les doigts.
+
+TRIGGERS = "triggers"
+
+
+class Trigger:
+    """Un abonnement : à quel événement, sous quelle condition, et ce qu'il lance."""
+
+    def __init__(self, module: str, fichier: Path, data: dict):
+        self.module = module
+        self.file = fichier
+        d = data or {}
+        # `True` est la clé que YAML produit pour `on:` — voir l'avertissement en tête de section.
+        self.on = str(d.get("event") or d.get("on") or d.get(True) or "").strip()
+        self.when = dict(d.get("when") or {})
+        run = d.get("run")
+        self.run = [str(x) for x in run] if isinstance(run, list) else []
+        self.errors = []
+        if not self.on:
+            self.errors.append("« event » manquant : un abonnement sans événement n'écoute rien")
+        if not self.run:
+            self.errors.append("« run » manquant, ou pas une liste d'arguments")
+        # Une commande en CHAÎNE passerait par un shell : un abonné ne doit pas pouvoir faire
+        # dépendre son exécution d'une interprétation de la ligne de commande.
+        if isinstance(run, str):
+            self.errors.append("« run » doit être une LISTE d'arguments, jamais une ligne de shell")
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+    def concerne(self, evenement: dict) -> bool:
+        """Vrai si cet abonnement doit se déclencher pour cet événement. Un filtre absent laisse
+        tout passer ; un filtre présent doit être satisfait EN ENTIER."""
+        if (evenement or {}).get("name") != self.on:
+            return False
+        charge = (evenement or {}).get("payload") or {}
+        for cle, attendu in self.when.items():
+            valeur = charge.get(cle)
+            if isinstance(attendu, list):
+                if valeur not in attendu:
+                    return False
+            elif str(valeur) != str(attendu):
+                return False
+        return True
+
+    def as_dict(self) -> dict:
+        return {"module": self.module, "on": self.on, "when": self.when, "run": self.run,
+                "ok": self.ok, "errors": list(self.errors), "file": str(self.file)}
+
+
+def triggers(root=None, modules=None) -> list:
+    """Les abonnements des modules ACTIFS et résolus, dans l'ordre de chargement.
+
+    Un module bloqué ou désactivé n'écoute pas : réagir sans être chargé serait le pire des deux
+    mondes — actif à moitié, et impossible à diagnostiquer."""
+    mods = decouvre(root) if modules is None else modules
+    r = resout(mods)
+    par_nom = {m.name: m for m in mods}
+    out = []
+    for nom in r["ordre"]:
+        m = par_nom.get(nom)
+        if m is None:
+            continue
+        d = m.path.parent / TRIGGERS
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.yml")):
+            if yaml is None:
+                continue
+            try:
+                data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError as e:
+                t = Trigger(nom, f, {})
+                t.errors = [f"YAML illisible — {e}"]
+                out.append(t)
+                continue
+            out.append(Trigger(nom, f, data if isinstance(data, dict) else {}))
+    return out
+
+
 # ── l'inventaire de l'EXISTANT — ce que les sept registres contiennent aujourd'hui ──────────────
 #
 # Un inventaire qui ne montrerait que les modules déclarés serait flatteur et faux : au lot 0, rien

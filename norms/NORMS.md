@@ -1,9 +1,9 @@
 ---
-schema_version: "2.49.0"
+schema_version: "2.50.0"
 updated: 2026-09-15
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.49.0
+# Normes de gestion des tâches — v2.50.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -2420,6 +2420,39 @@ dispensés) n'est **pas** finie : le passage en `etude_chiffrage_a_valider` ne d
 transition quand elle manque — même forme que le garde-fou « protocole de test » (RM2229).
 La garde lit le frontmatter `implementation`, et **accepte aussi** une section
 `## Implémentation` dans le corps, pour ne pas crier sur les CDC d'avant.
+
+#### Les critères d'acceptation — v2.50.0 (RM2882)
+
+Les critères **dérivent** du CDC, mais n'en suivent pas le rythme. La description change
+quand la **demande** change — une renégociation. Les critères changent quand on **apprend
+en faisant** : un cas de bord découvert, une exigence qui se précise, une case qu'on
+coche. Deux rythmes dans un même contenant, c'est le contenant qui est mal découpé. Ils
+sortent donc de la description, comme l'a fait le protocole de test avant eux.
+
+**Où ils vivent.** Champ canonique : le CF Redmine **33 « Critères d'acceptation »** ;
+miroir local dans le frontmatter `acceptance` (c'est lui que lit le cockpit — karl-agent
+ne lit jamais l'API). Outil unique : **`pm-task-acceptance`** (`--set` / `--append` /
+`--check N` / `--check-all`), jamais d'écriture à la main. Un CDC d'avant le CF, qui
+porte ses critères en section `## Critères d'acceptation` du corps, se reprend par
+`--from-description` (en masse : `pm-cf-mirror-backfill --field acceptance
+--adopt-sections` — le corps est **conservé**, rien n'est effacé).
+
+**Lecture à double source, et sans bascule.** Champ non vide ⇒ il fait foi ; vide ⇒ la
+section de la description, exactement comme avant. Tous les lecteurs partagent la même
+fonction (`pm_acceptance.criteria_text`) : le garde-fou de statut, la livraison, le
+cockpit. **Ce qui ne se sépare jamais, c'est la lecture et l'écriture.** `--check N`
+désigne le Nᵉ item de sa source : sur un ticket migré on coche avec `pm-task-acceptance`,
+sinon avec `pm-task-description-update`. Basculer l'une sans l'autre décale les index en
+silence — et c'est pour ça qu'un ticket dont des cases traînent **hors** de la section
+n'est jamais migré automatiquement.
+
+**Jamais de valeur vide poussée.** Vérifié en réel : un PUT du CF avec `value: ""`
+**efface** le champ. Une extraction qui échoue doit donc refuser, pas écrire du vide —
+même garde que `pm-task-protocol` sur le CF 30.
+
+**Synchronisation.** PM → Redmine à l'écriture ; Redmine → PM à chaque `pm-task-sync`.
+Ce sens-là compte plus ici que pour les autres miroirs : les critères sont ce que le
+**demandeur** amende, et il le fait dans l'UI web, pas par script.
 
 ### Transitions « assignee-only » — v1.31.0
 

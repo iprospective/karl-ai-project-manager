@@ -1,5 +1,20 @@
 # Changelog des normes
 
+## [2.50.0] - 2026-09-15
+
+### Ajouté
+- **Les critères d'acceptation sortent de la description** (RM2882), dans le CF Redmine 33
+  et son miroir frontmatter `acceptance` — comme le protocole de test avant eux. Le motif
+  n'est pas qu'ils soient indépendants du CDC (ils en dérivent), c'est qu'ils n'en ont pas
+  le **rythme** : la description change quand la demande change, les critères quand on
+  apprend en faisant. Outil unique `pm-task-acceptance`, reprise de l'existant par
+  `pm-cf-mirror-backfill --field acceptance --adopt-sections`.
+- **Lecture à double source, sans bascule** : champ non vide ⇒ il fait foi, sinon la
+  section de la description. Tous les lecteurs partagent la même fonction. Ce qui ne se
+  sépare jamais, c'est la lecture et l'écriture : `--check N` désigne le Nᵉ item de SA
+  source, et un ticket dont des cases traînent hors de la section n'est jamais migré
+  automatiquement — sinon les index se décalent en silence.
+
 ## [2.49.0] - 2026-09-15
 
 ### Corrigé

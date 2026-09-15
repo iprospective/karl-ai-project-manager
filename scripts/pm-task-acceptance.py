@@ -16,6 +16,7 @@ Usage :
     pm-task-acceptance.py <RM-id> --append -          # ajoute des items à la suite
     pm-task-acceptance.py <RM-id> --from-description  # initialise depuis la section du MD
     pm-task-acceptance.py <RM-id> --check 2           # coche le 2ᵉ critère (répétable)
+    pm-task-acceptance.py <RM-id> --check-all         # coche tout
     pm-task-acceptance.py <RM-id> --pull              # rapatrie une saisie faite dans l'UI web
 
 Deux gardes, toutes deux apprises en réel :
@@ -90,6 +91,8 @@ def main():
                     help="Coche le Nᵉ critère du CHAMP (répétable)")
     ap.add_argument("--uncheck", type=int, action="append", metavar="N",
                     help="Décoche le Nᵉ critère du champ (répétable)")
+    ap.add_argument("--check-all", action="store_true",
+                    help="Coche tous les critères du champ")
     ap.add_argument("--force", action="store_true",
                     help="Autorise --from-description à écraser un champ déjà rempli")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
@@ -99,7 +102,7 @@ def main():
     args = ap.parse_args()
 
     ecrit = (args.set_ is not None or args.append is not None or args.from_description
-             or args.pull or args.check or args.uncheck)
+             or args.pull or args.check or args.uncheck or args.check_all)
 
     cfg = PMConfig.load()
     md_path = cfg.find_task(args.rm_id)
@@ -165,13 +168,15 @@ def main():
                   f"les index de `pm-task-description-update --check N` ne désigneront plus "
                   f"les mêmes lignes que `--check N` ici.", file=sys.stderr)
         new = pm_acceptance.render_items(items)
-    elif args.check or args.uncheck:
+    elif args.check or args.uncheck or args.check_all:
         if not current:
             sys.exit(f"ERREUR : le champ de RM{args.rm_id} est vide — ses critères vivent encore "
                      f"dans la description. Cocher : pm-task-description-update.py {args.rm_id} "
                      f"--check N (ou migrer d'abord : --from-description).")
         new, touches, hors = current, [], []
-        for idx, val in ((args.check or [], True), (args.uncheck or [], False)):
+        tout = (list(range(1, len(pm_acceptance.parse_items(current)) + 1))
+                if args.check_all else [])
+        for idx, val in (((args.check or []) + tout, True), (args.uncheck or [], False)):
             new, t, h = set_check(new, idx, val)
             touches += t
             hors += h

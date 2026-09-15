@@ -5154,7 +5154,8 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         except OSError:
             text = ""
         if text:
-            cl = parse_checklist(_task_body(text))
+            cl = parse_checklist(_task_body(text),
+                                 acceptance=_parse_frontmatter(text).get("acceptance"))
             if cl["total"]:
                 entry["checklist"] = cl
             subs = _subtasks_status(_parse_frontmatter(text).get("sub_tasks"))
@@ -5634,7 +5635,8 @@ def _overview_open_tasks(client=None, project=None) -> list:
         mu = re.search(r"^updated:\s*'?([0-9T:\- ]+)'?\s*$", text, re.M) if text else None
         if mu:
             entry["updated"] = mu.group(1).strip()
-        cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
+        cl_stats = parse_checklist(                # RM2695 : l'avancement, pas juste le statut
+            body, acceptance=_parse_frontmatter(text).get("acceptance") if text else None)
         if cl_stats["total"]:
             entry["checklist"] = cl_stats
         out.append(entry)
@@ -7065,7 +7067,7 @@ def _mtime_iso(p: Path) -> str:
 _CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
 
 
-def parse_checklist(body: str, max_items: int = 40) -> dict:
+def parse_checklist(body: str, max_items: int = 40, acceptance: str = None) -> dict:
     """RM2695 : l'avancement d'un ticket, lu là où il est DÉJÀ tenu — la
     checklist des critères d'acceptation de sa description (tripwire #9
     « description vivante », miroir du `done_ratio`).
@@ -7076,10 +7078,15 @@ def parse_checklist(body: str, max_items: int = 40) -> dict:
 
     `items` est plafonné (l'UI n'affiche que le RESTE à faire, et une description
     n'est pas un backlog) ; `done`/`total` comptent tout, eux, sinon le compteur
-    mentirait sur les tickets longs."""
+    mentirait sur les tickets longs.
+
+    RM2882 — `acceptance` est le champ dédié (miroir du CF 33). Non vide, il fait foi :
+    le corps du MD n'en garde alors qu'une copie, que plus rien ne met à jour. Vide, on
+    lit le corps exactement comme avant : un ticket non migré s'affiche à l'identique."""
     done = total = 0
     items = []
-    for line in (body or "").splitlines():
+    source = acceptance if (acceptance or "").strip() else body
+    for line in (source or "").splitlines():
         m = _CHECKLIST_RE.match(line)
         if not m:
             continue
@@ -7289,7 +7296,7 @@ def op_resolve(rm_id: str) -> dict:
         # RM2695 : avancement = la checklist des critères d'acceptation, seule
         # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
         # statut, une liste d'ids n'apprenant rien sur l'avancement.
-        "checklist": parse_checklist(_task_body(text)),
+        "checklist": parse_checklist(_task_body(text), acceptance=fm.get("acceptance")),
         "sub_tasks_status": _subtasks_status(fm.get("sub_tasks")),
         "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
         "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],

@@ -102,10 +102,19 @@ def test_uncheck_symetrique():
 
 
 def test_deliver_ignore_les_citations():
-    """Garde de câblage : le contrôle de livraison passe par la même source."""
+    """Garde de câblage : le contrôle de livraison passe par la même source.
+
+    Depuis RM2882 cette source est `pm_acceptance` — qui lit le champ dédié quand il
+    est rempli, la section de la description sinon — et non plus `pm_markdown` en
+    direct. Le parseur, lui, reste le même : `pm_acceptance` s'appuie dessus, ce que
+    le second volet vérifie. Sans cette chaîne, la livraison se remettrait à compter
+    les cases citées dans un bloc de code (RM2540)."""
     src = (_HERE / "pm-task-deliver.py").read_text(encoding="utf-8")
-    assert "checklist_lines(body)" in src, "pm-task-deliver n'utilise pas pm_markdown"
+    assert "pm_acceptance.parse_items" in src, "pm-task-deliver n'utilise pas pm_acceptance"
     assert "CHECK_RE" not in src, "ancienne regex encore présente dans pm-task-deliver"
+    foyer = (_HERE / "pm_acceptance.py").read_text(encoding="utf-8")
+    assert "pm_markdown.real_checklist_lines" in foyer, \
+        "pm_acceptance a cessé de passer par le parseur commun"
 
 
 # ── RM2764 : frontmatter unifié (ex-8 copies) ──────────────────────────────

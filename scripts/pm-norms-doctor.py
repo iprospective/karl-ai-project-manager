@@ -9,6 +9,8 @@ Invariants DURS (font échouer, exit 1) :
                   SAUF écart inscrit dans dedup-ledger.yml. Tant que l'oracle n'existe
                   pas, on reste en mode « identité (bootstrap) » (assuré par la fraîcheur).
   - manifest    : toute source listée existe ; aucun .md orphelin (hors oracle).
+  - conflit     : aucun marqueur de merge git ne survit dans les sources ni dans
+                  NORMS.md / CHEATSHEET.md générés (RM3194).
 
 Invariants SOUPLES (avertissent, n'échouent pas en phase d'extraction) :
   - outillage   : tout outil cité (pm-*.py, redmine-*.py, mmi-pm-*, --list-next) existe ;
@@ -147,6 +149,39 @@ def check_fences():
     return bad
 
 
+# Marqueurs de conflit git. Construits par concaténation : écrits en clair, ils
+# feraient de CE fichier un faux positif pour tout grep de relecture.
+CONFLICT_MARKERS = ("<" * 7, "=" * 7, ">" * 7)
+
+
+def conflict_targets():
+    """Sources assemblées + artefacts générés — tout ce qu'un agent lit comme la norme."""
+    gen = [REPO / "norms" / "NORMS.md", REPO / "norms" / "CHEATSHEET.md"]
+    return active_source_files() + [f for f in gen if f.exists()]
+
+
+def check_conflict_markers(files=None):
+    """Aucun marqueur de conflit git ne doit survivre dans les sources ni dans le
+    document généré (RM3194).
+
+    Cas fondateur : le rebase de RM3109 sur un `dev` passé à v2.48.0 a laissé ses
+    marqueurs dans NORMS-KERNEL.md et _full-body.md ; l'assemblage les a fidèlement
+    recopiés dans NORMS.md, et le merge les a portés en `main`. Trois jours durant,
+    le KERNEL — lu EN ENTIER par chaque agent à chaque session — a exposé deux
+    tripwires numérotés 18 et un titre en double version.
+
+    Aucun invariant existant ne pouvait le voir : la fraîcheur compare NORMS.md à
+    `assemble(src)`, or la source portait elle-même les marqueurs — elle était donc
+    VERTE, et d'autant plus verte que le document était cassé.
+    """
+    bad = []
+    for f in (files if files is not None else conflict_targets()):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if any(line.startswith(m) for m in CONFLICT_MARKERS):
+                bad.append(f"{f.name}:{i}")
+    return bad
+
+
 def tool_exists(token):
     if token == "--list-next":
         f = SCRIPTS / "pm-task-status-update.py"
@@ -234,6 +269,16 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} fences : tous les blocs de code équilibrés")
+
+    bad_conflicts = check_conflict_markers()
+    if bad_conflicts:
+        print(f"  {FAIL} conflit : marqueur(s) de merge non résolu(s) : "
+              f"{', '.join(bad_conflicts[:8])}"
+              + (f" … (+{len(bad_conflicts) - 8})" if len(bad_conflicts) > 8 else ""))
+        print("        → résoudre dans norms/src/, puis régénérer : pm-norms-assemble.py")
+        rc |= 1
+    else:
+        print(f"  {PASS} conflit : aucun marqueur de merge dans les sources ni le généré")
 
     tools = scan_tools()
     gaps = sorted(t for t in tools if not tool_exists(t) and t not in KNOWN_GAPS)

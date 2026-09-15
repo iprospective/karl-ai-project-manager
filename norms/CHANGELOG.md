@@ -1,5 +1,40 @@
 # Changelog des normes
 
+## [2.49.0] - 2026-09-15
+
+### Corrigé
+- **Marqueurs de conflit dans le KERNEL et dans `NORMS.md`** (RM3194). Le rebase de
+  RM3109 sur un `dev` déjà passé à v2.48.0 a laissé ses marqueurs de merge dans
+  `NORMS-KERNEL.md` et `_full-body.md` ; l'assemblage les a fidèlement recopiés dans
+  `NORMS.md`, et le merge les a portés en `main`. Le document lu **en entier par chaque
+  agent à chaque session** a donc exposé, trois jours durant, **deux tripwires numérotés
+  18** et un titre en double version (v2.48.0 / v2.42.0). Résolution : les trois règles
+  sont conservées, celle de RM3109 devient le **tripwire #20** (« Grouper les appels
+  d'outils ») ; la référence croisée de `session-tooling-pratique` suit.
+- **`pm-norms-doctor` ne pouvait pas le voir** — et c'est le vrai défaut. Ses huit
+  invariants étaient **verts** sur le document cassé : la fraîcheur compare `NORMS.md` à
+  `assemble(src)`, or la source portait les mêmes marqueurs — elle était donc d'autant
+  plus verte que le document était corrompu. Nouvel invariant **dur** : aucun marqueur
+  de merge ne survit dans les sources assemblées ni dans les artefacts générés
+  (`NORMS.md`, `CHEATSHEET.md`). Testé dans les deux sens
+  (`scripts/test_norms_doctor_conflict.py`) : il crie sur un fichier pollué, il se tait
+  sur le dépôt sain — un gate qu'on ne vérifie que dans le sens « vert » est décoratif.
+
+### Ajouté
+- **Trace rétroactive des trois derniers tripwires**, livrés sans entrée de changelog —
+  donc invisibles pour `pm-norms-changes --since`, par lequel un agent apprend le delta
+  de normes depuis sa version connue. Ils existaient dans le KERNEL sans exister pour
+  qui ne relit pas tout :
+  - **#18 Restitution point par point** (RM3127) — un message portant plusieurs demandes
+    se traite point par point, dans l'ordre du demandeur ; ce qui n'a pas été traité se
+    dit explicitement, à sa place.
+  - **#19 Antériorité avant de ticketer** (RM3130) — `mmi-pm task-search` avant toute
+    création ; un résultat proche se lie ou se complète au lieu d'un doublon.
+  - **#20 Grouper les appels d'outils** (RM3109) — chaque appel refacture tout le
+    contexte en relecture (~105 k tokens, 52 % de la facture mesurée) : appels
+    indépendants dans une seule réponse, appels séquentiels dans une seule commande.
+
+
 ## [2.48.0] - 2026-09-14
 
 ### Modifié

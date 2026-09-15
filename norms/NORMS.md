@@ -1,13 +1,9 @@
 ---
-schema_version: "2.48.0"
-updated: 2026-09-14
+schema_version: "2.49.0"
+updated: 2026-09-15
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-<<<<<<< HEAD
-# Normes de gestion des tâches — v2.48.0
-=======
-# Normes de gestion des tâches — v2.42.0
->>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
+# Normes de gestion des tâches — v2.49.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -110,13 +106,11 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 17. **Tests au fil de l'eau.** Coder = **livrer les tests avec le code**, pas après : TDD par défaut sur la logique, tests **unitaires** + **fonctionnels/workflow** anticipés dès la conception, **tous les cas** couverts (tests auto ET protocole de test, complémentaires). `mmi-pm test` **vert avant livraison** (front/cockpit ⇒ tests node même MR). Projet `browser_test: true` (site public) ⇒ **validation NAVIGATEUR obligatoire** avant toute livraison front, sur l'env du ticket (`tools/browser-check`) — le rendu navigateur n'est PLUS un cas « non automatisable » (RM3036). Non automatisable (intégration tierce, matériel, envoi réel) ⇒ recette humaine + **justification tracée** ; jamais « pas de test ». → `modules/testing.md`
 
-<<<<<<< HEAD
 18. **Restitution point par point (RM3127).** Un message du demandeur qui porte **plusieurs demandes ou questions** se traite **point par point, dans SON ordre**, en reprenant l'intitulé de chacun : il doit vérifier d'un coup d'œil que rien n'a été perdu, **sans relire son propre message**. **La réponse d'abord, le raisonnement après.** Ce qui n'a **pas** été traité se dit **explicitement, à sa place dans la liste** — jamais par omission, jamais renvoyé à la fin. Répondre en prose continue à un lot de demandes oblige le demandeur à faire l'inventaire lui-même ; s'il doit demander « tu as bien tout pris ? », la restitution a échoué (incident fondateur : 2026-09-13, deux messages, quatre demandes tombées).
 
 19. **Antériorité avant de ticketer (RM3130).** Une **nouvelle demande** du demandeur se cherche d'abord dans l'existant : `mmi-pm task-search <mots-clés>` — titres, corps et `.think.md`, **fermés inclus** (un ticket clos est souvent la meilleure réponse). Un résultat proche se **lie** (`pm-task-link … relates`) ou **complète** le ticket trouvé ; il ne donne pas un doublon. Vaut aussi avant de consigner une F ou une D. Sans cette recherche, on recrée ce qui existe et on éparpille un même sujet sur trois tickets — la sortie est volontairement brève pour qu'aucun agent n'ait de raison de s'en passer.
-=======
-18. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
->>>>>>> e838afa (RM3109 NORMS v2.42.0 : tripwire #18 — grouper les appels d'outils)
+
+20. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -1000,9 +994,9 @@ Le dire **avant** d'agir, pas après. Le malentendu fondateur de cette procédur
 statut, ou le code dans `main` ?) aurait coûté une phrase ; il a coûté deux passages et une
 quarantaine de tickets fermés au mauvais moment.
 
-## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
+## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #20)
 
-Détail du tripwire #18. La règle est **permanente** : il n'existe aucun moment
+Détail du tripwire #20. La règle est **permanente** : il n'existe aucun moment
 observable « je m'apprête à appeler un outil », c'est pourquoi elle est au KERNEL
 et non derrière un déclencheur (critère `MAINTAINING.md` §6).
 

@@ -31,11 +31,43 @@
 #   cible suivie, sans collision -> injection d'un bloc marqué dans la classe ;
 #   cible suivie, avec collision -> REFUS, sans rien toucher.
 #
-# Usage : presta-dev-overrides.sh <worktree>
+# Usage : presta-dev-overrides.sh <worktree> [--on <user@host>]
+#
+# `--on` (RM3196) : tous les environnements ne vivent pas sur la machine qui porte
+# l'outillage — ceux de `dercya-www` sont distants. Le script se transporte alors
+# lui-même (avec ses assets) et s'exécute là-bas sur le chemin donné.
+#
+# La logique de dépôt, elle, ne connaît PAS le réseau : à distance comme en local
+# elle ne voit qu'un chemin local, sur l'hôte où elle tourne. Le transport
+# s'ajoute autour, il ne se mélange pas au reste — c'est ce qui permet de garder
+# un seul point d'entrée sans que les garde-fous aient deux comportements.
 set -uo pipefail
 
-WT="${1:-.}"
-cd "$WT" || { echo "presta-dev-overrides: worktree introuvable : $WT" >&2; exit 2; }
+REMOTE=""
+WT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --on)
+            REMOTE="${2:-}"
+            [ -n "$REMOTE" ] || { echo "presta-dev-overrides: --on attend <user@host>" >&2; exit 2; }
+            shift 2
+            ;;
+        --on=*)
+            REMOTE="${1#--on=}"
+            shift
+            ;;
+        -*)
+            echo "presta-dev-overrides: option inconnue : $1" >&2
+            exit 2
+            ;;
+        *)
+            [ -n "$WT" ] && { echo "presta-dev-overrides: un seul chemin attendu" >&2; exit 2; }
+            WT="$1"
+            shift
+            ;;
+    esac
+done
+WT="${WT:-.}"
 
 MARK_OPEN="// >>> presta-dev-overrides (RM2812) — DEV-ONLY, ne pas commiter"
 MARK_CLOSE="// <<< presta-dev-overrides"
@@ -55,6 +87,45 @@ if [ -z "$ASSETS" ]; then
          "un worktree sans ces overrides redirigerait vers la production." >&2
     exit 1
 fi
+
+# ─── relais distant (RM3196) ────────────────────────────────────────────────
+#
+# Script et assets partent dans UN seul flux tar sur stdin de ssh, qui extrait
+# dans un dossier temporaire, exécute, puis nettoie par un trap. Rien ne reste
+# sur l'hôte distant : une copie laissée en place vieillirait en silence et on
+# déposerait un jour des overrides périmés sans s'en apercevoir.
+if [ -n "$REMOTE" ]; then
+    command -v ssh >/dev/null 2>&1 || {
+        echo "presta-dev-overrides: ssh introuvable, --on impossible" >&2; exit 2; }
+    command -v tar >/dev/null 2>&1 || {
+        echo "presta-dev-overrides: tar introuvable, --on impossible" >&2; exit 2; }
+
+    SELF="$(readlink -f "$0")"
+    SELF_NAME="$(basename "$SELF")"
+    ASSETS_NAME="$(basename "$ASSETS")"
+
+    # Le chemin distant est cité une fois pour le shell distant ; le reste du
+    # script embarqué est en quotes simples, donc rien d'autre n'est interprété
+    # ici — pas d'échappement en cascade à relire dans six mois.
+    REMOTE_WT="$(printf '%q' "$WT")"
+
+    echo "presta-dev-overrides → $REMOTE:$WT"
+
+    tar -C "$(dirname "$SELF")" -cf - "$SELF_NAME" \
+        -C "$(dirname "$ASSETS")" "$ASSETS_NAME" \
+    | ssh "$REMOTE" "
+        set -eu
+        d=\$(mktemp -d) || exit 2
+        trap 'rm -rf \"\$d\"' EXIT
+        tar -C \"\$d\" -xf -
+        [ -d \"\$d/$ASSETS_NAME\" ] || { echo 'presta-dev-overrides: assets non transmis' >&2; exit 2; }
+        chmod +x \"\$d/$SELF_NAME\"
+        \"\$d/$SELF_NAME\" $REMOTE_WT
+    "
+    exit $?
+fi
+
+cd "$WT" || { echo "presta-dev-overrides: worktree introuvable : $WT" >&2; exit 2; }
 
 EXCL="$(git rev-parse --git-path info/exclude 2>/dev/null)" || {
     echo "presta-dev-overrides: pas un dépôt git : $WT" >&2; exit 2; }

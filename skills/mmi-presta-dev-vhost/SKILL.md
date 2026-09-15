@@ -131,6 +131,9 @@ pm-env-helper vhost-add <name> <docroot> /run/php/<pool>.sock
 # overrides
 bash <repo-pm>/tools/env-runtime/presta-dev-overrides.sh <worktree>
 
+# env distant (RM3196) : le script se transporte lui-même, script + assets
+bash <repo-pm>/tools/env-runtime/presta-dev-overrides.sh <chemin-distant> --on <user@host>
+
 # le cache doit être purgé pour que le class_index reprenne les overrides
 rm -rf <worktree>/var/cache/*/*
 ```

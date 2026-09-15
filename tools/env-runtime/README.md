@@ -183,6 +183,37 @@ credentials root-only sur la box) — il ne peut ni lire ni écrire hors du clon
 et jamais la BDD partagée. Un post-SQL en échec laisse le clone en l'état
 (corriger le manifeste, ou `db-drop` puis recréer).
 
+## PrestaShop : overrides « domaine-agnostique » (RM2812, distant RM3196)
+
+`presta-dev-overrides.sh` dépose les quatre overrides qui font répondre un env sur le
+`ServerName` qu'on veut **sans rediriger**. Sans eux, PrestaShop renvoie un 301 vers le
+domaine inscrit dans `ps_shop_url` — donc vers l'env principal, voire vers la production.
+
+```bash
+# env local (worktree du conteneur dev) — appelé par le post_create des manifestes
+presta-dev-overrides.sh <worktree>
+
+# env DISTANT : le script se transporte lui-même, avec ses assets
+presta-dev-overrides.sh /home/siteadm/dercya/public/pisceen-presta-test \
+    --on dercya-www@dev.iprospective.net
+```
+
+`--on` envoie script et assets dans **un seul flux tar** sur stdin de ssh, qui extrait
+dans un dossier temporaire, exécute, puis nettoie par un `trap`. Rien ne reste sur l'hôte
+distant : une copie laissée en place vieillirait en silence, et on déposerait un jour des
+overrides périmés sans s'en apercevoir. Le code de sortie distant est propagé — un refus
+ne passe pas pour un succès.
+
+La logique de dépôt ne connaît pas le réseau : à distance comme en local elle ne voit
+qu'un chemin local, sur l'hôte où elle tourne. Les garde-fous sont donc les mêmes des deux
+côtés — refus sur collision avec un override métier, `info/exclude`, `skip-worktree`,
+contrôle `php -l`.
+
+**Exige un dépôt git** (il écrit dans `.git/info/exclude`) : un PrestaShop posé hors git
+est refusé, avec le message qui le dit. Cas rencontré : `pisceen-presta-v9-dev`.
+
+**Après exécution : purger `var/cache/`** — sans ça le `class_index` ignore les overrides.
+
 ## PrestaShop : neutralisation des services cloud (RM2932)
 
 `presta-nonprod-sql.sh` **émet sur stdout** le SQL qui rend un PrestaShop non-prod

@@ -344,6 +344,19 @@ def main():
             out.warn(f"frontmatter de fiche PM retiré de {p.name} — seul le corps "
                      "est poussé (une description Redmine n'a pas de frontmatter).")
 
+    # RM2882 — sur un ticket migré, cocher ICI ne change rien : le garde-fou de statut,
+    # la livraison et le cockpit lisent le champ dédié. On ne l'interdit pas (la
+    # description reste éditable), on dit juste où va vraiment le cochage.
+    if check_idx or uncheck_idx or args.check_all:
+        try:
+            import pm_acceptance
+            from pm_markdown import read_frontmatter
+            if str((read_frontmatter(md_path) or {}).get(pm_acceptance.FM_KEY) or "").strip():
+                out.warn(f"RM{args.rm_id} a ses critères dans le champ dédié : ce cochage "
+                         f"n'y sera pas lu. → pm-task-acceptance.py {args.rm_id} --check N")
+        except Exception as e:  # noqa: BLE001 — un avertissement ne fait jamais échouer
+            out.warn(f"lecture du champ `acceptance` impossible ({e}) — avertissement omis")
+
     # RM2789 — le retrait des gabarits s'applique AVANT le reste, et se compose avec
     # --set-from-file (sur le nouveau texte) comme sans lui (sur la description courante).
     n_drop = 0

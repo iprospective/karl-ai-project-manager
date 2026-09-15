@@ -11,6 +11,7 @@
 
 - `pm-cf-git-backfill` — rétro-remplit les CF « GIT Branche » / « GIT PR »
 - `pm-cf-mirror-backfill` — reprise de l'existant des miroirs « frontmatter ↔ CF »
+- `pm-task-acceptance` — Critères d'acceptation d'un ticket : CF Redmine + frontmatter
 - `pm-task-add` — Crée une nouvelle tâche (POST Redmine + MD + log + valide).
 - `pm-task-blockers` — pourquoi un ticket ne peut pas changer de statut / être fermé.
 - `pm-task-brief` — le « pack contexte » d'un ticket en ≤ 30 lignes
@@ -189,6 +190,7 @@
 
 ## Bibliothèques (importées, pas lancées)
 
+- `pm_acceptance` — les critères d'acceptation, source unique de lecture
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP

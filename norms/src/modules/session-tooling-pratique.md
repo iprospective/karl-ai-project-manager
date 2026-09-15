@@ -105,9 +105,9 @@ Le dire **avant** d'agir, pas après. Le malentendu fondateur de cette procédur
 statut, ou le code dans `main` ?) aurait coûté une phrase ; il a coûté deux passages et une
 quarantaine de tickets fermés au mauvais moment.
 
-## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #18)
+## Grouper les appels d'outils — le premier poste de coût (RM3109, tripwire #20)
 
-Détail du tripwire #18. La règle est **permanente** : il n'existe aucun moment
+Détail du tripwire #20. La règle est **permanente** : il n'existe aucun moment
 observable « je m'apprête à appeler un outil », c'est pourquoi elle est au KERNEL
 et non derrière un déclencheur (critère `MAINTAINING.md` §6).
 

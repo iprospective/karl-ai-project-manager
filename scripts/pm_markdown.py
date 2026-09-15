@@ -149,8 +149,14 @@ def is_placeholder(label):
     désignent aucun travail. Les compter comme des critères non satisfaits bloquait la
     livraison — et le contournement (`--allow-unchecked`) faisait sauter le contrôle pour
     les vrais critères en même temps.
+
+    Une case **sans aucun texte** (`- [ ]` seul) relève de la même catégorie : elle ne
+    désigne rien non plus. `karl-agent.parse_checklist` l'ignorait déjà, pas ici — une
+    des trois divergences de parseur relevées par l'étude RM2882. Unifié ici, sur le
+    parseur que tout le monde partage.
     """
-    return bool(PLACEHOLDER_RE.match((label or "").strip()))
+    label = (label or "").strip()
+    return not label or bool(PLACEHOLDER_RE.match(label))
 
 
 def real_checklist_lines(text):

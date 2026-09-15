@@ -122,12 +122,13 @@ def fmt_journal_md(j):
 # frontmatter est le miroir local — et c'est LUI que lit la fiche de revue du cockpit.
 # Ici on ne fait que le sens REDMINE → PM : rattraper une saisie faite dans l'UI web.
 # Le sens PM → Redmine est poussé à l'écriture par les outils dédiés
-# (pm-task-implementation, pm-task-deploy, pm-task-protocol).
+# (pm-task-implementation, pm-task-deploy, pm-task-protocol, pm-task-acceptance).
 #   (clé frontmatter, variable .env, nom du CF, liste ?)
 CF_MIRRORS = (
     ("implementation", "REDMINE_CF_IMPLEMENTATION_ID", "Proposition d'implémentation", False),
     ("test_protocol",  "REDMINE_CF_TEST_PROTOCOL_ID",  "Protocole de test",            False),
     ("deploy_actions", "REDMINE_CF_DEPLOY_ACTIONS_ID", "Actions au déploiement",       True),
+    ("acceptance",     "REDMINE_CF_ACCEPTANCE_ID",     "Critères d'acceptation",       False),
 )
 
 
@@ -268,7 +269,9 @@ def diff_fields(fm, issue):
     if fm.get("parent_task") != rm_parent:
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
 
-    # Miroirs de CF (RM2563) : implementation / test_protocol / deploy_actions.
+    # Miroirs de CF (RM2563, RM2882) : implementation / test_protocol / deploy_actions
+    # / acceptance. Les critères en ont un besoin PARTICULIER : ils changent souvent, et
+    # c'est le demandeur qui les amende — le plus souvent dans l'UI web, pas par script.
     diffs.update(diff_cf_mirrors(fm, issue))
 
     # Régime de miroir d'états coché dans le ticket (RM2746).

@@ -118,6 +118,29 @@ VALID_CLOSE_REASONS = {"resolu", "abandonne", "wont_fix", "hors_perimetre", "inv
 UNCHECKED_RE = re.compile(r"^\s*[-*]\s*\[ \]\s", re.MULTILINE)
 
 
+def issue_criteria(issue):
+    """Le texte des critères d'un ticket Redmine : CF 33 si non vide, sinon la description.
+
+    RM2882 — lecture à double source, sans bascule : un ticket non migré se contrôle
+    exactement comme avant. Dès que son champ dédié porte quelque chose, c'est LUI qui
+    fait foi : sinon un critère coché dans le champ resterait « non coché » pour le
+    garde-fou, qui refuserait la livraison d'un ticket pourtant complet.
+    """
+    if not issue:
+        return ""
+    import pm_acceptance
+    import pm_cf_mirror
+    cid = pm_cf_mirror.resolve_cf_id(pm_acceptance.ENV_VAR, pm_acceptance.CF_NAME)
+    if cid is not None:
+        for cf in issue.get("custom_fields", []):
+            if cf.get("id") == cid:
+                champ = pm_cf_mirror.normalize_text(cf.get("value"))
+                if champ:
+                    return champ
+                break
+    return issue.get("description") or ""
+
+
 def count_unchecked(description):
     """Items de checklist RÉELS et non cochés (RM2789).
 
@@ -141,8 +164,16 @@ CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]", re.M)
 
 
 def count_checked(description):
-    """Nombre d'items de checklist cochés dans la description Redmine."""
-    return len(CHECKED_RE.findall(description or ""))
+    """Items de checklist RÉELS et cochés.
+
+    Passait par un `findall` à l'aveugle — quatrième variante de parseur relevée par
+    l'étude RM2882, qui comptait les cases citées dans un bloc de code et les gabarits.
+    Le total affiché par le refus (« 3 cochés sur 7 ») s'en trouvait faux dès qu'une
+    description citait une checklist en exemple.
+    """
+    from pm_markdown import real_checklist_lines
+    return sum(1 for _, m in real_checklist_lines(description or "")
+               if m.group(2).strip() != "")
 
 
 def count_placeholders(description):
@@ -806,10 +837,10 @@ def main():
         args.status == "ferme" and args.close_reason == "resolu")
     # RM2789 — le gabarit se résout, il ne se contourne pas. Contrôlé AVANT le garde-fou
     # des vrais critères, et hors de sa clause `--allow-unchecked`.
-    if gate_status and issue and count_placeholders(issue.get("description")):
-        sys.exit(placeholder_gate(args.rm_id, issue.get("description"), f"passer en '{args.status}'"))
+    if gate_status and issue and count_placeholders(issue_criteria(issue)):
+        sys.exit(placeholder_gate(args.rm_id, issue_criteria(issue), f"passer en '{args.status}'"))
     if gate_status and issue:
-        desc = issue.get("description")
+        desc = issue_criteria(issue)
         # RM2789 : passe par pm_markdown — blocs de code ignorés, gabarits exclus (ils ont
         # leur propre garde, plus haut : un gabarit se résout, il ne se motive pas).
         n_unchecked = count_unchecked(desc)
@@ -856,7 +887,7 @@ def main():
     # …et on le dit AU PLUS TÔT. Découvrir le gabarit à la livraison, c'est une embuscade :
     # le travail est fini, on veut rendre, et un détail de rédaction bloque. À la PRISE en
     # charge, il reste tout le temps de le traiter.
-    if args.status == "en_cours" and issue and count_placeholders(issue.get("description")):
+    if args.status == "en_cours" and issue and count_placeholders(issue_criteria(issue)):
         print(f"⚠ RM{args.rm_id} porte un gabarit de critère « à compléter ». Traite-le "
               f"MAINTENANT, il bloquera la livraison :\n"
               f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>\n"

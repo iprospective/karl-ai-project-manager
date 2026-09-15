@@ -155,8 +155,12 @@ CONFLICT_MARKERS = ("<" * 7, "=" * 7, ">" * 7)
 
 
 def conflict_targets():
-    """Sources assemblées + artefacts générés — tout ce qu'un agent lit comme la norme."""
+    """Sources assemblées + artefacts générés — tout ce qu'un agent lit comme la norme.
+
+    Le runtime dense en fait partie (RM3195) : c'est LUI qui est réinjecté après une
+    compaction, donc lui qu'un marqueur de conflit atteindrait en premier."""
     gen = [REPO / "norms" / "NORMS.md", REPO / "norms" / "CHEATSHEET.md"]
+    gen += sorted((REPO / "norms" / "runtime").glob("*.md"))
     return active_source_files() + [f for f in gen if f.exists()]
 
 
@@ -180,6 +184,31 @@ def check_conflict_markers(files=None):
             if any(line.startswith(m) for m in CONFLICT_MARKERS):
                 bad.append(f"{f.name}:{i}")
     return bad
+
+
+
+TRIPWIRE_RE = re.compile(r"^(\d+)\.\s+\*\*", re.M)
+
+
+def check_runtime_tripwires():
+    """Numéros de tripwire présents dans le KERNEL source mais absents du runtime (RM3195).
+
+    Le runtime est une réécriture DENSE : ses intitulés ne se comparent pas aux sources
+    (c'est pour ça que `pm-norms-runtime` raisonne en ancres). Mais un tripwire ENTIER qui
+    disparaît n'est pas une affaire de densité, c'est une perte — et rien ne la voyait : le
+    KERNEL réinjecté après compaction s'est arrêté au #17 pendant que la source en comptait
+    20, sans qu'aucun contrôle ne bronche. Trois garde-fous n'engageaient donc personne.
+
+    On compare ce qui est comparable : la numérotation. Le runtime peut en porter DAVANTAGE
+    (il fusionne les tripwires structurels), jamais moins.
+    """
+    src = SRC / "NORMS-KERNEL.md"
+    rt = REPO / "norms" / "runtime" / "KERNEL.md"
+    if not src.is_file() or not rt.is_file():
+        return None
+    a = {int(n) for n in TRIPWIRE_RE.findall(src.read_text(encoding="utf-8"))}
+    b = {int(n) for n in TRIPWIRE_RE.findall(rt.read_text(encoding="utf-8"))}
+    return sorted(a - b)
 
 
 def tool_exists(token):
@@ -314,6 +343,18 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} budget contexte : tous les rôles sous leur plafond")
+
+    twmiss = check_runtime_tripwires()
+    if twmiss is None:
+        print(f"  · SKIPPED (tripwires runtime) — KERNEL source ou runtime absent")
+    elif twmiss:
+        print(f"  {FAIL} tripwires perdus par le runtime : "
+              f"{', '.join('#' + str(n) for n in twmiss)} — le KERNEL réinjecté après "
+              f"compaction ne les porte pas, donc ils n'engagent personne")
+        print(f"        → régénère : pm-norms-runtime.py --build KERNEL.md puis --apply")
+        rc |= 1
+    else:
+        print(f"  {PASS} tripwires : le runtime porte tous ceux du KERNEL source")
 
     # RM3073 : le runtime dense est ce que lisent les agents et ce qui leur est réinjecté après une
     # compaction — donc ce qui les engage. Il ne se compare pas ligne à ligne à ses sources (rien n'y est

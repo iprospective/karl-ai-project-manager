@@ -170,10 +170,10 @@ def instance_aliases(instance):
     """Alias SSH déclarés par une instance (`ssh_aliases:` au registre).
 
     Les remotes passent massivement par des alias `~/.ssh/config` — `gitlab:…`,
-    `ssh://gogs@matnat-tools/…` — qui portent le port et la clé. Comparer l'URL
+    `ssh://gogs@clientd-tools/…` — qui portent le port et la clé. Comparer l'URL
     d'un remote à celle d'une instance ne suffit donc pas à les rattacher : sans
     alias déclarés, la résolution « ce dépôt appartient à telle forge » reste
-    impossible pour la majorité des projets (`matnat-tools`, `matnat-git` ne
+    impossible pour la majorité des projets (`clientd-tools`, `clientd-git` ne
     ressemblent à aucun nom de forge).
     """
     raw = (getattr(instance, "options", None) or {}).get("ssh_aliases") or []
@@ -363,8 +363,8 @@ def get_forge(repo=".", remote="origin", url=None, forge=None, instance=None):
       5. instance du registre rattachée au hint du remote — alias SSH ou hôte ;
       6. détection d'après le host/alias du remote (défaut : GitLab, inchangé).
 
-    L'étape 5 précède la devinette par sous-chaîne : un remote `matnat-tools`
-    ou `matnat-git` ne ressemble à aucun nom de forge, mais l'instance qui
+    L'étape 5 précède la devinette par sous-chaîne : un remote `clientd-tools`
+    ou `clientd-git` ne ressemble à aucun nom de forge, mais l'instance qui
     déclare cet alias, elle, dit son type. Sans registre, on tombe directement
     de 4 à 6 — comportement historique, inchangé."""
     if url is None:

@@ -34,13 +34,13 @@ class FakeCfg:
     def __init__(self, tmp):
         self.conf_dir = pathlib.Path(tmp)
         self.projects_root = pathlib.Path(tmp) / "projects"
-        self.tasks = {2661: ("calyclay", "infra")}
-        self.projects = {"calyclay": ["dolibarr", "infra"], "abatik": ["site"]}
+        self.tasks = {2661: ("clientb", "infra")}
+        self.projects = {"clientb": ["dolibarr", "infra"], "cliente": ["site"]}
         self.contacts = {
             # piège réel : le gabarit de création met l'adresse du propriétaire
             # chez TOUS les clients (constaté sur les 20 clients, RM2669)
-            "calyclay": ["mathieu@iprospective.fr"],
-            "abatik": ["mathieu@iprospective.fr", "contact@abatik.fr"],
+            "clientb": ["mathieu@iprospective.fr"],
+            "cliente": ["mathieu@iprospective.fr", "contact@cliente.example"],
         }
 
     def path(self, key, **kw):
@@ -80,23 +80,23 @@ def entry(**kw):
 
 
 # ── 1. le fil désigne son ticket : il prime sur tout ─────────────────────────
-r = R.route(entry(rm_id=2661, **{"from": "info.calyclay@gmail.com"}), cfg)
-check("ticket : client ET projet du ticket", (r["client"], r["project"]) == ("calyclay", "infra"))
+r = R.route(entry(rm_id=2661, **{"from": "contact.clientb@gmail.com"}), cfg)
+check("ticket : client ET projet du ticket", (r["client"], r["project"]) == ("clientb", "infra"))
 check("ticket : confiance maximale", r["confidence"] == 1.0 and r["source"] == "ticket")
 
 # ── 2. table apprise ─────────────────────────────────────────────────────────
-R.learn(cfg, "info.calyclay@gmail.com", "calyclay/dolibarr")
-r = R.route(entry(**{"from": "info.calyclay@gmail.com"}), cfg)
+R.learn(cfg, "contact.clientb@gmail.com", "clientb/dolibarr")
+r = R.route(entry(**{"from": "contact.clientb@gmail.com"}), cfg)
 check("mapping : adresse apprise appliquée",
-      (r["client"], r["project"], r["source"]) == ("calyclay", "dolibarr", "mapping"))
+      (r["client"], r["project"], r["source"]) == ("clientb", "dolibarr", "mapping"))
 check("mapping : correction relue à 100 %", r["confidence"] == 1.0)
-r = R.route(entry(rm_id=2661, **{"from": "info.calyclay@gmail.com"}), cfg)
+r = R.route(entry(rm_id=2661, **{"from": "contact.clientb@gmail.com"}), cfg)
 check("le fil prime sur la table apprise", r["source"] == "ticket" and r["project"] == "infra")
 
-R.learn(cfg, "qui@abatik.fr", "abatik", domain=True)
-r = R.route(entry(**{"from": "autre@abatik.fr"}), cfg)
+R.learn(cfg, "qui@cliente.example", "cliente", domain=True)
+r = R.route(entry(**{"from": "autre@cliente.example"}), cfg)
 check("mapping : domaine appris → client",
-      (r["client"], r["source"]) == ("abatik", "mapping"))
+      (r["client"], r["source"]) == ("cliente", "mapping"))
 check("mapping : projet déduit car client mono-projet", r["project"] == "site")
 
 # ── 3. gardes d'apprentissage ────────────────────────────────────────────────
@@ -109,67 +109,67 @@ def refuses(addr, target, domain=True):
 
 
 check("refus d'apprendre gmail.com comme domaine client",
-      refuses("info.calyclay@gmail.com", "calyclay"))
+      refuses("contact.clientb@gmail.com", "clientb"))
 check("refus d'apprendre le domaine maison",
-      refuses("mathieu@iprospective.fr", "calyclay"))
+      refuses("mathieu@iprospective.fr", "clientb"))
 # adresse (et pas domaine) : autorisée même chez un fournisseur grand public.
 # Sur une AUTRE adresse : celle de la file sert aux assertions de relecture.
 check("l'adresse gmail reste apprenable",
-      not refuses("autre.calyclay@gmail.com", "calyclay", domain=False))
+      not refuses("autre.clientb@gmail.com", "clientb", domain=False))
 check("cible vide refusée", refuses("x@y.fr", "", domain=False))
 
 # ── 4. compte Redmine de l'expéditeur ────────────────────────────────────────
-r = R.route(entry(**{"from": "noe@calyclay.com"}), cfg,
-            redmine_lookup=lambda a: [("calyclay", "dolibarr")])
+r = R.route(entry(**{"from": "bob@clientb.example"}), cfg,
+            redmine_lookup=lambda a: [("clientb", "dolibarr")])
 check("redmine : projet unique retenu",
-      (r["client"], r["project"], r["source"]) == ("calyclay", "dolibarr", "redmine"))
-r = R.route(entry(**{"from": "noe@calyclay.com"}), cfg,
-            redmine_lookup=lambda a: [("calyclay", "dolibarr"), ("calyclay", "infra")])
+      (r["client"], r["project"], r["source"]) == ("clientb", "dolibarr", "redmine"))
+r = R.route(entry(**{"from": "bob@clientb.example"}), cfg,
+            redmine_lookup=lambda a: [("clientb", "dolibarr"), ("clientb", "infra")])
 check("redmine : plusieurs projets → projet NON choisi", r["project"] is None)
 check("redmine : candidats listés", len(r["candidates"]) == 2 and r["confidence"] < 0.9)
 r = R.route(entry(**{"from": "x@z.fr"}), cfg,
-            redmine_lookup=lambda a: [("calyclay", "infra"), ("abatik", "site")])
+            redmine_lookup=lambda a: [("clientb", "infra"), ("cliente", "site")])
 check("redmine : plusieurs clients → rien de choisi",
       r["client"] is None and r["confidence"] == 0.0)
 r = R.route(entry(**{"from": "mathieu@iprospective.fr"}), cfg,
-            redmine_lookup=lambda a: [("calyclay", "infra")])
+            redmine_lookup=lambda a: [("clientb", "infra")])
 check("redmine : adresse maison jamais interrogée", r["source"] != "redmine")
 
 # ── 5. contacts[] — le piège de l'adresse maison ─────────────────────────────
 r = R.route(entry(**{"from": "mathieu@iprospective.fr"}), cfg)
 check("contacts : adresse maison NE route PAS (présente chez tous les clients)",
       r["client"] is None and r["source"] == "unresolved")
-# NB : à ce stade abatik.fr est déjà appris comme domaine (§2) — c'est donc le
+# NB : à ce stade cliente.example est déjà appris comme domaine (§2) — c'est donc le
 # mapping qui répond, et c'est l'ordre voulu. La source `contacts` se teste sur
 # un client dont le domaine n'a pas été appris.
-r = R.route(entry(**{"from": "contact@abatik.fr"}), cfg)
+r = R.route(entry(**{"from": "contact@cliente.example"}), cfg)
 check("adresse client unique retenue",
-      (r["client"], r["project"]) == ("abatik", "site") and r["client"] is not None)
-cfg.contacts["calyclay"] = ["mathieu@iprospective.fr", "compta@tiers-payeur.fr"]
+      (r["client"], r["project"]) == ("cliente", "site") and r["client"] is not None)
+cfg.contacts["clientb"] = ["mathieu@iprospective.fr", "compta@tiers-payeur.fr"]
 r = R.route(entry(**{"from": "compta@tiers-payeur.fr"}), cfg)
 check("contacts : source utilisée quand rien d'autre ne répond",
-      r["client"] == "calyclay" and r["source"] == "contacts")
+      r["client"] == "clientb" and r["source"] == "contacts")
 check("contacts : projet laissé ouvert si le client en a plusieurs", r["project"] is None)
 
 # ── 6. indice textuel ────────────────────────────────────────────────────────
-r = R.route(entry(**{"from": "info.calyclay@free.fr", "from_name": "CalyClay"}), cfg)
+r = R.route(entry(**{"from": "info.clientb@free.fr", "from_name": "Clientb"}), cfg)
 check("indice : slug reconnu dans l'expéditeur",
-      r["client"] == "calyclay" and r["source"] == "indice")
+      r["client"] == "clientb" and r["source"] == "indice")
 check("indice : projet laissé ouvert (client multi-projets)", r["project"] is None)
 check("indice : confiance intermédiaire", 0 < r["confidence"] < 1)
 r = R.route(entry(**{"from": "hello@nulle-part.fr", "from_name": "Inconnu"}), cfg)
 check("inconnu : à classer, jamais deviné",
       r["client"] is None and r["source"] == "unresolved" and r["confidence"] == 0.0)
-r = R.route(entry(**{"from": "x@y.fr", "from_name": "calyclay et abatik"}), cfg)
+r = R.route(entry(**{"from": "x@y.fr", "from_name": "clientb et cliente"}), cfg)
 check("deux clients reconnus → aucun choisi",
-      r["client"] is None and set(r["candidates"]) == {"calyclay", "abatik"})
+      r["client"] is None and set(r["candidates"]) == {"clientb", "cliente"})
 
 # ── 7. la table ne contient que du routage ───────────────────────────────────
 raw = R.routing_file(cfg).read_text(encoding="utf-8")
 check("table versionnable : pas de contenu d'email",
       "addresses:" in raw and "body" not in raw and "subject" not in raw)
 check("table : rechargée à l'identique",
-      R.load_routing(cfg)["addresses"]["info.calyclay@gmail.com"] == "calyclay/dolibarr")
+      R.load_routing(cfg)["addresses"]["contact.clientb@gmail.com"] == "clientb/dolibarr")
 check("table hors projects_root (dossier non versionné)",
       R.routing_file(cfg).parent == cfg.conf_dir)
 

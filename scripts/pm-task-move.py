@@ -5,11 +5,11 @@ Un ticket ouvert dans le mauvais projet — ou déplacé côté Redmine par un h
 laissait jusqu'ici sa fiche PM orpheline dans le projet d'origine, sans outil pour
 la remettre en place (NORMS tripwire #1 : « pas d'outil = trou à combler, pas une
 exception manuelle »). Incident fondateur : RM2865, créé dans `pm-ai-agents` puis
-déplacé dans l'UI Redmine vers `calicote/dolibarr`.
+déplacé dans l'UI Redmine vers `clienta/dolibarr`.
 
-    pm-task-move.py 2865 --to calicote/dolibarr
-    pm-task-move.py 2865 --to calicote/dolibarr --dry-run
-    pm-task-move.py 2865 --to calicote-dolibarr --no-redmine   # fichiers seuls
+    pm-task-move.py 2865 --to clienta/dolibarr
+    pm-task-move.py 2865 --to clienta/dolibarr --dry-run
+    pm-task-move.py 2865 --to clienta-dolibarr --no-redmine   # fichiers seuls
 
 Ce qui bouge :
   - `RM<id>_<slug>.md`, son `.log.md` et son `.reporting.yml` (si présent) ;

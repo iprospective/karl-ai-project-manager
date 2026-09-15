@@ -34,8 +34,8 @@ ou un mapping, pour noter l'identité EN PLUS du transport (cf. `pm_repos`) :
 
     remotes:
       origin:
-        url: https://gogs.materiaux-naturels.fr/<owner>/<repo>.git   # identité
-        ssh: ssh://gogs@matnat-tools/<owner>/<repo>.git              # transport
+        url: https://gogs.clientd.example/<owner>/<repo>.git   # identité
+        ssh: ssh://gogs@clientd-tools/<owner>/<repo>.git              # transport
 
 `git remote add` reçoit le transport (`ssh`, sinon `url`) ; l'`url` sert à rattacher
 le dépôt à une instance du registre — ce qu'un alias tunnelé ne permet pas de déduire.

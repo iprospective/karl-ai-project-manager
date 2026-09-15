@@ -29,7 +29,7 @@ repo-par-client (RM1887), les basenames sont partagés entre clients (`infra-cor
 `*-core` généralisés). 0 ou >1 match exact = erreur explicite, pas de fallback.
 
 Conséquence vécue du non-respect : `pm-mr.py` (résolution par search + 1er match basename)
-a créé une MR sur **le repo d'un autre client** (`calyclay/infra-core` au lieu de
+a créé une MR sur **le repo d'un autre client** (`clientb/infra-core` au lieu de
 `iprospective/infra-core`) → risque de fuite inter-clients. Bug tracké **RM2219** ;
 tant que non livré, vérifier le namespace de toute MR créée par `pm-mr.py`.
 

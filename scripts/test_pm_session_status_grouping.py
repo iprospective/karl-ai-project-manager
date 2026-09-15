@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests RM2724 — le worklog groupe ses tickets par projet.
 
-Le projet vivait en suffixe de ligne (`_(pisceen-presta)_`), noyé en fin d'une
+Le projet vivait en suffixe de ligne (`_(clientf-presta)_`), noyé en fin d'une
 ligne qui porte déjà statut, ref, titre, dérive et commit. Dès que la session
 mélange deux projets — le cas normal ici — on ne voit plus à quoi on touche.
 
@@ -45,8 +45,8 @@ def check(name, cond):
 
 P = pss.project_from_task_path
 check("le projet se lit dans le chemin canonique d'une tâche",
-      P("/z/projects/clients/pisceen/projects/pisceen-presta/tasks/RM1_x.md")
-      == "pisceen-presta")
+      P("/z/projects/clients/clientf/projects/clientf-presta/tasks/RM1_x.md")
+      == "clientf-presta")
 check("… quel que soit le client",
       P("/z/projects/clients/iprospective/projects/pm-ai-agents/tasks/RM2_y.md")
       == "pm-ai-agents")
@@ -71,18 +71,18 @@ def item(ref, project=None, label=None, status="a_faire"):
 
 data = {
     "session_id": "s-test", "updated": "2026-08-18T00:00",
-    "items": [item("RM10", "pisceen-presta", "site A"),
+    "items": [item("RM10", "clientf-presta", "site A"),
               item("RM11", "pm-ai-agents", "outil B"),
               item("RM12", None, "orphelin"),
-              item("RM13", "pisceen-presta", "site C")],
+              item("RM13", "clientf-presta", "site C")],
 }
 md = pss.render_md(data, live={})
 body = md if isinstance(md, str) else "\n".join(md)
 
 check("chaque projet devient un titre de groupe",
-      "### pisceen-presta" in body and "### pm-ai-agents" in body)
+      "### clientf-presta" in body and "### pm-ai-agents" in body)
 check("le suffixe `_(projet)_` a disparu de la ligne",
-      "_(pisceen-presta)_" not in body)
+      "_(clientf-presta)_" not in body)
 check("les items d'un même projet sont regroupés, l'ordre de session préservé",
       body.index("site A") < body.index("site C") < body.index("orphelin"))
 check("un item sans projet connu tombe dans « hors projet »",
@@ -92,13 +92,13 @@ check("… et ce groupe ferme la marche, il n'ouvre pas la liste",
 
 # le repli `live` : l'item n'a pas de projet stocké, la tâche résolue si.
 live = {"RM12": {"status": "a_faire", "title": "vrai titre",
-                 "project": "pisceen-presta", "docs": []}}
+                 "project": "clientf-presta", "docs": []}}
 md2 = pss.render_md(data, live=live)
 body2 = md2 if isinstance(md2, str) else "\n".join(md2)
 check("un item ouvert sans --project est rattrapé par le projet de sa tâche",
       "### hors projet" not in body2)
 check("… et il rejoint bien le groupe existant, sans le dupliquer",
-      body2.count("### pisceen-presta") == 1)
+      body2.count("### clientf-presta") == 1)
 
 
 # --- 3. libellé : ne pas afficher « RM2680 — RM2680 » -----------------------

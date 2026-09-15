@@ -59,7 +59,7 @@ ka._session_mark = lambda sid: None
 ka._transcript_title = lambda sid: None
 ka._transcript_age = lambda sid: None
 ka._is_resumable = lambda engine, sid: True
-ka._pm_project_of_cwd = lambda cwd: {"/zfs/cal": ("calicote", "presta"),
+ka._pm_project_of_cwd = lambda cwd: {"/zfs/cal": ("clienta", "presta"),
                                      "/zfs/inf": ("iprospective", "infra")}.get(cwd, (None, None))
 
 # ── 1. la vue existe et se distingue de « tous les jeux » ────────────────────

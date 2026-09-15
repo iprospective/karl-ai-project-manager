@@ -21,9 +21,9 @@ def test_parse_remote_forms():
         ("gitlab:iprospective/ai/foo.git", ("gitlab", "iprospective/ai/foo")),
         ("git@gitlab.iprospective.fr:grp/repo.git", ("gitlab.iprospective.fr", "grp/repo")),
         ("https://gitlab.iprospective.fr/grp/sub/repo", ("gitlab.iprospective.fr", "grp/sub/repo")),
-        ("ssh://gogs@localhost:28022/Materiaux-Naturels/matnat_old.git",
-         ("localhost", "Materiaux-Naturels/matnat_old")),
-        ("gogs:Materiaux-Naturels/matnat_old.git", ("gogs", "Materiaux-Naturels/matnat_old")),
+        ("ssh://gogs@localhost:28022/Clientd/clientd_old.git",
+         ("localhost", "Clientd/clientd_old")),
+        ("gogs:Clientd/clientd_old.git", ("gogs", "Clientd/clientd_old")),
     ]
     for url, want in cases:
         got = pm_forge.parse_remote(url)
@@ -33,7 +33,7 @@ def test_parse_remote_forms():
 def test_forge_name():
     assert pm_forge.forge_name("gitlab") == "gitlab"
     assert pm_forge.forge_name("gitlab.iprospective.fr") == "gitlab"
-    assert pm_forge.forge_name("gogs.materiaux-naturels.fr") == "gogs"
+    assert pm_forge.forge_name("gogs.clientd.example") == "gogs"
     assert pm_forge.forge_name("github.com") == "github"
     # cas connu à trancher explicitement : Gogs tunnelé en localhost → non détectable
     assert pm_forge.forge_name("localhost") is None
@@ -48,14 +48,14 @@ def test_capabilities():
 
 
 def test_compare_url_gogs():
-    os.environ["GOGS_URL"] = "https://gogs.materiaux-naturels.fr"
-    f = pm_forge.GogsForge("Materiaux-Naturels/matnat_old")
+    os.environ["GOGS_URL"] = "https://gogs.clientd.example"
+    f = pm_forge.GogsForge("Clientd/clientd_old")
     assert f.compare_url("5564-x", "dev") == \
-        "https://gogs.materiaux-naturels.fr/Materiaux-Naturels/matnat_old/compare/dev...5564-x"
+        "https://gogs.clientd.example/Clientd/clientd_old/compare/dev...5564-x"
 
 
 def test_gogs_create_pr_is_compare_link():
-    os.environ["GOGS_URL"] = "https://gogs.materiaux-naturels.fr"
+    os.environ["GOGS_URL"] = "https://gogs.clientd.example"
     f = pm_forge.GogsForge("o/r")
     pr = f.create_pr(f.resolve_project("tok"), "b", "dev", "t", "d", "tok")
     assert pr.is_compare_link is True and pr.iid is None
@@ -99,7 +99,7 @@ def test_get_forge_git_config():
     with tempfile.TemporaryDirectory() as d:
         run = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True)
         run("init", "-q")
-        run("remote", "add", "origin", "ssh://gogs@localhost:28022/Materiaux-Naturels/matnat_old.git")
+        run("remote", "add", "origin", "ssh://gogs@localhost:28022/Clientd/clientd_old.git")
         # sans signal : host 'localhost' non détectable → erreur
         try:
             pm_forge.get_forge(repo=d)
@@ -110,7 +110,7 @@ def test_get_forge_git_config():
         run("config", "pm.forge", "gogs")
         f = pm_forge.get_forge(repo=d)
         assert isinstance(f, pm_forge.GogsForge), type(f)
-        assert f.repo_path == "Materiaux-Naturels/matnat_old", f.repo_path
+        assert f.repo_path == "Clientd/clientd_old", f.repo_path
 
 
 def test_github_detection_and_caps():
@@ -175,8 +175,8 @@ def test_parse_pr_url_les_trois_forges():
             ("https://gitlab.iprospective.fr/grp/repo/-/merge_requests/7/diffs",
              ("gitlab", "grp/repo", 7)),
             ("https://github.com/owner/repo/pull/12", ("github", "owner/repo", 12)),
-            ("https://gogs.iprospective.fr/Materiaux-Naturels/matnat/pulls/3",
-             ("gogs", "Materiaux-Naturels/matnat", 3)),
+            ("https://gogs.iprospective.fr/Clientd/clientd/pulls/3",
+             ("gogs", "Clientd/clientd", 3)),
         ]
         for url, want in cases:
             got = pm_forge.parse_pr_url(url)

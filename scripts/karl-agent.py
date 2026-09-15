@@ -2388,7 +2388,7 @@ def _session_set_put(store: dict, user: str, group: str, rec: dict) -> None:
 #
 # Nuance de conception : on historise le FICHIER (point d'écriture unique, donc
 # sûr et complet) mais on restaure un JEU. Le store contient tous les users et
-# tous les groupes : rétablir « calicote d'hier » en rembobinant le fichier
+# tous les groupes : rétablir « clienta d'hier » en rembobinant le fichier
 # entier rendrait AUSSI les autres jeux dans leur état d'hier — rendre ce qu'on
 # ne demande pas est un piège, pas un filet.
 SESSION_SET_KEEP = max(1, int(os.environ.get("KARL_AGENT_SET_HISTORY_KEEP", "10")))
@@ -2710,7 +2710,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
                             f"({len(entries)}) — retire des tuiles (✕) avant "
                             f"d'enregistrer")
     # RM2442 : le libellé humain se pose à la création du jeu (« enregistrer ces
-    # sessions sous “Chantier Calicote” ») et survit aux ré-enregistrements.
+    # sessions sous “Chantier Clienta” ») et survit aux ré-enregistrements.
     label = str(payload.get("label") or prev.get("label") or "").strip()
     rec = {
         "saved_at": int(time.time()),
@@ -2771,7 +2771,7 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
 
 
 def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2442 — pose le LIBELLÉ humain d'un jeu (« Chantier Calicote »). Le slug
+    """RM2442 — pose le LIBELLÉ humain d'un jeu (« Chantier Clienta »). Le slug
     reste immuable : c'est la clé du store, le renommer casserait les références
     (réglages par entrée, jeux repris au démarrage, historique à venir). Slug =
     clé stable, label = affichage."""
@@ -6737,8 +6737,8 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         s["set_labels"] = [(_groups[n].get("label") or n) for n in names if n in _groups]
         # RM2452 : dans une vue par CLIENT, une vivante n'appartient à la vue que
         # si elle est de ce client — sinon elle s'y rangeait sans badge, et en
-        # tête par ordre alphabétique (des sessions calicote ouvraient la vue
-        # pisceen). Les vues `live`/`all` embrassent tout, elles.
+        # tête par ordre alphabétique (des sessions clienta ouvraient la vue
+        # clientf). Les vues `live`/`all` embrassent tout, elles.
         _mv = _VIEW_CLIENT_RE.match(_view)
         if _mv:
             s["in_current"] = s.get("client") == _mv.group(1)
@@ -9771,8 +9771,8 @@ def _contact_links(ref: str) -> list:
 
 
 def _sans_accents(s):
-    """Comparaison insensible aux accents : on cherche « noe » et on trouve
-    « Noé ». Sans cela, la recherche punit l'orthographe correcte."""
+    """Comparaison insensible aux accents : on cherche « carol » et on trouve
+    « Carol ». Sans cela, la recherche punit l'orthographe correcte."""
     import unicodedata
     n = unicodedata.normalize("NFKD", str(s or ""))
     return "".join(c for c in n if not unicodedata.combining(c))
@@ -10622,7 +10622,7 @@ def envstatus_summary(groups):
 # >>> git_divergence_level — pure (testée) : classe un repo git.
 def git_divergence_level(ahead, behind, dirty):
     """(level, detail) d'un repo. ahead>0 sans push = travail en attente (l'incident
-    pisceen) ; ahead>0 ET behind>0 = divergence non-fast-forward (push refusé)."""
+    clientf) ; ahead>0 ET behind>0 = divergence non-fast-forward (push refusé)."""
     a, b, d = int(ahead or 0), int(behind or 0), int(dirty or 0)
     parts = []
     if a:
@@ -10689,7 +10689,7 @@ def _env_repo_label(root):
 
 def _is_pm_repo(p):
     """Un repo PM = un workspace de code PM-tracké (porte un `.mmi-pm`) OU un repo
-    de données dont le nom finit en `-core` (l'incident pisceen : infra-core). On
+    de données dont le nom finit en `-core` (l'incident clientf : infra-core). On
     exclut ainsi les miroirs de code non-PM (dolibarr/…, libs) du même arbre."""
     try:
         if (p / ".mmi-pm").exists():
@@ -11840,7 +11840,7 @@ def _cn_proto(payload: dict) -> list:
 
 
 def op_client_notify_pending(qs: dict) -> dict:
-    """La file de notification, groupée par client (compteurs du menu `Calicote (5)`)."""
+    """La file de notification, groupée par client (compteurs du menu `Clienta (5)`)."""
     args = ["pending"]
     cl = str((qs or {}).get("client") or "").strip()
     if cl:

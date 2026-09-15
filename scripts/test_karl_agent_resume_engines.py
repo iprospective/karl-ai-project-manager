@@ -67,7 +67,7 @@ con.execute("CREATE TABLE session (id TEXT, project_id TEXT, slug TEXT, director
             " title TEXT, time_created INTEGER, time_updated INTEGER)")
 con.execute("INSERT INTO session (id, directory, title, time_created, time_updated)"
             " VALUES (?,?,?,?,?)",
-            (SID_OPENCODE, "/zfs/workspaces/matnat/infra", "[WIP] Migration ERP",
+            (SID_OPENCODE, "/zfs/workspaces/clientd/infra", "[WIP] Migration ERP",
              1781287246883, 1781287247166))
 con.commit(); con.close()
 ka.OPENCODE_DB = DB
@@ -75,7 +75,7 @@ ka.OPENCODE_DB = DB
 meta = ka._opencode_session_meta(SID_OPENCODE)
 check("RM2539 : titre, dossier et date lus en base",
       meta["title"] == "[WIP] Migration ERP"
-      and meta["cwd"] == "/zfs/workspaces/matnat/infra"
+      and meta["cwd"] == "/zfs/workspaces/clientd/infra"
       and meta["mtime"] == 1781287247)          # ms → s
 check("RM2539 : session inconnue de la base → rien (jamais d'invention)",
       ka._opencode_session_meta("ses_inexistante") == {})
@@ -104,7 +104,7 @@ ka.SESS_DIR = TMP / "sessions"
 (ka.SESS_DIR / "opencode").mkdir(parents=True, exist_ok=True)
 ka._write_json_atomic(ka.SESS_DIR / "opencode" / f"{SID_OPENCODE}.json",
                       {"engine": "opencode", "session_id": SID_OPENCODE,
-                       "cwd": "/zfs/workspaces/matnat/infra"})
+                       "cwd": "/zfs/workspaces/clientd/infra"})
 
 r = ka.op_resume({"session_id": SID_OPENCODE, "engine": "opencode", "rm_id": "2410"},
                  {"user": None})
@@ -114,7 +114,7 @@ check("RM2539 : la commande est celle du moteur, pas `claude --resume`",
       STARTED and "--session" in STARTED[-1][1] and SID_OPENCODE in STARTED[-1][1]
       and "claude" not in STARTED[-1][1])
 check("RM2539 : le dossier de reprise vient de la base du moteur",
-      STARTED[-1][2] == "/zfs/workspaces/matnat/infra")
+      STARTED[-1][2] == "/zfs/workspaces/clientd/infra")
 
 # — refus explicites —
 try:
@@ -182,7 +182,7 @@ check("RM2539 : une session opencode est DÉCOUVERTE (elle apparaît au panneau)
 oc = next(e for e in listed if e["engine"] == "opencode")
 check("RM2539 : avec son titre, son marqueur et son dossier",
       oc["session_id"] == SID_OPENCODE and oc["title"] == "Migration ERP"
-      and oc["mark"] == "wip" and oc["cwd"] == "/zfs/workspaces/matnat/infra")
+      and oc["mark"] == "wip" and oc["cwd"] == "/zfs/workspaces/clientd/infra")
 check("RM2539 : le filtre par moteur retient ce moteur…",
       {e["engine"] for e in ka.op_resumable({"engine": "opencode"})} == {"opencode"})
 check("RM2539 : …et un moteur sans découverte ne rend rien plutôt que du claude",

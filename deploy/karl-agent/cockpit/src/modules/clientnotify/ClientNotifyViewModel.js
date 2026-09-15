@@ -1,5 +1,5 @@
 // modules/clientnotify/ClientNotifyViewModel — ce que le panneau compte-rendu client montre : le menu des
-// clients avec leur compte (« Calicote (5) »), la page d'un client (tickets groupés par projet, cochables
+// clients avec leur compte (« Clienta (5) »), la page d'un client (tickets groupés par projet, cochables
 // en travers des projets), et l'état des deux gestes irréversibles. RM3052.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
 

@@ -5,7 +5,7 @@
    le conteneur `dev`, `ssh mathieu@dev.lxc` se joint lui-même et échoue ; l'échec
    étant « non bloquant », le vhost n'était jamais posé sans que rien ne le dise.
 2. **La base de branche était le ref LOCAL**, même périmé (constaté : `refs/heads/dev`
-   du bare pisceen à ~200 commits de retard). Le garde existait dans `pm-branch-start` ;
+   du bare clientf à ~200 commits de retard). Le garde existait dans `pm-branch-start` ;
    il est désormais partagé (`pm_git.resolve_base_ref`).
 
 Utilise un VRAI dépôt git temporaire pour le point 2.
@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory() as td:
     git("commit", "-qm", "c1", cwd=clone)
     git("push", "-q", "origin", "dev", cwd=clone)
     # le clone avance et pousse, mais on remet SA branche locale en arrière :
-    # c'est exactement l'état « ref local périmé » du bare pisceen.
+    # c'est exactement l'état « ref local périmé » du bare clientf.
     (clone / "a.txt").write_text("2")
     git("commit", "-qam", "c2", cwd=clone)
     git("push", "-q", "origin", "dev", cwd=clone)

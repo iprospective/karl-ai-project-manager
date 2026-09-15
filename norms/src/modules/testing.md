@@ -112,7 +112,7 @@ la distinction qui manquait sur RM3025. Détail : `tools/browser-check/README.md
 
 **Sur quel environnement** : celui du ticket, monté par `pm-task-take`, seul dont on
 sache qu'il porte exactement la branche testée. **Ne pas rsyncer vers une préprod
-partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `calicote-presta-2.test`
+partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `clienta-presta-2.test`
 a été altérée, et l'environnement de recette d'un autre ticket avec. La préprod sert à la
 recette d'intégration, après fusion.
 

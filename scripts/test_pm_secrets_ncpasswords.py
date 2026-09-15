@@ -50,7 +50,7 @@ def erreur(fn, *a, **kw):
 
 
 USER, TOKEN = "karl", "mot-de-passe-application-secret"
-MOTDEPASSE = "PWD-prod-db-matnat"
+MOTDEPASSE = "PWD-prod-db-clientd"
 
 DOSSIERS = [
     {"id": "f-clients", "label": "clients", "parent": None},

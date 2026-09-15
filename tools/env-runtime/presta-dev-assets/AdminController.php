@@ -15,7 +15,7 @@
  * 2. Le module ps_accounts compare l'URL de la boutique à celle enregistrée dans
  *    le compte PrestaShop et affiche « Action requise : confirmez l'URL de votre
  *    boutique ». Ce bandeau-là n'est PAS lié au vhost : il compare à
- *    www.pisceen.com et apparaît donc aussi sur l'env de dev. Il est masqué ici
+ *    www.clientf.example et apparaît donc aussi sur l'env de dev. Il est masqué ici
  *    parce qu'un env de dev n'a rien à confirmer auprès du compte de production —
  *    surtout pas depuis un domaine de test.
  *

@@ -147,10 +147,10 @@ class FakeIMAP:
 
 
 msgs = [
-    ("INBOX", mail(mid="<1@x>", frm="client@abatik.fr", subject="Panne de caisse")),
+    ("INBOX", mail(mid="<1@x>", frm="client@cliente.example", subject="Panne de caisse")),
     ("INBOX", mail(mid="<2@x>", frm="no-reply@gitlab.iprospective.fr", subject="Pipeline failed")),
     ("INBOX", mail(mid="<3@x>", frm="karl@iprospective.fr", subject="[RM2666] point")),
-    ("clients", mail(mid="<4@x>", frm="contact@pisceen.fr", subject="Devis")),
+    ("clients", mail(mid="<4@x>", frm="contact@clientf.example", subject="Devis")),
 ]
 fake = FakeIMAP(["INBOX", "clients", "Sent", "virtual.All"], msgs)
 

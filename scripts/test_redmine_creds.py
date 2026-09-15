@@ -69,18 +69,18 @@ def test_mono_instance_missing_creds_exits():
 
 
 def test_instance_uses_its_own_url_and_key():
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
-             REDMINE__REDMINE_MATNAT__API_KEY="k-matnat"):
-        assert ru.redmine_creds(inst) == ("https://tasks.matnat", "k-matnat")
+             REDMINE__REDMINE_MATNAT__API_KEY="k-clientd"):
+        assert ru.redmine_creds(inst) == ("https://tasks.clientd", "k-clientd")
 
 
 def test_instance_accepts_a_plain_name():
     """Un nom d'instance suffit — l'URL vient alors de l'env dédiée."""
     with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
-             REDMINE__REDMINE_MATNAT__URL="https://tasks.matnat",
-             REDMINE__REDMINE_MATNAT__API_KEY="k-matnat"):
-        assert ru.redmine_creds("redmine-matnat") == ("https://tasks.matnat", "k-matnat")
+             REDMINE__REDMINE_MATNAT__URL="https://tasks.clientd",
+             REDMINE__REDMINE_MATNAT__API_KEY="k-clientd"):
+        assert ru.redmine_creds("redmine-matnat") == ("https://tasks.clientd", "k-clientd")
 
 
 def test_declared_instance_of_working_redmine_reuses_global_key():
@@ -99,7 +99,7 @@ def test_dedicated_key_wins_over_global():
 
 def test_foreign_instance_without_key_exits():
     """Pas de repli silencieux sur la clé iProspective vers une instance tierce."""
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso"):
         _exits(lambda: ru.redmine_creds(inst), "clé d'instance manquante")
 
@@ -123,21 +123,21 @@ def test_creds_stay_a_two_tuple():
 
 
 def test_basic_absent_by_default():
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
              REDMINE__REDMINE_MATNAT__API_KEY="k"):
         assert ru.redmine_creds(inst).basic is None
 
 
 def test_basic_carried_when_declared():
-    """L'instance MatNat est derrière un htpasswd : la clé API seule prend un 401."""
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    """L'instance Clientd est derrière un htpasswd : la clé API seule prend un 401."""
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
              REDMINE__REDMINE_MATNAT__API_KEY="k",
              REDMINE__REDMINE_MATNAT__HTTP_USER="web",
              REDMINE__REDMINE_MATNAT__HTTP_PASSWORD="motdepasse"):
         c = ru.redmine_creds(inst)
-        assert c == ("https://tasks.matnat", "k")
+        assert c == ("https://tasks.clientd", "k")
         assert c.basic == ("web", "motdepasse")
 
 

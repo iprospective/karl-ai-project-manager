@@ -14,7 +14,7 @@ import pm_partner
 from pm_registry import Instance, Registry, Resolution
 
 PartnerError = pm_partner.PartnerError
-INST = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+INST = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
 
 # Table réaliste : leur workflow est plus court que le nôtre — plusieurs de nos
 # statuts retombent sur « Résolu », ce qui est justement la source d'ambiguïté.
@@ -32,7 +32,7 @@ def _res(mirror=None, **sync):
 
 def _ref(seen=None, issue_id=5576):
     return {"type": "partner_issue", "instance": "redmine-matnat", "issue_id": issue_id,
-            "url": f"https://tasks.matnat/issues/{issue_id}", "role": "mirror",
+            "url": f"https://tasks.clientd/issues/{issue_id}", "role": "mirror",
             "last_seen_status": seen, "added": "2026-09-04"}
 
 
@@ -48,8 +48,8 @@ def _reg():
         "defaults": {"task": "redmine-ipro"},
         "servers": {
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.ipro"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat",
-                               "slug": "matnat"},
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd",
+                               "slug": "clientd"},
         }})
 
 

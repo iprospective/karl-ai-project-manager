@@ -8,7 +8,7 @@
 #   - www.conf         : pool par défaut réécrit en [www-<v>] + include default + include common
 #
 # Les fichiers .inc canoniques sont SOURCÉS depuis la version de référence (REF_VER).
-# Les pools projet existants (calicote, dolibarr, …) NE sont PAS touchés (ils tournent
+# Les pools projet existants (clienta, dolibarr, …) NE sont PAS touchés (ils tournent
 # déjà sur [nom-<v>] + $pool.sock) : leur conversion au pattern est un chantier séparé.
 #
 # Sûr par défaut :

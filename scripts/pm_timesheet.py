@@ -279,7 +279,7 @@ def collect_redmine_actions(url, key, basic, user_id, depuis, jusqu_a,
 
     La cible est CONNUE (pas d'heuristique) : le ticket dit son projet. Quand
     l'instance n'est pas la principale, l'identifiant est qualifié
-    (`matnat#5588`) — deux instances numérotent chacune de son côté, et les
+    (`clientd#5588`) — deux instances numérotent chacune de son côté, et les
     confondre écrirait dans le mauvais Redmine.
     """
     if http is None:
@@ -378,7 +378,7 @@ def rapatrier(host, chemin, cache_dir, kind, verbose=False):
     """Copie une source distante dans un cache local, et rend le chemin local.
 
     Le travail ne se fait pas que sur un poste : un compte distant
-    (`dercya-www@dev`) porte ses propres traces. Plutôt que de lire à travers
+    (`clientc-www@dev`) porte ses propres traces. Plutôt que de lire à travers
     SSH à chaque calcul, on rapatrie une fois par run — c'est plus rapide, et le
     cache garde la matière quand la machine distante n'est pas joignable.
 
@@ -913,7 +913,7 @@ class Regles:
 
 
 def eclater_cles_multi(alloc, regles):
-    """Applique les clés multi-clients (SFY : pisceen 70 / calicote 30).
+    """Applique les clés multi-clients (SFY : clientf 70 / clienta 30).
 
     Un travail qui sert plusieurs clients se répartit selon la clé déclarée sur
     le projet (`used_by_clients[]`), au lieu de rester sur une entité qui ne
@@ -1154,7 +1154,7 @@ def deduire_saisies(final, saisies, cle_ticket=True):
     machine, pas humaines : l'appelant ne passe ici que les saisies humaines.
 
     `saisies` : [{"jour": "2026-07-01", "minutes": 45, "rm": "2304"|None,
-                  "entity": "matnat"|None}]
+                  "entity": "clientd"|None}]
     """
     reste = dict(final)
     deduit = []

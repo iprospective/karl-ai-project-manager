@@ -34,7 +34,7 @@ const { settle, fakeElement, JOURNAL, S, U, R } = require("./test_cockpit_meta.h
   const carte = { client_name: "Acme SA", client_redmine_project_id: "acme", name: "Boutique", redmine_project_url: "https://r/projects/shop", gitlab_repo: "grp/shop", default_branch: "dev", open_by_status: { en_cours: 2, a_faire: 3 }, total: 12 };
   const plein = brief("acme", "shop", carte); assert(/Acme SA/.test(plein) && /Boutique/.test(plein) && /5 ouverts \/ 12/.test(plein) && /grp\/shop/.test(plein) && /dev/.test(plein) && /https:\/\/r\/projects\/shop/.test(plein) && /rel="noopener"/.test(plein));
   assert(/1 ouvert</.test(brief("acme", "shop", { open_by_status: { en_cours: 1 } }))); assert.strictEqual(brief(null, "shop", carte), ""); assert.strictEqual(brief("acme", null, carte), ""); assert.strictEqual(brief("", "", null), "");
-  const nul = brief("calicote", "prestashop", { gitlab_repo: "null", default_branch: "main", client_name: "Calicote" }); assert(!/null/.test(nul) && /Calicote/.test(nul), "un dépôt non déclaré ne s'affiche pas comme « null »");
+  const nul = brief("clienta", "prestashop", { gitlab_repo: "null", default_branch: "main", client_name: "Clienta" }); assert(!/null/.test(nul) && /Clienta/.test(nul), "un dépôt non déclaré ne s'affiche pas comme « null »");
   // une requête par projet, pas une par rendu
   console.log("✓ client/projet (RM2614/2714) : situé sans attendre le réseau");
 

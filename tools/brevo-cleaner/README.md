@@ -9,7 +9,7 @@ Outil réutilisable pour nettoyer une base **Brevo** des contacts créés par un
 de spam d'inscription, repérables par un **nom/prénom en caractères aléatoires**
 (ex. `TuwCqAoimPZYjGW tdmjAXzOZnWqvhMS`).
 
-Né du nettoyage **calicote** de juin 2026 (~7 100 faux contacts issus d'un spam
+Né du nettoyage **clienta** de juin 2026 (~7 100 faux contacts issus d'un spam
 d'inscription 2024). Conçu pour resservir sur n'importe quel projet PrestaShop/Brevo.
 
 ## Modèle de sécurité
@@ -66,11 +66,11 @@ haute-précision est vrai :
 
 **Aucun secret en clair** : les commandes sont exécutées depuis la racine de l'outil et
 lisent les credentials au runtime (ex. depuis `parameters.php`/`conf.php` de la prod via
-SSH — voir `environments/calicote/*.sh`). Les helpers par env et les `work/` sont gitignorés.
+SSH — voir `environments/clienta/*.sh`). Les helpers par env et les `work/` sont gitignorés.
 
 ## Prérequis
 
 - Accès SSH aux hôtes prod (alias `~/.ssh/config`, ProxyJump inclus).
 - IP de la machine **autorisée** dans Brevo si le compte restreint l'API par IP
   (*Brevo → Sécurité → IP autorisées*).
-- `php` + `mysqli` disponibles côté prod (pour les helpers calicote).
+- `php` + `mysqli` disponibles côté prod (pour les helpers clienta).

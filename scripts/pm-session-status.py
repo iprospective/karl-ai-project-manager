@@ -1039,7 +1039,7 @@ def main():
     sub.add_parser("refresh", help="re-résoudre le statut live et réécrire le .md")
 
     a = sub.add_parser("add", help="ajouter ou upsert un item")
-    a.add_argument("ref", help="référence (ex: RM1886, pisceen-facettes)")
+    a.add_argument("ref", help="référence (ex: RM1886, clientf-facettes)")
     a.add_argument("label", nargs="?", help="libellé court")
     a.add_argument("--status", help="à_faire|en_cours|en_attente|fait|...")
     a.add_argument("--project", help="projet PM (ex: pm-ai-agents)")

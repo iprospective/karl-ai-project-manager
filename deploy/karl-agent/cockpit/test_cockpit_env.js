@@ -24,7 +24,7 @@ function fakeElement() {
   assert(/état indisponible/.test(status(null)), "rapport absent → message, pas de crash");
   const rep = { generated_at: "2026-08-12T20:00:00", summary: { counts: { ok: 3, info: 0, warn: 1, error: 1 } }, groups: [
     { name: "Outils & dépendances", checks: [{ label: "bw", level: "error", detail: "binaire introuvable", fix: "npm i -g @bitwarden/cli" }, { label: "git", level: "ok", detail: "git version 2.43.0" }] },
-    { name: "Git / GitLab", checks: [{ label: "repo pisceen/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard", fix: "cd /w && git pull --rebase --autostash" }] } ] };
+    { name: "Git / GitLab", checks: [{ label: "repo clientf/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard", fix: "cd /w && git pull --rebase --autostash" }] } ] };
   const esh = status(rep, "Outils & dépendances") + status(rep, "Git / GitLab");
   assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh)); assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh));
   assert(/data-action="copy"/.test(esh) && !/onclick=/.test(esh), "copier sans argument ni onclick");
@@ -35,15 +35,15 @@ function fakeElement() {
   console.log("✓ santé du poste (RM2458) : niveaux colorés, remédiation copiable, échappement");
   // — RM2708 —
   const G6 = [{ name: "Outils & dépendances", checks: [{ label: "git", level: "ok" }] }, { name: "Git / GitLab", checks: [{ label: "PAT", level: "warn" }, { label: "push", level: "ok" }] },
-    { name: "Repos", checks: [{ label: "repo calicote/presta [main]", level: "ok", section: "calicote" }, { label: "repo calicote/dolibarr [dev]", level: "ok", section: "calicote" }, { label: "repo pisceen/presta [main]", level: "error", detail: "9 non poussés", section: "pisceen" }, { label: "repo perso/maths [main]", level: "warn", section: "perso" }, { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" }] }];
+    { name: "Repos", checks: [{ label: "repo clienta/presta [main]", level: "ok", section: "clienta" }, { label: "repo clienta/dolibarr [dev]", level: "ok", section: "clienta" }, { label: "repo clientf/presta [main]", level: "error", detail: "9 non poussés", section: "clientf" }, { label: "repo perso/maths [main]", level: "warn", section: "perso" }, { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" }] }];
   const tabs = M.envStatusTabs(G6);
   assert.deepStrictEqual(tabs.map(t => t.name), ["Outils & dépendances", "Git / GitLab", "Repos"]); assert.deepStrictEqual({ ...tabs[2] }, { name: "Repos", warn: 1, error: 1, n: 5 });
   assert.strictEqual(M.envStatusDefaultTab(tabs), "Repos"); assert.strictEqual(M.envStatusDefaultTab([{ name: "A", warn: 2, error: 0 }, { name: "B", warn: 0, error: 0 }]), "A");
   assert.strictEqual(M.envStatusDefaultTab([{ name: "A" }, { name: "B" }]), "A"); assert.strictEqual(M.envStatusDefaultTab([]), "");
-  assert.deepStrictEqual(M.envStatusSections(G6[2].checks).map(s => s.name), ["", "pisceen", "perso", "calicote"]); assert.strictEqual(M.envStatusSections(G6[2].checks)[3].checks.length, 2); assert.strictEqual(M.envStatusSections([]).length, 0);
+  assert.deepStrictEqual(M.envStatusSections(G6[2].checks).map(s => s.name), ["", "clientf", "perso", "clienta"]); assert.strictEqual(M.envStatusSections(G6[2].checks)[3].checks.length, 2); assert.strictEqual(M.envStatusSections([]).length, 0);
   const rep2 = { summary: { counts: {} }, groups: G6 }; const hRepos = status(rep2, "Repos");
-  assert(/<details class="es-sec" open><summary>pisceen/.test(hRepos)); assert(/<details class="es-sec"><summary>calicote/.test(hRepos));
-  assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos)); assert(!/repo calicote\/presta/.test(status(rep2, "Git / GitLab")));
+  assert(/<details class="es-sec" open><summary>clientf/.test(hRepos)); assert(/<details class="es-sec"><summary>clienta/.test(hRepos));
+  assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos)); assert(!/repo clienta\/presta/.test(status(rep2, "Git / GitLab")));
   assert(/es-badge es-error">✗ 1/.test(hRepos) && /es-badge es-warn">! 1/.test(hRepos)); assert(/data-action="tab" data-tab="Repos"/.test(hRepos)); assert(!/es-sec/.test(status(rep2, "Outils & dépendances")));
   assert.strictEqual(new EnvStatusViewModel(rep2, { active: "disparu" }).current, "Repos", "onglet disparu → défaut");
   console.log("✓ santé du poste (RM2708) : onglets par famille, dépôts sectionnés par client");
@@ -83,8 +83,8 @@ function fakeElement() {
   h.boot(); assert.deepStrictEqual(ev.splice(0), [["pull", "envcheck"], ["pull", "vault"]], "au démarrage : deux blocs demandés à la pile /refresh");
   h.setBlock("envcheck", { worst: "warn", items: [{ family: "SSH", label: "a", detail: "d" }] }); assert(/🩺 1/.test(ev.pop()[1]), "bloc envcheck → badge");
   h.setBlock("vault", { daemon: true, locked: ["x"], ssh: { keys: [] } }); assert.deepStrictEqual(ev.pop(), ["lock", true], "bloc vault → bouton");
-  await h.openStatus(); assert.deepStrictEqual(ev.shift(), ["modal", "🩺 Santé du poste", ""]); assert.deepStrictEqual(ev.shift(), ["loadStatus", false]); assert(/data-tab="Repos"/.test(el.innerHTML) && /pisceen/.test(el.innerHTML), "page rendue sur la famille en erreur");
-  await el.click("tab", { tab: "Git / GitLab" }); assert.strictEqual(h.state.tab, "Git / GitLab"); assert(/PAT/.test(el.innerHTML) && !/pisceen/.test(el.innerHTML), "un onglet ne montre que sa famille");
+  await h.openStatus(); assert.deepStrictEqual(ev.shift(), ["modal", "🩺 Santé du poste", ""]); assert.deepStrictEqual(ev.shift(), ["loadStatus", false]); assert(/data-tab="Repos"/.test(el.innerHTML) && /clientf/.test(el.innerHTML), "page rendue sur la famille en erreur");
+  await el.click("tab", { tab: "Git / GitLab" }); assert.strictEqual(h.state.tab, "Git / GitLab"); assert(/PAT/.test(el.innerHTML) && !/clientf/.test(el.innerHTML), "un onglet ne montre que sa famille");
   await el.click("copy", { code: "npm i -g x" }); assert(ev.some(x => x[0] === "clip" && x[1] === "npm i -g x")); assert(ev.some(x => x[0] === "toast" && x[1] === "Commande copiée"));
   ev.length = 0; await h.openVault(); assert.deepStrictEqual(ev[0], ["modal", "🔓 Verrous du poste", "vlt"]); assert(/id="vlt-pass"/.test(el.innerHTML));
   const btn = await el.click("unlock"); assert.deepStrictEqual(ev.find(x => x[0] === "toast"), ["toast", "Mot de passe requis", true], "champ vide : refus sans appel");

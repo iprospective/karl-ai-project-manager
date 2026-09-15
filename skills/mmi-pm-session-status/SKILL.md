@@ -59,7 +59,7 @@ scripts/pm-session-status.py show --no-live  # rendu snapshot rapide (sans réso
 scripts/pm-session-status.py refresh         # re-résout le live + réécrit le .md (hooks SessionStart/PreCompact)
 
 # ajouter / upsert un item (ref = RM-id ou slug libre) — surtout pour les chantiers non-ticket
-scripts/pm-session-status.py add pisceen-facettes "Fix #-serveur facettes" --status en_attente --note "uncommitted; reste test nav + commit + déploiement prod"
+scripts/pm-session-status.py add clientf-facettes "Fix #-serveur facettes" --status en_attente --note "uncommitted; reste test nav + commit + déploiement prod"
 scripts/pm-session-status.py add RM1886 --next "rebrancher le hook puis tester"   # enrichir la prochaine action
 
 # changer un statut / divers

@@ -2,7 +2,7 @@
 """pm-perms — applique/répare le modèle de perms multi-user PM (RM2438 / T6 RM2502).
 
 Outil IDEMPOTENT et committé (remplace les runbooks scratchpad éphémères, source de
-dérive — c'est un tel oubli qui a laissé matnat/infra en sticky, bug RM2438). Opère
+dérive — c'est un tel oubli qui a laissé clientd/infra en sticky, bug RM2438). Opère
 sur UN workspace projet (dossiers seulement, PAS de récursion dans les worktrees
 per-dev sous `envs/`), et optionnellement (`--var`) sur le `var/` (state_dir) ET les
 fichiers env communs du core.

@@ -63,8 +63,8 @@ check("argv sans arg parasite", argv[-1] == "--queue" and argv[-2].endswith("kar
 
 # — const positionnel : la sous-commande précède ses arguments (RM2702) —
 argv.clear()
-ka.op_pm_run({"name": "contact-list", "args": {"client": "calyclay"}})
-check("const positionnel en tête", argv[-2:] == ["list", "calyclay"])
+ka.op_pm_run({"name": "contact-list", "args": {"client": "clientb"}})
+check("const positionnel en tête", argv[-2:] == ["list", "clientb"])
 argv.clear()
 ka.op_pm_run({"name": "contact-add", "args": {"client": "demo", "last_name": "Dupont",
                                               "phone": "+33 6 12 34 56 78"}})

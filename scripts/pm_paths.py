@@ -460,8 +460,8 @@ class PMConfig:
 
         RM2430 — fin du match de slug silencieux (plusieurs clients partagent un
         même slug, ex. `infra`). Formes acceptées :
-          - `client/slug` (ex. `matnat/infra`) — désambiguïsation explicite ;
-          - un `redmine.project_id` unique (ex. `matnat-infra`) ;
+          - `client/slug` (ex. `clientd/infra`) — désambiguïsation explicite ;
+          - un `redmine.project_id` unique (ex. `clientd-infra`) ;
           - un slug **non ambigu** (présent chez un seul client).
 
         Lève `ValueError` si : référence introuvable ; slug nu **ambigu** (message

@@ -102,7 +102,7 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
     const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
     const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
     const mk = (prov) => new MM.ProjectBriefViewModel(
-      { client: "matnat", project: "infra", card: {}, provider: prov });
+      { client: "clientd", project: "infra", card: {}, provider: prov });
     const avec = String(MV.ProjectBrief(mk({ name: "redmine-ipro", type: "redmine",
                                              url: "https://t", secondaries: ["redmine-matnat"] })));
     check("le provider du ticket est affiché", /redmine-ipro/.test(avec));

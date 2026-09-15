@@ -118,7 +118,7 @@ apache_apply() {
 #
 # Sans le mot-clé `always` : le Location posé par PHP vit dans headers_out, pas dans
 # err_headers_out. Avec `always`, la directive ne s'applique pas — vérifié dans les
-# deux sens sur calicote-presta-rm2780.
+# deux sens sur clienta-presta-rm2780.
 #
 # Chaque bloc est gardé par son <IfModule> : mod_substitute n'est pas activé
 # partout, et son absence ne doit pas empêcher le vhost de se charger.
@@ -195,7 +195,7 @@ EOF
 }
 
 # Certificat TLS des vhosts .lxc de dev : snakeoil auto-signé (convention de
-# l'instance — cf. calicote-*.lxc:443). Overridable via env pour une box qui
+# l'instance — cf. clienta-*.lxc:443). Overridable via env pour une box qui
 # aurait un wildcard dédié.
 SSL_CERT="${PM_ENV_SSL_CERT:-/etc/ssl/certs/ssl-cert-snakeoil.pem}"
 SSL_KEY="${PM_ENV_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"

@@ -41,8 +41,8 @@ def slugify_person(last_name, first_name, pris=(), email=None):
     lui qu'on écrit à la main dans le `meta.yml` d'un client. Le prix est qu'un
     renommage devient une migration — assumé, il est rare.
 
-    Sans nom, on retombe sur l'adresse (`webmaster@matnat.fr` →
-    `webmaster-matnat`) plutôt que sur un `contact` générique : une boîte
+    Sans nom, on retombe sur l'adresse (`webmaster@clientd.example` →
+    `webmaster-clientd`) plutôt que sur un `contact` générique : une boîte
     fonctionnelle est un correspondant réel, sa clé doit dire lequel. Sans rien,
     `contact` — le suffixe la rendra unique : mieux vaut une clé terne qu'un
     plantage au milieu d'une migration."""

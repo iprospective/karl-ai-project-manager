@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pm-workspace-coloc — Co-localise les données PM d'un client dans ses workspaces (RM1942 C2/C3).
 
-Pour un client (entité PM), exécute la conversion validée par le pilote calicote :
+Pour un client (entité PM), exécute la conversion validée par le pilote clienta :
   - niveau client : crée le repo `<group>/<entity>-core`, matérialise
     `.mmi-pm-client/` (copie de `client/`, `memory/`, `projects_used/` depuis
     ai-projects), git init + .gitignore whitelist + commit + push ;

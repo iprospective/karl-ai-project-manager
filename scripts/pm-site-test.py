@@ -14,7 +14,7 @@ et signale les écarts (CHANGED), en plus des FAIL absolus. Le code de sortie es
 non nul dès qu'un FAIL ou un CHANGED est présent (exploitable en gate).
 
 Exemples :
-  pm-site-test.py --manifest calicote/.mmi-pm/project/test-manifest.yml --env dev --full
+  pm-site-test.py --manifest clienta/.mmi-pm/project/test-manifest.yml --env dev --full
   pm-site-test.py --manifest … --env dev --subset home,product,checkout
   pm-site-test.py --manifest … --env dev --record            # fige la baseline
   pm-site-test.py --manifest … --env preprod --full          # compare à la baseline

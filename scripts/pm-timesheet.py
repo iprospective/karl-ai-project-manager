@@ -93,8 +93,8 @@ def collecter(conf, debut, fin, verbose=False, cache_dir=None, cfg=None):
                 instance=s.get("instance"))
         else:
             continue
-        # Un compte partagé porte le travail de plusieurs personnes (dercya-www :
-        # Mathieu ET Yann, sans marqueur technique pour les distinguer). Les
+        # Un compte partagé porte le travail de plusieurs personnes (clientc-www :
+        # Mathieu ET Bob, sans marqueur technique pour les distinguer). Les
         # journées qui ne sont pas les siennes s'excluent explicitement, source
         # par source — un tri deviné sur du temps facturable n'aurait pas sa place.
         exclus = set(str(j) for j in (s.get("exclude_days") or []))
@@ -187,7 +187,7 @@ def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
     perdu à l'écriture — or c'est précisément le temps que personne ne note.
 
     ⚠ L'API `time_entries` exige un **id numérique** : un identifiant textuel
-    (`pisceen-presta`, ce que porte le manifeste PM) est refusé, et Redmine répond
+    (`clientf-presta`, ce que porte le manifeste PM) est refusé, et Redmine répond
     « Projet n'est pas valide » **suivi de** « Utilisateur n'est pas valide » —
     l'erreur en cascade fait chercher un problème de droits là où il n'y en a pas.
     On résout donc l'identifiant en id avant d'écrire.
@@ -234,7 +234,7 @@ def _instance_creds(source, cfg):
 def instances_redmine(conf, cfg, args):
     """[(libellé, url, key, basic, user_id)] — toutes les instances à interroger.
 
-    Un client peut avoir SA propre instance Redmine (MatNat) : les heures qu'on y
+    Un client peut avoir SA propre instance Redmine (Clientd) : les heures qu'on y
     a déjà saisies doivent être déduites au même titre que les autres, sinon
     elles seraient proposées une deuxième fois. Une instance injoignable est
     signalée, jamais silencieuse.

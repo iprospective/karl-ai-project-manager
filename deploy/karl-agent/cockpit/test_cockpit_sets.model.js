@@ -28,7 +28,7 @@ const { fakeEl, facets, SETS3, now, R, mkRepo } = require("./test_cockpit_sets.h
   assert.deepEqual(M.newSetPlan("chantier", "Chantier", {}, ["1"], false, EXIST).body, { group: "chantier", label: "Chantier" }, "case décochée → jeu vide");
   const derived = M.newSetPlan("acme", "Acme", { client: "acme" }, ["1", "2"], true, EXIST); assert.strictEqual(derived.kind, "derived"); assert.deepEqual(derived.body, { group: "acme", label: "Acme", rule: { client: "acme" } }); assert(/pas versées/.test(derived.note));
   assert.strictEqual(M.newSetPlan("pm", "PM", {}, [], false, EXIST).ok, false); assert(/existe déjà/.test(M.newSetPlan("pm", "PM", {}, [], false, EXIST).error)); assert.strictEqual(M.newSetPlan("x", "", {}, [], false, EXIST).ok, false); assert.strictEqual(M.newSetPlan("", "###", {}, [], false, EXIST).ok, false);
-  assert.strictEqual(M.slugifySet("Chantier Calicôte !"), "chantier-calicote"); assert.strictEqual(M.slugifySet("###"), ""); assert.strictEqual(M.slugifySet("a".repeat(40)).length, 32);
+  assert.strictEqual(M.slugifySet("Chantier Cliénta !"), "chantier-clienta"); assert.strictEqual(M.slugifySet("###"), ""); assert.strictEqual(M.slugifySet("a".repeat(40)).length, 32);
   assert.deepStrictEqual(M.ruleFromValues({ client: "acme", project: "", mark: "wip", tag: "", tickets: " 1, 2 ,, 3 " }), { client: "acme", mark: "wip", tickets: ["1", "2", "3"] }); assert.deepStrictEqual(M.ruleFromValues({}), {}); assert.strictEqual(M.ruleSummary({ client: "acme", tickets: ["1", "2"] }), "client=acme tickets=1,2");
   // — barre, sélecteur, textes —
   const bs = M.barState({ sets: SETS, current: "default", view: "set", selMode: false, selectedCount: 0 });

@@ -20,7 +20,7 @@ sources:
   # Source DISTANTE (rapatriée par SSH dans var/timesheet/cache/ à chaque run ;
   # une source injoignable est signalée et ignorée, elle ne bloque pas le calcul) :
   # - kind: claude-history
-  #   host: "dercya-www@dev"
+  #   host: "clientc-www@dev"
   #   path: "~/.claude/history.jsonl"
   #   # Compte PARTAGÉ : ces journées sont celles d'un autre intervenant.
   #   # Rien n'est deviné — un tri automatique sur du temps facturable, non.
@@ -34,17 +34,17 @@ sources:
   #   instance: redmine-matnat      # nom du registre providers ; absent = instance principale
   #   user_id: 3                    # l'utilisateur SUR CETTE instance
   #   project_map:                  # projet Redmine distant → (client, projet PM)
-  #     infrastructure: [matnat, infra]
-  #     sites: [matnat, site_sf7]
-  #     "*": [matnat, infra]        # défaut pour les autres projets
+  #     infrastructure: [clientd, infra]
+  #     sites: [clientd, site_sf7]
+  #     "*": [clientd, infra]        # défaut pour les autres projets
 
 # ── Chemins → (client, projet) ───────────────────────────────────────────────
 # Indispensable pour les répertoires d'un AUTRE hôte (pas de `.mmi-pm` là-bas) et
 # pour les chemins renommés depuis. Le préfixe le plus long gagne.
 path_map:
-  # "/home/siteadm/dercya/public": [pisceen, pisceen-presta]
-  # "/zfs/workspaces/pisceen/erp": [pisceen, dolibarr]        # ancien nom
-  # "/zfs/workspaces/matnat/sf7":  [matnat, site_sf7]         # ancien nom
+  # "/home/siteadm/clientc/public": [clientf, clientf-presta]
+  # "/zfs/workspaces/clientf/erp": [clientf, dolibarr]        # ancien nom
+  # "/zfs/workspaces/clientd/sf7":  [clientd, site_sf7]         # ancien nom
 
 # ── Entités PERSONNELLES ─────────────────────────────────────────────────────
 # Ni refacturées, ni versées au pot transversal : c'est du temps à soi.
@@ -55,8 +55,8 @@ perso:
 # Clé de répartition d'une entité ou d'un projet mutualisé.
 multi_client:
   sfy:
-    - {client: pisceen,  weight: 70}
-    - {client: calicote, weight: 30}
+    - {client: clientf,  weight: 70}
+    - {client: clienta, weight: 30}
 
 # ── Absences ─────────────────────────────────────────────────────────────────
 # Sur ces périodes, tout est proposé NON COMPTÉ — mais les journées où une
@@ -72,7 +72,7 @@ absences:
 # complément. Si le mesuré dépasse, rien n'est ajouté — on ne rabote pas du réel.
 # C'est la seule étape qui crée du temps : le rapport la montre à part.
 presences:
-  - client: matnat
+  - client: clientd
     projet: infra
     jours: [mercredi]
     debut: "09:30"       # la plage de présence sur site…
@@ -109,4 +109,4 @@ redmine_instances:
 activity_id: 9            # activité par défaut (« Développement »)
 # Cibles des lignes SANS ticket : projet Redmine par "<client>/<projet PM>".
 project_map:
-  # "pisceen/dolibarr": pisceen-dolibarr
+  # "clientf/dolibarr": clientf-dolibarr

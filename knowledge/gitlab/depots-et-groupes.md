@@ -17,7 +17,7 @@ Groupe **`prestashop`** (id **109**), **à la racine** de l'instance — pas sou
 
 - `prestashop/prestashop-core` — le cœur PrestaShop
 - `prestashop/prestashop-module-<nom>` — un dépôt par module mutualisé, partagé entre les
-  sites du parc (calicote, pisceen, calyclay, villa-cactus…)
+  sites du parc (clienta, clientf, clientb, clienth…)
 - `prestashop/<module>-core` — le dépôt de **données PM** d'un module qui a son propre
   projet PM (ex. `mmi_productcheck-core`)
 
@@ -88,7 +88,7 @@ curl -s -H "PRIVATE-TOKEN: $GITLAB_WORKER_TOKEN" \
 Un `.gitmodules` versionné se réplique dans **tous** les worktrees du dépôt et sert de
 modèle à quiconque en ajoute un. S'il porte un chemin obsolète, il le propage.
 
-C'est arrivé sur `calicote/prestashop`, qui a longtemps déclaré ses 4 submodules en
+C'est arrivé sur `clienta/prestashop`, qui a longtemps déclaré ses 4 submodules en
 `gitlab:iprospective/prestashop/…`. **Corrigé depuis** : RM2575 a submodule-ifié les
 modules `cins*` et son `.gitmodules` compte aujourd'hui 24 entrées, toutes en
 `gitlab:prestashop/…` et toutes avec la clé `branch =`.

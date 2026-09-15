@@ -21,9 +21,9 @@ def _reg():
         "defaults": {"task": "redmine-ipro", "forge": "gitlab-ipro", "doc": "redmine-wiki"},
         "servers": {
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.example"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat",
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd",
                                "slug": "matnat"},
-            "redmine-pisceen": {"axis": "task", "type": "redmine", "url": "https://rm.pisceen"},
+            "redmine-clientf": {"axis": "task", "type": "redmine", "url": "https://rm.clientf"},
             "gitlab-ipro":    {"axis": "forge", "type": "gitlab", "url": "https://gl.example"},
             "redmine-wiki":   {"axis": "doc", "type": "redmine_wiki", "url": "https://tasks.example"},
         },
@@ -37,7 +37,7 @@ def _meta(policy="required", extra_secondary=False):
          "link": {"policy": policy}},
     ]
     if extra_secondary:
-        task.append({"instance": "redmine-pisceen", "role": "secondary",
+        task.append({"instance": "redmine-clientf", "role": "secondary",
                      "link": {"policy": "optional"}})
     return {"providers": {"task": task}}
 
@@ -68,9 +68,9 @@ def test_partner_refs_on_empty_task():
 
 
 def test_find_and_mirror():
-    fm = {"refs": [_ref(role="related"), _ref(instance="redmine-pisceen", issue_id=7,
+    fm = {"refs": [_ref(role="related"), _ref(instance="redmine-clientf", issue_id=7,
                                               role="mirror")]}
-    assert pm_partner.find_ref(fm, instance="redmine-pisceen")["issue_id"] == 7
+    assert pm_partner.find_ref(fm, instance="redmine-clientf")["issue_id"] == 7
     assert pm_partner.find_ref(fm, issue_id=1234)["instance"] == "redmine-matnat"
     assert pm_partner.find_ref(fm, instance="inconnue") is None
     assert pm_partner.mirror_ref(fm)["issue_id"] == 7
@@ -104,7 +104,7 @@ def test_resolve_secondary_without_any_declared():
 
 def test_declared_secondaries():
     got = pm_partner.declared_secondaries(_meta(extra_secondary=True), _reg())
-    assert sorted(got) == ["redmine-matnat", "redmine-pisceen"]
+    assert sorted(got) == ["redmine-clientf", "redmine-matnat"]
 
 
 # ── construction & validation ──────────────────────────────────────────────
@@ -113,7 +113,7 @@ def test_build_ref_defaults_and_url():
     res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
     ref = pm_partner.build_ref(res, "1234", role="mirror", added="2026-08-12")
     assert ref == {"type": "partner_issue", "instance": "redmine-matnat",
-                   "issue_id": 1234, "url": "https://tasks.matnat/issues/1234",
+                   "issue_id": 1234, "url": "https://tasks.clientd/issues/1234",
                    "role": "mirror", "last_seen_journal_id": None, "added": "2026-08-12"}
 
 
@@ -444,10 +444,10 @@ def test_slug_declared_wins():
 
 def test_slug_falls_back_to_deduction():
     """Sans `slug:` déclaré, on retire le préfixe de type — rien à configurer."""
-    inst = _reg().get("redmine-pisceen")
+    inst = _reg().get("redmine-clientf")
     assert not inst.options.get("slug")
-    assert pm_partner.instance_slug(inst) == "pisceen"
-    assert pm_partner.instance_slug("redmine-pisceen") == "pisceen"
+    assert pm_partner.instance_slug(inst) == "clientf"
+    assert pm_partner.instance_slug("redmine-clientf") == "clientf"
     assert pm_partner.instance_slug("jira-acme") == "acme"
     assert pm_partner.instance_slug("interne") == "interne"
 
@@ -519,7 +519,7 @@ def test_push_triggers_reads_the_three_forms():
     """
     import yaml
     from pm_registry import Instance, Resolution
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
 
     charge = yaml.safe_load("push: {on: [ferme]}")
     assert True in charge["push"], "YAML 1.1 : la clé devrait être le booléen"
@@ -534,7 +534,7 @@ def test_push_triggers_reads_the_three_forms():
 def test_push_stays_disabled_by_default():
     """Aucune clé, liste vide ou `push: true` → rien ne part chez le partenaire."""
     from pm_registry import Instance, Resolution
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     for sync in ({}, {"push": {}}, {"push": {True: []}}, {"push": True},
                  {"push": {"on_status": []}}):
         res = Resolution(inst, sync=sync, role="secondary")

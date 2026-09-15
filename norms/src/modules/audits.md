@@ -123,7 +123,7 @@ LLM-spécifique.
   `2026-05-10-recon` ; redécouvert 3,5 mois plus tard sans que rien ne signale la
   régression ;
 - `recon-wordpress.sh` existait et documentait exactement le motif retrouvé au curl
-  (énumération via `/wp-json/wp/v2/users` + `xmlrpc.php`, découvert sur dercya.com le
+  (énumération via `/wp-json/wp/v2/users` + `xmlrpc.php`, découvert sur clientc.example le
   2026-05-09) — il n'a pas été passé ;
 - les constats n'étaient ni rejouables, ni raccordés à `state.md` / `FINDINGS.md`.
 

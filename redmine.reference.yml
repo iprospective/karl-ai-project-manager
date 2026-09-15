@@ -43,7 +43,7 @@ custom_fields:
   14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
   9:  {name: "Réf ticket outil externe", format: string, type: issue,
       max_length: 16,
-      used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
+      used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. clientd#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
   35: {name: "Sync ticket externe", format: enumeration, type: issue,
       used_by: "REDMINE_CF_STATE_MIRROR_ID (.env, override) ; régime de miroir d'états avec le ticket partenaire — miroir frontmatter `state_mirror`, rapatrié par pm-task-sync (RM2746). MONO-VALEUR : un seul régime par ticket, d'où la valeur `Mirror` qui vaut pour les deux sens. Vide = le ticket hérite du régime de son projet (sync.mirror du secondaire)."}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}

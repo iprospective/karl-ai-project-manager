@@ -27,7 +27,7 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {}; const self 
       { name: "redmine-ipro", axis: "task", type: "redmine", local: false, fields: { url: "https://r.example" }, secrets: [{ key: "API_KEY", label: "Clé d'API", var: "REDMINE__REDMINE_IPRO__API_KEY", set: true }] },
       { name: "redmine-matnat", axis: "task", type: "redmine", local: true, fields: { url: "https://m.example" }, secrets: [{ key: "API_KEY", label: "Clé d'API", var: "REDMINE__REDMINE_MATNAT__API_KEY", set: false }] },
       { name: "ollama-strix", axis: "llm", type: "ollama", local: true, fields: { url: "http://strix.lan:11434", model: "qwen3:8b" }, secrets: [{ key: "API_KEY", label: "Clé", var: "LLM__OLLAMA_STRIX__API_KEY", set: false }] }],
-    assignments: [{ client: "matnat", project: "infra", axis: "task", instance: "redmine-matnat", role: "primary", params: { project_id: 12 } },
+    assignments: [{ client: "clientd", project: "infra", axis: "task", instance: "redmine-matnat", role: "primary", params: { project_id: 12 } },
                   { client: "iprospective", project: "pm-ai-agents", axis: "task", instance: "redmine-matnat", role: "secondary", params: {} }] };
 
   // — ViewModel —
@@ -37,7 +37,7 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {}; const self 
   assert.strictEqual(axes[0].instances.length, 2); assert(axes[0].instances[0].isDefault && !axes[0].instances[1].isDefault, "le défaut est marqué");
   const mat = axes[0].instances.find(i => i.name === "redmine-matnat");
   assert.deepStrictEqual(mat.uses.map(u => u.role), ["primary", "secondary"], "la MÊME instance est primaire ici et secondaire là");
-  assert(mat.uses[0].project === "matnat/infra" && mat.uses[0].params === "project_id=12", "le projet et ses paramètres sont rendus");
+  assert(mat.uses[0].project === "clientd/infra" && mat.uses[0].params === "project_id=12", "le projet et ses paramètres sont rendus");
   assert(mat.secrets[0].set === false && vm.axes()[0].instances[0].secrets[0].set === true, "l'état des clés, jamais leur valeur");
   assert(!JSON.stringify(vm.axes()).includes("value"), "aucun champ « value » ne circule dans le modèle");
   assert.deepStrictEqual(vm.formOf("ollama", { url: "http://x", model: "m" }).map(f => f.name + "=" + f.value), ["url=http://x", "model=m"], "le formulaire vient du catalogue");

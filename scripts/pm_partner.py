@@ -2,8 +2,8 @@
 """pm_partner — liens vers les tickets d'un gestionnaire PARTENAIRE (N0, RM2654).
 
 Lot L1 du chantier RM2626 ([[Cdc-rm2626-tickets-partenaires]]). Deux clients réels le
-motivent : **Pisceen** (un autre prestataire tient ses tickets sur son Redmine ; on
-rattache à la demande, y compris rétroactivement) et **MatNat** (tout ce qu'on fait pour
+motivent : **Clientf** (un autre prestataire tient ses tickets sur son Redmine ; on
+rattache à la demande, y compris rétroactivement) et **Clientd** (tout ce qu'on fait pour
 eux doit être rattaché à un ticket de leur Redmine).
 
 **Ce que ce module fait — et ne fait pas.** Il modélise le **lien** : quel ticket de quel
@@ -18,16 +18,16 @@ refs:
   - type: partner_issue
     instance: redmine-matnat      # DOIT être un secondaire déclaré du projet
     issue_id: 1234
-    url: https://tasks.materiaux-naturels.fr/issues/1234
+    url: https://tasks.clientd.example/issues/1234
     role: mirror                  # mirror | upstream | related
     last_seen_journal_id: null    # pointeur de pull, par lien (L2) — jamais global
     added: 2026-08-12
 ```
 
 `role` dit ce qu'est le ticket distant, pas ce qu'on en fait :
-  * `mirror`   — c'est mon ticket vu de chez eux (1↔1, cas MatNat) ;
+  * `mirror`   — c'est mon ticket vu de chez eux (1↔1, cas Clientd) ;
   * `upstream` — leur ticket est la demande d'origine ;
-  * `related`  — simple voisinage (n de leurs tickets ↔ 1 des miens, cas Pisceen).
+  * `related`  — simple voisinage (n de leurs tickets ↔ 1 des miens, cas Clientf).
 Un seul lien peut porter `mirror` : deux miroirs, c'est une ambiguïté, pas une richesse.
 """
 import sys
@@ -115,7 +115,7 @@ _INSTANCE_TYPE_PREFIXES = ("redmine-", "gogs-", "gitlab-", "github-", "jira-")
 
 
 def short_instance(name):
-    """Nom d'instance → forme courte, par DÉDUCTION (`redmine-matnat` → `matnat`).
+    """Nom d'instance → forme courte, par DÉDUCTION (`redmine-matnat` → `clientd`).
 
     Repli de `instance_slug` quand aucun `slug:` n'est déclaré : le type du serveur
     n'apporte rien dans une référence de ticket.
@@ -154,8 +154,8 @@ def cf_ref(ref, registry=None):
     """Référence compacte d'un lien pour le CF Redmine — **16 caractères max**.
 
     Le champ « Réf ticket outil externe » est un `string` court : une URL n'y entre
-    pas (47 caractères pour un ticket MatNat). On y met donc `<slug>#<id>`, ex.
-    `matnat#5576` — lisible, non ambigu entre partenaires, et l'URL complète reste
+    pas (47 caractères pour un ticket Clientd). On y met donc `<slug>#<id>`, ex.
+    `clientd#5576` — lisible, non ambigu entre partenaires, et l'URL complète reste
     dans le `refs[]` du frontmatter. Le slug vient du registre quand il est fourni.
     """
     label = f"{instance_slug(ref.get('instance'), registry)}#{ref.get('issue_id')}"
@@ -882,7 +882,7 @@ def missing_links(fm, project_meta, registry, axis="task"):
     """Instances `required` auxquelles cette tâche n'est PAS rattachée.
 
     Alimente `pm-doctor` : c'est le contrôle qui rend `policy: required` opérant
-    (cas MatNat — « tout ce que je fais doit être rattaché chez eux »).
+    (cas Clientd — « tout ce que je fais doit être rattaché chez eux »).
     """
     linked = {ref.get("instance") for ref in partner_refs(fm)}
     return [r.instance.name for r in required_secondaries(project_meta, registry, axis)

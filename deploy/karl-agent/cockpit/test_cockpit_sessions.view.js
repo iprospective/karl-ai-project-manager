@@ -12,7 +12,7 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
 
   // — RM2894 : en-tête du panneau de droite —
   let h2894 = V.rTitleHtml("2894", { title: "titre transcript" }, { found: true, title: "Sujet Redmine" }, esc); assert(/RM2894/.test(h2894) && /Sujet Redmine/.test(h2894) && !/titre transcript/.test(h2894), "le sujet Redmine prime quand le ticket est résolu");
-  h2894 = V.rTitleHtml("calicote-presta", { is_ticket: false, title: "MEP productcheck" }, null, esc); assert(!/RM/.test(h2894) && /calicote-presta/.test(h2894) && /MEP productcheck/.test(h2894), "slug : titre du transcript, pas de RM inventé");
+  h2894 = V.rTitleHtml("clienta-presta", { is_ticket: false, title: "MEP productcheck" }, null, esc); assert(!/RM/.test(h2894) && /clienta-presta/.test(h2894) && /MEP productcheck/.test(h2894), "slug : titre du transcript, pas de RM inventé");
   h2894 = V.rTitleHtml("2894", {}, { found: false }, esc); assert(/sans libellé/.test(h2894) && !/karl-/.test(h2894), "absence dite, jamais le nom tmux");
   h2894 = V.rTitleHtml("2894", { title: '<img src=x onerror="alert(1)">' }, null, esc); assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé");
   assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'), "l'en-tête doit précéder la barre d'onglets .rnav");

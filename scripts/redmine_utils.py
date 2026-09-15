@@ -178,7 +178,7 @@ class Creds(tuple):
     fonctionner partout. L'auth Basic voyage à côté (`creds.basic`) parce qu'elle n'est
     pas une propriété du compte Redmine mais du **serveur web devant lui** — certaines
     instances partenaires sont protégées par un htpasswd (constaté sur
-    `tasks.materiaux-naturels.fr`, realm « Pas touche minouche », RM2657).
+    `tasks.clientd.example`, realm « Pas touche minouche », RM2657).
     """
     basic = None
 
@@ -459,7 +459,7 @@ def fetch_project(project_ref, timeout=20, creds=None):
 
     Rend le dict projet (`id`, `identifier`, `name`, …) ou `None` si introuvable.
     Nécessaire parce que l'API des issues ne rend que `{id, name}` pour le projet :
-    comparer un `redmine.project_id` textuel (`calicote-dolibarr`) à une issue
+    comparer un `redmine.project_id` textuel (`clienta-dolibarr`) à une issue
     demande de résoudre d'abord ce texte en id numérique — sinon la comparaison
     échoue toujours, en silence.
     """

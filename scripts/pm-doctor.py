@@ -88,7 +88,7 @@ def check_partner_links(cfg, ovs, errors, warns):
     Deux contrôles, l'un structurel l'autre par ticket :
       * la déclaration `providers.task[]` du projet se résout (un primaire, instances
         connues du registre, pas de `link:`/`sync:` sur le primaire) → **erreur** ;
-      * quand un secondaire est `required` (cas MatNat : « tout ce que je fais pour eux
+      * quand un secondaire est `required` (cas Clientd : « tout ce que je fais pour eux
         doit être rattaché chez eux »), tout ticket **ouvert** doit porter son lien
         `partner_issue` → **avertissement** (le rattachement reste un geste humain).
     """

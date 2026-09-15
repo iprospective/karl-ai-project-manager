@@ -61,7 +61,7 @@ Le script résout le titre de base dans cet ordre :
 2. **titre du worklog PM** — posé par l'agent, il reflète ce que la session a réellement fait.
 3. **`ai-title`** — auto-généré depuis le premier message, en dernier recours : il fige l'intention de départ, souvent dépassée.
 
-*Pourquoi ce repli* : le 2026-08-07, le worklog PM était titré « RM2557 — bons plans du blog en 2 colonnes » alors que la session CLI s'appelait encore « Étudier et chiffrer la tâche RM2557 Calicote » (jamais renommée). Le skill proposait donc un `/rename` avec le nom périmé, incompréhensible pour l'utilisateur qui voyait l'autre titre affiché.
+*Pourquoi ce repli* : le 2026-08-07, le worklog PM était titré « RM2557 — bons plans du blog en 2 colonnes » alors que la session CLI s'appelait encore « Étudier et chiffrer la tâche RM2557 Clienta » (jamais renommée). Le skill proposait donc un `/rename` avec le nom périmé, incompréhensible pour l'utilisateur qui voyait l'autre titre affiché.
 
 Le script imprime sa **provenance sur stderr** (`titre de base : worklog PM`) — utile quand le titre proposé surprend. La ligne `/rename` reste seule sur stdout.
 

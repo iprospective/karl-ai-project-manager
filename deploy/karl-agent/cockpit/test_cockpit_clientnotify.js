@@ -21,24 +21,24 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   const { mountClientNotify } = await import(path.join(DIR, "src/modules/clientnotify/clientnotify.controller.js"));
 
   const DATA = () => ({ total: 4, clients: [
-    { client: "calicote", label: "Calicote", count: 3, recipients: ["s@calicote.com", "m@ipro.fr"], orphans: [], projects: [
+    { client: "clienta", label: "Clienta", count: 3, recipients: ["s@clienta.example", "m@ipro.fr"], orphans: [], projects: [
       { project: "prestashop", label: "Site PrestaShop", actif: true, tickets: [
         { id: 3025, title: "Paliers", url: "u/3025", queued_at: "2026-09-08T18:58" },
         { id: 2948, title: "Promotions", url: "u/2948", queued_at: "2026-09-08T18:58" }] },
       { project: "prestasync", label: "Synchro Dolibarr", actif: true, tickets: [
         { id: 3042, title: "Picking lots", url: "u/3042", queued_at: "2026-09-09T01:00" }] }] },
-    { client: "abatik", label: "Abatik", count: 1, recipients: [], orphans: ["fantome"], projects: [
-      { project: "site", label: "Site Abatik", actif: false, tickets: [{ id: 9001, title: "Autre", url: "", queued_at: "2026-09-01" }] }] },
+    { client: "cliente", label: "Cliente", count: 1, recipients: [], orphans: ["fantome"], projects: [
+      { project: "site", label: "Site Cliente", actif: false, tickets: [{ id: 9001, title: "Autre", url: "", queued_at: "2026-09-01" }] }] },
   ] });
 
   // — service pur —
-  assert.deepStrictEqual(S.idsOf(DATA(), "calicote"), ["3025", "2948", "3042"], "les ids d'un client, tous projets confondus");
+  assert.deepStrictEqual(S.idsOf(DATA(), "clienta"), ["3025", "2948", "3042"], "les ids d'un client, tous projets confondus");
   assert.deepStrictEqual(S.idsOf(DATA(), "inconnu"), [], "client inconnu : aucune sélection possible");
   assert.deepStrictEqual([...S.prune(new Set(["3025", "9999"]), ["3025", "2948"])], ["3025"], "un ticket sorti de la file sort de la sélection");
 
   // — menu —
   let m = new VM.ClientMenuViewModel({ clients: DATA().clients, total: 4 });
-  assert.deepStrictEqual(m.items.map(i => i.text), ["Calicote (3)", "Abatik (1)"], "un client par ligne, avec son reste à annoncer");
+  assert.deepStrictEqual(m.items.map(i => i.text), ["Clienta (3)", "Cliente (1)"], "un client par ligne, avec son reste à annoncer");
   assert.strictEqual(m.badge, "4", "le badge porte le total");
   m = new VM.ClientMenuViewModel({ clients: [], total: 0 });
   assert(m.empty && m.badge === "", "rien à annoncer : pas de badge « 0 », pas de bruit");
@@ -53,13 +53,13 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(r.canSend && r.canDismiss && r.why === "", "destinataires + sélection : les deux gestes sont ouverts");
   assert.strictEqual(r.sendLabel, "✉ Envoyer (2)");
   assert.strictEqual(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), confirm: "send" }).sendLabel,
-    "Confirmer l'envoi à s@calicote.com, m@ipro.fr", "armé : le libellé dit à QUI ça part");
+    "Confirmer l'envoi à s@clienta.example, m@ipro.fr", "armé : le libellé dit à QUI ça part");
   assert(/écarter 1 ticket\(s\) sans notifier/.test(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), confirm: "dismiss" }).dismissLabel), "armé : dire que rien ne partira");
   r = new VM.ClientReportViewModel({ client: cal, sel: new Set() });
   assert(!r.canSend && !r.canDismiss && /Cochez/.test(r.why), "rien de coché : rien ne part, et on dit pourquoi");
   r = new VM.ClientReportViewModel({ client: DATA().clients[1], sel: new Set(["9001"]) });
   assert(!r.canSend && r.canDismiss && /Aucun destinataire/.test(r.why), "sans destinataire : envoi fermé, mise à l'écart possible");
-  assert.deepStrictEqual(r.inactives, ["Site Abatik"], "projet dont l'option est coupée : dit, pas masqué");
+  assert.deepStrictEqual(r.inactives, ["Site Cliente"], "projet dont l'option est coupée : dit, pas masqué");
   assert.deepStrictEqual(r.orphans, ["fantome"], "ref d'annuaire inconnue remontée");
   assert(new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), busy: true }).canSend === false, "pendant l'envoi, plus de second clic");
 
@@ -81,14 +81,14 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/disabled/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: cal, sel: new Set() })))), "aucune case : boutons fermés");
   assert(/Aucune évolution en attente/.test(String(V.ClientReport(new VM.ClientReportViewModel({ client: { client: "x", projects: [] } })))), "client sans file : état vide explicite");
   assert(/Rien à annoncer/.test(String(V.ClientMenu(new VM.ClientMenuViewModel({ clients: [] })))), "menu vide explicite");
-  assert(/data-action="client" data-client="calicote"/.test(String(V.ClientMenu(m = new VM.ClientMenuViewModel({ clients: DATA().clients, total: 4 })))), "chaque client est un geste");
+  assert(/data-action="client" data-client="clienta"/.test(String(V.ClientMenu(m = new VM.ClientMenuViewModel({ clients: DATA().clients, total: 4 })))), "chaque client est un geste");
   console.log("✓ compte-rendu client : menu compté, groupes par projet, sélection inter-projets, gardes d'envoi, vues sans on*");
 
   // — envoi de TEST (RM3052) : se relire dans une vraie boîte avant d'écrire au client —
   const vmT = new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]),
     contacts: [{ label: "Mathieu Moulin", email: "m@ipro.fr" }, { label: "Mathieu Moulin", email: "contact@ipro.fr" }],
     testTo: "m@ipro.fr" });
-  assert.deepStrictEqual(vmT.contacts.map(c => c.email), ["m@ipro.fr", "contact@ipro.fr", "s@calicote.com"],
+  assert.deepStrictEqual(vmT.contacts.map(c => c.email), ["m@ipro.fr", "contact@ipro.fr", "s@clienta.example"],
     "l'annuaire d'abord, puis les destinataires du client, sans doublon");
   assert(vmT.testValid && vmT.canTest, "adresse valide + sélection : le test est ouvert");
   assert(!new VM.ClientReportViewModel({ client: cal, sel: new Set(["3025"]), testTo: "pasunemail" }).testValid,
@@ -120,7 +120,7 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/demandeur\(s\) seront prévenus séparément/.test(fragD), "l'écran dit ce qui va partir");
 
   // — contrôleur —
-  const calls = []; let sendRes = { ok: true, sent: 2, to: ["s@calicote.com"] };
+  const calls = []; let sendRes = { ok: true, sent: 2, to: ["s@clienta.example"] };
   let queue = DATA();
   const repo = {
     pending: async () => { calls.push("pending"); return queue; },
@@ -140,7 +140,7 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
 
   await ctl.refresh();
   assert.strictEqual(badges[badges.length - 1], "4", "le badge du bandeau porte le total en attente");
-  await ctl.open("calicote");
+  await ctl.open("clienta");
   assert(panels.length === 1 && ctl.count() === 3, "ouvrir un client : le panneau s'ouvre, TOUT est coché par défaut");
   assert(calls.some(c => c.startsWith("preview:3025,2948,3042:p")), "l'aperçu est demandé au serveur pour la sélection");
   assert(/Site PrestaShop/.test(el.innerHTML) && /RM3042/.test(el.innerHTML), "les deux projets du client sont rendus");
@@ -171,7 +171,7 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(toasts.some(t => /2 ticket\(s\) annoncés/.test(t)), "retour d'envoi affiché");
   assert(calls.filter(c => c === "pending").length >= 2 && badges[badges.length - 1] === "1", "la file est relue après envoi, le badge suit");
 
-  queue = DATA(); await ctl.refresh(); await ctl.open("calicote");
+  queue = DATA(); await ctl.refresh(); await ctl.open("clienta");
   await el.click("all", { on: "0" }); await el.check("pick", { rm: "3042" });
   await el.click("dismiss"); assert(/Confirmer/.test(el.innerHTML), "écarter demande aussi confirmation");
   await el.click("dismiss");
@@ -180,14 +180,14 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
 
   // un serveur en échec ne doit pas laisser croire à un envoi
   repo.send = async () => { throw new Error("aucun destinataire résolu"); };
-  queue = DATA(); await ctl.refresh(); await ctl.open("calicote");
+  queue = DATA(); await ctl.refresh(); await ctl.open("clienta");
   await el.click("send"); await el.click("send");
   assert(toasts.some(t => /envoi refusé : aucun destinataire résolu/.test(t)), "échec d'envoi : dit, jamais silencieux");
   assert(!ctl.state.busy, "…et le panneau redevient utilisable");
 
   // le test : il part où on l'envoie, et il ne touche à RIEN
   queue = DATA(); repo.send = async (b) => { calls.push("send:" + b.rm.join(",")); return sendRes; };
-  await ctl.refresh(); await ctl.open("calicote");
+  await ctl.refresh(); await ctl.open("clienta");
   repo.test = async (b) => { calls.push("test:" + b.to.join(",") + ":" + b.rm.join(",")); return { ok: true, test: true, to: b.to }; };
   await el.click("test");
   assert(!calls.some(c => c.startsWith("test:")), "sans adresse : rien n'est envoyé");
@@ -203,8 +203,8 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(toasts.some(t => /test envoyé à moi@ipro.fr/.test(t)), "retour d'envoi de test");
   assert(calls.filter(c => c === "pending").length === qBefore, "un test NE relit pas la file : elle n'a pas bougé");
   assert(store.m.karlCnTestTo === "moi@ipro.fr", "l'adresse de test est mémorisée pour la prochaine fois");
-  await el.check("testpick", {}, true, "s@calicote.com");
-  assert(ctl.svc.testTo === "s@calicote.com", "choisir un contact remplit le champ");
+  await el.check("testpick", {}, true, "s@clienta.example");
+  assert(ctl.svc.testTo === "s@clienta.example", "choisir un contact remplit le champ");
 
   // la file injoignable : panneau vide mais honnête
   repo.pending = async () => { throw new Error("agent injoignable"); };

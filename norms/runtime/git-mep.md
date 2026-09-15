@@ -2,7 +2,7 @@
 Ouvrir quand : je code un ticket (branche) · push / MR · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket · plusieurs tickets dans une session. Outils `pm-branch-start`, `glab`, `pm-task-deploy`, `pm-mr`, `pm-worktree`. Source : `norms/src/modules/git-mep.md`. Référence canonique du workflow de release ; nommage des branches et cycle de vie définis ici seulement.
 
 ## Branches de référence (par projet, `project/overview.md` bloc `git:`)
-`repo` (url/alias, ex. `git:sfy/pisceen-dercya/pisceen-prestashop.git`) · `remote: origin` · `prod_branch: main` (défaut ; `master` legacy, migration au fil de l'eau) · `integration_branch: dev` (agrège les devs testés avant MEP) · `preprod_branch: preprod` OPTIONNEL : sa PRÉSENCE active le flux 3 branches longues protégées `dev → preprod → prod_branch` ; absent ⇒ modèle 2 branches `dev → prod_branch`. Seul levier (pas de flag, pas de bypass).
+`repo` (url/alias, ex. `git:sfy/clientf-clientc/clientf-prestashop.git`) · `remote: origin` · `prod_branch: main` (défaut ; `master` legacy, migration au fil de l'eau) · `integration_branch: dev` (agrège les devs testés avant MEP) · `preprod_branch: preprod` OPTIONNEL : sa PRÉSENCE active le flux 3 branches longues protégées `dev → preprod → prod_branch` ; absent ⇒ modèle 2 branches `dev → prod_branch`. Seul levier (pas de flag, pas de bypass).
 Cohérence : `environments[].branch` — `prod.branch == prod_branch` ; `staging.branch == preprod_branch` si déclaré, sinon `== integration_branch`. Ne pas confondre avec le bloc `git:` de la TÂCHE (`git.branch`, `git.mr_url` = branche de travail du ticket).
 
 ## Modèle d'environnements

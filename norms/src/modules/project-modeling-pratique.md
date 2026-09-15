@@ -18,7 +18,7 @@ général peut être implémenté par plusieurs enfants. Les deux champs sont do
 
 | Champ | Sens | Côté |
 |---|---|---|
-| `implements: [<entité>/<projet>, ...]` | Liste des projets généraux que ce projet implémente | déclaré côté **implémentation** (ex: `abatik/infra` → `[iprospective/infrastructure]`) |
+| `implements: [<entité>/<projet>, ...]` | Liste des projets généraux que ce projet implémente | déclaré côté **implémentation** (ex: `cliente/infra` → `[iprospective/infrastructure]`) |
 | `implemented_by: [<entité>/<projet>, ...]` | Liste des projets qui implémentent celui-ci | déclaré côté **général** (ex: `iprospective/infrastructure` liste ses projets infra clients) |
 
 Comme `used_by_clients`/`provided_by`, ces deux champs sont **redondants par
@@ -45,7 +45,7 @@ coexister sur un même projet.
 **Conséquences opérationnelles :**
 - **Où poser l'asset ?** Un asset (script, sonde, template, runbook) **réutilisable
   cross-contexte** se dépose dans le **repo du projet général**, pas dans le repo
-  enfant. Exemple vécu : `calyclay/infra` implémente `iprospective/infrastructure` —
+  enfant. Exemple vécu : `clientb/infra` implémente `iprospective/infrastructure` —
   la sonde `probe-mail-stack.sh` et les scripts Sieve, réutilisables pour tous les
   clients, ont été déposés dans le repo **général** alors que le ticket de travail
   (RM1835) vivait dans l'enfant. Critère : **réutilisable par d'autres

@@ -2,7 +2,7 @@
 """pm-env-migrate — migre un workspace PRÉ-NORME vers le layout RM1993 (RM2028).
 
 Adoption IN-PLACE (zéro re-clone) de l'existant. Patron pré-norme constaté
-(uniforme sur calicote/*) :
+(uniforme sur clienta/*) :
 
     <ws>/.git        repo "<projet>-core" (branche main) qui tracke .mmi-pm/   → RESTE
     <ws>/dev/.git    CLONE SÉPARÉ du repo de CODE, branche dev, parfois dirty
@@ -141,7 +141,7 @@ def repo_info(d: Path) -> dict | None:
 
 
 def code_basename(origin: str) -> str:
-    """`gitlab:calicote/doli-presta-sync.git` → `doli-presta-sync`."""
+    """`gitlab:clienta/doli-presta-sync.git` → `doli-presta-sync`."""
     name = origin.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
     return name[:-4] if name.endswith(".git") else name
 

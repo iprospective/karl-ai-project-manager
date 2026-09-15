@@ -31,7 +31,7 @@ Roundcube, il tient en trois règles :
 ```sieve
 require ["fileinto"];
 # rule:[clients]
-if anyof (header :contains "from" "@calyclay.com", … 11 motifs …)
+if anyof (header :contains "from" "@<domaine-client>", … 11 motifs …)
 { fileinto "INBOX.Clients"; stop; }
 # rule:[Gitlab]   → INBOX.Gitlab
 # rule:[Vault]    → INBOX.Vault

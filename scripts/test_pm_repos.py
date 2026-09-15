@@ -89,7 +89,7 @@ check("validate_remotes : remotes non-mapping refusé",
 
 # ── 2. Rattachement, par ordre de sûreté ────────────────────────────────────
 
-RICH = {"name": "matnat_sf7", "instance": "gogs-alpha",
+RICH = {"name": "clientd_sf7", "instance": "gogs-alpha",
         "remotes": {"origin": {"url": "https://gogs.alpha.test/o/r.git",
                                "ssh": "ssh://gogs@alpha-tools/o/r.git"}}}
 
@@ -161,7 +161,7 @@ check("merge_remote : transport identique à l'URL → pas de ssh redondant",
 
 merged = pm_repos.merge_entry(
     RICH,
-    {"name": "matnat_sf7", "remotes": {"origin": "ssh://gogs@alpha-tools/o/r.git"},
+    {"name": "clientd_sf7", "remotes": {"origin": "ssh://gogs@alpha-tools/o/r.git"},
      "integration_branch": "dev"})
 check("merge_entry : `instance:` déclaré survit au backfill",
       merged.get("instance") == "gogs-alpha")

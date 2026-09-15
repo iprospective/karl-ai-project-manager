@@ -84,9 +84,9 @@ class Disposable(unittest.TestCase):
 
 
 class GardeComplete(unittest.TestCase):
-    """Le scénario réel de pisceen/presta, docroot '.'."""
+    """Le scénario réel de clientf/presta, docroot '.'."""
 
-    def test_cas_pisceen(self):
+    def test_cas_clientf(self):
         st = ["?? pm-env.txt",
               "?? yaml/f6aec2be.php",
               "?? yaml/f6aec2be.php.meta"]
@@ -95,7 +95,7 @@ class GardeComplete(unittest.TestCase):
         dirt = [l for l in st if not M.is_disposable(l, own, pats)]
         self.assertEqual(dirt, [], "le teardown ne doit plus rien trouver de sale")
 
-    def test_cas_pisceen_sans_motifs_projet(self):
+    def test_cas_clientf_sans_motifs_projet(self):
         """Sans teardown_ignore, le canari passe mais le cache de l'appli bloque encore."""
         st = ["?? pm-env.txt", "?? yaml/f6aec2be.php"]
         dirt = [l for l in st if not M.is_disposable(l, M.own_artifacts("."), [])]

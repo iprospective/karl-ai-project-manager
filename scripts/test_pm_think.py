@@ -307,7 +307,7 @@ for txt, exp in [
         # dettes réelles : un reste à faire, auto-suffisant
         ("Tu deploies pour l'instant en ssh -A, on verra plus tard pour faire plus propre.", True),
         ("du coup, ticket pour plus tard : permettre de specifier/surcharger pour chaque projet le task manager", True),
-        ("go. Juste la modif de champs dans le redmine matnat, on verra plus tard... je dois le valider en equipe.", True),
+        ("go. Juste la modif de champs dans le redmine clientd, on verra plus tard... je dois le valider en equipe.", True),
         ("Il manque aussi le dictionnaire des données dans le projet.", True),
         ("note que le vault age ne se verrouille pas", True),
         # contrainte sans reste à faire, et pas auto-suffisante
@@ -330,7 +330,7 @@ for txt, exp in [
     check(f"{'garde' if exp else 'écarte'} « {txt[:46]}… » ({motif})", ok == exp)
 
 print("\n[RM3062] signatures, moisson, élagage")
-for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
+for txt, exp in [("étudie et chiffre la tâche RM3058 du client clientd projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
                  ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),
                  ("note que le vault age ne se verrouille pas", True), ("il faudra faire un point sur les parties du kernel les plus utilisées", True),
                  ("le choix des lots doit être figé dans prestashop.", False), ("On pourrait réfléchir à découper encore plus fin en modules, avec des renvois vers des fichiers détaillés ?", True),

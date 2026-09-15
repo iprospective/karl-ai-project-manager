@@ -87,7 +87,7 @@ Le dossier `paths.entities_dir` (par défaut `{projects_root}/clients`) regroupe
 
 | `type` | Sémantique | Exemples |
 |---|---|---|
-| `client` (défaut) | Entité commerciale tierce qui commande des prestations | `lemathou` (perso/freelance Mathieu), `pisceen`, `calicote` |
+| `client` (défaut) | Entité commerciale tierce qui commande des prestations | `lemathou` (perso/freelance Mathieu), `clientf`, `clienta` |
 | `product` | Écosystème produit dont iprospective développe des modules (génériques) ou maintient une instance interne | `redmine`, `dolibarr`, `prestashop`, `symfony` |
 | `self` | Entité où l'on est client de soi-même : outils internes, scripts propres, projets perso non commerciaux | `iprospective` (entreprise freelance), `lemathou` aussi (projets perso de Mathieu) |
 
@@ -111,7 +111,7 @@ on utilise deux champs dans le frontmatter `project/overview.md` :
 
 | Champ | Sens | Côté |
 |---|---|---|
-| `used_by_clients: [<slug>, ...]` | Liste des entités qui consomment ce projet | déclaré côté **fournisseur** (ex: module Dolibarr générique liste `pisceen, calicote, calyclay`) |
+| `used_by_clients: [<slug>, ...]` | Liste des entités qui consomment ce projet | déclaré côté **fournisseur** (ex: module Dolibarr générique liste `clientf, clienta, clientb`) |
 | `provided_by: <client>/<projet>` | Pointeur vers le projet fournisseur | déclaré côté **consommateur** (ex: un projet client qui s'appuie sur le module) |
 
 Ces deux champs sont **redondants par construction**, pour permettre la lecture dans les
@@ -412,7 +412,7 @@ documents PM via un URI dédié.
 vaultwarden://<organization>/<collection>/<item>
 ```
 
-Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+Ex : `vaultwarden://iprospective/clienta-agents/prod-db`.
 
 **Architecture du vault** (chez iprospective) :
 

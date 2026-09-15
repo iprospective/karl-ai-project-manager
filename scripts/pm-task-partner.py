@@ -27,7 +27,7 @@ l'instance primaire.
 Ce que la commande écrit :
   * `refs[]` du frontmatter (type `partner_issue`) + `updated` ;
   * le CF Redmine **« Réf ticket outil externe »** (CF 9 — `string`, 16 caractères max)
-    sous forme compacte `matnat#5576`, si `REDMINE_CF_PARTNER_ISSUE_ID` est configuré ;
+    sous forme compacte `clientd#5576`, si `REDMINE_CF_PARTNER_ISSUE_ID` est configuré ;
     sans lui, on saute proprement (le lien local reste posé). L'URL complète, trop longue
     pour ce champ, reste dans le `refs[]` du frontmatter ;
   * une entrée `.log.md` ;
@@ -174,7 +174,7 @@ def cmd_link(cfg, args):
             res = pm_partner.resolve_secondary(meta, reg, args.instance)
             issue_id = args.issue
             if getattr(args, "create_remote", False):
-                # Cas MatNat : le ticket n'existe pas encore chez eux, on le crée puis
+                # Cas Clientd : le ticket n'existe pas encore chez eux, on le crée puis
                 # on rattache dans la foulée. Le titre part tel quel : c'est le sujet
                 # commun, pas un contenu interne.
                 if issue_id:

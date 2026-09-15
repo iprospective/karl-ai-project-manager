@@ -15,7 +15,7 @@ Chaque projet déclare ses branches de référence dans le frontmatter de
 
 ```yaml
 git:
-  repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
+  repo: <url-ou-alias>      # ex: git:sfy/clientf-clientc/clientf-prestashop.git
   remote: origin            # alias du remote de référence
   prod_branch: main         # branche de prod (main par défaut ; master si legacy)
   integration_branch: dev   # branche d'intégration : agrège les devs testés

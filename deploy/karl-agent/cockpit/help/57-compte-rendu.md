@@ -10,7 +10,7 @@ quand tu l'as **annoncé**, ou quand tu l'as **écarté**. Rien ne part sans toi
 ## Le parcours
 
 1. Le **badge** du bouton compte les évolutions livrées qui attendent d'être annoncées.
-2. Le **clic** déroule un client par ligne, avec son reste à annoncer : `Calicote (5)`.
+2. Le **clic** déroule un client par ligne, avec son reste à annoncer : `Clienta (5)`.
 3. La **page du client** liste ses tickets, **groupés par projet** — mais les cases se
    cochent **en travers des projets** : un même compte-rendu peut couvrir le site et la
    synchro. Tout est coché à l'ouverture (le cas courant : annoncer ce qui vient de sortir).
@@ -63,7 +63,7 @@ que tu choisis : un contact de l'annuaire dans la liste déroulante, ou une adre
 
 Un test **n'écrit rien** : pas de `sent_at`, pas de `sent_to`, la file ne bouge pas. Tu
 peux en envoyer autant que tu veux avant le vrai envoi. En ligne de commande :
-`mmi-pm client-notify test calicote --rm 3025 --to moi@exemple.fr`.
+`mmi-pm client-notify test clienta --rm 3025 --to moi@exemple.fr`.
 
 La liste déroulante propose **tout l'annuaire**, pas seulement les contacts du client : elle
 ne dépend donc pas des destinataires configurés sur le projet. C'est voulu — un intervenant
@@ -84,10 +84,10 @@ Le panneau et la CLI font **exactement le même geste** — même code, même em
 
 ```
 mmi-pm client-notify pending                      # la file, groupée par client
-mmi-pm client-notify preview calicote --rm 3025   # l'aperçu, sans rien envoyer
-mmi-pm client-notify send calicote --rm 3025 --yes
-mmi-pm client-notify dismiss calicote --rm 3042 --yes
-mmi-pm client-notify queue calicote --rm 3025 --yes   # (re)mettre en file
+mmi-pm client-notify preview clienta --rm 3025   # l'aperçu, sans rien envoyer
+mmi-pm client-notify send clienta --rm 3025 --yes
+mmi-pm client-notify dismiss clienta --rm 3042 --yes
+mmi-pm client-notify queue clienta --rm 3025 --yes   # (re)mettre en file
 ```
 
 `queue` sert quand la file doit être reformée à la main : un envoi qui a échoué, une

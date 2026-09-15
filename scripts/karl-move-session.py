@@ -66,7 +66,7 @@ def session_is_live(sid: str, engine: str = "claude") -> list:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Déplace une session Claude Code vers un autre projet.")
     ap.add_argument("--session", required=True, help="session_id (UUID)")
-    ap.add_argument("--to", required=True, help="cwd cible, ex. /zfs/workspaces/calicote/prestashop")
+    ap.add_argument("--to", required=True, help="cwd cible, ex. /zfs/workspaces/clienta/prestashop")
     ap.add_argument("--engine", default="claude")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="passer outre la garde 'session vivante'")

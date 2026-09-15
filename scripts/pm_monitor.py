@@ -301,7 +301,7 @@ def _clients_connus() -> dict:
             except OSError:
                 continue
         doms = set()
-        # `\b` couperait « materiaux-naturels.fr » en « naturels.fr » : le tiret n'est pas un caractère
+        # `\b` couperait « clientd.example » en « naturels.fr » : le tiret n'est pas un caractère
         # de mot. D'où la garde explicite à gauche, qui garde le label entier.
         motif = r"(?<![\w.-])([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.(?:com|fr|net|org|io|dev))"
         for txt in textes:
@@ -319,7 +319,7 @@ def _projets_de(client: str) -> list:
 
 
 def _racine(nom: str) -> str:
-    """Le domaine enregistrable : les deux derniers labels (« a.b.materiaux-naturels.fr » → celui-ci).
+    """Le domaine enregistrable : les deux derniers labels (« a.b.clientd.example » → celui-ci).
     Approximation assumée : elle suffit pour un parc, et une association douteuse se corrige à la main."""
     parts = [x for x in str(nom or "").lower().split(".") if x]
     return ".".join(parts[-2:]) if len(parts) >= 2 else ""
@@ -341,8 +341,8 @@ def proposition(hote: str, connus=None) -> dict:
             pr = _projets_de(slug)
             return {"client": slug, "project": pr[0] if len(pr) == 1 else "",
                     "source": PAR_SLUG, "confiance": 0.8}
-    # On compare sur le domaine ENREGISTRABLE (les deux derniers labels) : « prd.materiaux-naturels.fr »
-    # et « gogs.materiaux-naturels.fr » désignent le même client, alors qu'aucun n'est un suffixe de l'autre.
+    # On compare sur le domaine ENREGISTRABLE (les deux derniers labels) : « prd.clientd.example »
+    # et « gogs.clientd.example » désignent le même client, alors qu'aucun n'est un suffixe de l'autre.
     racine = _racine(h)
     for slug, doms in connus.items():
         for dom in doms:

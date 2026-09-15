@@ -17,7 +17,7 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   const { mountSearch } = await import(path.join(DIR, "src/modules/search/search.controller.js"));
   // — RM2770 / RM2639 / RM2830 : la requête —
   assert.strictEqual(M.searchQuery("abc", { source: "local" }, ""), "/api/search/tickets?q=abc", "source locale = requête historique"); assert(M.searchQuery("x", { source: "redmine" }, "").includes("source=redmine") && M.searchQuery("x", { source: "both" }, "").includes("source=both"));
-  assert(M.searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"), "le filtre explicite prime sur le contexte"); assert(M.searchQuery("x", {}, "calicote").includes("client=calicote")); assert(!M.searchQuery("x", {}, "").includes("client="));
+  assert(M.searchQuery("x", { client: "cliente" }, "clienta").includes("client=cliente"), "le filtre explicite prime sur le contexte"); assert(M.searchQuery("x", {}, "clienta").includes("client=clienta")); assert(!M.searchQuery("x", {}, "").includes("client="));
   const qFull = M.searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, ""); ["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(f => assert(qFull.includes(f), f)); assert(M.searchQuery("a b&c", {}, "").includes("q=a%20b%26c")); assert.strictEqual(M.searchQuery(null, null, null), "/api/search/tickets?q=");
   assert(/tag=refacto/.test(M.searchQuery("x", { tag: "refacto" }, ""))); assert(!/tag=/.test(M.searchQuery("x", {}, "")));
   // — la ligne de contexte —

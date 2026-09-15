@@ -152,7 +152,7 @@ def test_link_writes_ref_and_log():
         ref = fm["refs"][0]
         assert ref["type"] == "partner_issue" and ref["instance"] == "redmine-matnat"
         assert ref["issue_id"] == 1234 and ref["role"] == "mirror"
-        assert ref["url"] == "https://tasks.materiaux-naturels.fr/issues/1234"
+        assert ref["url"] == "https://tasks.clientd.example/issues/1234"
         assert ref["last_seen_journal_id"] is None
         assert fm["updated"] != "2026-08-12T10:00", "updated doit être rafraîchi"
         assert "redmine-matnat#1234" in _log(proj)
@@ -171,7 +171,7 @@ def test_link_dry_run_writes_nothing():
 def test_link_refuses_undeclared_instance():
     with tempfile.TemporaryDirectory() as d:
         cfg, proj = _make_tree(Path(d))
-        rc, o = _link(cfg, instance="redmine-pisceen")
+        rc, o = _link(cfg, instance="redmine-clientf")
         assert rc != 0 and "secondaire" in o
         assert _fm(proj)["refs"] == []
 
@@ -583,12 +583,12 @@ def _cf(activated=True, cf_id="9"):
 
 
 def test_cf_gets_a_compact_reference():
-    """16 caractères max : c'est `matnat#5576` qui part, pas l'URL."""
+    """16 caractères max : c'est `clientd#5576` qui part, pas l'URL."""
     with tempfile.TemporaryDirectory() as d:
         cfg, _ = _make_tree(Path(d))
         with _cf() as store:
             _link(cfg, issue=5576, role="mirror")
-        assert store[9001] == "matnat#5576"
+        assert store[9001] == "clientd#5576"
         assert len(store[9001]) <= 16
 
 
@@ -611,7 +611,7 @@ def test_sync_cf_repairs_existing_links():
             _link(cfg, issue=5576, role="mirror")        # CF non posé à l'époque
         with _cf() as store:
             rc, o = _call(cli.cmd_sync_cf, cfg, _args(rm_id=9001, all=False))
-        assert rc == 0 and store[9001] == "matnat#5576"
+        assert rc == 0 and store[9001] == "clientd#5576"
         assert "1 ticket(s) à jour" in o
 
 
@@ -631,7 +631,7 @@ def test_unlink_clears_the_reference():
         cfg, _ = _make_tree(Path(d))
         with _cf() as store:
             _link(cfg, issue=5576)
-            assert store[9001] == "matnat#5576"
+            assert store[9001] == "clientd#5576"
             _call(cli.cmd_unlink, cfg, _args(rm_id=9001, instance="redmine-matnat",
                                              issue=5576))
             assert store[9001] == ""                     # plus de lien → champ vidé

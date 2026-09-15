@@ -14,7 +14,7 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   let st = T.upsertTab([], "session", "2668", "RM2668");
   assert.equal(st.tabs.length, 1); assert.equal(st.active, "session:2668"); assert.equal(st.tabs[0].pinned, false);
   st = T.upsertTab(st.tabs, "review", "2670", "RM2670"); assert.deepEqual(st.tabs.map(t => t.kind), ["review"], "le temporaire précédent cède la place");
-  st = T.upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true }); st = T.upsertTab(st.tabs, "project", "calyclay/infra", "calyclay/infra");
+  st = T.upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true }); st = T.upsertTab(st.tabs, "project", "clientb/infra", "clientb/infra");
   assert.deepEqual(st.tabs.map(t => t.kind), ["review", "project"]); st = T.upsertTab(st.tabs, "newticket", "", "nouveau ticket"); assert.deepEqual(st.tabs.map(t => t.kind), ["review", "newticket"]);
   const before = st.tabs.length; st = T.upsertTab(st.tabs, "review", "2670", "RM2670"); assert.equal(st.tabs.length, before); assert.equal(st.active, "review:2670");
   let c = T.closeTabAt(st.tabs, "review:2670", "review:2670"); assert.equal(c.active, "newticket:"); c = T.closeTabAt(c.tabs, "newticket:", "newticket:"); assert.equal(c.tabs.length, 0); assert.equal(c.active, null);
@@ -27,8 +27,8 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   assert.equal(T.closeTabAt(withDash, "dash:", "dash:").tabs.length, 2, "fermer l'onglet permanent ne ferme rien");
   const after = T.closeTabAt(withDash, "review:2744", "review:2744"); assert.deepEqual(after.tabs.map(t => t.kind), ["dash"]); assert.equal(after.active, "dash:");
   // — RM2795 : la marque —
-  const TABS = [{ kind: "dash", key: "", pinned: true, fixed: true }, { kind: "review", key: "2744", pinned: true }, { kind: "session", key: "2673", pinned: false }, { kind: "project", key: "calicote/infra", pinned: true }];
-  assert(T.pinMark(TABS, "review", "2744").includes("📌") && T.pinMark(TABS, "project", "calicote/infra").includes("📌"));
+  const TABS = [{ kind: "dash", key: "", pinned: true, fixed: true }, { kind: "review", key: "2744", pinned: true }, { kind: "session", key: "2673", pinned: false }, { kind: "project", key: "clienta/infra", pinned: true }];
+  assert(T.pinMark(TABS, "review", "2744").includes("📌") && T.pinMark(TABS, "project", "clienta/infra").includes("📌"));
   assert.strictEqual(T.pinMark(TABS, "session", "2673"), ""); assert.strictEqual(T.pinMark(TABS, "review", "9999"), ""); assert.strictEqual(T.pinMark(TABS, "session", "2744"), "");
   assert.strictEqual(T.pinMark(TABS, "dash", ""), "", "l'onglet permanent n'est pas une épingle qu'on choisit"); assert.strictEqual(T.pinMark(null, "review", "1"), "");
   assert.strictEqual(T.pinMark(TABS, "review", 2744), T.pinMark(TABS, "review", "2744")); assert(/title="Épinglé dans les onglets/.test(T.pinMark(TABS, "review", "2744")));
@@ -45,7 +45,7 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   assert.strictEqual(T.tabTooltip({ kind: "review", key: "2744" }, {}, K.parseViewKey), "RM2744"); assert(tt({ kind: "session", key: "2673" }).includes("Améliorations")); assert.strictEqual(tt({ kind: "session", key: "calymix" }), "session calymix");
   assert(tt({ kind: "file", key: K.viewKey(["wt", "/w/repo", "src/api/handlers.py"]) }).includes("src/api/handlers.py")); assert(tt({ kind: "dir", key: K.viewKey(["wt", "/w/repo", ""]) }).includes("racine"));
   const tc = tt({ kind: "commit", key: K.viewKey(["2749", "abcdef1234567890"]) }); assert(tc.includes("abcdef1234567890") && tc.includes("2749"));
-  assert(tt({ kind: "conf", key: K.viewKey(["project", "calicote", "presta"]) }).includes("calicote/presta")); assert(tt({ kind: "client", key: K.viewKey(["calicote"]) }).includes("calicote"));
+  assert(tt({ kind: "conf", key: K.viewKey(["project", "clienta", "presta"]) }).includes("clienta/presta")); assert(tt({ kind: "client", key: K.viewKey(["clienta"]) }).includes("clienta"));
   assert.strictEqual(tt({ kind: "dash", key: "" }), "tableau de bord"); assert.strictEqual(tt({ kind: "pm", key: "" }), "commandes PM"); assert.strictEqual(tt({ kind: "settings", key: "" }), "réglages du cockpit"); assert.strictEqual(tt({}), "");
   console.log("✓ infobulles (RM2775) : titres résolus, chemins, panneaux");
 

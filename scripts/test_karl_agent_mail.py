@@ -38,7 +38,7 @@ q.mkdir(parents=True)
     "key": "aaa111", "from": "client@x.fr", "from_name": "Client", "subject": "Panne",
     "date": "2026-08-17T09:00", "folder": "INBOX.Clients", "body": "corps du client",
     "attachments": [{"name": "devis.pdf", "type": "application/pdf", "size": 12}],
-    "routing": {"client": "calyclay", "project": None, "confidence": 0.8,
+    "routing": {"client": "clientb", "project": None, "confidence": 0.8,
                 "source": "contacts"},
 }), encoding="utf-8")
 (q / "bbb222.json").write_text(json.dumps({
@@ -130,9 +130,9 @@ ka.op_mail_draft({"key": "aaa111"})
 check("rédaction : corps entier NON transmis par défaut",
       "--full-body" not in seen["args"])
 
-ka.op_mail_create({"key": "aaa111", "project": "calyclay/infra", "priority": "high"})
+ka.op_mail_create({"key": "aaa111", "project": "clientb/infra", "priority": "high"})
 check("création : corrections humaines transmises",
-      "--project" in seen["args"] and "calyclay/infra" in seen["args"]
+      "--project" in seen["args"] and "clientb/infra" in seen["args"]
       and "high" in seen["args"])
 ka.op_mail_create({"key": "aaa111", "note_on": "2661"})
 check("création : rattachement à un fil transmis",

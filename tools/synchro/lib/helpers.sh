@@ -24,8 +24,8 @@ confirm() {
 guard_local_target() {
   case "$DB_TO" in
     # Suffixes "locaux" reconnus. *_dolibarr couvre les bases Dolibarr de dev
-    # (ex: calicote_dolibarr) dont le nom n'a pas de suffixe _dev ; aucune base
-    # de PROD ici n'est nommée *_dolibarr (prod = erp_calicote, sono0634_doli966…).
+    # (ex: clienta_dolibarr) dont le nom n'a pas de suffixe _dev ; aucune base
+    # de PROD ici n'est nommée *_dolibarr (prod = erp_clienta, sono0634_doli966…).
     *_test|*_dev|*_presta|*_sync|*_preprod|*_local|*_dolibarr) : ;;
     *) die "DB_TO='$DB_TO' ne ressemble pas à une base locale (suffixe _test/_dev/...). Sécurité : abandon." ;;
   esac
@@ -97,7 +97,7 @@ mysql_local_db() { mysql "${MYSQL_AUTH_ARGS[@]}" "$DB_TO" "$@"; }
 #
 # Pourquoi : <type>_adapt_db couvre ce qui vaut pour tous les sites d'un même type (domaine,
 # SSL, mails, maintenance). Certains sites ont en plus des correctifs qui leur sont propres et
-# sans lesquels l'environnement local est inutilisable — chez Calicote, une valeur de
+# sans lesquels l'environnement local est inutilisable — chez Clienta, une valeur de
 # configuration corrompue d'un module fait tomber tout le front en 500 dès que le mode debug
 # est actif. Ces correctifs n'ont rien à faire dans une lib partagée, et la conf
 # d'environnement ne peut pas surcharger <type>_adapt_db (sync.sh la source AVANT la lib).

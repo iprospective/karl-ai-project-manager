@@ -12,9 +12,9 @@ const assert = require("assert");
 const DIR = __dirname;
 
 const mails = [
-  { key: "aaa1", subject: "Panne de caisse", from_name: "CalyClay", from: "a@b.fr",
+  { key: "aaa1", subject: "Panne de caisse", from_name: "Clientb", from: "a@b.fr",
     date: "2026-08-17T09:00", folder: "INBOX.Clients", state: "à traiter", attachments: 2,
-    routing: { client: "calyclay", project: null, source: "contacts", confidence: 0.8 } },
+    routing: { client: "clientb", project: null, source: "contacts", confidence: 0.8 } },
   { key: "bbb2", subject: "Re: suite", from: "c@d.fr", date: "2026-08-16T09:00",
     state: "créé", created_rm: 2710, rm_id: 2661, routing: {} },
   { key: "ccc3", subject: "Merci", from: "e@f.fr", date: "2026-08-15T09:00",
@@ -22,7 +22,7 @@ const mails = [
 ];
 const opened = Object.assign({}, mails[0], {
   body: "Bonjour,\nça plante.", body_truncated: true,
-  draft: { title: "Caisse HS", project: "calyclay/dolibarr", priority: "high",
+  draft: { title: "Caisse HS", project: "clientb/dolibarr", priority: "high",
            description: "Le TPE ne répond plus.", confidence: 0.75, actionable: true,
            warnings: ["projet hors liste (x) → écarté"] },
 });
@@ -60,7 +60,7 @@ function fakeElement() {
   // — modèle : invariants et dérivations, sans HTML —
   assert.throws(() => EmailFactory.one({ subject: "sans clé" }), /champs manquants key/);
   const es = EmailFactory.many(mails);
-  assert.strictEqual(routingTarget(es[0]), "calyclay/?", "client sans projet doit rester « /? » (pas de choix silencieux)");
+  assert.strictEqual(routingTarget(es[0]), "clientb/?", "client sans projet doit rester « /? » (pas de choix silencieux)");
   assert.strictEqual(routingTarget(es[1]), "à classer");
   assert.deepStrictEqual(es[1].routing, {}); assert.strictEqual(es[1].attachments, 0);
   console.log("✓ modèle : factory (clé requise, défauts), cible de routage");
@@ -70,7 +70,7 @@ function fakeElement() {
   assert.strictEqual(vm0.confidence, "80%"); assert.strictEqual(vm0.source, "contacts");
   assert.strictEqual(vm0.badge, "•"); assert(!vm0.open); assert(!vm0.hasDraft);
   const vmo = new EmailViewModel(EmailFactory.one(opened), { openKey: "aaa1" });
-  assert(vmo.open && vmo.hasDraft); assert.strictEqual(vmo.draftProject, "calyclay/dolibarr");
+  assert(vmo.open && vmo.hasDraft); assert.strictEqual(vmo.draftProject, "clientb/dolibarr");
   assert.strictEqual(vmo.draftPriority, "high"); assert.strictEqual(vmo.draftConfidence, "75%");
   assert.deepStrictEqual(vmo.actions().map(a => a.id), ["center", "draft", "create", "note", "reroute", "dismiss"]);
   assert.strictEqual(new EmailViewModel(es[2], {}).dismissedReason, "accusé de réception");
@@ -80,7 +80,7 @@ function fakeElement() {
   const vms = es.map(e => new EmailViewModel(e, {}));
   assert(/file vide/.test(String(MailList([]))), "file vide non signalée");
   let out = String(MailList(vms));
-  assert(/calyclay\/\?/.test(out), "client sans projet doit rester « /? »");
+  assert(/clientb\/\?/.test(out), "client sans projet doit rester « /? »");
   assert(/80%/.test(out) && /contacts/.test(out), "confiance et source absentes");
   assert(/📎2/.test(out), "pièces jointes non signalées");
   assert(/↩ RM2661/.test(out), "réponse à un fil non signalée");
@@ -89,7 +89,7 @@ function fakeElement() {
   assert(!/Créer le ticket/.test(out), "les actions ne doivent apparaître que sur l'email déplié");
   out = String(MailList([vmo]));
   assert(/id="ml-title" value="Caisse HS"/.test(out), "titre non pré-rempli");
-  assert(/id="ml-project" value="calyclay\/dolibarr"/.test(out), "projet non pré-rempli");
+  assert(/id="ml-project" value="clientb\/dolibarr"/.test(out), "projet non pré-rempli");
   assert(/<option selected>high<\/option>/.test(out), "priorité non pré-sélectionnée");
   assert(/projet hors liste/.test(out), "avertissement de la proposition non affiché");
   assert(/tronqué à la relève/.test(out), "troncature du corps non signalée");

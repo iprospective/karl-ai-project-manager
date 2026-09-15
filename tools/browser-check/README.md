@@ -12,7 +12,7 @@ comme ligne de protocole de test.
 ## Pourquoi cet outil existe
 
 Le 2026-09-08 (RM3025), une modification front est partie en production sans passage
-navigateur et a cassé l'ajout au panier de Calicote. Deux causes, **aucune visible en
+navigateur et a cassé l'ajout au panier de Clienta. Deux causes, **aucune visible en
 test unitaire** :
 
 1. un endpoint `addpalier` en **500** — il faut exécuter la requête pour le voir ;
@@ -62,7 +62,7 @@ le premier. C'est précisément la distinction qui manquait sur RM3025.
 
 ```bash
 node tools/browser-check/browser-check.js \
-  --url https://calicote-presta-2.test.iprospective.fr/fr/p/2025-cappelletti-farcis-sans-gluten-pasta-di-venezia \
+  --url https://clienta-presta-2.test.iprospective.fr/fr/p/2025-cappelletti-farcis-sans-gluten-pasta-di-venezia \
   --expect-selector ".js-palier-form" \
   --click ".js-palier-form button[type=submit]" \
   --expect-change ".cart-products-count" \
@@ -83,7 +83,7 @@ ok   aucune erreur JS en console
 
 **L'env de recette du ticket**, celui que `pm-task-take` a monté : c'est le seul dont on
 sait qu'il porte exactement la branche testée. Ne pas rsyncer vers une préprod partagée
-pour « aller plus vite » — c'est ce qui a abîmé `calicote-presta-2.test` pendant RM3025.
+pour « aller plus vite » — c'est ce qui a abîmé `clienta-presta-2.test` pendant RM3025.
 La préprod ne sert qu'à la recette d'intégration, une fois la branche fusionnée.
 
 ## Structure

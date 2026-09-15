@@ -10,7 +10,7 @@ Invariants valables sur les **quatre** boutiques PrestaShop du parc. Chaque
 `environments.md` de projet renvoie ici et ne garde que **ses** spécificités.
 
 Tout ce qui suit est **constaté**, pas supposé : les pièges des § 2, 4 et 5 ont chacun
-coûté une MEP (RM2625, pisceen, 2026-08-13).
+coûté une MEP (RM2625, clientf, 2026-08-13).
 
 > ⚠ **Tripwire prod (NORMS)** : aucune commande mutante sans consentement humain explicite
 > **pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte,
@@ -80,7 +80,7 @@ invalide le cache de configuration, l'`UPDATE` non.
 ## 2. ⚠ `php7.4`, jamais `php`
 
 Sur les serveurs hébergeant plusieurs versions, le `php` par défaut n'est **pas** celui du
-site. Sur la prod pisceen il est en **8.5**, sur laquelle PrestaShop 1.7.8 **ne démarre
+site. Sur la prod clientf il est en **8.5**, sur laquelle PrestaShop 1.7.8 **ne démarre
 pas** (doctrine/dbal : `PDOConnection::query() must be compatible with PDO::query()`, fatal
 dès l'autoload).
 
@@ -97,7 +97,7 @@ Même règle sur le conteneur de dev, où `php` est aussi en 8.5.
 ## 3. `git pull --ff-only`, après inspection ciblée
 
 Les arbres de prod PrestaShop sont **durablement sales** : les modules écrivent dans des
-fichiers trackés (91 fichiers modifiés côté pisceen). C'est normal, ce n'est pas un
+fichiers trackés (91 fichiers modifiés côté clientf). C'est normal, ce n'est pas un
 incident — mais ça interdit de lire `git status` en bloc.
 
 ```bash
@@ -164,7 +164,7 @@ printf("%s : %s → %s | upgrades dispo=%d appliqués=%d succès=%s\n",
 exit($res['success'] ? 0 : 1);
 ```
 
-Vérifié sur l'env de dev pisceen le 2026-08-14 :
+Vérifié sur l'env de dev clientf le 2026-08-14 :
 
 ```
 cins_newproductfields : 1.0.1 → 1.0.2 | upgrades dispo=1 appliqués=1 succès=oui
@@ -235,7 +235,7 @@ foreach (array_slice($argv, 1) as $idCart) {
 }
 ```
 
-Sortie réelle (env de dev pisceen, 2026-08-14) :
+Sortie réelle (env de dev clientf, 2026-08-14) :
 
 ```
 panier 54806 : port=9,76 € | 2 produit(s)
@@ -263,7 +263,7 @@ Pour les projets qui en ont un, **le push miroir fait partie de la MEP**, pas d'
 optionnelle : un partenaire externe consomme le miroir et travaillerait sinon sur une
 version périmée.
 
-Aujourd'hui **pisceen** est le seul cas actif du parc (miroir `gogs`, confirmé Mathieu
+Aujourd'hui **clientf** est le seul cas actif du parc (miroir `gogs`, confirmé Mathieu
 2026-07-21). L'alias `gogs:` passe par une clé **avec passphrase** : si l'agent SSH est
 vide, le push échoue en `Permission denied (publickey)` — ce n'est **pas** un faux positif
 à ignorer, il faut faire charger la clé.
@@ -275,22 +275,22 @@ documenter » sont des **trous connus**, pas des oublis de rédaction.
 
 | Projet | Version PS | PHP CLI | Branche prod | Remote de déploiement | Miroir | Préfixe BDD |
 |---|---|---|---|---|---|---|
-| `pisceen/presta` | 1.7.8.10 | `php7.4` | `master` | `gitlab` (**`ssh -A` requis**) | **gogs (actif)** | `ps_` |
-| `calicote/prestashop` | 1.7.8.7 | `php7.4` | `master` | alias SSH `calicote-presta` | — | `ps_` |
-| `calyclay/prestashop` | 1.7.8.11 | `php7.4` | `master` | *pas de prod documentée* | `gogs` (remote présent) | `psy7_` |
-| `villa-cactus/prestashop` | 1.7.8.7 | à documenter | `master` | remote `dev` = `php_calicote@prod.iprospective.fr:public/villa-cactus` | `gogs` (remote présent) | `ps_` |
+| `clientf/presta` | 1.7.8.10 | `php7.4` | `master` | `gitlab` (**`ssh -A` requis**) | **gogs (actif)** | `ps_` |
+| `clienta/prestashop` | 1.7.8.7 | `php7.4` | `master` | alias SSH `clienta-presta` | — | `ps_` |
+| `clientb/prestashop` | 1.7.8.11 | `php7.4` | `master` | *pas de prod documentée* | `gogs` (remote présent) | `psy7_` |
+| `clienth/prestashop` | 1.7.8.7 | à documenter | `master` | remote `dev` = `php_clienta@prod.iprospective.fr:public/clienth` | `gogs` (remote présent) | `ps_` |
 
 Points d'attention spécifiques :
 
-- **pisceen** — le `-A` (agent forwarding) est **obligatoire** : la prod n'a pas de clé
+- **clientf** — le `-A` (agent forwarding) est **obligatoire** : la prod n'a pas de clé
   propre vers le GitLab sfy, elle utilise la clé forwardée. Miroir gogs à pousser.
-- **calicote** — flux à **trois** branches : `branche de ticket → dev → recette préprod →
+- **clienta** — flux à **trois** branches : `branche de ticket → dev → recette préprod →
   master → prod`. Une MR de ticket vise **`dev`**, jamais `master` (incident 2026-08-02 :
   quatre tickets mergés directement dans `master`). Purge de cache déclarée nécessaire en
   `post_deploy` (overrides).
-- **calyclay** — gros WIP non committé hérité du checkout historique (~608 fichiers) : à
+- **clientb** — gros WIP non committé hérité du checkout historique (~608 fichiers) : à
   trier **avant** tout travail sérieux. Aucune prod documentée.
-- **villa-cactus** — **pas d'`environments.md`** ; trois remotes hétérogènes (bitbucket
+- **clienth** — **pas d'`environments.md`** ; trois remotes hétérogènes (bitbucket
   `cins`, `dev` en SSH direct vers `prod.iprospective.fr`, `gogs`, `origin`). Le déploiement
   réel est à établir avant toute MEP.
 

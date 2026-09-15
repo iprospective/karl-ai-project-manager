@@ -87,7 +87,7 @@ const seed = () => {
           pane.innerHTML = '<div class="card"><div class="cdc-tablewrap"><table class="cdc-table">'
             + '<thead><tr><th>Sévérité</th><th>Hôte</th><th>Alerte</th><th>Depuis</th><th>Client / projet</th><th></th></tr></thead><tbody>'
             + Array.from({ length: 12 }, (_, i) =>
-                '<tr><td><span class="st">avertissement</span></td><td class="mon-host">srv-prd-tres-long-nom-' + i + '.materiaux-naturels.fr</td>'
+                '<tr><td><span class="st">avertissement</span></td><td class="mon-host">srv-prd-tres-long-nom-' + i + '.clientd.example</td>'
                 + '<td>Une alerte dont l intitule est volontairement tres long pour eprouver la largeur du tableau ' + i + '</td>'
                 + '<td>3 j</td><td>iprospective/pm-ai-agents</td><td><button class="mini">＋ ticket</button></td></tr>').join("")
             + "</tbody></table></div></div>";

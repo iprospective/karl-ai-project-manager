@@ -31,7 +31,7 @@ Usage :
     karl-mail-draft.py --draft all --dry-run        # ce qui serait proposé
     karl-mail-draft.py --show <clé>                 # la proposition en détail
     karl-mail-draft.py --create <clé>               # crée le ticket (ou pose la note)
-    karl-mail-draft.py --create <clé> --project calyclay/dolibarr --priority high
+    karl-mail-draft.py --create <clé> --project clientb/dolibarr --priority high
     karl-mail-draft.py --dismiss <clé> --reason "pas une demande"
 """
 import argparse

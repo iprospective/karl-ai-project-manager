@@ -94,7 +94,7 @@ def build_client_colocated_map(workspaces_root: Path, maxdepth: int = 4):
     """Scanne `workspaces_root` pour les `.mmi-pm-client/client/overview.md` et
     retourne `{client_slug: mmipm_client_path}`. Mapping par slug lu dans
     l'overview (robuste au nommage de dossier, ex. perso↔lemathou,
-    lydie-mariller↔lydiemariller)."""
+    clientg↔clientg)."""
     out = {}
     try:
         res = subprocess.run(
@@ -128,7 +128,7 @@ def run(cmd, dry):
 
 def main():
     ap = argparse.ArgumentParser(description="Bascule du résolveur PM (RM1949).")
-    ap.add_argument("client", help="slug du client à basculer (ex: calicote)")
+    ap.add_argument("client", help="slug du client à basculer (ex: clienta)")
     ap.add_argument("--execute", action="store_true",
                     help="exécuter réellement (défaut : dry-run)")
     ap.add_argument("--workspaces-root", default="/zfs/workspaces",

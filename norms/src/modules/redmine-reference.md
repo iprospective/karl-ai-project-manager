@@ -6,13 +6,13 @@
 **Règle (tripwire #14).** Toute opération Redmine ciblant un projet (sync wiki,
 note, description, stats…) résout le projet par référence **non ambiguë** :
 
-- `client/slug` — ex. `matnat/infra` (désambiguïsation explicite) ;
-- ou le `redmine.project_id` **unique** — ex. `matnat-infra`.
+- `client/slug` — ex. `clientd/infra` (désambiguïsation explicite) ;
+- ou le `redmine.project_id` **unique** — ex. `clientd-infra`.
 
 **Jamais par match de slug nu.** Plusieurs clients partagent un même slug — ex.
-`infra` chez `abatik`, `calicote`, `calyclay`, `matnat`, `pisceen`. Un résolveur
+`infra` chez `cliente`, `clienta`, `clientb`, `clientd`, `clientf`. Un résolveur
 « premier slug trouvé » écrit **silencieusement dans le mauvais projet Redmine**
-(incident RM2410 : `pm-wiki-sync infra` ciblait `abatik` au lieu de `matnat`).
+(incident RM2410 : `pm-wiki-sync infra` ciblait `cliente` au lieu de `clientd`).
 
 **Conf = source de vérité, bloquante.** Chaque `meta.yml` de projet **doit**
 déclarer un `redmine.project_id` **unique**. Absence ⇒ opération Redmine

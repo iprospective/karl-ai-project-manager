@@ -23,8 +23,8 @@ PROVIDERS = {
     "defaults": {"task": "redmine-ipro"},
     "servers": {
         "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.ipro"},
-        "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat",
-                           "slug": "matnat"},
+        "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd",
+                           "slug": "clientd"},
     },
 }
 MAP = {"en_cours": {"label": "En cours", "id": 2},

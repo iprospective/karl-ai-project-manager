@@ -45,13 +45,13 @@ def test_detection():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
-        core = tmp / "matnat-infra-core"
+        core = tmp / "clientd-infra-core"
         core.mkdir()
         git_init(core)
         (core / ".mmi-pm").mkdir()
         check("dossier .mmi-pm réel → core", pmp.is_core_repo(core), True)
 
-        client = tmp / "matnat-core"
+        client = tmp / "clientd-core"
         client.mkdir()
         git_init(client)
         (client / ".mmi-pm-client").mkdir()

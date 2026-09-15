@@ -13,8 +13,8 @@ Usage :
     karl-mail-route.py                       # route la file (sources hors-ligne)
     karl-mail-route.py --redmine             # + comptes Redmine des expéditeurs
     karl-mail-route.py --json                # sortie machine
-    karl-mail-route.py --set <clé> --to calyclay/dolibarr     # correction (apprise)
-    karl-mail-route.py --set <clé> --to calyclay --domain     # apprend le DOMAINE
+    karl-mail-route.py --set <clé> --to clientb/dolibarr     # correction (apprise)
+    karl-mail-route.py --set <clé> --to clientb --domain     # apprend le DOMAINE
     karl-mail-route.py --explain <clé>       # pourquoi cette proposition
 
 `<clé>` = identifiant court affiché par `karl-mail-fetch.py --queue` (ou l'adresse).

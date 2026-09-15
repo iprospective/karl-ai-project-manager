@@ -869,8 +869,8 @@ def sync_one_project(cfg, url, key, slug, args):
 def main():
     ap = argparse.ArgumentParser(description="Sync docs PM ⇄ Wiki Redmine (RM1821, P1→P4)")
     ap.add_argument("project", nargs="?",
-                    help="réf projet PRÉCISE : client/slug (ex. matnat/infra) ou "
-                         "redmine.project_id (ex. matnat-infra) — RM2430, plus de slug ambigu")
+                    help="réf projet PRÉCISE : client/slug (ex. clientd/infra) ou "
+                         "redmine.project_id (ex. clientd-infra) — RM2430, plus de slug ambigu")
     ap.add_argument("--all", action="store_true",
                     help="tous les projets wiki-sync-enabled (.wiki-sync/state.json présent)")
     ap.add_argument("--push", action="store_true",

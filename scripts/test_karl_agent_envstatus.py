@@ -44,7 +44,7 @@ def skip(name, raison):
 
 # — git_divergence_level : le cœur de la détection d'incident —
 lv, det = ka.git_divergence_level(9, 3, 0)
-check("ahead+behind → error (divergence non-ff, l'incident pisceen)", lv == "error")
+check("ahead+behind → error (divergence non-ff, l'incident clientf)", lv == "error")
 check("ahead+behind → détaille non poussés ET retard", "9" in det and "3" in det)
 lv, det = ka.git_divergence_level(5, 0, 0)
 check("ahead seul → warn (push différé)", lv == "warn" and "non poussé" in det)
@@ -107,7 +107,7 @@ else:
     skip("chaque dépôt porte sa section (client)",
          "aucun dépôt sous le projects_root du core de test")
 check("env_repo_section : <client>/<projet> → client",
-      ka.env_repo_section("calicote/prestashop") == "calicote")
+      ka.env_repo_section("clienta/prestashop") == "clienta")
 check("env_repo_section : profondeur 1 → « hors client »",
       ka.env_repo_section(".mmi-pm-core") == "hors client")
 check("env_repo_section : entrées molles tolérées",

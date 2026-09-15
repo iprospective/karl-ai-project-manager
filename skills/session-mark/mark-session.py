@@ -28,7 +28,7 @@ DEUX TITRES DISTINCTS (RM2570, 2026-08-07) :
     par `pm-session-status.py title`.
   Les deux ne communiquent pas. Ils ont divergé le 2026-08-07 : le worklog
   était titré « RM2557 — bons plans du blog… » alors que la session CLI
-  s'appelait encore « Étudier et chiffrer la tâche RM2557 Calicote », et le
+  s'appelait encore « Étudier et chiffrer la tâche RM2557 Clienta », et le
   skill proposait donc un `/rename` avec l'ancien nom. Depuis, le worklog PM
   sert de repli quand la session n'a jamais été renommée à la main.
 

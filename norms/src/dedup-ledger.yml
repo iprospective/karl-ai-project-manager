@@ -156,7 +156,7 @@ rewritten:
       **URI :**
       vaultwarden://<organization>/<collection>/<item>
 
-      Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+      Ex : `vaultwarden://iprospective/clienta-agents/prod-db`.
 
       **Architecture du vault** (chez iprospective) :
 

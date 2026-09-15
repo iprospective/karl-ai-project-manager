@@ -40,7 +40,7 @@ lib/<type>.sh                # spécifique au type : presta / dolibarr / wordpre
 **Où l'exécuter** : partout où sont réunis (a) les alias SSH de prod et (b) un `~/.my.cnf`
 atteignant le MySQL cible (`10.0.3.11`). Historiquement l'**host** (`MathouDell`) ; **depuis
 le 31/07/2026 le conteneur `dev` convient aussi**, un `~/.my.cnf` y ayant été ajouté — vérifié
-sur une synchro complète de calicote-presta. Le symlink `/home/workspaces → /zfs/workspaces`
+sur une synchro complète de clienta-presta. Le symlink `/home/workspaces → /zfs/workspaces`
 existe des deux côtés.
 
 Pipeline de `sync.sh` : `guard_local_target` → (`<type>_sync_files`) → `db_dump_from_prod`
@@ -108,7 +108,7 @@ Exécuté après les adaptations de type, il reçoit `DB_TO`, `DB_PREFIX`, `DOMA
 **idempotent**. Introuvable ou en échec, il produit un avertissement mais n'interrompt pas la
 synchro : les données sont déjà importées, mieux vaut un environnement partiellement ajusté.
 
-Cas typique (Calicote, RM2434) : une valeur de configuration corrompue en base de prod
+Cas typique (Clienta, RM2434) : une valeur de configuration corrompue en base de prod
 (`FPA_CHECK_EXPORT` = la chaîne `'false'`, sur laquelle le module fait `unserialize()`) est
 silencieuse en production mais fait tomber tout le front en 500 en dev, où le mode debug est
 actif. Sans hook, le correctif serait à refaire à la main après chaque synchro — ou à cacher
@@ -131,11 +131,11 @@ Pas de `lib/<type>.sh` adapté → écrire un script qui suit le **même pattern
 Le placer dans `<projet>/scripts/` (convention historique `<projet>-<type>-sync.sh`) ou
 créer un `lib/<type>.sh` si le type a vocation à se réutiliser.
 
-## Exemple de référence : calicote Dolibarr
+## Exemple de référence : clienta Dolibarr
 
-`environments/calicote-dolibarr-dev.conf` + `lib/dolibarr.sh`. Prod `erp_calicote`
-(ssh `calicote-erp`) → local `calicote_dolibarr`. Lancer un rafraîchissement BDD :
+`environments/clienta-dolibarr-dev.conf` + `lib/dolibarr.sh`. Prod `erp_clienta`
+(ssh `clienta-erp`) → local `clienta_dolibarr`. Lancer un rafraîchissement BDD :
 
 ```bash
-cd /home/workspaces/ai/project-management/tools/synchro && ./sync.sh calicote-dolibarr-dev --db --yes
+cd /home/workspaces/ai/project-management/tools/synchro && ./sync.sh clienta-dolibarr-dev --db --yes
 ```

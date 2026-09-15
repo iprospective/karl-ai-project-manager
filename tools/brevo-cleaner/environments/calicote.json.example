@@ -4,7 +4,7 @@
   "//name_attrs": "Attributs Brevo contenant prénom/nom (PRENOM/NOM, ou FIRSTNAME/LASTNAME selon le mapping du compte).",
   "//order_attrs": "Attributs montant commande / CA : si l'un est > 0, le contact est PROTÉGÉ (jamais supprimé).",
   "//allowlist_cmds": "Commandes shell imprimant les emails légitimes (un par ligne). Sources prod : clients, abonnés newsletter, contacts ERP… Tout email présent ici est PROTÉGÉ.",
-  "//detector": "Seuils du détecteur de noms-charabia. Calibrés sur la vague de spam calicote 2024 (caractères aléatoires majuscule/minuscule).",
+  "//detector": "Seuils du détecteur de noms-charabia. Calibrés sur la vague de spam clienta 2024 (caractères aléatoires majuscule/minuscule).",
 
   "env_name": "MONPROJET",
   "brevo_key_cmd": "bash environments/MONPROJET/brevo-key.sh",

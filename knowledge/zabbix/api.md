@@ -24,7 +24,7 @@ de l'[INDEX](../INDEX.md) — même famille de piège que le search GitLab.
 
 ## Piège n°2 : hôtes en FQDN
 
-Les `host` techniques sont des FQDN (`obs.iprospective.net`, `elrond.abatk.com`…), pas les
+Les `host` techniques sont des FQDN (`obs.iprospective.net`, `elrond.cliente.example`…), pas les
 noms courts. Un `filter:{"host":["obs"]}` ne matche rien ; un `search` partiel matche
 n'importe quoi (le 1er venu). Résoudre le FQDN exact d'abord (`host.get` + filtre client).
 

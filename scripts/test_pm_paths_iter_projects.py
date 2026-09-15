@@ -51,17 +51,17 @@ def test_non_regression_dossiers_reels():
     (l'ancien : `p.is_dir() and not p.is_symlink()`)."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "calicote", "dolibarr")
-        mk_project(root, "calicote", "prestashop")
-        mk_project(root, "calicote", "infra")
-        mk_project(root, "pisceen", "dolibarr")
+        mk_project(root, "clienta", "dolibarr")
+        mk_project(root, "clienta", "prestashop")
+        mk_project(root, "clienta", "infra")
+        mk_project(root, "clientf", "dolibarr")
         cfg = make_cfg(root)
         got = sorted((e, p) for e, p, _ in cfg.iter_projects())
         want = [
-            ("calicote", "dolibarr"),
-            ("calicote", "infra"),
-            ("calicote", "prestashop"),
-            ("pisceen", "dolibarr"),
+            ("clienta", "dolibarr"),
+            ("clienta", "infra"),
+            ("clienta", "prestashop"),
+            ("clientf", "dolibarr"),
         ]
         assert got == want, got
 
@@ -70,10 +70,10 @@ def test_filtre_entity():
     """Le filtre `entity=` ne yield que les projets de cette entité."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "calicote", "dolibarr")
-        mk_project(root, "pisceen", "dolibarr")
+        mk_project(root, "clienta", "dolibarr")
+        mk_project(root, "clientf", "dolibarr")
         cfg = make_cfg(root)
-        got = sorted(p for _, p, _ in cfg.iter_projects(entity="calicote"))
+        got = sorted(p for _, p, _ in cfg.iter_projects(entity="clienta"))
         assert got == ["dolibarr"], got
 
 
@@ -82,16 +82,16 @@ def test_symlink_projet_bascule_suivi():
     co-localisé hors arbo. Il DOIT être découvert (nouvelle capacité)."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        # cible co-localisée hors de clients/ (simule .../workspaces/calicote/dpsync/.mmi-pm)
-        colocated = root / "workspace_calicote_dpsync" / ".mmi-pm"
+        # cible co-localisée hors de clients/ (simule .../workspaces/clienta/dpsync/.mmi-pm)
+        colocated = root / "workspace_clienta_dpsync" / ".mmi-pm"
         (colocated / "tasks").mkdir(parents=True)
         # un projet réel + un projet symlinké, sous la même entité
-        mk_project(root, "calicote", "dolibarr")
-        link = root / "clients" / "calicote" / "projects" / "prestasync"
+        mk_project(root, "clienta", "dolibarr")
+        link = root / "clients" / "clienta" / "projects" / "prestasync"
         link.symlink_to(colocated)
         cfg = make_cfg(root)
         got = sorted((e, p) for e, p, _ in cfg.iter_projects())
-        assert got == [("calicote", "dolibarr"), ("calicote", "prestasync")], got
+        assert got == [("clienta", "dolibarr"), ("clienta", "prestasync")], got
         # le path yieldé pour le symlink résout bien vers la cible co-localisée
         ypaths = {p: path for _, p, path in cfg.iter_projects()}
         assert ypaths["prestasync"].resolve() == colocated.resolve()
@@ -102,9 +102,9 @@ def test_dedup_par_cible_resolue():
     (anti double-comptage : ici un dossier réel + un symlink vers ce dossier)."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        real = mk_project(root, "calicote", "dolibarr")
+        real = mk_project(root, "clienta", "dolibarr")
         # alias symlink dans la même arbo projets, pointant le dossier réel
-        alias = root / "clients" / "calicote" / "projects" / "dolibarr-alias"
+        alias = root / "clients" / "clienta" / "projects" / "dolibarr-alias"
         alias.symlink_to(real)
         cfg = make_cfg(root)
         names = sorted(p for _, p, _ in cfg.iter_projects())
@@ -116,8 +116,8 @@ def test_fichier_non_yieldé():
     """Un fichier (non-dossier) dans projects/ est ignoré."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "calicote", "dolibarr")
-        (root / "clients" / "calicote" / "projects" / "README.md").write_text("x")
+        mk_project(root, "clienta", "dolibarr")
+        (root / "clients" / "clienta" / "projects" / "README.md").write_text("x")
         cfg = make_cfg(root)
         got = sorted(p for _, p, _ in cfg.iter_projects())
         assert got == ["dolibarr"], got
@@ -127,8 +127,8 @@ def test_symlink_casse_ignoré():
     """Un symlink cassé (cible inexistante) ne casse pas l'itération."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "calicote", "dolibarr")
-        broken = root / "clients" / "calicote" / "projects" / "ghost"
+        mk_project(root, "clienta", "dolibarr")
+        broken = root / "clients" / "clienta" / "projects" / "ghost"
         broken.symlink_to(root / "nexiste-pas")
         cfg = make_cfg(root)
         got = sorted(p for _, p, _ in cfg.iter_projects())

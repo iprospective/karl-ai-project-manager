@@ -19,16 +19,16 @@ Apache + PHP-FPM avec pool dédié `{{fpm_pool}}` — convention `<projet>-<phpv
 
 | Placeholder | Valeur | Notes |
 |---|---|---|
-| `{{client_slug}}` |  | ex: `lydiemariller` |
-| `{{project_slug}}` |  | ex: `lydiemariller-com` |
-| `{{domain}}` |  | ex: `lydiemariller.com` |
+| `{{client_slug}}` |  | ex: `clientg` |
+| `{{project_slug}}` |  | ex: `clientg-com` |
+| `{{domain}}` |  | ex: `clientg.example` |
 | `{{target_container}}` |  | ex: `prd` (LXC sur host iprospective) |
 | `{{target_host_ssh}}` |  | ex: `prd.lxc` ou alias SSH |
-| `{{fpm_pool}}` |  | ex: `lydiemariller-82` (projet-phpver) |
+| `{{fpm_pool}}` |  | ex: `clientg-82` (projet-phpver) |
 | `{{php_version}}` |  | 7.4 / 8.0 / 8.1 / 8.2 / 8.3 — **doit matcher la version source** |
 | `{{app_path}}` |  | ex: `/var/www/{{client_slug}}/htdocs` |
-| `{{db_name}}` |  | ex: `lydiemariller_wp` |
-| `{{db_user}}` |  | ex: `lydiemariller` |
+| `{{db_name}}` |  | ex: `clientg_wp` |
+| `{{db_user}}` |  | ex: `clientg` |
 | `{{old_host}}` |  | nom de l'hébergeur source (ovh, o2switch, hostinger…) |
 | `{{old_host_ssh}}` |  | accès SSH ou SFTP source |
 | `{{old_doc_root}}` |  | racine WP côté source (ex: `~/public_html`) |

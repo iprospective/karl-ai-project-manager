@@ -91,13 +91,13 @@ def with_registry(reg):
 with_registry(REG)
 
 with Env():
-    f = pm_forge.GogsForge("Materiaux-Naturels/matnat_sf7",
+    f = pm_forge.GogsForge("Clientd/clientd_sf7",
                            instance=REG.get("gogs-alpha"))
     check("Gogs : base = URL de l'instance, sans GOGS_URL",
           f.base == "https://gogs.alpha.test")
     check("Gogs : lien-compare construit sans variable globale",
           f.compare_url("dev", "main")
-          == "https://gogs.alpha.test/Materiaux-Naturels/matnat_sf7/compare/main...dev")
+          == "https://gogs.alpha.test/Clientd/clientd_sf7/compare/main...dev")
 
     g = pm_forge.GitlabForge("g/p", instance=REG.get("gitlab-ipro"))
     check("GitLab : base = URL de l'instance", g.base == "https://gitlab.example.test")
@@ -141,11 +141,11 @@ with Env():
     # Le vrai gain : un remote tunnelé, que forge_name() ne sait pas lire.
     check("forge_name seul ne sait pas lire 'alpha-tools'",
           pm_forge.forge_name("alpha-tools") is None)
-    fg = pm_forge.get_forge(url="ssh://gogs@alpha-tools/Materiaux-Naturels/matnat_sf7.git",
+    fg = pm_forge.get_forge(url="ssh://gogs@alpha-tools/Clientd/clientd_sf7.git",
                             repo="/nonexistent")
     check("get_forge : remote tunnelé résolu par l'alias",
           fg.name == "gogs" and fg.base == "https://gogs.alpha.test"
-          and fg.repo_path == "Materiaux-Naturels/matnat_sf7")
+          and fg.repo_path == "Clientd/clientd_sf7")
 
 # ── 4. Deux instances du même type coexistent ───────────────────────────────
 

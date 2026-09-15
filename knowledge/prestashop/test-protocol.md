@@ -2,7 +2,7 @@
 
 Surface de test canonique d'un site PrestaShop, et comment la rejouer. Voisin de
 `knowledge/prestashop/mep.md` (§ 6 « présenter un vrai panier » en est l'ancêtre
-manuel). Éprouvé sur calicote (RM2564, RM2576) avant d'être normé (RM2885).
+manuel). Éprouvé sur clienta (RM2564, RM2576) avant d'être normé (RM2885).
 
 ## Modèle en couches
 

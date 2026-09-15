@@ -29,8 +29,8 @@ la cible proposée. Un clic déplie l'email : corps du message, proposition, act
 
 | Repère | Sens |
 |---|---|
-| `calyclay/dolibarr` | client **et** projet déterminés |
-| `calyclay/?` | client sûr, **projet à choisir** (le client en a plusieurs) |
+| `clientb/dolibarr` | client **et** projet déterminés |
+| `clientb/?` | client sûr, **projet à choisir** (le client en a plusieurs) |
 | `à classer` | aucune source fiable — à toi de dire qui c'est |
 | `↩ RM2661` | l'email **répond à un fil** : il donnera une note, pas un ticket |
 | `→ RM2710` | un ticket a déjà été créé depuis cet email |

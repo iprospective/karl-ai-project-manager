@@ -28,7 +28,7 @@ refs:
   - type: partner_issue
     instance: redmine-matnat      # DOIT être un secondaire déclaré du projet
     issue_id: 1234
-    url: https://tasks.materiaux-naturels.fr/issues/1234
+    url: https://tasks.clientd.example/issues/1234
     role: mirror                  # mirror | upstream | related
     last_seen_journal_id: null    # pointeur de synchro, PAR LIEN
     added: 2026-08-12

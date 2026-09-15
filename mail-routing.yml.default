@@ -1,0 +1,16 @@
+# Routage des emails entrants → client/projet (RM2669) — MODÈLE.
+#
+# La table réelle vit à côté, dans `mail-routing.yml`, qui n'est PAS versionné
+# (RM3200) : elle nomme des clients et contient des adresses réelles, or le dépôt
+# de code part sur un miroir GitHub public — comme l'annuaire de contacts, qui
+# vit pour la même raison dans le dépôt de DONNÉES (cf. `contacts_dir` dans
+# `pm.config.yml`).
+#
+# Sur une instance neuve : copier ce fichier en `mail-routing.yml`. Son absence
+# n'est pas une erreur — `pm_mail_routing.load_routing()` repart d'une table vide
+# et les corrections humaines la remplissent (`karl-mail-route.py`).
+#
+# Forme : addresses/<email> ou domains/<domaine> → 'client' ou 'client/projet'.
+# Aucun contenu d'email ici.
+addresses: {}
+domains: {}

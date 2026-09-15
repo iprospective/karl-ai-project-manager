@@ -52,7 +52,7 @@ check("sélection bornée (200 max) sans planter",
       len(ka._cn_rm({"rm": list(range(1, 500))})) == 400)
 
 # ── 2. client ────────────────────────────────────────────────────────────────
-check("client valide accepté", ka._cn_client({"client": "calicote"}) == "calicote")
+check("client valide accepté", ka._cn_client({"client": "clienta"}) == "clienta")
 check("client vide refusé", raises(lambda: ka._cn_client({"client": ""}), 400))
 check("client avec séparateur de chemin refusé",
       raises(lambda: ka._cn_client({"client": "../etc"}), 400))
@@ -80,17 +80,17 @@ def fake_run(cmd, **kw):
 
 ka.subprocess.run = fake_run
 
-FAKE_OUT = '{"ok": true, "total": 3, "clients": [{"client": "calicote", "count": 3}]}'
-res = ka.op_client_notify_pending({"client": "calicote"})
+FAKE_OUT = '{"ok": true, "total": 3, "clients": [{"client": "clienta", "count": 3}]}'
+res = ka.op_client_notify_pending({"client": "clienta"})
 check("pending : le script est appelé en --json", calls[-1][-1] == "--json")
 check("pending : sous-commande et client transmis",
-      calls[-1][-3:] == ["pending", "calicote", "--json"], str(calls[-1][-3:]))
+      calls[-1][-3:] == ["pending", "clienta", "--json"], str(calls[-1][-3:]))
 check("pending : la donnée du script est rendue telle quelle", res["total"] == 3)
 ka.op_client_notify_pending({})
 check("pending sans client : aucun filtre passé", "--json" == calls[-1][-1] and "pending" == calls[-1][-2])
 
 FAKE_OUT = '{"ok": true, "to": ["a@x.fr"], "subject": "S", "body": "B", "count": 1}'
-prev = ka.op_client_notify_preview({"client": "calicote", "rm": [3025], "protocole": False})
+prev = ka.op_client_notify_preview({"client": "clienta", "rm": [3025], "protocole": False})
 check("preview : aperçu rendu (destinataires, sujet, corps)",
       prev["subject"] == "S" and prev["to"] == ["a@x.fr"])
 check("preview : n'envoie pas — sous-commande `preview`, sans --yes",
@@ -98,36 +98,36 @@ check("preview : n'envoie pas — sous-commande `preview`, sans --yes",
 check("preview : le refus de protocole est transmis", "--sans-protocole" in calls[-1])
 
 FAKE_OUT = '{"ok": true, "sent": 2, "to": ["a@x.fr"], "rm": [3025, 2948]}'
-sent = ka.op_client_notify_send({"client": "calicote", "rm": [3025, 2948]})
+sent = ka.op_client_notify_send({"client": "clienta", "rm": [3025, 2948]})
 check("send : confirmation explicite (--yes) posée par l'API, pas par le front",
       "--yes" in calls[-1] and "send" in calls[-1])
 check("send : rend ce qui est parti et à qui", sent["sent"] == 2 and sent["to"] == ["a@x.fr"])
 
 # — envoi de TEST : endpoint DISTINCT de send, pour qu'un test ne puisse jamais partir au client —
 FAKE_OUT = '{"ok": true, "test": true, "to": ["moi@ipro.fr"], "subject": "[TEST] S"}'
-t = ka.op_client_notify_test({"client": "calicote", "rm": [3025], "to": ["moi@ipro.fr"]})
+t = ka.op_client_notify_test({"client": "clienta", "rm": [3025], "to": ["moi@ipro.fr"]})
 check("test : sous-commande `test`, jamais `send`, et jamais --yes",
       "test" in calls[-1] and "send" not in calls[-1] and "--yes" not in calls[-1])
 check("test : l'adresse est transmise", "--to" in calls[-1] and "moi@ipro.fr" in calls[-1])
 check("test : rend à qui c'est parti", t["to"] == ["moi@ipro.fr"])
 check("adresse de test invalide refusée",
-      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": ["pasunemail"]}), 400))
+      raises(lambda: ka.op_client_notify_test({"client": "clienta", "rm": [1], "to": ["pasunemail"]}), 400))
 check("adresse vide refusée",
-      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": [""]}), 400))
+      raises(lambda: ka.op_client_notify_test({"client": "clienta", "rm": [1], "to": [""]}), 400))
 check("aucune adresse => refusé (un test sans destinataire n'a pas de sens)",
-      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [1]}), 400))
+      raises(lambda: ka.op_client_notify_test({"client": "clienta", "rm": [1]}), 400))
 check("adresse en chaîne simple tolérée (le front n'envoie qu'un champ)",
-      ka.op_client_notify_test({"client": "calicote", "rm": [1], "to": "moi@ipro.fr"})["to"] == ["moi@ipro.fr"])
+      ka.op_client_notify_test({"client": "clienta", "rm": [1], "to": "moi@ipro.fr"})["to"] == ["moi@ipro.fr"])
 check("test : une sélection vide reste refusée",
-      raises(lambda: ka.op_client_notify_test({"client": "calicote", "rm": [], "to": ["a@b.fr"]}), 400))
+      raises(lambda: ka.op_client_notify_test({"client": "clienta", "rm": [], "to": ["a@b.fr"]}), 400))
 
 FAKE_OUT = '{"ok": true, "dismissed": 1, "rm": [3042]}'
-dis = ka.op_client_notify_dismiss({"client": "calicote", "rm": [3042]})
+dis = ka.op_client_notify_dismiss({"client": "clienta", "rm": [3042]})
 check("dismiss : écarte la sélection, sans email", dis["dismissed"] == 1 and "send" not in calls[-1])
 
 FAKE_OUT = '{"ok": false, "error": "aucun destinataire résolu"}'
 check("échec du script → erreur 400 portant le message, jamais un faux succès",
-      raises(lambda: ka.op_client_notify_send({"client": "calicote", "rm": [1]}), 400))
+      raises(lambda: ka.op_client_notify_send({"client": "clienta", "rm": [1]}), 400))
 FAKE_OUT = "traceback bavard sans json"
 check("sortie illisible → erreur 500 explicite (on n'invente pas un résultat)",
       raises(lambda: ka.op_client_notify_pending({}), 500))

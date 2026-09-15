@@ -23,13 +23,13 @@ au layout RM1993 (`repos/<repo>.git` + `envs/`) :
 Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
 
     repos:
-    - name: matnat_sf7
+    - name: clientd_sf7
       remotes: {origin: ...}
       integration_branch: dev
       runtime:            # absent = env « code seul » (pas de vhost/.user.ini/BDD)
-        pool: matnat-84   # pool FPM partagé du workspace (RM2081)
+        pool: clientd-84   # pool FPM partagé du workspace (RM2081)
         docroot: public   # sous-dossier servi dans l'env
-        db: matnat        # BDD dev partagée (source des clones à la demande)
+        db: clientd        # BDD dev partagée (source des clones à la demande)
         db_clone_default: false   # défaut PROJET : cloner la BDD par ticket ?
         db_clone:                 # paramètres du clone (optionnels)
           exclude_tables: [log_%, cache%]   # motifs LIKE — données exclues,
@@ -37,7 +37,7 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
           post_sql:                         # fixups exécutés SUR LE CLONE, confinés
             - "UPDATE config SET value = 'http://{host}/' WHERE name = 'site_url'"
         post_create:              # setup appli — shell, cwd = worktree (host)
-          - "[ -d vendor ] || cp -r ../matnat_sf7-dev/vendor vendor"
+          - "[ -d vendor ] || cp -r ../clientd_sf7-dev/vendor vendor"
         post_create_container:    # idem mais via ssh env_runtime.ssh_host,
           - "php bin/console cache:clear"   # cwd = worktree (chemin conteneur)
         teardown_ignore:          # RM2679 — chemins NON SUIVIS que l'appli écrit au
@@ -325,7 +325,7 @@ def resolve_base(bare: Path, integration_branch: str | None) -> str:
     """Point de départ de la branche ticket, résolu sur le REMOTE (RM2646).
 
     Retenir le ref LOCAL dès qu'il existe — ce que faisait cette fonction — crée des
-    branches sur une base périmée sans le dire : constaté sur le bare pisceen, dont
+    branches sur une base périmée sans le dire : constaté sur le bare clientf, dont
     `refs/heads/dev` accusait ~200 commits de retard sur `origin/dev`. Le garde vit
     dans `pm_git.resolve_base_ref`, partagé avec `pm-branch-start` : il ne doit pas
     exister d'un seul côté (les deux outils créent des branches de ticket).

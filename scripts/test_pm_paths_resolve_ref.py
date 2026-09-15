@@ -58,37 +58,37 @@ def test_slug_ambigu_leve():
     """Slug partagé par 2 clients → ValueError listant les candidats (pas de choix silencieux)."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "abatik", "infra", "abatik-infra")
-        mk_project(root, "matnat", "infra", "matnat-infra")
+        mk_project(root, "cliente", "infra", "cliente-infra")
+        mk_project(root, "clientd", "infra", "clientd-infra")
         cfg = make_cfg(root)
         _expect_valueerror(lambda: cfg.resolve_project_ref("infra"), needle="ambiguë")
         # les deux candidats sont cités
         try:
             cfg.resolve_project_ref("infra")
         except ValueError as e:
-            assert "abatik/infra" in str(e) and "matnat/infra" in str(e), str(e)
+            assert "cliente/infra" in str(e) and "clientd/infra" in str(e), str(e)
 
 
 def test_client_slug_desambigue():
     """`client/slug` cible précisément le bon projet malgré la collision."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "abatik", "infra", "abatik-infra")
-        mk_project(root, "matnat", "infra", "matnat-infra")
+        mk_project(root, "cliente", "infra", "cliente-infra")
+        mk_project(root, "clientd", "infra", "clientd-infra")
         cfg = make_cfg(root)
-        ent, proj, _ = cfg.resolve_project_ref("matnat/infra")
-        assert (ent, proj) == ("matnat", "infra"), (ent, proj)
+        ent, proj, _ = cfg.resolve_project_ref("clientd/infra")
+        assert (ent, proj) == ("clientd", "infra"), (ent, proj)
 
 
 def test_redmine_project_id_desambigue():
     """Le `redmine.project_id` unique résout sans ambiguïté."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "abatik", "infra", "abatik-infra")
-        mk_project(root, "matnat", "infra", "matnat-infra")
+        mk_project(root, "cliente", "infra", "cliente-infra")
+        mk_project(root, "clientd", "infra", "clientd-infra")
         cfg = make_cfg(root)
-        ent, proj, _ = cfg.resolve_project_ref("matnat-infra")
-        assert (ent, proj) == ("matnat", "infra"), (ent, proj)
+        ent, proj, _ = cfg.resolve_project_ref("clientd-infra")
+        assert (ent, proj) == ("clientd", "infra"), (ent, proj)
 
 
 def test_slug_non_ambigu_ok():
@@ -104,7 +104,7 @@ def test_slug_non_ambigu_ok():
 def test_introuvable_leve():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "matnat", "infra", "matnat-infra")
+        mk_project(root, "clientd", "infra", "clientd-infra")
         cfg = make_cfg(root)
         _expect_valueerror(lambda: cfg.resolve_project_ref("nexiste-pas"), needle="introuvable")
 
@@ -113,10 +113,10 @@ def test_require_redmine_absent_leve():
     """require_redmine=True + projet sans redmine.project_id → bloque."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "matnat", "sansredmine", redmine_id=None)
+        mk_project(root, "clientd", "sansredmine", redmine_id=None)
         cfg = make_cfg(root)
         _expect_valueerror(
-            lambda: cfg.resolve_project_ref("matnat/sansredmine", require_redmine=True),
+            lambda: cfg.resolve_project_ref("clientd/sansredmine", require_redmine=True),
             needle="redmine.project_id",
         )
 
@@ -124,10 +124,10 @@ def test_require_redmine_absent_leve():
 def test_require_redmine_present_ok():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        mk_project(root, "matnat", "infra", "matnat-infra")
+        mk_project(root, "clientd", "infra", "clientd-infra")
         cfg = make_cfg(root)
-        ent, proj, _ = cfg.resolve_project_ref("matnat/infra", require_redmine=True)
-        assert (ent, proj) == ("matnat", "infra"), (ent, proj)
+        ent, proj, _ = cfg.resolve_project_ref("clientd/infra", require_redmine=True)
+        assert (ent, proj) == ("clientd", "infra"), (ent, proj)
 
 
 CASES = [

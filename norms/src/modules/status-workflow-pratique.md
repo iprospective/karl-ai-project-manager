@@ -200,7 +200,7 @@ mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plu
 l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
 proposition d'implémentation est le canal par lequel le raisonnement du modèle fort
 survit à ce transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
-(calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
+(clienta/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
 l'audit sous forme actionnable.
 
 **Condition de sortie.** Une étude sans proposition d'implémentation (hors tickets

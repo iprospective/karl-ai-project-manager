@@ -8,7 +8,7 @@ Ce qui est protégé ici, dans l'ordre d'importance :
   2. **on retrouve une personne par n'importe laquelle de ses adresses** — la
      raison d'être de l'annuaire, qu'un contact recopié chez chaque client ne
      permettait pas (il n'en connaissait qu'une) ;
-  3. la recherche ignore les accents : chercher « noe » doit trouver « Noé »,
+  3. la recherche ignore les accents : chercher « carol » doit trouver « Carol »,
      sinon elle punit l'orthographe correcte ;
   4. les deux formes cohabitent — un `contacts[]` mêlant `ref` et contacts en
      ligne s'affiche entièrement, le temps que la migration passe.
@@ -39,9 +39,9 @@ ANN = {
                      "emails": ["mathieu@iprospective.fr", "contact@iprospective.fr"],
                      "phones": ["+33 6 00"], "internal": True, "redmine_user_id": 79,
                      "note": "destinataire des notifications MEP"},
-    "solsona-noe": {"ref": "solsona-noe", "last_name": "Solsona", "first_name": "Noé",
-                    "emails": ["noe@calyclay.com"], "internal": False},
-    "boite": {"ref": "boite", "emails": ["webmaster@matnat.fr"], "internal": False},
+    "solsona-carol": {"ref": "solsona-carol", "last_name": "Solsona", "first_name": "Carol",
+                    "emails": ["bob@clientb.example"], "internal": False},
+    "boite": {"ref": "boite", "emails": ["webmaster@clientd.example"], "internal": False},
 }
 
 # ── 1. la vue : tri, filtres ─────────────────────────────────────────────────
@@ -50,10 +50,10 @@ check("toutes les personnes sortent", len(v) == 3)
 check("les internes d'abord (ce sont les nôtres, on les cherche le plus)",
       v[0]["ref"] == "iprospective")
 check("puis l'ordre alphabétique du nom",
-      [e["ref"] for e in v[1:]] == ["boite", "solsona-noe"]
+      [e["ref"] for e in v[1:]] == ["boite", "solsona-carol"]
       or [e["name"] for e in v[1:]] == sorted(e["name"] for e in v[1:]))
 check("une personne sans nom est nommée par son adresse",
-      next(e for e in v if e["ref"] == "boite")["name"] == "webmaster@matnat.fr")
+      next(e for e in v if e["ref"] == "boite")["name"] == "webmaster@clientd.example")
 check("le filtre interne ne garde que les nôtres",
       [e["ref"] for e in ka.contacts_view(ANN, internal_only=True)] == ["iprospective"])
 
@@ -61,17 +61,17 @@ check("le filtre interne ne garde que les nôtres",
 def refs(q):
     return sorted(e["ref"] for e in ka.contacts_view(ANN, q))
 
-check("par nom", refs("solsona") == ["solsona-noe"])
+check("par nom", refs("solsona") == ["solsona-carol"])
 check("par prénom", refs("mathieu") == ["iprospective"])
 check("par la PREMIÈRE adresse", refs("mathieu@iprospective.fr") == ["iprospective"])
 check("par la SECONDE adresse — tout l'intérêt de l'annuaire",
       refs("contact@iprospective.fr") == ["iprospective"])
-check("par le domaine d'une adresse", refs("calyclay") == ["solsona-noe"])
+check("par le domaine d'une adresse", refs("clientb") == ["solsona-carol"])
 check("par la ref elle-même", refs("boite") == ["boite"])
 check("par la note", refs("notifications MEP") == ["iprospective"])
-check("les accents sont ignorés : « noe » trouve « Noé »", refs("noe") == ["solsona-noe"])
-check("…et « noé » aussi", refs("noé") == ["solsona-noe"])
-check("la casse est ignorée", refs("SOLSONA") == ["solsona-noe"])
+check("les accents sont ignorés : « carol » trouve « Carol »", refs("carol") == ["solsona-carol"])
+check("…et « carol » aussi", refs("carol") == ["solsona-carol"])
+check("la casse est ignorée", refs("SOLSONA") == ["solsona-carol"])
 check("une recherche sans résultat ne rend rien", refs("zorglub") == [])
 check("annuaire vide toléré", ka.contacts_view({}) == [])
 check("une fiche vide ne casse pas le rendu",
@@ -80,20 +80,20 @@ check("une fiche vide ne casse pas le rendu",
 # ── 3. les contacts d'un client, résolus ─────────────────────────────────────
 ka._annuaire = lambda: ANN
 lignes = [
-    {"ref": "solsona-noe", "role": "owner", "title": "PDG"},
-    {"name": "Yann Le Vourch", "email": "yann@dercya.com", "role": "technique"},
+    {"ref": "solsona-carol", "role": "owner", "title": "PDG"},
+    {"name": "Bob Le Vourch", "email": "carol@clientc.example", "role": "technique"},
     {"ref": "disparu", "role": "facturation"},
     "pas un dict",
 ]
 r = ka._resolve_contacts(lignes)
 check("les trois lignes exploitables sortent (la 4e, invalide, est écartée)", len(r) == 3)
 check("une ref résolue porte l'identité de la personne",
-      r[0]["source"] == "annuaire" and r[0]["name"] == "Noé Solsona"
-      and r[0]["email"] == "noe@calyclay.com")
+      r[0]["source"] == "annuaire" and r[0]["name"] == "Carol Solsona"
+      and r[0]["email"] == "bob@clientb.example")
 check("…et le rôle, qui vient du client, pas de la personne",
       r[0]["role"] == "owner" and r[0]["title"] == "PDG")
 check("un contact EN LIGNE reste affiché pendant la migration",
-      r[1]["source"] == "inline" and r[1]["email"] == "yann@dercya.com")
+      r[1]["source"] == "inline" and r[1]["email"] == "carol@clientc.example")
 check("une ref sans fiche est marquée orpheline", r[2]["source"] == "orphelin")
 check("…et garde son rôle (il reste vrai)", r[2]["role"] == "facturation")
 check("liste vide tolérée", ka._resolve_contacts([]) == [])
@@ -102,16 +102,16 @@ check("« interne » vient de la personne, pas de la ligne",
 
 # ── 4. les endpoints ─────────────────────────────────────────────────────────
 check("/contacts rend la liste", len(ka.op_contacts({})["contacts"]) == 3)
-check("/contacts?q= filtre", [e["ref"] for e in ka.op_contacts({"q": "noe"})["contacts"]]
-      == ["solsona-noe"])
+check("/contacts?q= filtre", [e["ref"] for e in ka.op_contacts({"q": "carol"})["contacts"]]
+      == ["solsona-carol"])
 check("/contacts?internal=1 filtre",
       [e["ref"] for e in ka.op_contacts({"internal": "1"})["contacts"]] == ["iprospective"])
 
-ka._contact_links = lambda ref: ([{"client": "calyclay", "role": "owner", "title": None}]
-                                 if ref == "solsona-noe" else [])
-d = ka.op_contact("solsona-noe")
-check("/contact/<ref> rend la fiche", d["ref"] == "solsona-noe" and d["name"] == "Noé Solsona")
-check("…et ses rattachements", d["links"][0]["client"] == "calyclay")
+ka._contact_links = lambda ref: ([{"client": "clientb", "role": "owner", "title": None}]
+                                 if ref == "solsona-carol" else [])
+d = ka.op_contact("solsona-carol")
+check("/contact/<ref> rend la fiche", d["ref"] == "solsona-carol" and d["name"] == "Carol Solsona")
+check("…et ses rattachements", d["links"][0]["client"] == "clientb")
 try:
     ka.op_contact("inconnu")
     check("une ref inconnue lève 404", False)
@@ -144,7 +144,7 @@ check("pas d'adresse du tout ⇒ rien à dire",
       ka.contact_of_email("", PAR_EMAIL, ANN) is None
       and ka.contact_of_email(None, PAR_EMAIL, ANN) is None)
 check("une personne sans nom est nommée par son adresse",
-      ka.contact_of_email("webmaster@matnat.fr", PAR_EMAIL, ANN)["name"] == "webmaster@matnat.fr")
+      ka.contact_of_email("webmaster@clientd.example", PAR_EMAIL, ANN)["name"] == "webmaster@clientd.example")
 check("annuaire vide : tout le monde est inconnu, rien ne casse",
       ka.contact_of_email("mathieu@iprospective.fr", {}, {})["known"] is False)
 
@@ -168,7 +168,7 @@ def meta_team(*membres, creator="iprospective"):
     return {"creator": creator, "team": list(membres)}
 
 OWNER = {"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}
-AUTRE = {"username": "noe", "email": "noe@calyclay.com", "role": "intervenant"}
+AUTRE = {"username": "carol", "email": "bob@clientb.example", "role": "intervenant"}
 
 r = ka.requester_of(meta_team(AUTRE, OWNER), PAR_EMAIL, ANN)
 check("le demandeur est le membre « owner », pas le premier venu",
@@ -176,7 +176,7 @@ check("le demandeur est le membre « owner », pas le premier venu",
 check("…rendu par son nom d'annuaire", r["name"] == "Mathieu Moulin")
 check("…avec sa qualité d'interne", r["internal"] is True)
 r2 = ka.requester_of(meta_team(AUTRE), PAR_EMAIL, ANN)
-check("sans owner, le premier membre fait foi", r2["ref"] == "solsona-noe")
+check("sans owner, le premier membre fait foi", r2["ref"] == "solsona-carol")
 r3 = ka.requester_of(meta_team({"username": "zoe", "email": "zoe@ailleurs.fr"}), PAR_EMAIL, ANN)
 check("un demandeur hors annuaire reste LISIBLE, il ne disparaît pas",
       r3["known"] is False and r3["name"] == "zoe")

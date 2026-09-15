@@ -35,20 +35,20 @@ def check(name, cond):
 
 
 TYPES = ["feature", "bugfix", "infrastructure", "assistance", "autre"]
-PROJECTS = ["calyclay/dolibarr", "calyclay/infra", "abatik/site"]
+PROJECTS = ["clientb/dolibarr", "clientb/infra", "cliente/site"]
 
 
 # ── validation de la proposition ─────────────────────────────────────────────
 v = D.validate({"actionable": True, "title": "Panne de caisse", "type": "bugfix",
-                "priority": "high", "project": "calyclay/dolibarr",
+                "priority": "high", "project": "clientb/dolibarr",
                 "description": "Le TPE ne répond plus.", "confidence": 0.8},
                TYPES, PROJECTS)
 check("proposition conforme conservée",
       (v["title"], v["type"], v["priority"], v["project"]) ==
-      ("Panne de caisse", "bugfix", "high", "calyclay/dolibarr"))
+      ("Panne de caisse", "bugfix", "high", "clientb/dolibarr"))
 check("confiance normalisée", v["confidence"] == 0.8 and not v["warnings"])
 
-v = D.validate({"title": "X", "project": "calyclay/inexistant"}, TYPES, PROJECTS)
+v = D.validate({"title": "X", "project": "clientb/inexistant"}, TYPES, PROJECTS)
 check("projet inventé écarté (jamais corrigé en douce)", v["project"] is None)
 check("projet inventé signalé", any("hors liste" in w for w in v["warnings"]))
 
@@ -68,15 +68,15 @@ check("non actionnable transmis tel quel", v["actionable"] is False)
 # ── liste de projets proposés ────────────────────────────────────────────────
 class FakeCfg:
     def iter_projects(self, entity=None):
-        for c, p in [("calyclay", "dolibarr"), ("calyclay", "infra"), ("abatik", "site")]:
+        for c, p in [("clientb", "dolibarr"), ("clientb", "infra"), ("cliente", "site")]:
             if entity is None or c == entity:
                 yield c, p, None
 
 
 cfg = FakeCfg()
 check("client routé → seuls ses projets sont proposables",
-      D.candidate_projects(cfg, {"routing": {"client": "calyclay"}})
-      == ["calyclay/dolibarr", "calyclay/infra"])
+      D.candidate_projects(cfg, {"routing": {"client": "clientb"}})
+      == ["clientb/dolibarr", "clientb/infra"])
 check("sans routage → tout le catalogue",
       len(D.candidate_projects(cfg, {})) == 3)
 check("client routé inconnu → repli sur le catalogue",
@@ -98,7 +98,7 @@ check("en-têtes toujours transmis", "Souci" in short and "client@x.fr" in short
 mail = D.kmf()
 mail.queue_dir().mkdir(parents=True, exist_ok=True)
 entry["draft"] = {"title": "Souci de caisse", "type": "bugfix", "priority": "high",
-                  "project": "calyclay/dolibarr", "description": "Le TPE ne répond plus.",
+                  "project": "clientb/dolibarr", "description": "Le TPE ne répond plus.",
                   "model": "claude-opus-5", "confidence": 0.8, "warnings": []}
 D.write_entry(mail, entry)
 
@@ -131,7 +131,7 @@ check("création : pm-task-add appelé", any("pm-task-add.py" in str(x) for x in
 check("création : porcelain (id capturé, jamais prédit)", "--porcelain" in argv)
 check("création : titre, type, priorité, projet transmis",
       "Souci de caisse" in argv and "bugfix" in argv and "high" in argv
-      and "calyclay/dolibarr" in argv)
+      and "clientb/dolibarr" in argv)
 desc_path = pathlib.Path(argv[argv.index("--description-file") + 1])
 # le fichier est supprimé après création : on relit la trace dans l'entrée
 check("création : id repris de la sortie porcelain", entry.get("created_rm") == 9999)
@@ -150,10 +150,10 @@ check("création : pas de doublon sur une entrée déjà traitée", twice)
 entry2 = dict(entry, key="def456", created_rm=None, outcome=None,
               message_id="<m2@x.fr>")
 D.write_entry(mail, entry2)
-D.cmd_create(cfg, mail, entry2, args(project="abatik/site", dry_run=False), repo)
+D.cmd_create(cfg, mail, entry2, args(project="cliente/site", dry_run=False), repo)
 argv = calls[-1]
 check("création : projet imposé en ligne de commande prime",
-      "abatik/site" in argv)
+      "cliente/site" in argv)
 
 # ── note sur un fil existant : jamais un nouveau ticket ──────────────────────
 reply = {"key": "ghi789", "from": "client@x.fr", "from_name": "Client",
@@ -185,7 +185,7 @@ check("--note-on : note posée sur le ticket désigné",
 before = len(calls)
 pending = {"key": "mno345", "from": "a@b.fr", "subject": "demande", "body": "…",
            "message_id": "<m5@b.fr>", "rm_id": None,
-           "draft": {"title": "T", "project": "abatik/site", "type": "autre",
+           "draft": {"title": "T", "project": "cliente/site", "type": "autre",
                      "priority": "normal", "description": "d"}}
 D.write_entry(mail, pending)
 D.cmd_create(cfg, mail, pending, args(dry_run=True), repo)

@@ -5,7 +5,7 @@
 Or un remote a deux propriétés distinctes, dont aucune ne se déduit de l'autre
 (arbitrage du demandeur, 2026-08-20) :
 
-  * le **transport** — l'alias SSH (`gitlab:owner/repo`, `ssh://gogs@matnat-tools/…`)
+  * le **transport** — l'alias SSH (`gitlab:owner/repo`, `ssh://gogs@clientd-tools/…`)
     qui porte le port et la clé via `~/.ssh/config`. C'est ce que git doit recevoir ;
   * l'**identité** — l'URL canonique, seule à rattacher le dépôt à une instance du
     registre (RM2766). Elle n'avait nulle part où vivre.
@@ -13,12 +13,12 @@ Or un remote a deux propriétés distinctes, dont aucune ne se déduit de l'autr
 Forme riche, rétro-compatible :
 
     repos:
-    - name: matnat_sf7
+    - name: clientd_sf7
       instance: gogs-matnat          # rattachement explicite — le plus sûr
       remotes:
         origin:
-          url: https://gogs.materiaux-naturels.fr/Materiaux-Naturels/matnat_sf7.git
-          ssh: ssh://gogs@matnat-tools/Materiaux-Naturels/matnat_sf7.git
+          url: https://gogs.clientd.example/Clientd/clientd_sf7.git
+          ssh: ssh://gogs@clientd-tools/Clientd/clientd_sf7.git
       integration_branch: dev
 
 Une CHAÎNE reste un transport pur, au comportement STRICTEMENT inchangé : les 47

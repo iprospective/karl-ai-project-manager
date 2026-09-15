@@ -162,13 +162,13 @@ def recipient_emails(recipients):
 def resolve_requester(annuaire, creator):
     """Le demandeur d'un ticket, depuis son `creator`, résolu dans l'annuaire.
 
-    `creator` porte un identifiant court (`sandrine`, `mathieu`, `yann`) là où l'annuaire
-    porte des refs (`sandrine-roche-pizzo`, `yann-dercya`). On accepte donc trois
+    `creator` porte un identifiant court (`alice`, `mathieu`, `bob`) là où l'annuaire
+    porte des refs (`alice-martin`, `bob-clientc`). On accepte donc trois
     correspondances, de la plus sûre à la moins sûre :
       1. la ref exacte ;
-      2. le premier segment de la ref (`sandrine-roche-pizzo` → `sandrine`) ;
+      2. le premier segment de la ref (`alice-martin` → `alice`) ;
       3. le prénom.
-    **Une correspondance MULTIPLE n'est pas une correspondance** : deux Sandrine, et on ne
+    **Une correspondance MULTIPLE n'est pas une correspondance** : deux Alice, et on ne
     sait pas laquelle prévenir — on rend `ambiguous`, on ne tire pas au sort. Un email
     envoyé à la mauvaise personne ne se rattrape pas.
 

@@ -274,7 +274,7 @@ def _render_selection(cfg, entity, project, rm, with_protocol):
 
 def cmd_pending(cfg, args):
     """La file de notification, groupée par CLIENT puis par projet — ce que le panneau
-    du cockpit affiche (menu `Calicote (5)`, puis les tickets cochables)."""
+    du cockpit affiche (menu `Clienta (5)`, puis les tickets cochables)."""
     rows = _scan_pending(cfg, args.entity or None)
     by_client = {}
     for r in rows:

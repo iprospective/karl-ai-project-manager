@@ -43,7 +43,7 @@ OWN_DOMAINS_DEFAULT = ["iprospective.fr", "iprospective.net"]
 
 # Domaines de messagerie GRAND PUBLIC : apprendre l'un d'eux comme domaine d'un
 # client router**ait** vers ce client tout mail venant de ce fournisseur. Un vrai
-# cas : le contact CalyClay écrit depuis gmail.com. On refuse — l'adresse exacte,
+# cas : le contact Clientb écrit depuis gmail.com. On refuse — l'adresse exacte,
 # elle, reste apprenable.
 PUBLIC_DOMAINS = {
     "gmail.com", "googlemail.com", "outlook.com", "outlook.fr", "hotmail.com",

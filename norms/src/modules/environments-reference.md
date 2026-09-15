@@ -31,9 +31,9 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 - `status` : `active | disabled | planned`
 - `url`, `admin_url` : URLs publiques/admin
 - `ssh_alias` : **alias SSH** `~/.ssh/config` (avec `ProxyJump`/`HostName`/`User`/clés
-  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `calicote-presta`.
+  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `clienta-presta`.
 - `ssh_target` : **cible SSH explicite** `user@hostname` (fallback quand aucun alias
-  n'est défini). Ex: `calicote@srv1.sfy-gestion.com`.
+  n'est défini). Ex: `deploy@srv1.hebergeur.example`.
 - `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
@@ -56,11 +56,11 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 **Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
 l'host si le fichier est sur une machine distante (`<host>:<path>`).
 - `logs.app` : log applicatif (Symfony/PrestaShop, ex: `var/logs/prod.log`).
-- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/calicote-74.error.log`).
+- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/clienta-74.error.log`).
 - `logs.access` : access log du serveur web. **Convention prod iProspective (OVH)** :
   un fichier par vhost sur le serveur hébergeur, à
   `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`).
-  Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
+  Ex: `sfy-srv1:/var/log/nginx/clienta.com_access.log`. Utile pour analyser la charge
   de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,

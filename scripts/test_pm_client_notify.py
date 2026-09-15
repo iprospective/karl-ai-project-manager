@@ -35,16 +35,16 @@ def check(name, cond):
 check("option absente => inactif, sans contact",
       cn.parse_option({}) == {"actif": False, "contacts": [], "protocole": True})
 check("contacts scalaire normalisé en liste",
-      cn.parse_option({"notif_client_mep": {"actif": True, "contacts": "sandrine"}})
-      == {"actif": True, "contacts": ["sandrine"], "protocole": True})
+      cn.parse_option({"notif_client_mep": {"actif": True, "contacts": "alice"}})
+      == {"actif": True, "contacts": ["alice"], "protocole": True})
 check("contacts None toléré",
       cn.parse_option({"notif_client_mep": {"actif": True, "contacts": None}})["contacts"] == [])
 check("active ssi actif ET au moins un contact",
-      cn.is_option_active({"notif_client_mep": {"actif": True, "contacts": ["sandrine"]}}))
+      cn.is_option_active({"notif_client_mep": {"actif": True, "contacts": ["alice"]}}))
 check("actif mais sans contact => inactif",
       not cn.is_option_active({"notif_client_mep": {"actif": True, "contacts": []}}))
 check("contacts mais actif=false => inactif",
-      not cn.is_option_active({"notif_client_mep": {"actif": False, "contacts": ["sandrine"]}}))
+      not cn.is_option_active({"notif_client_mep": {"actif": False, "contacts": ["alice"]}}))
 # RM3052 — protocole de test dans l'email client : OPTIONNEL, activé par défaut
 check("protocole absent du meta => True (défaut : on l'inclut)",
       cn.parse_option({"notif_client_mep": {"actif": True, "contacts": ["s"]}})["protocole"] is True)
@@ -91,21 +91,21 @@ check("redéployé après dismiss => ré-entre en file (dismissed effacé)",
 
 # ── 3. résolution annuaire + emails ──────────────────────────────────────────
 ANN = {
-    "sandrine-roche-pizzo": {"ref": "sandrine-roche-pizzo", "first_name": "Sandrine",
-                             "last_name": "Roche-Pizzo", "emails": ["sandrine@calicote.com"],
+    "alice-martin": {"ref": "alice-martin", "first_name": "Alice",
+                             "last_name": "Martin", "emails": ["alice@clienta.example"],
                              "phones": ["+33 6 00 00 00 00"]},
     "sans-mail": {"ref": "sans-mail", "first_name": "Bob", "emails": [], "phones": []},
 }
-r = cn.resolve_recipients(ANN, ["sandrine-roche-pizzo", "sans-mail", "inconnu"])
+r = cn.resolve_recipients(ANN, ["alice-martin", "sans-mail", "inconnu"])
 check("ref connue => email/tel/label résolus",
-      r[0]["email"] == "sandrine@calicote.com" and r[0]["tel"] == "+33 6 00 00 00 00"
-      and "Sandrine" in r[0]["label"] and not r[0]["orphan"])
+      r[0]["email"] == "alice@clienta.example" and r[0]["tel"] == "+33 6 00 00 00 00"
+      and "Alice" in r[0]["label"] and not r[0]["orphan"])
 check("ref sans email => email None (pas d'envoi pour elle)",
       r[1]["email"] is None and not r[1]["orphan"])
 check("ref inconnue => orphan signalé (jamais tue)",
       r[2]["orphan"] and r[2]["email"] is None)
 check("emails agrégés = non vides, dédoublonnés, ordre conservé",
-      cn.recipient_emails(r + r) == ["sandrine@calicote.com"])
+      cn.recipient_emails(r + r) == ["alice@clienta.example"])
 
 # un contact peut porter PLUSIEURS emails : tous deviennent destinataires (RM3026)
 ANN_MULTI = {"ipro": {"ref": "ipro", "first_name": "Mathieu",
@@ -119,7 +119,7 @@ check("recipient_emails prend TOUS les emails du contact (ordre + dédup)",
       == ["mathieu@iprospective.fr", "contact@iprospective.fr"])
 
 # ── 4. composition de l'email ────────────────────────────────────────────────
-subj1, body1 = cn.compose_email("Calicote", [
+subj1, body1 = cn.compose_email("Clienta", [
     {"id": 3025, "title": "Fix paliers", "url": "https://redmine/issues/3025",
      "criteria": ["Prix barré sur la fiche", ""], "protocol": "1. Ouvrir 438\n2. Ajouter"},
 ])
@@ -130,25 +130,25 @@ check("corps porte id + titre + lien + critère + protocole",
       and "Prix barré" in body1 and "1. Ouvrir 438" in body1)
 check("critère vide filtré du corps",
       "    • \n" not in body1)
-subj2, _ = cn.compose_email("Calicote", [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}])
+subj2, _ = cn.compose_email("Clienta", [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}])
 check("sujet pluriel pour 2 tickets",
       "2 évolutions mises en ligne" in subj2)
-_, body3 = cn.compose_email("Calicote", [{"id": 9, "title": "Sans détail"}])
+_, body3 = cn.compose_email("Clienta", [{"id": 9, "title": "Sans détail"}])
 check("ticket sans critère/protocole => pas de sections vides",
       "Ce qui change" not in body3 and "Comment le vérifier" not in body3)
 
 # ── 5. compte-rendu CLIENT (multi-projets) — RM3052 ──────────────────────────
 T = lambda i, ti: {"id": i, "title": ti, "url": "https://redmine/issues/%d" % i}  # noqa: E731
-s_mono, b_mono = cn.compose_client_email("Calicote", [{"project": "Site PrestaShop", "tickets": [T(1, "A"), T(2, "B")]}])
+s_mono, b_mono = cn.compose_client_email("Clienta", [{"project": "Site PrestaShop", "tickets": [T(1, "A"), T(2, "B")]}])
 check("client mono-projet : sujet au nom du CLIENT, compte total",
-      "Calicote — 2 évolutions mises en ligne" == s_mono)
+      "Clienta — 2 évolutions mises en ligne" == s_mono)
 check("client mono-projet : PAS d'en-tête de projet (rien d'interne dans l'email)",
       "== Site PrestaShop ==" not in b_mono and "#1" in b_mono and "#2" in b_mono)
-s_multi, b_multi = cn.compose_client_email("Calicote", [
+s_multi, b_multi = cn.compose_client_email("Clienta", [
     {"project": "Site PrestaShop", "tickets": [T(1, "A")]},
     {"project": "Synchro Dolibarr", "tickets": [T(2, "B"), T(3, "C")]}])
 check("client multi-projets : total tous projets confondus dans le sujet",
-      "Calicote — 3 évolutions mises en ligne" == s_multi)
+      "Clienta — 3 évolutions mises en ligne" == s_multi)
 check("client multi-projets : un en-tête par projet, dans l'ordre donné",
       b_multi.index("== Site PrestaShop ==") < b_multi.index("== Synchro Dolibarr =="))
 check("groupe sans ticket ignoré (pas de section vide)",
@@ -207,9 +207,9 @@ check("un retour à la ligne voulu par l'auteur en reste un (nl2br)",
 
 T_HTML = {"id": 3025, "title": "Paliers & <prix>", "url": "https://r/3025",
           "criteria": ["Prix barré"], "protocol": MD}
-sh, hh = cn.compose_client_email_html("Calicote", [{"project": "Site", "tickets": [T_HTML]}])
+sh, hh = cn.compose_client_email_html("Clienta", [{"project": "Site", "tickets": [T_HTML]}])
 check("le sujet HTML est IDENTIQUE au sujet texte (un multipart ne se contredit pas)",
-      sh == cn.compose_client_email("Calicote", [{"project": "Site", "tickets": [T_HTML]}])[0])
+      sh == cn.compose_client_email("Clienta", [{"project": "Site", "tickets": [T_HTML]}])[0])
 check("document HTML complet et autonome",
       hh.startswith("<!DOCTYPE html>") and hh.rstrip().endswith("</html>"))
 check("titre et lien du ticket présents, le titre étant ÉCHAPPÉ",
@@ -255,34 +255,34 @@ check("bloc vide (fiche bricolée) => traité comme jamais vu, pas comme annonc�
 # prévenir la mauvaise personne ne se rattrape pas.
 ANN_R = {
     "iprospective": {"ref": "iprospective", "first_name": "Mathieu", "emails": ["m@ipro.fr"]},
-    "sandrine-roche-pizzo": {"ref": "sandrine-roche-pizzo", "first_name": "Sandrine",
-                             "emails": ["s@calicote.com"]},
-    "yann-dercya": {"ref": "yann-dercya", "first_name": "Yann", "emails": ["y@dercya.com"]},
+    "alice-martin": {"ref": "alice-martin", "first_name": "Alice",
+                             "emails": ["s@clienta.example"]},
+    "hugo-clientc": {"ref": "hugo-clientc", "first_name": "Hugo", "emails": ["y@clientc.example"]},
     "sans-mail": {"ref": "sans-mail", "first_name": "Bob", "emails": []},
 }
 r = cn.resolve_requester(ANN_R, "iprospective")
 check("ref exacte résolue", r["found"] and r["emails"] == ["m@ipro.fr"])
-r = cn.resolve_requester(ANN_R, "sandrine")
-check("identifiant court => ref complète (sandrine → sandrine-roche-pizzo)",
-      r["found"] and r["ref"] == "sandrine-roche-pizzo")
-r = cn.resolve_requester(ANN_R, "Yann")
-check("casse indifférente, résolution par prénom", r["found"] and r["emails"] == ["y@dercya.com"])
+r = cn.resolve_requester(ANN_R, "alice")
+check("identifiant court => ref complète (alice → alice-martin)",
+      r["found"] and r["ref"] == "alice-martin")
+r = cn.resolve_requester(ANN_R, "Hugo")
+check("casse indifférente, résolution par prénom", r["found"] and r["emails"] == ["y@clientc.example"])
 r = cn.resolve_requester(ANN_R, "inconnu")
 check("demandeur inconnu => non résolu, SIGNALÉ (pas d'email inventé)",
       not r["found"] and not r["ambiguous"] and r["emails"] == [])
 r = cn.resolve_requester(ANN_R, "bob")
 check("fiche sans email => non résolu plutôt que faussement trouvé", not r["found"])
-AMB = dict(ANN_R, **{"sandrine-durand": {"ref": "sandrine-durand", "first_name": "Sandrine",
+AMB = dict(ANN_R, **{"alice-durand": {"ref": "alice-durand", "first_name": "Alice",
                                          "emails": ["s2@x.fr"]}})
-r = cn.resolve_requester(AMB, "sandrine")
-check("DEUX Sandrine => ambigu, on ne tire pas au sort", r["ambiguous"] and not r["found"])
+r = cn.resolve_requester(AMB, "alice")
+check("DEUX Alice => ambigu, on ne tire pas au sort", r["ambiguous"] and not r["found"])
 check("creator vide toléré", not cn.resolve_requester(ANN_R, "")["found"])
 
 G = cn.group_by_requester([
-    {"id": 1, "creator": "sandrine"}, {"id": 2, "creator": "iprospective"},
-    {"id": 3, "creator": "sandrine"}, {"id": 4, "creator": ""}])
+    {"id": 1, "creator": "alice"}, {"id": 2, "creator": "iprospective"},
+    {"id": 3, "creator": "alice"}, {"id": 4, "creator": ""}])
 check("groupement par demandeur, ordre d'apparition conservé",
-      [c for c, _ in G] == ["sandrine", "iprospective", ""])
+      [c for c, _ in G] == ["alice", "iprospective", ""])
 check("…chacun ne voit QUE ses tickets",
       [t["id"] for t in G[0][1]] == [1, 3] and [t["id"] for t in G[1][1]] == [2])
 check("liste vide tolérée", cn.group_by_requester([]) == [])

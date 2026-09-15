@@ -538,28 +538,28 @@ LIVE.update({
     "5001": {"engine": "claude", "session_id": "uuid-5001", "cwd": "/zfs/cal", "model": None},
     "5002": {"engine": "claude", "session_id": "uuid-5002", "cwd": "/zfs/inf", "model": None},
 })
-ka.op_session_set_save({"group": "calicote", "label": "Chantier Calicote",
+ka.op_session_set_save({"group": "clienta", "label": "Chantier Clienta",
                         "sids": ["5001"]}, {"user": None})
 ka.op_session_set_save({"group": "infra", "sids": ["5002"]}, {"user": None})
 
 lst = ka.op_session_sets_list({}, {"user": None})
 names = [s["name"] for s in lst["sets"]]
 check("RM2442 : les jeux sont listables (endpoint de découverte)",
-      set(names) == {"default", "calicote", "infra", "relance"})
+      set(names) == {"default", "clienta", "infra", "relance"})
 check("RM2442 : `default` en tête, le reste alphabétique",
-      names == ["default", "calicote", "infra", "relance"])
+      names == ["default", "clienta", "infra", "relance"])
 by_name = {s["name"]: s for s in lst["sets"]}
 check("RM2442 : libellé humain rendu quand il existe",
-      by_name["calicote"]["label"] == "Chantier Calicote")
+      by_name["clienta"]["label"] == "Chantier Clienta")
 check("RM2442 : à défaut de libellé, le slug fait office",
       by_name["infra"]["label"] == "infra")
 check("RM2442 : compte et vivantes par jeu",
-      by_name["calicote"]["count"] == 1 and by_name["calicote"]["alive"] == 1)
+      by_name["clienta"]["count"] == 1 and by_name["clienta"]["alive"] == 1)
 
 # le libellé survit à un ré-enregistrement (il n'est pas dans l'instantané)
-ka.op_session_set_save({"group": "calicote"}, {"user": None})
+ka.op_session_set_save({"group": "clienta"}, {"user": None})
 check("RM2442 : libellé conservé au ré-enregistrement",
-      ka.op_session_set_get({"group": "calicote"}, {"user": None})["label"] == "Chantier Calicote")
+      ka.op_session_set_get({"group": "clienta"}, {"user": None})["label"] == "Chantier Clienta")
 
 # renommage : le LIBELLÉ change, le slug (clé du store) est immuable
 ka.op_session_set_rename({"group": "infra", "label": "Infra iProspective"}, {"user": None})
@@ -580,7 +580,7 @@ except ka.ApiError as e:
     check("RM2442 : renommage d'un jeu absent → 404", e.code == 404)
 
 # indépendance : agir sur un jeu ne touche pas les autres
-ka.op_session_set_delete({"group": "calicote"}, {"user": None})
+ka.op_session_set_delete({"group": "clienta"}, {"user": None})
 check("RM2442 : supprimer un jeu laisse les autres intacts",
       {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]}
       == {"default", "infra", "relance"})
@@ -1094,7 +1094,7 @@ ka._session_mark = lambda sid: MARKS2.get(sid)
 ka._transcript_title = lambda sid: None
 ka._transcript_age = lambda sid: AGES.get(sid)
 AGES = {}
-ka._pm_project_of_cwd = lambda cwd: {"/zfs/cal": ("calicote", "prestashop"),
+ka._pm_project_of_cwd = lambda cwd: {"/zfs/cal": ("clienta", "prestashop"),
                                      "/zfs/inf": ("iprospective", "infra")}.get(cwd, (None, None))
 KEYS.update({
     "7101": {"engine": "claude", "session_id": "u7101", "cwd": "/zfs/cal", "model": None},
@@ -1103,8 +1103,8 @@ KEYS.update({
 })
 MARKS2["u7102"] = "wip"
 
-r = ka.op_session_set_create({"group": "der-cal", "label": "Calicote (dérivé)",
-                              "rule": {"client": "calicote"}}, {"user": None})
+r = ka.op_session_set_create({"group": "der-cal", "label": "Clienta (dérivé)",
+                              "rule": {"client": "clienta"}}, {"user": None})
 check("RM2452 : un jeu dérivé rend le contenu de sa RÈGLE",
       r["derived"] is True and {e["sid"] for e in r["entries"]} == {"7101", "7102"})
 check("RM2452 : le contenu n'est PAS stocké (seule la règle l'est)",
@@ -1132,7 +1132,7 @@ for bad, why in (({}, "règle vide"), ({"client": ""}, "critères tous vides"),
     except ka.ApiError as e:
         check(f"RM2452 : {why} → 400", e.code == 400)
 try:
-    ka.op_session_set_create({"group": "der-mix", "rule": {"client": "calicote"},
+    ka.op_session_set_create({"group": "der-mix", "rule": {"client": "clienta"},
                               "sids": ["7101"]}, {"user": None})
     check("RM2452 : règle ET liste ⇒ 400", False)
 except ka.ApiError as e:
@@ -1158,7 +1158,7 @@ check("RM2953 : un jeu dérivé courant ne bloque plus l'adhésion",
 _reg_sauve = ka._session_set_load()["users"]["superadmin"]["groups"].get("default")
 _courant = ka._current_set("superadmin")        # créer un jeu le rend courant (RM2447)
 ka.op_session_set_delete({}, {"user": None})
-ka.op_session_set_create({"group": "default", "rule": {"client": "calicote"}}, {"user": None})
+ka.op_session_set_create({"group": "default", "rule": {"client": "clienta"}}, {"user": None})
 check("RM2452 : une règle posée sur le REGISTRE le rend intouchable, et on le dit",
       ka._auto_join_active_set("7104", {"user": None})["reason"] == "derive")
 ka.op_session_set_delete({}, {"user": None})
@@ -1234,19 +1234,19 @@ LIVE.clear()
 l = ka.op_session_sets_list({}, {"user": None})
 cv = {c["view"]: c for c in l["client_views"]}
 check("RM2452 : un méta-jeu par client AYANT des sessions",
-      set(cv) == {"client:calicote", "client:iprospective"})
-check("RM2452 : le méta-jeu porte son compte", cv["client:calicote"]["count"] == 2)
+      set(cv) == {"client:clienta", "client:iprospective"})
+check("RM2452 : le méta-jeu porte son compte", cv["client:clienta"]["count"] == 2)
 check("RM2452 : les facettes listent clients et projets",
-      [c["slug"] for c in l["facets"]["clients"]] == ["calicote", "iprospective"]
+      [c["slug"] for c in l["facets"]["clients"]] == ["clienta", "iprospective"]
       and l["facets"]["clients"][0]["projects"] == ["prestashop"])
 
-ka.op_session_set_current({"view": "client:calicote"}, {"user": None})
+ka.op_session_set_current({"view": "client:clienta"}, {"user": None})
 check("RM2452 : la vue par client se résout sans rien créer",
       {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"7401", "7402"})
 check("RM2452 : la tuile dit de quel méta-jeu elle vient",
-      all(g["group_label"] == "calicote" for g in ka._ghost_sessions({"user": None})))
+      all(g["group_label"] == "clienta" for g in ka._ghost_sessions({"user": None})))
 check("RM2452 : aucun jeu n'a été créé au passage",
-      "client:calicote" not in {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]})
+      "client:clienta" not in {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]})
 try:
     ka.op_session_set_current({"view": "client:PAS UN SLUG"}, {"user": None})
     check("RM2452 : vue client invalide → 400", False)
@@ -1255,7 +1255,7 @@ except ka.ApiError as e:
 ka.op_session_set_current({"view": "set"}, {"user": None})
 
 # éditer la règle d'un jeu dérivé
-ka.op_session_set_create({"group": "edit-der", "rule": {"client": "calicote"}}, {"user": None})
+ka.op_session_set_create({"group": "edit-der", "rule": {"client": "clienta"}}, {"user": None})
 r = ka.op_session_set_rule({"group": "edit-der", "rule": {"client": "iprospective"}}, {"user": None})
 check("RM2452 : la règle se modifie, le contenu suit",
       r["rule"] == {"client": "iprospective"} and {e["sid"] for e in r["entries"]} == {"7403"})
@@ -1266,7 +1266,7 @@ except ka.ApiError as e:
     check("RM2452 : règle vide au remplacement → 400", e.code == 400)
 ka.op_session_set_create({"group": "manuel-x", "sids": []}, {"user": None})
 try:
-    ka.op_session_set_rule({"group": "manuel-x", "rule": {"client": "calicote"}}, {"user": None})
+    ka.op_session_set_rule({"group": "manuel-x", "rule": {"client": "clienta"}}, {"user": None})
     check("RM2452 : poser une règle sur un jeu MANUEL → 400", False)
 except ka.ApiError as e:
     check("RM2452 : poser une règle sur un jeu MANUEL → 400", e.code == 400)
@@ -1284,26 +1284,26 @@ MARKS2.clear(); MARKS2["u7502"] = "done"
 ka._is_marked_done = lambda sid: MARKS2.get(sid) == "done"
 LIVE.clear()
 check("RM2452 : une session [DONE] et éteinte est écartée d'un dérivé",
-      {e["sid"] for e in ka._derived_entries({"client": "calicote"})} == {"7501", "7503"})
+      {e["sid"] for e in ka._derived_entries({"client": "clienta"})} == {"7501", "7503"})
 LIVE["7502"] = KEYS["7502"]            # la [DONE] se remet à tourner
 check("RM2452 : mais une [DONE] VIVANTE reste listée (on n'escamote pas un processus)",
-      "7502" in {e["sid"] for e in ka._derived_entries({"client": "calicote"})})
+      "7502" in {e["sid"] for e in ka._derived_entries({"client": "clienta"})})
 LIVE.clear()
 
 # le plafond ne tronque plus en silence
 KEYS.update({str(7600 + i): {"engine": "claude", "session_id": f"u{7600+i}",
                              "cwd": "/zfs/cal", "model": None} for i in range(30)})
-ents, total = ka._derived_entries({"client": "calicote"}, with_total=True)
+ents, total = ka._derived_entries({"client": "clienta"}, with_total=True)
 check("RM2452 : le plafond s'applique toujours", len(ents) == ka.SESSION_SET_MAX)
 check("RM2452 : mais le total RÉEL est rendu (plus de troncature muette)", total > len(ents))
-ka.op_session_set_create({"group": "gros-der", "rule": {"client": "calicote"}}, {"user": None})
+ka.op_session_set_create({"group": "gros-der", "rule": {"client": "clienta"}}, {"user": None})
 g = ka.op_session_set_get({"group": "gros-der"}, {"user": None})
 check("RM2452 : le jeu annonce sa troncature",
       g["truncated"] is True and g["total"] == total and len(g["entries"]) == ka.SESSION_SET_MAX)
 l = ka.op_session_sets_list({}, {"user": None})
 cv = {c["view"]: c["count"] for c in l["client_views"]}
 check("RM2452 : le compteur du méta-jeu compte ce qu'on VERRA (hors [DONE])",
-      cv["client:calicote"] == len(ents))
+      cv["client:clienta"] == len(ents))
 
 # RM2452 : une vue par CLIENT ne s'approprie pas les vivantes des autres clients
 KEYS.clear()
@@ -1353,14 +1353,14 @@ check("RM2537 : jeu manuel courant — comportement inchangé",
 ka.op_session_set_current({"group": "default"}, {"user": None})
 # ── RM2536 : la relance ne dépend plus du contexte d'affichage ────────────────
 # Le clic sur une tuile envoyait le `group` de son contexte ; dans une vue par
-# client, ce champ vaut la clé de VUE (« client:matnat »), refusée comme nom de
+# client, ce champ vaut la clé de VUE (« client:clientd »), refusée comme nom de
 # jeu (400 « nom de groupe invalide ») — rien ne démarrait. La relance passe
 # désormais par l'IDENTITÉ de la session : le couple (engine, session_id).
 
 # la clé de vue n'est toujours PAS un nom de jeu (on ne relâche pas la grammaire
 # des jeux persistés — c'est l'appelant qui n'a plus à parler de jeu)
 try:
-    ka._session_set_group("client:matnat")
+    ka._session_set_group("client:clientd")
     check("RM2536 : la clé de vue reste un nom de jeu invalide", False)
 except ka.ApiError as e:
     check("RM2536 : la clé de vue reste un nom de jeu invalide (400)", e.code == 400)
@@ -1372,7 +1372,7 @@ ka.SESS_DIR, ka.RUNS_DIR, ka.CLAUDE_STORES = SESS, RUNS, [STORE]
 (SESS / "claude").mkdir(parents=True, exist_ok=True)
 (SESS / "opencode").mkdir(parents=True, exist_ok=True)
 ka._write_json_atomic(SESS / "claude" / "aaaa1111-2222-3333-4444-555566667777.json",
-                      {"engine": "claude", "session_id": "aaaa1111-2222-3333-4444-555566667777", "cwd": "/zfs/matnat/infra"})
+                      {"engine": "claude", "session_id": "aaaa1111-2222-3333-4444-555566667777", "cwd": "/zfs/clientd/infra"})
 ka._write_json_atomic(SESS / "opencode" / "bbbb1111-2222-3333-4444-555566667777.json",
                       {"engine": "opencode", "session_id": "bbbb1111-2222-3333-4444-555566667777", "cwd": "/zfs/x"})
 
@@ -1388,33 +1388,33 @@ except ka.ApiError as e:
     check("RM2536 : moteur du client contredisant l'index → refus (409)", e.code == 409)
 
 # — ancrage rm_id : le PROJET du cwd prime sur la récence (modèle n-m) —
-for client, project, rid, n, seen in (("matnat", "infra", "2410", 1, 100),
-                                      ("matnat", "infra", "2411", 2, 200),
+for client, project, rid, n, seen in (("clientd", "infra", "2410", 1, 100),
+                                      ("clientd", "infra", "2411", 2, 200),
                                       ("iprospective", "pm-ai-agents", "2536", 3, 900)):
     d = RUNS / client / project
     d.mkdir(parents=True, exist_ok=True)
     ka._write_json_atomic(d / f"RM{rid}-{n}.json",
                           {"rm_id": rid, "n": n, "session_id": "aaaa1111-2222-3333-4444-555566667777",
                            "engine": "claude", "created": seen, "last_seen": seen})
-_PROJ = {"/zfs/matnat/infra": ("matnat", "infra"),
+_PROJ = {"/zfs/clientd/infra": ("clientd", "infra"),
          "/zfs/iprospective/pm": ("iprospective", "pm-ai-agents")}
 ka._pm_project_of_cwd = lambda cwd: _PROJ.get(cwd or "", (None, None))
 check("RM2536 : ancrage sur le ticket du projet du cwd, pas sur le plus récent d'un autre projet",
-      ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/matnat/infra") == "2411")
+      ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/clientd/infra") == "2411")
 check("RM2536 : cwd d'un autre projet → jonction la plus récente (comportement historique)",
       ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/iprospective/pm") == "2536")
 check("RM2536 : cwd inconnu du PM → comportement historique",
       ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/ailleurs") == "2536")
 check("RM2536 : aucune jonction → pas d'ancrage (le slug prendra le relais)",
-      ka._anchor_rm_id("uuid-inconnue", "/zfs/matnat/infra") is None)
+      ka._anchor_rm_id("uuid-inconnue", "/zfs/clientd/infra") is None)
 # jonctions du bon projet SANS récence connue → l'initiale (n minimal)
-d = RUNS / "calyclay" / "site"; d.mkdir(parents=True, exist_ok=True)
+d = RUNS / "clientb" / "site"; d.mkdir(parents=True, exist_ok=True)
 for rid, n in (("7801", 1), ("7802", 2)):
     ka._write_json_atomic(d / f"RM{rid}-{n}.json",
                           {"rm_id": rid, "n": n, "session_id": "cccc1111-2222-3333-4444-555566667777", "engine": "claude"})
-_PROJ["/zfs/calyclay/site"] = ("calyclay", "site")
+_PROJ["/zfs/clientb/site"] = ("clientb", "site")
 check("RM2536 : sans récence, on retient la jonction INITIALE du projet",
-      ka._anchor_rm_id("cccc1111-2222-3333-4444-555566667777", "/zfs/calyclay/site") == "7801")
+      ka._anchor_rm_id("cccc1111-2222-3333-4444-555566667777", "/zfs/clientb/site") == "7801")
 
 # — relance NUE : ni jeu, ni vue, ni cwd fourni ; le serveur retrouve le reste —
 STARTED = []
@@ -1425,8 +1425,8 @@ ka._record_key = lambda *a, **k: None
 ka._auto_join_active_set = lambda sid, ctx=None: None
 ka._resolve_cwd = lambda cwd: pathlib.Path(cwd or "/")
 (STORE / "slug").mkdir(parents=True, exist_ok=True)
-(STORE / "slug" / "aaaa1111-2222-3333-4444-555566667777.jsonl").write_text('{"cwd":"/zfs/matnat/infra"}\n', encoding="utf-8")
-ka.op_session_set_current({"view": "client:matnat"}, {"user": None})
+(STORE / "slug" / "aaaa1111-2222-3333-4444-555566667777.jsonl").write_text('{"cwd":"/zfs/clientd/infra"}\n', encoding="utf-8")
+ka.op_session_set_current({"view": "client:clientd"}, {"user": None})
 r = ka.op_resume({"session_id": "aaaa1111-2222-3333-4444-555566667777", "engine": "claude"}, {"user": None})
 check("RM2536 : relance depuis une vue client, sans aucun contexte de jeu",
       r["resumed"] is True and r["session_id"] == "aaaa1111-2222-3333-4444-555566667777")
@@ -1438,9 +1438,9 @@ ka.op_session_set_current({"view": "set"}, {"user": None})
 
 # — repli « session neuve » : opt-in, et alimenté par l'index des clés —
 LIVE["2410"] = {"engine": "claude", "session_id": "dd001111-2222-3333-4444-555566667777",
-                "cwd": "/zfs/matnat/infra", "model": None}
+                "cwd": "/zfs/clientd/infra", "model": None}
 ka._write_json_atomic(SESS / "claude" / "dd001111-2222-3333-4444-555566667777.json",
-                      {"engine": "claude", "session_id": "dd001111-2222-3333-4444-555566667777", "cwd": "/zfs/matnat/infra"})
+                      {"engine": "claude", "session_id": "dd001111-2222-3333-4444-555566667777", "cwd": "/zfs/clientd/infra"})
 try:
     ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id": "2410"}, {"user": None})
     check("RM2536 : transcript perdu sans opt-in → refus motivé", False)
@@ -1455,7 +1455,7 @@ r = ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id":
 check("RM2536 : avec l'opt-in, session neuve annoncée comme telle",
       r.get("spawned") is True and r.get("resumed") is False)
 check("RM2536 : son dossier vient de l'index des clés, pas du client",
-      SPAWNED_2536 and SPAWNED_2536[-1]["cwd"] == "/zfs/matnat/infra")
+      SPAWNED_2536 and SPAWNED_2536[-1]["cwd"] == "/zfs/clientd/infra")
 LIVE["sans-cwd"] = {"engine": "claude", "session_id": "dd002222-2222-3333-4444-555566667777", "cwd": None, "model": None}
 try:
     ka.op_resume({"session_id": "dd002222-2222-3333-4444-555566667777", "rm_id": "sans-cwd", "spawn": True}, {"user": None})

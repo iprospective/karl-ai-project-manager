@@ -55,7 +55,7 @@ class FauxZabbix(M.Zabbix):
             return [{"eventid": "1", "objectid": "t1", "name": "disk", "severity": "4", "clock": "1", "acknowledged": "0"},
                     {"eventid": "2", "objectid": "t2", "name": "info", "severity": "1", "clock": "1", "acknowledged": "1"}]
         if methode == "trigger.get":
-            return [{"triggerid": "t1", "hosts": [{"host": "srv.abatik.com", "name": "Abatik"}]},
+            return [{"triggerid": "t1", "hosts": [{"host": "srv.cliente.example", "name": "Cliente"}]},
                     {"triggerid": "t2", "hosts": [{"host": "autre.tld", "name": ""}]}]
         return "7.4.11"
 
@@ -64,7 +64,7 @@ z = FauxZabbix("https://z.example", "jeton-factice", "zbx")
 pb = z.problemes()
 check("les sévérités sont NOMMÉES, pas laissées en chiffres",
       pb[0]["severity_label"] == M.SEVERITES[4] and pb[1]["severity_label"] == M.SEVERITES[1])
-check("l'alerte est recollée à son hôte", pb[0]["host"] == "srv.abatik.com" and pb[1]["host"] == "autre.tld")
+check("l'alerte est recollée à son hôte", pb[0]["host"] == "srv.cliente.example" and pb[1]["host"] == "autre.tld")
 check("le seuil de gravité est marqué", pb[0]["grave"] and not pb[1]["grave"])
 check("un acquittement déjà posé se voit", pb[1]["acknowledged"] and not pb[0]["acknowledged"])
 check("filtrer par sévérité minimale", len(z.problemes(severite_min=4)) == 1)
@@ -72,32 +72,32 @@ check("apiinfo.version se demande SANS en-tête d'autorisation (Zabbix le refuse
       "apiinfo.version" in M.Zabbix.SANS_AUTH)
 
 print("\n[RM3112] l'association se propose, elle ne se devine pas en silence")
-connus = {"abatik": ["abatik.com"], "matnat": ["gogs.materiaux-naturels.fr"], "calyclay": []}
-p = M.proposition("srv-prd.abatik.com", connus)
-check("le slug du client dans le nom d'hôte suffit", p["client"] == "abatik" and p["source"] == M.PAR_SLUG)
+connus = {"cliente": ["cliente.example"], "clientd": ["gogs.clientd.example"], "clientb": []}
+p = M.proposition("srv-prd.cliente.example", connus)
+check("le slug du client dans le nom d'hôte suffit", p["client"] == "cliente" and p["source"] == M.PAR_SLUG)
 check("et la confiance le dit", 0 < p["confiance"] < 1)
-p = M.proposition("prd.materiaux-naturels.fr", connus)
-check("un domaine cité dans les fiches marche aussi", p["client"] == "matnat")
+p = M.proposition("prd.clientd.example", connus)
+check("un domaine cité dans les fiches marche aussi", p["client"] == "clientd")
 check("la comparaison se fait sur le domaine ENREGISTRABLE, pas sur un suffixe",
-      M._racine("a.b.materiaux-naturels.fr") == M._racine("gogs.materiaux-naturels.fr") == "materiaux-naturels.fr")
+      M._racine("a.b.clientd.example") == M._racine("gogs.clientd.example") == "clientd.example")
 p = M.proposition("machine.inconnue.tld", connus)
 check("rien de sûr : on rend vide plutôt que de choisir au hasard",
       p["client"] == "" and p["confiance"] == 0 and p["source"] == "")
-check("« materiaux-naturels.fr » n'est pas coupé au tiret", M._racine("materiaux-naturels.fr") == "materiaux-naturels.fr")
+check("« clientd.example » n'est pas coupé au tiret", M._racine("clientd.example") == "clientd.example")
 
 print("\n[RM3112] une association confirmée fait autorité")
 with tempfile.TemporaryDirectory() as tmp:
     faux = pathlib.Path(tmp) / "pm.config.local.yml"
     M._local_path = lambda: faux
-    check("poser une association l'écrit", M.associe("srv-prd.abatik.com", "pisceen", "erp"))
-    p = M.proposition("srv-prd.abatik.com", connus)
+    check("poser une association l'écrit", M.associe("srv-prd.cliente.example", "clientf", "erp"))
+    p = M.proposition("srv-prd.cliente.example", connus)
     check("elle l'emporte sur la proposition par slug",
-          p["client"] == "pisceen" and p["project"] == "erp" and p["source"] == M.CONFIRME and p["confiance"] == 1.0)
+          p["client"] == "clientf" and p["project"] == "erp" and p["source"] == M.CONFIRME and p["confiance"] == 1.0)
     check("elle est dans la surcharge LOCALE, pas dans le fichier de référence",
           "pm.config.local.yml" in str(faux) and "monitoring" in faux.read_text(encoding="utf-8"))
     check("la retirer rend la main à la proposition",
-          M.associe("srv-prd.abatik.com", None, None)
-          and M.proposition("srv-prd.abatik.com", connus)["source"] == M.PAR_SLUG)
+          M.associe("srv-prd.cliente.example", None, None)
+          and M.proposition("srv-prd.cliente.example", connus)["source"] == M.PAR_SLUG)
 
 print("\n[RM3112] le serveur ne crée un ticket que là où il sait le faire")
 ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")

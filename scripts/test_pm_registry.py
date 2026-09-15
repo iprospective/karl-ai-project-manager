@@ -32,7 +32,7 @@ def _cfg():
             "gitlab-ipro":    {"axis": "forge", "type": "gitlab", "url": "https://gl.example/"},
             "gogs-matnat":    {"axis": "forge", "type": "gogs", "url": "https://gogs.example", "ssh_port": 28022},
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "${REDMINE_URL:-https://tasks.example}"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat"},
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd"},
             "redmine-wiki":   {"axis": "doc", "type": "redmine_wiki", "url": "https://tasks.example"},
         },
     }
@@ -295,8 +295,8 @@ def test_legacy_unknown_url_is_explicit_error():
 
 def test_by_url_ignores_trailing_slash_and_axis():
     reg = Registry.from_config(_cfg())
-    assert reg.by_url("https://tasks.matnat/").name == "redmine-matnat"
-    assert reg.by_url("https://tasks.matnat", axis="forge") is None
+    assert reg.by_url("https://tasks.clientd/").name == "redmine-matnat"
+    assert reg.by_url("https://tasks.clientd", axis="forge") is None
     assert reg.by_url("") is None
 
 

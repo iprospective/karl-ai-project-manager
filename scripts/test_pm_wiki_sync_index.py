@@ -31,10 +31,10 @@ check("pas d'index sans aspects (description projet seule)", not m.index_wanted(
 
 aspects = [{"wiki_title": "Migration-sf7-cdc", "title": "CDC — Migration", "slug": "migration-sf7-cdc"},
            {"wiki_title": "Orm-fusion-matrice-chaines", "title": "", "slug": "orm-fusion-matrice-chaines"}]
-body = m.build_index_body("Matnat ERP old", aspects, "abc1234")
+body = m.build_index_body("Clientd ERP old", aspects, "abc1234")
 check("index : un lien wiki par aspect", body.count("[[") == 2 and "[[Migration-sf7-cdc|CDC — Migration]]" in body, body)
 check("index : slug en libellé quand pas de titre", "[[Orm-fusion-matrice-chaines|orm-fusion-matrice-chaines]]" in body, body)
-check("index : nom du projet en H1", "# Matnat ERP old" in body, body)
+check("index : nom du projet en H1", "# Clientd ERP old" in body, body)
 
 if fails:
     sys.exit("ÉCHEC — " + ", ".join(fails))

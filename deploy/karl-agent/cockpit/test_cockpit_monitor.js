@@ -23,18 +23,18 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
 
   const data = { counts: { total: 3, grave: 1, sans_cible: 1 }, seuil_grave: 4, alerts: [
     { eventid: "1", name: "Disk space is low", severity: 4, severity_label: "élevé", since: "3 j",
-      host: "srv-prd.abatik.com", host_name: "Abatik prod", grave: true, acknowledged: false,
-      cible: { client: "abatik", project: "infra", source: "slug du client", confiance: 0.8 } },
+      host: "srv-prd.cliente.example", host_name: "Cliente prod", grave: true, acknowledged: false,
+      cible: { client: "cliente", project: "infra", source: "slug du client", confiance: 0.8 } },
     { eventid: "2", name: "swap", severity: 2, severity_label: "avertissement", since: "2 h",
       host: "inconnu.example", grave: false, cible: { client: "", project: "", source: "", confiance: 0 } },
     { eventid: "3", name: "mysql", severity: 1, severity_label: "information", since: "22 h",
-      host: "srv.matnat.fr", grave: false,
-      cible: { client: "matnat", project: "", source: "domaine", confiance: 0.6 } }] };
+      host: "srv.clientd.example", grave: false,
+      cible: { client: "clientd", project: "", source: "domaine", confiance: 0.6 } }] };
 
   // — ViewModel —
   const vm = new VM.MonitorViewModel({ data, seuil: 0 });
   const [a1, a2, a3] = vm.rows();
-  assert(a1.ticketable && a1.cible === "abatik/infra", "un hôte associé à un client ET un projet peut ouvrir un ticket");
+  assert(a1.ticketable && a1.cible === "cliente/infra", "un hôte associé à un client ET un projet peut ouvrir un ticket");
   assert(a1.devine && /slug/.test(a1.source), "une association proposée dit qu'elle l'est, et pourquoi");
   assert(!a2.ticketable && /aucun client/.test(a2.manque), "sans client, pas de ticket — et on dit pourquoi");
   assert(!a3.ticketable && /projet/.test(a3.manque), "client connu mais projet inconnu : on ne devine pas le projet");
@@ -50,10 +50,10 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/data-action="ticket" data-id="1"/.test(s), "l'alerte située porte son bouton de ticket");
   assert(!/data-action="ticket" data-id="2"/.test(s), "l'alerte non située ne le porte PAS");
   assert(/data-action="page" data-page="hosts"/.test(s), "elle renvoie vers l'association à la place");
-  assert(/srv-prd\.abatik\.com/.test(s) && /abatik\/infra/.test(s), "hôte et cible sont lisibles");
-  const hostsData = { clients: ["abatik", "matnat"],
-    projects: { abatik: ["infra"], matnat: ["erp_old", "infra", "site_sf7"] },
-    hosts: [{ host: "srv-prd.abatik.com", name: "n", actif: true, cible: { client: "abatik", project: "infra", confiance: 1, source: "confirmée" } },
+  assert(/srv-prd\.cliente\.example/.test(s) && /cliente\/infra/.test(s), "hôte et cible sont lisibles");
+  const hostsData = { clients: ["cliente", "clientd"],
+    projects: { cliente: ["infra"], clientd: ["erp_old", "infra", "site_sf7"] },
+    hosts: [{ host: "srv-prd.cliente.example", name: "n", actif: true, cible: { client: "cliente", project: "infra", confiance: 1, source: "confirmée" } },
             { host: "x.example", name: "", actif: false, cible: { client: "", project: "", confiance: 0, source: "" } }] };
   const sh = String(V.MonitorCard(new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData })));
   assert(/data-action="assign-save"/.test(sh) && /data-action="assign-client"/.test(sh), "la page hôtes permet d'associer");
@@ -66,13 +66,13 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert.deepStrictEqual(h1.projets, ["erp_old", "infra", "site_sf7"].slice(0, 0).concat(["infra"]),
     "les projets offerts sont ceux du client de la ligne");
   assert(h2.projets.length === 0, "sans client, aucun projet n'est proposé — on n'invente pas de cible");
-  assert.deepStrictEqual(vmH.projetsDe("matnat"), ["erp_old", "infra", "site_sf7"]);
+  assert.deepStrictEqual(vmH.projetsDe("clientd"), ["erp_old", "infra", "site_sf7"]);
   assert.deepStrictEqual(vmH.projetsDe("inconnu"), [], "un client inconnu n'a pas de projet imaginaire");
-  const vmChoix = new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData, choix: { "x.example": "matnat" } });
+  const vmChoix = new VM.MonitorViewModel({ data, page: "hosts", hosts: hostsData, choix: { "x.example": "clientd" } });
   assert.deepStrictEqual(vmChoix.hostRows[1].projets, ["erp_old", "infra", "site_sf7"],
     "choisir un client change la liste des projets AVANT de confirmer");
   assert(!vmChoix.hostRows[1].confirmee, "et la ligne n'est plus « confirmée » tant qu'on n'a pas validé");
-  assert(vmH.hostRows[0].unique === true || vmH.projetsDe("abatik").length === 1, "un client à projet unique se signale");
+  assert(vmH.hostRows[0].unique === true || vmH.projetsDe("cliente").length === 1, "un client à projet unique se signale");
   assert(/<select[^>]*data-role="project"/.test(sh), "le projet est un menu déroulant, pas un champ libre");
   assert(!/<input[^>]*data-role="project"/.test(sh), "plus de saisie libre du projet");
   assert(/choisis un client/.test(sh), "sans client, le sélecteur le dit et reste inerte");
@@ -81,7 +81,7 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   // — contrôleur —
   const el = fakeEl("monitorcard"); const envoyes = []; let confirme = true; const demandes = []; const tickets = [];
   const svc = { data, hosts: null, error: null,
-    load: async () => data, loadHosts: async () => (svc.hosts = { clients: ["abatik"], hosts: [] }),
+    load: async () => data, loadHosts: async () => (svc.hosts = { clients: ["cliente"], hosts: [] }),
     assign: async (b) => { envoyes.push(["assign", b]); return { ok: true }; },
     ticket: async (b) => { envoyes.push(["ticket", b]); return { rm_id: 4242 }; } };
   const ctl = mountMonitor(el, { service: svc, notify: () => {}, confirm: (m) => { demandes.push(m); return confirme; },
@@ -89,12 +89,12 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   await ctl.open();
 
   await el.click("ticket", { id: "1" });
-  assert(demandes[0].includes("abatik/infra") && demandes[0].includes("Disk space is low"),
+  assert(demandes[0].includes("cliente/infra") && demandes[0].includes("Disk space is low"),
          "la confirmation dit chez QUI et pour QUOI le ticket s'ouvre");
   const [kind, body] = envoyes[envoyes.length - 1];
-  assert(kind === "ticket" && body.client === "abatik" && body.project === "infra",
+  assert(kind === "ticket" && body.client === "cliente" && body.project === "infra",
          "le client et le projet partent tels que la proposition les a donnés");
-  assert(body.host === "srv-prd.abatik.com" && body.name === "Disk space is low" && body.eventid === "1",
+  assert(body.host === "srv-prd.cliente.example" && body.name === "Disk space is low" && body.eventid === "1",
          "l'alerte part avec le ticket : sans elle, la description serait creuse");
   assert.deepStrictEqual(tickets, ["4242"], "la fiche du ticket créé s'ouvre");
 
@@ -108,7 +108,7 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
 
   // confirmer sans projet, alors que le client en a plusieurs, doit être refusé ici et non découvert plus tard
   svc.hosts = hostsData; ctl.state.page = "hosts"; await ctl.open("hosts");
-  ctl.state.choix["x.example"] = "matnat";
+  ctl.state.choix["x.example"] = "clientd";
   const avantAssign = envoyes.length;
   await el.click("assign-save", { host: "x.example" });
   assert.strictEqual(envoyes.length, avantAssign, "un client à plusieurs projets sans projet choisi : rien n'est envoyé");

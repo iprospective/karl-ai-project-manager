@@ -76,8 +76,8 @@ secret:<chemin…>[#champ]                   instance par défaut (cascade proje
 vaultwarden://<org>/<collection>/<item>    forme historique — supportée définitivement
 ```
 
-Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
-`vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
+Ex : `secret://vw-ipro/clienta-agents/prod-db`, ou
+`vaultwarden://iprospective/clienta-agents/prod-db` (équivalent, jamais à réécrire).
 
 **Backends disponibles** : `vaultwarden` (défaut), `keepass` (`.kdbx`, dép.
 `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dép. `age` — « on me partage

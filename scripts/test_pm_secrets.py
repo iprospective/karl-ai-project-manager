@@ -26,15 +26,15 @@ def test_parse_uri_forme_slug():
 
 
 def test_parse_uri_forme_courte():
-    ref = pm_secrets.parse_uri("secret:calicote-agents/prod-db")
+    ref = pm_secrets.parse_uri("secret:clienta-agents/prod-db")
     assert ref.instance is None, ref
-    assert ref.path == ("calicote-agents", "prod-db"), ref
+    assert ref.path == ("clienta-agents", "prod-db"), ref
 
 
 def test_parse_uri_legacy_vaultwarden():
-    ref = pm_secrets.parse_uri("vaultwarden://iprospective/calicote-agents/prod-db")
+    ref = pm_secrets.parse_uri("vaultwarden://iprospective/clienta-agents/prod-db")
     assert ref.instance is None, ref                      # instance implicite = défaut
-    assert ref.path == ("iprospective", "calicote-agents", "prod-db"), ref
+    assert ref.path == ("iprospective", "clienta-agents", "prod-db"), ref
     assert ref.item == "prod-db" and ref.scheme == "vaultwarden", ref
 
 

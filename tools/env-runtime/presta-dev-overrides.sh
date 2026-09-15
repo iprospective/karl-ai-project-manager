@@ -20,7 +20,7 @@
 # sont passés en skip-worktree.
 #
 # Le point délicat (RM2811) : un projet peut avoir un override MÉTIER sur la même
-# classe. calicote a un `override/classes/Link.php` tracké (redirection « Box »)
+# classe. clienta a un `override/classes/Link.php` tracké (redirection « Box »)
 # et, depuis RM2857, un `override/classes/controller/AdminController.php` tracké
 # lui aussi. Un `cp` les écraserait, et `info/exclude` ne protège rien puisqu'il
 # ne s'applique qu'aux fichiers NON suivis : la perte apparaîtrait comme une

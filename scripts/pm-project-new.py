@@ -11,10 +11,10 @@ Usage :
                       --redmine-parent iprospective --no-bootstrap
 
     # Rattacher à un projet Redmine déjà existant (skip création) :
-    pm-project-new.py --client lydiemariller --slug lydiemariller-com \\
+    pm-project-new.py --client clientg --slug clientg-com \\
                       --name "Lydie Mariller — site web" \\
-                      --workspace /zfs/workspaces/lydiemariller/lydiemariller.com \\
-                      --existing-redmine-id lydie-mariller
+                      --workspace /zfs/workspaces/clientg/clientg.example \\
+                      --existing-redmine-id clientg
 
 Étapes :
   1. Crée projet Redmine sous parent (id ou identifier) — utilise REDMINE_USER_MAIN_API_KEY

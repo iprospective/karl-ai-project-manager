@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests RM2951 — un spawn ne valide plus l'invite de confiance du moteur.
 
-Incident (RM2950, client matnat) : session lancée sur un dossier que claude
+Incident (RM2950, client clientd) : session lancée sur un dossier que claude
 n'avait jamais ouvert. Le TUI s'arrête alors sur son garde-fou — « Quick safety
 check: Is this a project you created or one you trust? », avec le curseur sur
 « ❯ No, exit ». Or `ready_markers` de claude contient « ❯ » : karl-agent croyait
@@ -43,7 +43,7 @@ PANE_TRUST = """
 ────────────────────────────────────────────────────────────
  Accessing workspace:
 
- /zfs/workspaces/matnat/erp_old
+ /zfs/workspaces/clientd/erp_old
 
  Quick safety check: Is this a project you created or one you trust?
 
@@ -89,7 +89,7 @@ def spawn(prompt="fais X"):
     ALIVE["live"] = set()
     sent.clear(); enters.clear(); keys.clear()
     return ka.op_spawn({"rm_id": "2950", "engine": "claude",
-                        "cwd": "/zfs/workspaces/matnat/erp_old", "prompt": prompt},
+                        "cwd": "/zfs/workspaces/clientd/erp_old", "prompt": prompt},
                        {"user": None})
 
 

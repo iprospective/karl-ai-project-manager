@@ -172,13 +172,13 @@ verifie(presque(sum(f3.values()) + sum(e3.values()), 150.0),
 
 # ── 6. Clé multi-clients ─────────────────────────────────────────────────────
 print("\n6. Clé multi-clients (SFY 70/30)")
-regles_sfy = W.Regles(types={"pisceen": "client", "calicote": "client"},
-                      cles_multi={"sfy": [("pisceen", 70), ("calicote", 30)]})
+regles_sfy = W.Regles(types={"clientf": "client", "clienta": "client"},
+                      cles_multi={"sfy": [("clientf", 70), ("clienta", 30)]})
 a = {(J, True, ("sfy", "gestion", None)): 100.0}
 out = W.eclater_cles_multi(a, regles_sfy)
 verifie(presque(sum(out.values()), 100.0), "conservation du total")
-verifie(presque(out[(J, True, ("pisceen", "gestion", None))], 70.0)
-        and presque(out[(J, True, ("calicote", "gestion", None))], 30.0),
+verifie(presque(out[(J, True, ("clientf", "gestion", None))], 70.0)
+        and presque(out[(J, True, ("clienta", "gestion", None))], 30.0),
         "réparti 70/30")
 
 # ── 7. Arrondi par plus forts restes ─────────────────────────────────────────
@@ -193,17 +193,17 @@ verifie(sum(q2.values()) == 15, "un total sous la tranche donne une seule tranch
 
 # ── 8. Déduction des saisies existantes ──────────────────────────────────────
 print("\n8. Déduction des saisies déjà faites")
-final_d = {(J, ("matnat", "infra", "2304")): 120.0,
-           (J, ("matnat", "infra", None)): 60.0}
+final_d = {(J, ("clientd", "infra", "2304")): 120.0,
+           (J, ("clientd", "infra", None)): 60.0}
 reste, deduit = W.deduire_saisies(final_d, [{"jour": J, "minutes": 75, "rm": "2304"}])
 verifie(presque(sum(reste.values()), 105.0), "75 min déduites de 180")
-verifie(presque(reste.get((J, ("matnat", "infra", "2304")), 0), 45.0),
+verifie(presque(reste.get((J, ("clientd", "infra", "2304")), 0), 45.0),
         "déduites en priorité sur le ticket exact")
 reste2, _ = W.deduire_saisies(final_d, [{"jour": J, "minutes": 999, "rm": "2304"}])
 verifie(all(v >= 0 for v in reste2.values()) and sum(reste2.values()) < 1e-6,
         "une saisie qui dépasse déborde sur la journée, sans jamais rendre de négatif")
 reste3, _ = W.deduire_saisies(final_d, [{"jour": J, "minutes": 150, "rm": "2304"}])
-verifie(presque(reste3.get((J, ("matnat", "infra", "2304")), 0), 0.0)
+verifie(presque(reste3.get((J, ("clientd", "infra", "2304")), 0), 0.0)
         and presque(sum(reste3.values()), 30.0),
         "le débordement épuise le ticket visé avant d'entamer le reste du jour")
 

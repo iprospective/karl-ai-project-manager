@@ -35,7 +35,7 @@ def check(name, cond):
 
 
 SID_TICKET = "2894"
-SID_SLUG = "calicote-presta"
+SID_SLUG = "clienta-presta"
 CSID = {SID_TICKET: "aaaaaaaa-1111-2222-3333-444444444444",
         SID_SLUG:   "bbbbbbbb-5555-6666-7777-888888888888"}
 TITRES = {CSID[SID_TICKET]: "Cockpit : libellé de session",

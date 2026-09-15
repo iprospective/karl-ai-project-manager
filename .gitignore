@@ -60,3 +60,7 @@ var/
 # Journal structuré karl-agent / PM (RM3010) — local à l'instance
 logs/
 norms/runtime/.proposed/
+
+# Table de routage mail — nomme des clients, jamais versionnée (RM3200) ;
+# le modèle versionné est `mail-routing.yml.default`.
+/mail-routing.yml

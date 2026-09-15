@@ -22,13 +22,13 @@ tant que des fiches ne sont pas reprises.
 
 Usage :
     pm-client-contact.py list [<client>]
-    pm-client-contact.py add calyclay --last-name Dupont --first-name Claire \\
-                              --email claire@calyclay.com --phone "+33 6 12 34 56 78"
-    pm-client-contact.py set calyclay claire@calyclay.com --phone "04 75 00 00 00"
+    pm-client-contact.py add clientb --last-name Dupont --first-name Claire \\
+                              --email dana@clientb.example --phone "+33 6 12 34 56 78"
+    pm-client-contact.py set clientb dana@clientb.example --phone "04 75 00 00 00"
                               # l'email sélectionne la fiche ; en changer un = remove + add
-    pm-client-contact.py remove calyclay claire@calyclay.com
-    pm-client-contact.py import-redmine calyclay          # propose, n'écrit pas
-    pm-client-contact.py import-redmine calyclay --apply   # enregistre
+    pm-client-contact.py remove clientb dana@clientb.example
+    pm-client-contact.py import-redmine clientb          # propose, n'écrit pas
+    pm-client-contact.py import-redmine clientb --apply   # enregistre
 """
 import argparse
 import re

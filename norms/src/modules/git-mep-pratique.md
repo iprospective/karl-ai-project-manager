@@ -170,7 +170,7 @@ Points de vigilance :
   worker/manager du `.env`), en **HTTPS**, indépendamment du choix SSH pour le
   transport git. SSH-first ne concerne que push/fetch, pas les appels API.
 - **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
-  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
+  générale**. Il reste actif **uniquement sur le projet `clientf/prestashop`**.
   Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
   passe par GitLab.
 - **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
@@ -254,7 +254,7 @@ entité ou une configuration peut donc être **enregistré et actif en base** al
 que **ses fichiers sont absents du worktree courant** — parce qu'ils vivent sur la
 branche d'un autre ticket, pas encore mergée.
 
-Cas réel (2026-08-01, `calicote/prestashop`) : un module apparaissait « installé,
+Cas réel (2026-08-01, `clienta/prestashop`) : un module apparaissait « installé,
 actif, 6 hooks » en base, avec **0 fichier sur disque**. Diagnostic tentant :
 module fantôme, enregistrement à nettoyer. **Faux** — ses fichiers étaient dans
 deux autres worktrees, sur des branches en cours.

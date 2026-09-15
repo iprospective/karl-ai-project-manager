@@ -174,7 +174,7 @@ def _reg_two_instances():
         "defaults": {"task": "redmine-ipro"},
         "servers": {
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.example"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat"},
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd"},
         },
     })
 
@@ -220,26 +220,26 @@ def test_provider_without_instance_calls_are_unchanged():
 
 def test_provider_honours_its_instance():
     """Le bug corrigé : l'instance ciblée doit atteindre l'appel HTTP (url + clé)."""
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     seen = {}
     orig = pm_task._ru.add_issue_note
     pm_task._ru.add_issue_note = lambda iid, note, **kw: seen.setdefault("kw", kw)
     try:
-        with _with_env(REDMINE__REDMINE_MATNAT__API_KEY="k-matnat",
+        with _with_env(REDMINE__REDMINE_MATNAT__API_KEY="k-clientd",
                        REDMINE_URL="https://tasks.example", REDMINE_API_KEY="k-ipro"):
             pm_task.RedmineTaskProvider(inst).add_note(1, "coucou")
-        assert seen["kw"]["creds"] == ("https://tasks.matnat", "k-matnat"), seen
+        assert seen["kw"]["creds"] == ("https://tasks.clientd", "k-clientd"), seen
     finally:
         pm_task._ru.add_issue_note = orig
 
 
 def test_creds_are_resolved_once_and_lazily():
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
     p = pm_task.RedmineTaskProvider(inst)       # aucune clé requise à la construction
     with _with_env(REDMINE__REDMINE_MATNAT__API_KEY="k1"):
-        assert p.creds == ("https://tasks.matnat", "k1")
+        assert p.creds == ("https://tasks.clientd", "k1")
     # clé retirée de l'env : la valeur déjà résolue reste servie (pas de re-résolution)
-    assert p.creds == ("https://tasks.matnat", "k1")
+    assert p.creds == ("https://tasks.clientd", "k1")
 
 
 def test_get_task_providers_primary_then_secondary():

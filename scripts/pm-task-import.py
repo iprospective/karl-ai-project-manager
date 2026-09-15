@@ -8,10 +8,10 @@ Aucune écriture côté Redmine — la seule modification est locale.
 À quoi ça sert (RM2626 / [[Cdc-rm2626-tickets-partenaires]]) : rattacher un ticket
 ANCIEN à un ticket de partenaire (`pm-task-partner link`) suppose une fiche, puisque
 le lien vit dans son frontmatter. Sans adoption, tout le parc antérieur au système de
-fichiers PM — la plupart des tickets Pisceen et MatNat — reste hors d'atteinte.
+fichiers PM — la plupart des tickets Clientf et Clientd — reste hors d'atteinte.
 
-  pm-task-import.py 440 --project matnat/infra
-  pm-task-import.py 440 --project matnat/infra --dry-run
+  pm-task-import.py 440 --project clientd/infra
+  pm-task-import.py 440 --project clientd/infra --dry-run
   pm-task-import.py 440 --type infrastructure       # le tracker « Tâche » est ambigu
 
 Après écriture, `pm-task-sync.py` est enchaîné : c'est LUI qui aligne statut,
@@ -54,7 +54,7 @@ def project_redmine_id(cfg, entity, project):
 def same_project(declared, issue_project, provider=None):
     """Le ticket appartient-il bien au projet PM visé ?
 
-    L'overview déclare tantôt l'identifiant textuel (`calicote-dolibarr`, le cas
+    L'overview déclare tantôt l'identifiant textuel (`clienta-dolibarr`, le cas
     normal), tantôt l'id numérique : on compare aux deux formes. Comparaison lâche
     (str) volontaire.
 

@@ -36,7 +36,7 @@ Tout env de test est joignable en `http://<project>-rm<id>[-s<seq>].lxc/` :
   cert est absent, le helper se rabat sur `:80` seul avec un avertissement
   (fail-safe : jamais de configtest KO).
 
-Recette validée par le pilote manuel RM1834 du 2026-07-02 (matnat/site_sf7) :
+Recette validée par le pilote manuel RM1834 du 2026-07-02 (clientd/site_sf7) :
 vhost `<repo>-rm<id>.lxc` + `.user.ini` `error_log` par worktree (surchargeable car
 `php_value[]` dans `common.conf.inc`, RM2081) + pool FPM partagé.
 
@@ -190,7 +190,7 @@ muet et inoffensif. Il n'ouvre jamais de connexion : l'appelant choisit la cible
 
 ```bash
 # env local (appelé automatiquement par tools/synchro, prod → local)
-presta-nonprod-sql.sh --domain pisceen-presta.local | mysql pisceen_presta
+presta-nonprod-sql.sh --domain clientf-presta.local | mysql clientf_presta
 
 # clone par ticket : appliqué automatiquement par pm-env-session après `db-clone`
 #   (détection PrestaShop = présence de config/defines.inc.php dans le worktree)

@@ -64,15 +64,15 @@ def seed_store(sid, cwd, engine="claude"):
 
 # — _slug_of —
 check("_slug_of : '/' et '.' → '-'",
-      ka._slug_of("/zfs/workspaces/calicote/prestashop")
-      == "-zfs-workspaces-calicote-prestashop")
+      ka._slug_of("/zfs/workspaces/clienta/prestashop")
+      == "-zfs-workspaces-clienta-prestashop")
 
 # — op_move_session : 3 ancrages via to_cwd explicite —
 ka._session_live = lambda sid, eng="claude": False
 ka._runs_by_session = lambda: {}
 SID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-old = mkdir(SB / "pisceen" / "dolibarr")
-new = mkdir(SB / "calicote" / "prestashop")
+old = mkdir(SB / "clientf" / "dolibarr")
+new = mkdir(SB / "clienta" / "prestashop")
 jf = seed_transcript(SID, old)
 sf = seed_store(SID, old)
 res = ka.op_move_session({"session_id": SID, "to_cwd": new})
@@ -117,10 +117,10 @@ ka._session_live = lambda sid, eng="claude": False
 SID2 = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 seed_transcript(SID2, mkdir(SB / "x" / "old2"))
 ka.PROJECTS_BASE = SB / "pm"
-pdir = SB / "pm" / "calicote" / "projects" / "prestashop"
+pdir = SB / "pm" / "clienta" / "projects" / "prestashop"
 pdir.mkdir(parents=True)
 ka._resolve_workspace = lambda d: pathlib.Path(new) if d == pdir else None
-r2 = ka.op_move_session({"session_id": SID2, "client": "calicote", "project": "prestashop"})
+r2 = ka.op_move_session({"session_id": SID2, "client": "clienta", "project": "prestashop"})
 check("résolution {client,project} → workspace", r2["cwd"] == new)
 try:
     ka.op_move_session({"session_id": SID2, "client": "nope", "project": "nope"})

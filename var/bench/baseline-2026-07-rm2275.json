@@ -1295,7 +1295,7 @@
    "models": {
     "claude-fable-5": 4836
    },
-   "workspace": "-zfs-workspaces-calyclay-calymix"
+   "workspace": "-zfs-workspaces-clientb-calymix"
   },
   {
    "session": "6b85feb5-fee6-46e4-b2f8-0b6be65b5797",
@@ -1388,7 +1388,7 @@
     "<synthetic>": 0,
     "claude-fable-5": 11409
    },
-   "workspace": "-zfs-workspaces-calyclay-calymix"
+   "workspace": "-zfs-workspaces-clientb-calymix"
   },
   {
    "session": "a0ade455-5a35-4af9-88e9-f8f76b76d93d",
@@ -1457,7 +1457,7 @@
     "<synthetic>": 0,
     "claude-fable-5": 435224
    },
-   "workspace": "-zfs-workspaces-calyclay-calymix"
+   "workspace": "-zfs-workspaces-clientb-calymix"
   },
   {
    "session": "d881be4c-cdb0-4e62-b78b-b665e26f8bc3",
@@ -1574,7 +1574,7 @@
     "<synthetic>": 0,
     "claude-opus-4-8": 152642
    },
-   "workspace": "-zfs-workspaces-calyclay-calymix"
+   "workspace": "-zfs-workspaces-clientb-calymix"
   },
   {
    "session": "5d2f80e2-8b9d-42c0-9927-27fe6bafff7a",
@@ -3347,7 +3347,7 @@
     "claude-opus-4-8": 198158,
     "<synthetic>": 0
    },
-   "workspace": "-zfs-workspaces-matnat"
+   "workspace": "-zfs-workspaces-clientd"
   },
   {
    "session": "77818024-db7e-4da2-80d4-87681308c1b8",
@@ -3430,7 +3430,7 @@
    "models": {
     "claude-fable-5": 40410
    },
-   "workspace": "-zfs-workspaces-matnat-infra"
+   "workspace": "-zfs-workspaces-clientd-infra"
   },
   {
    "session": "b40b6e4a-ba96-4794-bffa-49adc43e33b7",
@@ -3550,7 +3550,7 @@
     "claude-fable-5": 235915,
     "<synthetic>": 0
    },
-   "workspace": "-zfs-workspaces-matnat-infra"
+   "workspace": "-zfs-workspaces-clientd-infra"
   },
   {
    "session": "e3d2542a-852a-41f0-9f42-0ea4103fa9f3",
@@ -3629,7 +3629,7 @@
    "models": {
     "claude-fable-5": 47502
    },
-   "workspace": "-zfs-workspaces-matnat-infra"
+   "workspace": "-zfs-workspaces-clientd-infra"
   },
   {
    "session": "86736170-6ac9-4e1d-af9d-41736983f912",

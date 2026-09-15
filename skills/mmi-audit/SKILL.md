@@ -117,7 +117,7 @@ le workspace `communication` (RM2900). Résultat :
   s'agissait d'une régression non traitée.
 - `recon-wordpress.sh` existait, et son en-tête documente précisément le motif retrouvé
   à la main (énumération via `/wp-json/wp/v2/users` + `xmlrpc.php`, découvert sur
-  dercya.com le 2026-05-09). Il n'a pas été passé.
+  clientc.example le 2026-05-09). Il n'a pas été passé.
 - Les constats produits n'étaient ni rejouables, ni raccordés à `state.md` /
   `FINDINGS.md`.
 

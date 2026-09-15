@@ -39,14 +39,14 @@ check("nom + prénom → slug lisible", pc.slugify_person("Moulin", "Mathieu") =
 check("les accents et la casse tombent",
       pc.slugify_person("MOULIN", "Mathïeu") == "moulin-mathieu")
 check("un nom composé reste lisible",
-      pc.slugify_person("Roche-Pizzo", "Sandrine") == "roche-pizzo-sandrine")
+      pc.slugify_person("Martin", "Alice") == "martin-alice")
 check("homonyme ⇒ suffixe, jamais d'écrasement",
       pc.slugify_person("Moulin", "Mathieu", {"moulin-mathieu"}) == "moulin-mathieu-2")
 check("…et le suffixe grimpe",
       pc.slugify_person("Moulin", "Mathieu",
                         {"moulin-mathieu", "moulin-mathieu-2"}) == "moulin-mathieu-3")
 check("sans nom, la boîte fonctionnelle prend son adresse",
-      pc.slugify_person(None, None, email="webmaster@matnat.fr") == "webmaster-matnat")
+      pc.slugify_person(None, None, email="webmaster@clientd.example") == "webmaster-clientd")
 check("sans rien, une clé terne plutôt qu'un plantage",
       pc.slugify_person(None, None) == "contact")
 check("prénom seul accepté", pc.slugify_person(None, "Lyse") == "lyse")
@@ -59,8 +59,8 @@ check("`name` est coupé au dernier mot (nom en dernier)",
 check("l'adresse est normalisée", p["emails"] == ["mathieu@iprospective.fr"])
 check("une adresse maison pose `internal` toute seule", p["internal"] is True)
 check("le rôle n'entre PAS dans l'identité (il est dans la relation)", "role" not in p)
-p2 = pc.person_from_legacy({"last_name": "Solsona", "first_name": "Noé",
-                            "email": "noe@calyclay.com"})
+p2 = pc.person_from_legacy({"last_name": "Solsona", "first_name": "Carol",
+                            "email": "bob@clientb.example"})
 check("la forme structurée est prise telle quelle",
       p2["last_name"] == "Solsona" and p2["internal"] is False)
 check("un contact vide ne casse rien", pc.person_from_legacy({})["emails"] == [])
@@ -87,8 +87,8 @@ ann = {"moulin-mathieu": {"ref": "moulin-mathieu", "last_name": "Moulin",
                           "first_name": "Mathieu", "internal": True,
                           "emails": ["mathieu@iprospective.fr", "perso@gmail.com"],
                           "phones": ["+33 6 00"]},
-       "solsona-noe": {"ref": "solsona-noe", "last_name": "Solsona", "first_name": "Noé",
-                       "emails": ["noe@calyclay.com"], "phones": []}}
+       "solsona-carol": {"ref": "solsona-carol", "last_name": "Solsona", "first_name": "Carol",
+                       "emails": ["bob@clientb.example"], "phones": []}}
 idx = pc.index_by_email(ann)
 check("la première adresse trouve la personne", idx["mathieu@iprospective.fr"] == "moulin-mathieu")
 check("la seconde aussi — c'est tout l'intérêt", idx["perso@gmail.com"] == "moulin-mathieu")
@@ -100,25 +100,25 @@ check("une adresse inconnue ne rend rien", "x@y.fr" not in idx)
 # interne doit compter comme nôtre sans qu'on ait à l'inscrire quelque part.
 ANN_I = {"moi": {"internal": True,
                  "emails": ["Mathieu@iProspective.FR", "perso@gmail.com"]},
-         "lui": {"internal": False, "emails": ["noe@calyclay.com"]},
+         "lui": {"internal": False, "emails": ["bob@clientb.example"]},
          "vide": {"internal": True}}
 ia = pc.internal_addresses(ANN_I)
 check("les adresses d'un interne sont retenues", "mathieu@iprospective.fr" in ia)
 check("…y compris hors domaine — c'est l'apport de l'annuaire",
       "perso@gmail.com" in ia)
 check("elles sont normalisées (casse)", "Mathieu@iProspective.FR" not in ia)
-check("celles d'un externe ne le sont pas", "noe@calyclay.com" not in ia)
+check("celles d'un externe ne le sont pas", "bob@clientb.example" not in ia)
 check("une fiche interne sans adresse ne casse rien", len(ia) == 2)
 check("annuaire vide ⇒ ensemble vide", pc.internal_addresses({}) == set())
 check("des ADRESSES, jamais des domaines : rien ne ressemble à un domaine nu",
       all("@" in a for a in ia))
 
 # ── 5. les deux formes cohabitent ────────────────────────────────────────────
-r = pc.resolve_link({"ref": "solsona-noe", "role": "owner", "title": "PDG"}, ann)
+r = pc.resolve_link({"ref": "solsona-carol", "role": "owner", "title": "PDG"}, ann)
 check("un rattachement rend l'identité de l'annuaire", r["source"] == "annuaire")
 check("…avec le rôle, qui vient du client", r["role"] == "owner" and r["title"] == "PDG")
-check("…et les adresses de la fiche", r["emails"] == ["noe@calyclay.com"])
-r2 = pc.resolve_link({"name": "Yann Le Vourch", "email": "yann@dercya.com",
+check("…et les adresses de la fiche", r["emails"] == ["bob@clientb.example"])
+r2 = pc.resolve_link({"name": "Bob Le Vourch", "email": "carol@clientc.example",
                       "role": "technique"}, ann)
 check("un contact EN LIGNE reste lisible pendant la migration",
       r2["source"] == "inline" and r2["last_name"] == "Vourch")
@@ -140,7 +140,7 @@ check("deux homonymes SANS adresse commune restent deux personnes",
                                                               {"martin-jean"}))
 check("une adresse maison ne dit rien du client (RM2669)",
       pc.is_internal_email("mathieu@iprospective.fr")
-      and not pc.is_internal_email("noe@calyclay.com"))
+      and not pc.is_internal_email("bob@clientb.example"))
 
 print()
 if fails:

@@ -98,7 +98,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le secret de déverrouillage d'un vault (master password, passphrase). → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
-14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
+14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `clientd/infra`) ou `redmine.project_id` unique (ex. `clientd-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez cliente/clienta/clientb/clientd/clientf) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait cliente au lieu de clientd.) → `modules/redmine-reference.md`
 15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution : ce sont des process automatiques, les annoncer noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** ; une MR de *code*, elle, se raconte. **Exception : l'échec** — un auto-push qui échoue se signale en **une ligne**. Idem outillage : `pm_git` est muet sur le nominal (`git.verbose: true` pour déboguer).
     **La règle vaut aussi en LECTURE.** Une question non qualifiée (« mergé en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core` que l'utilisateur n'a pas **nommé**. Le support n'est pas le sujet : la fiche d'un ticket est stockée dans le `<Projet>-core`, mais le ticket **porte sur** le code de `repos/` (RM2929). Répondre sur un `*-core` non nommé coûte un tour de conversation entier.
     **Pourquoi c'est un tripwire** : la règle s'applique au moment où tu **rédiges**, quand tu n'ouvres plus aucun fichier. Elle doit donc être sous tes yeux en permanence, sinon elle se viole en silence — et se re-viole après chaque compactage (incidents 2026-08-13 en restitution, 2026-09-01 en interprétation). → `agents/worker-common.md`, `structure-reference` § Vocabulaire du demandeur
@@ -1139,7 +1139,7 @@ Le dossier `paths.entities_dir` (par défaut `{projects_root}/clients`) regroupe
 
 | `type` | Sémantique | Exemples |
 |---|---|---|
-| `client` (défaut) | Entité commerciale tierce qui commande des prestations | `lemathou` (perso/freelance Mathieu), `pisceen`, `calicote` |
+| `client` (défaut) | Entité commerciale tierce qui commande des prestations | `lemathou` (perso/freelance Mathieu), `clientf`, `clienta` |
 | `product` | Écosystème produit dont iprospective développe des modules (génériques) ou maintient une instance interne | `redmine`, `dolibarr`, `prestashop`, `symfony` |
 | `self` | Entité où l'on est client de soi-même : outils internes, scripts propres, projets perso non commerciaux | `iprospective` (entreprise freelance), `lemathou` aussi (projets perso de Mathieu) |
 
@@ -1201,7 +1201,7 @@ on utilise deux champs dans le frontmatter `project/overview.md` :
 
 | Champ | Sens | Côté |
 |---|---|---|
-| `used_by_clients: [<slug>, ...]` | Liste des entités qui consomment ce projet | déclaré côté **fournisseur** (ex: module Dolibarr générique liste `pisceen, calicote, calyclay`) |
+| `used_by_clients: [<slug>, ...]` | Liste des entités qui consomment ce projet | déclaré côté **fournisseur** (ex: module Dolibarr générique liste `clientf, clienta, clientb`) |
 | `provided_by: <client>/<projet>` | Pointeur vers le projet fournisseur | déclaré côté **consommateur** (ex: un projet client qui s'appuie sur le module) |
 
 Ces deux champs sont **redondants par construction**, pour permettre la lecture dans les
@@ -1255,7 +1255,7 @@ général peut être implémenté par plusieurs enfants. Les deux champs sont do
 
 | Champ | Sens | Côté |
 |---|---|---|
-| `implements: [<entité>/<projet>, ...]` | Liste des projets généraux que ce projet implémente | déclaré côté **implémentation** (ex: `abatik/infra` → `[iprospective/infrastructure]`) |
+| `implements: [<entité>/<projet>, ...]` | Liste des projets généraux que ce projet implémente | déclaré côté **implémentation** (ex: `cliente/infra` → `[iprospective/infrastructure]`) |
 | `implemented_by: [<entité>/<projet>, ...]` | Liste des projets qui implémentent celui-ci | déclaré côté **général** (ex: `iprospective/infrastructure` liste ses projets infra clients) |
 
 Comme `used_by_clients`/`provided_by`, ces deux champs sont **redondants par
@@ -1282,7 +1282,7 @@ coexister sur un même projet.
 **Conséquences opérationnelles :**
 - **Où poser l'asset ?** Un asset (script, sonde, template, runbook) **réutilisable
   cross-contexte** se dépose dans le **repo du projet général**, pas dans le repo
-  enfant. Exemple vécu : `calyclay/infra` implémente `iprospective/infrastructure` —
+  enfant. Exemple vécu : `clientb/infra` implémente `iprospective/infrastructure` —
   la sonde `probe-mail-stack.sh` et les scripts Sieve, réutilisables pour tous les
   clients, ont été déposés dans le repo **général** alors que le ticket de travail
   (RM1835) vivait dans l'enfant. Critère : **réutilisable par d'autres
@@ -1606,7 +1606,7 @@ LLM-spécifique.
   `2026-05-10-recon` ; redécouvert 3,5 mois plus tard sans que rien ne signale la
   régression ;
 - `recon-wordpress.sh` existait et documentait exactement le motif retrouvé au curl
-  (énumération via `/wp-json/wp/v2/users` + `xmlrpc.php`, découvert sur dercya.com le
+  (énumération via `/wp-json/wp/v2/users` + `xmlrpc.php`, découvert sur clientc.example le
   2026-05-09) — il n'a pas été passé ;
 - les constats n'étaient ni rejouables, ni raccordés à `state.md` / `FINDINGS.md`.
 
@@ -2411,7 +2411,7 @@ mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plu
 l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
 proposition d'implémentation est le canal par lequel le raisonnement du modèle fort
 survit à ce transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
-(calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
+(clienta/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
 l'audit sous forme actionnable.
 
 **Condition de sortie.** Une étude sans proposition d'implémentation (hors tickets
@@ -2694,13 +2694,13 @@ faire passer le `done_ratio` de 50 à 75 → pas de note.
 **Règle (tripwire #14).** Toute opération Redmine ciblant un projet (sync wiki,
 note, description, stats…) résout le projet par référence **non ambiguë** :
 
-- `client/slug` — ex. `matnat/infra` (désambiguïsation explicite) ;
-- ou le `redmine.project_id` **unique** — ex. `matnat-infra`.
+- `client/slug` — ex. `clientd/infra` (désambiguïsation explicite) ;
+- ou le `redmine.project_id` **unique** — ex. `clientd-infra`.
 
 **Jamais par match de slug nu.** Plusieurs clients partagent un même slug — ex.
-`infra` chez `abatik`, `calicote`, `calyclay`, `matnat`, `pisceen`. Un résolveur
+`infra` chez `cliente`, `clienta`, `clientb`, `clientd`, `clientf`. Un résolveur
 « premier slug trouvé » écrit **silencieusement dans le mauvais projet Redmine**
-(incident RM2410 : `pm-wiki-sync infra` ciblait `abatik` au lieu de `matnat`).
+(incident RM2410 : `pm-wiki-sync infra` ciblait `cliente` au lieu de `clientd`).
 
 **Conf = source de vérité, bloquante.** Chaque `meta.yml` de projet **doit**
 déclarer un `redmine.project_id` **unique**. Absence ⇒ opération Redmine
@@ -2886,7 +2886,7 @@ Chaque projet déclare ses branches de référence dans le frontmatter de
 
 ```yaml
 git:
-  repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
+  repo: <url-ou-alias>      # ex: git:sfy/clientf-clientc/clientf-prestashop.git
   remote: origin            # alias du remote de référence
   prod_branch: main         # branche de prod (main par défaut ; master si legacy)
   integration_branch: dev   # branche d'intégration : agrège les devs testés
@@ -3280,7 +3280,7 @@ Points de vigilance :
   worker/manager du `.env`), en **HTTPS**, indépendamment du choix SSH pour le
   transport git. SSH-first ne concerne que push/fetch, pas les appels API.
 - **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
-  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
+  générale**. Il reste actif **uniquement sur le projet `clientf/prestashop`**.
   Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
   passe par GitLab.
 - **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
@@ -3364,7 +3364,7 @@ entité ou une configuration peut donc être **enregistré et actif en base** al
 que **ses fichiers sont absents du worktree courant** — parce qu'ils vivent sur la
 branche d'un autre ticket, pas encore mergée.
 
-Cas réel (2026-08-01, `calicote/prestashop`) : un module apparaissait « installé,
+Cas réel (2026-08-01, `clienta/prestashop`) : un module apparaissait « installé,
 actif, 6 hooks » en base, avec **0 fichier sur disque**. Diagnostic tentant :
 module fantôme, enregistrement à nettoyer. **Faux** — ses fichiers étaient dans
 deux autres worktrees, sur des branches en cours.
@@ -3648,7 +3648,7 @@ la distinction qui manquait sur RM3025. Détail : `tools/browser-check/README.md
 
 **Sur quel environnement** : celui du ticket, monté par `pm-task-take`, seul dont on
 sache qu'il porte exactement la branche testée. **Ne pas rsyncer vers une préprod
-partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `calicote-presta-2.test`
+partagée** pour aller plus vite : pendant RM3025 c'est ainsi que `clienta-presta-2.test`
 a été altérée, et l'environnement de recette d'un autre ticket avec. La préprod sert à la
 recette d'intégration, après fusion.
 
@@ -3951,7 +3951,7 @@ refs:
   - type: partner_issue
     instance: redmine-matnat      # DOIT être un secondaire déclaré du projet
     issue_id: 1234
-    url: https://tasks.materiaux-naturels.fr/issues/1234
+    url: https://tasks.clientd.example/issues/1234
     role: mirror                  # mirror | upstream | related
     last_seen_journal_id: null    # pointeur de synchro, PAR LIEN
     added: 2026-08-12
@@ -4257,8 +4257,8 @@ secret:<chemin…>[#champ]                   instance par défaut (cascade proje
 vaultwarden://<org>/<collection>/<item>    forme historique — supportée définitivement
 ```
 
-Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
-`vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
+Ex : `secret://vw-ipro/clienta-agents/prod-db`, ou
+`vaultwarden://iprospective/clienta-agents/prod-db` (équivalent, jamais à réécrire).
 
 **Backends disponibles** : `vaultwarden` (défaut), `keepass` (`.kdbx`, dép.
 `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dép. `age` — « on me partage
@@ -4387,9 +4387,9 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 - `status` : `active | disabled | planned`
 - `url`, `admin_url` : URLs publiques/admin
 - `ssh_alias` : **alias SSH** `~/.ssh/config` (avec `ProxyJump`/`HostName`/`User`/clés
-  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `calicote-presta`.
+  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `clienta-presta`.
 - `ssh_target` : **cible SSH explicite** `user@hostname` (fallback quand aucun alias
-  n'est défini). Ex: `calicote@srv1.sfy-gestion.com`.
+  n'est défini). Ex: `deploy@srv1.hebergeur.example`.
 - `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
@@ -4412,11 +4412,11 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 **Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
 l'host si le fichier est sur une machine distante (`<host>:<path>`).
 - `logs.app` : log applicatif (Symfony/PrestaShop, ex: `var/logs/prod.log`).
-- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/calicote-74.error.log`).
+- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/clienta-74.error.log`).
 - `logs.access` : access log du serveur web. **Convention prod iProspective (OVH)** :
   un fichier par vhost sur le serveur hébergeur, à
   `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`).
-  Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
+  Ex: `sfy-srv1:/var/log/nginx/clienta.com_access.log`. Utile pour analyser la charge
   de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,

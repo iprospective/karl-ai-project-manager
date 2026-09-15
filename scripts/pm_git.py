@@ -157,7 +157,7 @@ def resolve_base_ref(root, base, fetch=True, warn=None, dry_run_note=True):
     clone, que rien ne rafraîchit. Sur un clone où l'on ne travaille jamais `dev`
     directement, elle décroche silencieusement : la branche du ticket part alors d'un
     code périmé (vécu RM2574 : 500 lignes de retard sur `scripts/karl-agent.py` ;
-    RM2646 : `refs/heads/dev` du bare pisceen ~200 commits en arrière), sans le moindre
+    RM2646 : `refs/heads/dev` du bare clientf ~200 commits en arrière), sans le moindre
     signal.
 
     On fetch, puis on branche depuis `origin/<base>` dès que ce ref existe. Le fetch

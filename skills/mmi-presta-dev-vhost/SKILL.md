@@ -7,7 +7,7 @@ allowed-tools: Bash, Read, Write
 # Skill : mmi-presta-dev-vhost
 
 Servir un **worktree PrestaShop** sur un **domaine dédié** (ex.
-`calicote-presta-rm2781.lxc`) **en partageant la base** d'un autre environnement,
+`clienta-presta-rm2781.lxc`) **en partageant la base** d'un autre environnement,
 sans que PrestaShop **redirige en 301** vers le domaine canonique de `ps_shop_url`.
 
 > **Ce skill ne monte plus rien à la main.** Depuis RM2812, `mmi-pm task-take <id>`
@@ -81,7 +81,7 @@ Le script n'écrase **jamais** un override métier, et c'est tout l'enjeu :
 | **suivie**, sans collision de membres | injection d'un bloc marqué + `skip-worktree` |
 | **suivie**, avec collision | **refus**, rien n'est modifié |
 
-Le cas « suivie » n'est pas théorique : `calicote` a un `override/classes/Link.php`
+Le cas « suivie » n'est pas théorique : `clienta` a un `override/classes/Link.php`
 métier (redirection « Box » dans `getCategoryLink`) et, depuis RM2857, un
 `override/classes/controller/AdminController.php` métier qui définit `init()` — le
 même membre que l'asset dev, d'où un refus attendu sur cette classe.

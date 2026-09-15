@@ -744,8 +744,8 @@ class NextcloudPasswordsBackend(SecretBackend):
     destiné à tourner.
 
     Déclaration (registre providers, axe `secret`) :
-        ncpw-matnat: { axis: secret, type: nextcloud_passwords,
-                       url: "https://cloud.materiaux-naturels.fr" }
+        ncpw-clientd: { axis: secret, type: nextcloud_passwords,
+                       url: "https://cloud.clientd.example" }
     Identifiants par dev, jamais dans la conf partagée :
         SECRET__<SLUG>__USER    compte Nextcloud
         SECRET__<SLUG>__TOKEN   **mot de passe d'application** (pas le mot de

@@ -26,9 +26,9 @@ function fakeElement() { const L = []; let inner = ""; const nodes = {}; return 
   assert(!/value="a"b/.test(String(ProjectRadios(mk('a"b', "", [{ client: 'a"b', project: 'p"q' }]).radios('a"b')))), "client/projet échappés dans value");
   console.log("✓ création de ticket (RM2726) : filtre client, radios projet, défauts sûrs");
   // — RM2672 : formulaire pleine page complet —
-  const form = String(NewTicketForm(mk("calyclay", "infra", [{ client: "calyclay", project: "infra" }])));
+  const form = String(NewTicketForm(mk("clientb", "infra", [{ client: "clientb", project: "infra" }])));
   ["ntf-title", "ntf-client", "ntf-projects", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc", "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id => assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
-  assert(/<option value="feature" selected>/.test(form) && /<option value="normal" selected>/.test(form) && /value="calyclay\/infra" checked/.test(form) && /rows="12"/.test(form));
+  assert(/<option value="feature" selected>/.test(form) && /<option value="normal" selected>/.test(form) && /value="clientb\/infra" checked/.test(form) && /rows="12"/.test(form));
   assert(/data-action="submit"/.test(form) && !/onclick=|onchange=/.test(form), "zéro handler inline");
   // — RM2752 : bugfix → étapes de reproduction —
   ["ntf-bugbox", "ntf-bug-steps", "ntf-bug-repro"].forEach(id => assert(form.includes('id="' + id + '"')));

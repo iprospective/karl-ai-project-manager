@@ -9,7 +9,7 @@ created: 2026-08-31
 Invariants valables sur **toutes** les instances Dolibarr du parc. Chaque
 `environments.md` de projet renvoie ici et ne garde que **ses** spécificités.
 
-Issu de la MEP RM2815 (Calicote, 2026-08-27) : les vérifications du § 2 et l'étape
+Issu de la MEP RM2815 (2026-08-27) : les vérifications du § 2 et l'étape
 du § 4 sont **constatées**, pas supposées.
 
 > **Le point à ne pas oublier, celui qui motive ce document** : quand une MEP fait
@@ -40,23 +40,26 @@ du § 4 sont **constatées**, pas supposées.
 La production est un **checkout git**, pas un livrable copié. Chaque instance suit une
 branche `<version>-mmi` du dépôt `gitlab.iprospective.fr/dolibarr/dolibarr` :
 
-| Instance | Version | Branche |
-|---|---|---|
-| `erp.calicote.com` | 19.0.4 | `19.0-mmi` |
-| `erp.dercya.com` | 19.0.4 | `19.0-mmi` |
-| `erp.villa-cactus.com` | 16.0.5 | `16.0-mmi` |
+> **Le tableau des instances ne vit pas ici.** URL, version déployée, branche suivie,
+> chemin du checkout : ce sont des données d'exploitation, pas de la méthode. Elles
+> vivent dans le `environments.md` du projet Dolibarr **de chaque client**, avec le
+> reste de ses spécificités (RM3200). Cette fiche est partagée ; le dépôt de code part
+> sur un miroir public.
+>
+> Pour l'état du parc : `mmi-pm project show <client>/dolibarr`, ou le `environments.md`
+> du projet.
 
 Deux conséquences immédiates :
 
 - **Un correctif ne se propage pas tout seul entre branches.** Un patch mergé dans
-  `19.0-mmi` n'atteindra jamais Villa Cactus ; il faut le porter sur `16.0-mmi`.
+  `19.0-mmi` n'atteindra jamais une instance restée en `16.0-mmi` ; il faut l'y porter.
 - **Les instances qui partagent une branche partagent aussi les commits des autres
-  tickets.** Déployer chez Dercya, c'est déployer tout ce qui a été mergé dans
-  `19.0-mmi` depuis son dernier pull, pas seulement ce qu'on visait.
+  tickets.** Déployer chez un client, c'est déployer tout ce qui a été mergé dans
+  sa branche depuis son dernier pull, pas seulement ce qu'on visait.
 
 Les **modules métier sont des submodules git** sous `htdocs/custom/` : `mmicrm`,
 `mmishipping`, `mmiproduct`, `mmifournisseurprice`, `mmistats`,
-`ylvfournisseurpricepisceen`… Un « bump de module » est un changement de gitlink dans
+et quelques modules spécifiques à un client… Un « bump de module » est un changement de gitlink dans
 le dépôt principal.
 
 ## 2. Avant de déployer — inspecter, en lecture seule
@@ -66,7 +69,7 @@ corriger dans l'urgence : il porte des modifications locales historiques. Il fau
 simplement les connaître avant d'écrire dessus.
 
 ```bash
-cd <racine du checkout>          # ex. /home/erp-calicote/public_html
+cd <racine du checkout>          # cf. environments.md du projet client
 git status --porcelain --branch  # modifications locales, avance/retard
 git log -1 --format='%h %ad %s' --date=short
 git fetch origin <branche>
@@ -75,7 +78,7 @@ git log --oneline HEAD..origin/<branche>   # ce qui sera réellement déployé
 
 **Trois signaux d'arrêt** — on remonte à l'humain, on ne force pas :
 
-1. **Un écart de plusieurs commits.** Le 27/08, la prod Calicote était **13 commits en
+1. **Un écart de plusieurs commits.** Le 27/08, une prod du parc était **13 commits en
    retard** sur `19.0-mmi` : RM2779, RM2559, RM1800, DEC1 et plusieurs bumps de
    submodules. Un `pull` « pour livrer un correctif d'une ligne » aurait livré le
    travail de quatre autres tickets. Si la demande porte sur un seul correctif,
@@ -124,7 +127,7 @@ quoi l'écart devient une énigme pour le suivant.
 
 ### Le cache PHP
 
-Sur les pools vérifiés (`erp-calicote`), l'opcache tourne avec
+Sur les pools vérifiés, l'opcache tourne avec
 `validate_timestamps=On` et `revalidate_freq=2` : **un fichier PHP modifié est repris
 tout seul en quelques secondes**, aucun reload FPM n'est nécessaire. À revérifier par
 instance avant de s'en remettre à ce comportement — ce n'est pas garanti ailleurs.
@@ -183,6 +186,6 @@ test — c'est ce qui a manqué à RM2779 et RM2559.
 - La procédure exacte de réactivation (§ 4) reste à dicter.
 - Ce process vaut-il tel quel pour les trois instances, ou faut-il des variantes par
   client ?
-- Les `environments.md` des projets Dolibarr (Calicote, Dercya, Villa Cactus,
-  CalyClay, Pisceen) ne renvoient pas encore ici — à faire, sur le modèle de ce que
-  `prestashop/mep.md` a mis en place.
+- Les `environments.md` des projets Dolibarr du parc ne renvoient pas encore ici, et
+  ne portent pas tous leur tableau d'instances — à faire, sur le modèle de ce que
+  `prestashop/mep.md` a mis en place (RM3200).

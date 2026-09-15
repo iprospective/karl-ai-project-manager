@@ -58,7 +58,7 @@ priority: normal
 - type: partner_issue
   instance: redmine-matnat
   issue_id: 5576
-  url: https://tasks.materiaux-naturels.fr/issues/5576
+  url: https://tasks.clientd.example/issues/5576
   role: mirror
   last_seen_journal_id: null
   last_seen_status: {seen}

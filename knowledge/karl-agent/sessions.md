@@ -81,7 +81,7 @@ Depuis l'hôte, on peut voir/écrire le FS du conteneur via `/proc/<pid>/root/�
 process du conteneur), mais le bon réflexe est de **travailler dans le conteneur**.
 
 - `<slug>` = le `cwd` avec chaque `/` et `.` remplacés par `-`
-  (`/zfs/workspaces/calicote/prestashop` → `-zfs-workspaces-calicote-prestashop`).
+  (`/zfs/workspaces/clienta/prestashop` → `-zfs-workspaces-clienta-prestashop`).
   La transformation est **lossy** (on ne peut pas remonter au `cwd` depuis le slug seul).
 
 ## Les 3 ancrages d'une session à un projet (leçon RM2391)

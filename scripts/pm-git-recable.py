@@ -2,7 +2,7 @@
 """pm-git-recable — Recâble en masse les remotes git locaux après un déplacement de groupe GitLab (RM1976).
 
 Quand un groupe GitLab est promu/déplacé (ex. `iprospective/prestashop` →
-`prestashop`, `iprospective/dolibarr` → `dolibarr`, `sfy/calicote` → `calicote`),
+`prestashop`, `iprospective/dolibarr` → `dolibarr`, `sfy/clienta` → `clienta`),
 tous les clones locaux qui pointent vers l'ancien chemin doivent voir leur
 remote mis à jour. GitLab pose des redirections, donc rien ne casse, mais on
 veut des remotes propres.

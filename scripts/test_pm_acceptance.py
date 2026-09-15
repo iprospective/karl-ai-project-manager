@@ -122,6 +122,21 @@ chk("deux libellés qui ne diffèrent que par l'enveloppe sont le même item",
 u4, d4 = A.union([(False, "un critère\nlong")], [(False, "un critère long")])
 chk("… donc l'union ne les duplique pas", len(u4) == 1 and not d4)
 
+# ── ce qui ne désigne aucun travail n'est pas un critère ─────────────────────
+chk("une case SANS TEXTE est un gabarit (unification des 3 parseurs, RM2882)",
+    A.parse_items("- [ ] \n- [ ] un vrai\n") == [(False, "un vrai")])
+chk("une section réduite à un gabarit n'est pas adoptable",
+    A.adoptable_section("## Critères d'acceptation\n\n- [ ] (à compléter)\n") is None)
+chk("une section de cases vides non plus",
+    A.adoptable_section("## Critères d'acceptation\n\n- [ ]\n- [ ]\n") is None)
+chk("une section réelle est adoptable, normalisée",
+    A.adoptable_section("## Critères d'acceptation\n\n-  [X]  un\n") == "- [x] un")
+chk("pas de section du tout → rien à adopter", A.adoptable_section("## Contexte\n") is None)
+chk("adoption idempotente (une migration rejouée ne diffère pas)",
+    A.adoptable_section("## Critères d'acceptation\n\n"
+                        + A.adoptable_section("## Critères d'acceptation\n\n- [ ] un\n"))
+    == "- [ ] un")
+
 # ── union ────────────────────────────────────────────────────────────────────
 md = [(False, "commun"), (True, "seulement MD")]
 rm = [(False, "commun"), (False, "seulement Redmine")]
@@ -142,6 +157,14 @@ chk("la comparaison ignore casse et espaces surnuméraires", len(u3) == 1 and no
 
 chk("deux sources identiques → aucune divergence",
     A.union(md, md)[1] == [])
+
+chk("le gras et les backticks ne font pas deux critères différents",
+    A.norm_label("`pm-task-acceptance` **refuse le vide**.")
+    == A.norm_label("pm-task-acceptance refuse le vide"))
+chk("… mais le souligné des identifiants est préservé",
+    A.norm_label("pm_task_md") != A.norm_label("pmtaskmd"))
+chk("deux critères réellement différents le restent",
+    A.norm_label("refuse le vide") != A.norm_label("accepte le vide"))
 
 # ── double source, sans bascule ──────────────────────────────────────────────
 BODY = "## Critères d'acceptation\n\n- [ ] depuis la description\n"

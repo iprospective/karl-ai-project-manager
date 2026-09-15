@@ -123,13 +123,24 @@ def parse_items(text):
     return out
 
 
+_MARKUP_RE = re.compile(r"[*`]")
+
+
 def norm_label(label):
-    """Clé de comparaison d'un item : espaces réduits, casse ignorée.
+    """Clé de comparaison d'un item : espaces réduits, casse, markup et ponctuation finale ignorés.
 
     Sert UNIQUEMENT à décider si deux items sont « le même » de part et d'autre du
     miroir. Le libellé écrit reste celui de la source, jamais cette forme normalisée.
+
+    Pourquoi ignorer le markup : le même critère saisi dans l'UI web de Redmine n'a ni
+    gras ni backticks, et l'enveloppe à 95 colonnes du MD n'existe pas non plus côté
+    Redmine. Sans cette normalisation, RM2882 lui-même — dont les deux côtés portent
+    exactement les mêmes sept critères — sortait en « divergence croisée ». On ne
+    touche PAS au souligné `_` : il vit dans les identifiants (`pm_task_md`).
     """
-    return re.sub(r"\s+", " ", (label or "")).strip().lower()
+    txt = _MARKUP_RE.sub("", label or "")
+    txt = re.sub(r"\s+", " ", txt).strip().lower()
+    return txt.rstrip(".;,")
 
 
 def render_items(items):
@@ -201,3 +212,20 @@ def stray_checkboxes(body):
     section = extract_section(body) or ""
     dans = {norm_label(lab) for _, lab in parse_items(section)}
     return [lab for _, lab in parse_items(body or "") if norm_label(lab) not in dans]
+
+
+def adoptable_section(body):
+    """La section de critères d'un corps de MD, PRÊTE à devenir la valeur du champ.
+
+    Rend le texte normalisé des items réels, ou **None** s'il n'y en a aucun. Le
+    rejeu à blanc de RM2882 sur tout le corpus a montré pourquoi ce filtre ne peut
+    pas rester à l'appelant : des dizaines de tickets portent une section réduite à
+    `- [ ] (à compléter)` (gabarit de `pm-task-add`) ou à des cases sans texte. Les
+    adopter aurait poussé ces gabarits dans Redmine — précisément ce que RM2789 avait
+    retiré de la comptabilité des critères.
+
+    La normalisation (`parse_items` → `render_items`) rend aussi l'opération idempotente :
+    une migration rejouée ne produit pas un diff d'enveloppe.
+    """
+    items = parse_items(extract_section(body) or "")
+    return render_items(items) if items else None

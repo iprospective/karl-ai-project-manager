@@ -79,7 +79,8 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
   PISTES.md                            # pistes d'évolution
   pm.config.yml                        # config des chemins (commitée)
   pm.config.local.yml                  # surcharge locale (gitignored, optionnel)
-  mail-routing.yml                     # routage email → client/projet (appris, RM2669)
+  mail-routing.yml.default             # modèle de la table de routage email (RM2669/RM3200 ;
+                                       #   la table réelle : var/mail-routing.yml, hors git)
   .env                                 # credentials + PROJECTS_PATH (gitignored)
   .gitignore
   norms/

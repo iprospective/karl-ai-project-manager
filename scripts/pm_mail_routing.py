@@ -132,11 +132,22 @@ def is_own(addr: str, cfg=None) -> bool:
 
 # ── Table apprise ────────────────────────────────────────────────────────────
 def routing_file(cfg) -> Path:
-    """Emplacement de la table : `conf_dir` (versionné avec le code)."""
+    """Emplacement de la table : `state_dir` (`var/`), hors git — RM3200.
+
+    Repli sur l'ancienne place (`conf_dir/mail-routing.yml`) tant qu'elle
+    existe et que la nouvelle est absente : le déploiement qui apporte ce
+    changement supprime le fichier versionné, la table restaurée à côté
+    continue d'être lue jusqu'à ce qu'on la déplace.
+    """
     try:
-        return cfg.path("mail_routing_file")
+        f = cfg.path("mail_routing_file")
     except KeyError:                     # core pas encore migré : même racine
         return cfg.conf_dir / "mail-routing.yml"
+    if not f.is_file():
+        ancienne = cfg.conf_dir / "mail-routing.yml"
+        if ancienne.is_file():
+            return ancienne
+    return f
 
 
 def load_routing(cfg) -> dict:

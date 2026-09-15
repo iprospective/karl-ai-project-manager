@@ -6,8 +6,9 @@ file produite par `karl-mail-fetch.py` (RM2668) et écrit, dans chaque entrée, 
 `routing` : client, projet, **confiance**, **source** et motif lisible.
 
 Rien n'est deviné : quand aucune source fiable ne répond, l'entrée reste « à classer ».
-Chaque correction humaine (`--set`) est **apprise** dans `mail-routing.yml` (repo de
-données, aucun contenu d'email) et sert dès la relève suivante.
+Chaque correction humaine (`--set`) est **apprise** dans `var/mail-routing.yml`
+(hors git — elle nomme des clients, RM3200 ; aucun contenu d'email) et sert dès la
+relève suivante.
 
 Usage :
     karl-mail-route.py                       # route la file (sources hors-ligne)

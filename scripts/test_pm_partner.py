@@ -21,8 +21,8 @@ def _reg():
         "defaults": {"task": "redmine-ipro", "forge": "gitlab-ipro", "doc": "redmine-wiki"},
         "servers": {
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.example"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd",
-                               "slug": "matnat"},
+            "redmine-clientd": {"axis": "task", "type": "redmine", "url": "https://tasks.clientd",
+                               "slug": "clientd"},
             "redmine-clientf": {"axis": "task", "type": "redmine", "url": "https://rm.clientf"},
             "gitlab-ipro":    {"axis": "forge", "type": "gitlab", "url": "https://gl.example"},
             "redmine-wiki":   {"axis": "doc", "type": "redmine_wiki", "url": "https://tasks.example"},
@@ -33,7 +33,7 @@ def _reg():
 def _meta(policy="required", extra_secondary=False):
     task = [
         {"instance": "redmine-ipro", "role": "primary", "project_id": "proj"},
-        {"instance": "redmine-matnat", "role": "secondary", "project_id": 12,
+        {"instance": "redmine-clientd", "role": "secondary", "project_id": 12,
          "link": {"policy": policy}},
     ]
     if extra_secondary:
@@ -42,7 +42,7 @@ def _meta(policy="required", extra_secondary=False):
     return {"providers": {"task": task}}
 
 
-def _ref(instance="redmine-matnat", issue_id=1234, role="mirror"):
+def _ref(instance="redmine-clientd", issue_id=1234, role="mirror"):
     return {"type": "partner_issue", "instance": instance, "issue_id": issue_id,
             "url": f"https://x/issues/{issue_id}", "role": role,
             "last_seen_journal_id": None, "added": "2026-08-12"}
@@ -71,7 +71,7 @@ def test_find_and_mirror():
     fm = {"refs": [_ref(role="related"), _ref(instance="redmine-clientf", issue_id=7,
                                               role="mirror")]}
     assert pm_partner.find_ref(fm, instance="redmine-clientf")["issue_id"] == 7
-    assert pm_partner.find_ref(fm, issue_id=1234)["instance"] == "redmine-matnat"
+    assert pm_partner.find_ref(fm, issue_id=1234)["instance"] == "redmine-clientd"
     assert pm_partner.find_ref(fm, instance="inconnue") is None
     assert pm_partner.mirror_ref(fm)["issue_id"] == 7
     assert pm_partner.mirror_ref({"refs": [_ref(role="related")]}) is None
@@ -80,8 +80,8 @@ def test_find_and_mirror():
 # ── résolution du secondaire ───────────────────────────────────────────────
 
 def test_resolve_secondary_ok():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
-    assert res.instance.name == "redmine-matnat" and not res.is_primary
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
+    assert res.instance.name == "redmine-clientd" and not res.is_primary
 
 
 def test_resolve_secondary_refuses_the_primary():
@@ -96,7 +96,7 @@ def test_resolve_secondary_refuses_the_primary():
 def test_resolve_secondary_without_any_declared():
     meta = {"redmine": {"project_id": "x"}}          # projet legacy, aucun secondaire
     try:
-        pm_partner.resolve_secondary(meta, _reg(), "redmine-matnat")
+        pm_partner.resolve_secondary(meta, _reg(), "redmine-clientd")
         raise AssertionError("attendu PartnerError")
     except PartnerError as e:
         assert "aucun provider secondaire" in str(e)
@@ -104,21 +104,21 @@ def test_resolve_secondary_without_any_declared():
 
 def test_declared_secondaries():
     got = pm_partner.declared_secondaries(_meta(extra_secondary=True), _reg())
-    assert sorted(got) == ["redmine-clientf", "redmine-matnat"]
+    assert sorted(got) == ["redmine-clientd", "redmine-clientf"]
 
 
 # ── construction & validation ──────────────────────────────────────────────
 
 def test_build_ref_defaults_and_url():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     ref = pm_partner.build_ref(res, "1234", role="mirror", added="2026-08-12")
-    assert ref == {"type": "partner_issue", "instance": "redmine-matnat",
+    assert ref == {"type": "partner_issue", "instance": "redmine-clientd",
                    "issue_id": 1234, "url": "https://tasks.clientd/issues/1234",
                    "role": "mirror", "last_seen_journal_id": None, "added": "2026-08-12"}
 
 
 def test_build_ref_rejects_bad_role_and_id():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     for kw, why in (({"role": "clone"}, "role"), ({"issue_id": "abc"}, "issue_id")):
         try:
             pm_partner.build_ref(res, kw.get("issue_id", 1), role=kw.get("role", "related"))
@@ -128,7 +128,7 @@ def test_build_ref_rejects_bad_role_and_id():
 
 
 def test_check_addition_rejects_duplicate_and_second_mirror():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     fm = {"refs": [_ref(role="mirror")]}
     try:
         pm_partner.check_addition(fm, pm_partner.build_ref(res, 1234, role="related"))
@@ -193,7 +193,7 @@ def test_link_note_without_url_or_title():
 
 
 def test_post_link_note_dry_run_does_not_touch_network():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     note = pm_partner.post_link_note(res, 1234, 2626, "Titre", dry_run=True)
     assert note.startswith("Suivi iProspective : RM2626 — Titre")
 
@@ -203,8 +203,8 @@ def test_post_link_note_dry_run_does_not_touch_network():
 def test_required_secondaries_and_missing_links():
     meta, reg = _meta(policy="required"), _reg()
     assert [r.instance.name for r in pm_partner.required_secondaries(meta, reg)] \
-        == ["redmine-matnat"]
-    assert pm_partner.missing_links({}, meta, reg) == ["redmine-matnat"]
+        == ["redmine-clientd"]
+    assert pm_partner.missing_links({}, meta, reg) == ["redmine-clientd"]
     assert pm_partner.missing_links({"refs": [_ref()]}, meta, reg) == []
 
 
@@ -273,7 +273,7 @@ def test_extract_updates_on_empty_issue():
 
 
 def test_pull_enabled_defaults_and_switches():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     assert pm_partner.pull_enabled(res) == (True, True)          # sync absent → permissif
     res2 = type(res)(res.instance, res.params, res.source, res.role, res.link,
                      {"pull": {"notes": True, "status": False}})
@@ -284,7 +284,7 @@ def test_pull_enabled_defaults_and_switches():
 
 
 def test_pull_ref_respects_switches():
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     res_no_notes = type(res)(res.instance, res.params, res.source, res.role, res.link,
                              {"pull": {"notes": False}})
     prov = _FakeProvider(_issue([_journal(1, "coucou")], status="Résolu"))
@@ -299,7 +299,7 @@ def test_format_pull_entry_quotes_foreign_content():
         _ref(), {"notes": [_journal(9, "ligne A\n\nligne B", author="Bob")],
                  "status": "Résolu", "status_changed": True, "last_journal_id": 9},
         remote_title="Leur ticket")
-    assert "redmine-matnat#1234" in entry and "lecture seule" in entry
+    assert "redmine-clientd#1234" in entry and "lecture seule" in entry
     assert "**Résolu**" in entry and "non répercuté" in entry
     # tout le contenu venu d'ailleurs est cité — on doit le distinguer d'un coup d'œil
     assert "> ligne A" in entry and "> ligne B" in entry
@@ -330,7 +330,7 @@ def test_apply_pointers_advances_only_on_change():
 
 def test_pull_never_touches_task_state():
     """Garde-fou du lot : le pull ne produit RIEN qui ressemble à un état PM."""
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     prov = _FakeProvider(_issue([_journal(1, "note")], status="Fermé"))
     up, _ = pm_partner.pull_ref(res, _ref(), provider=prov)
     assert set(up) == {"notes", "last_journal_id", "status", "status_changed"}
@@ -345,7 +345,7 @@ def _with_sync(res, sync):
 
 
 def _sec(sync=None, params=None):
-    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-clientd")
     if params is not None:
         res = type(res)(res.instance, params, res.source, res.role, res.link, res.sync)
     return _with_sync(res, sync) if sync is not None else res
@@ -438,8 +438,8 @@ def test_create_remote_passes_declared_ids_and_no_ia_tag():
 
 def test_slug_declared_wins():
     """`slug:` déclaré dans le registre — stable si l'instance est renommée."""
-    inst = _reg().get("redmine-matnat")
-    assert pm_partner.instance_slug(inst) == "matnat"
+    inst = _reg().get("redmine-clientd")
+    assert pm_partner.instance_slug(inst) == "clientd"
 
 
 def test_slug_falls_back_to_deduction():
@@ -455,8 +455,8 @@ def test_slug_falls_back_to_deduction():
 def test_slug_by_name_needs_the_registry():
     """Un nom seul ne porte pas la déclaration : le registre la retrouve."""
     reg = _reg()
-    assert pm_partner.instance_slug("redmine-matnat") == "matnat"       # déduit, ici identique
-    assert pm_partner.instance_slug("redmine-matnat", reg) == "matnat"  # déclaré
+    assert pm_partner.instance_slug("redmine-clientd") == "clientd"       # déduit, ici identique
+    assert pm_partner.instance_slug("redmine-clientd", reg) == "clientd"  # déclaré
 
 
 def test_slug_declared_differs_from_deduction():
@@ -487,7 +487,7 @@ def test_cf_ref_is_capped():
 
 def test_cf_ref_without_registry_is_unchanged():
     """Rétro-compat : les appelants qui ne passent pas le registre gardent l'ancien rendu."""
-    assert pm_partner.cf_ref(_ref(issue_id=5576)) == "matnat#5576"
+    assert pm_partner.cf_ref(_ref(issue_id=5576)) == "clientd#5576"
 
 
 # ── URL de NOTRE ticket dans la note au partenaire (RM2657) ────────────────
@@ -519,7 +519,7 @@ def test_push_triggers_reads_the_three_forms():
     """
     import yaml
     from pm_registry import Instance, Resolution
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
+    inst = Instance("redmine-clientd", "task", "redmine", "https://tasks.clientd")
 
     charge = yaml.safe_load("push: {on: [ferme]}")
     assert True in charge["push"], "YAML 1.1 : la clé devrait être le booléen"
@@ -534,7 +534,7 @@ def test_push_triggers_reads_the_three_forms():
 def test_push_stays_disabled_by_default():
     """Aucune clé, liste vide ou `push: true` → rien ne part chez le partenaire."""
     from pm_registry import Instance, Resolution
-    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.clientd")
+    inst = Instance("redmine-clientd", "task", "redmine", "https://tasks.clientd")
     for sync in ({}, {"push": {}}, {"push": {True: []}}, {"push": True},
                  {"push": {"on_status": []}}):
         res = Resolution(inst, sync=sync, role="secondary")

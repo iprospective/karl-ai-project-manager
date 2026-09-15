@@ -33,6 +33,7 @@ class FakeCfg:
 
     def __init__(self, tmp):
         self.conf_dir = pathlib.Path(tmp)
+        self.state_dir = pathlib.Path(tmp) / "var"          # RM3200 : la table y vit
         self.projects_root = pathlib.Path(tmp) / "projects"
         self.tasks = {2661: ("clientb", "infra")}
         self.projects = {"clientb": ["dolibarr", "infra"], "cliente": ["site"]}
@@ -44,6 +45,8 @@ class FakeCfg:
         }
 
     def path(self, key, **kw):
+        if key == "mail_routing_file":                       # RM3200
+            return self.state_dir / "mail-routing.yml"
         raise KeyError(key)          # pattern absent → repli conf_dir du module
 
     def iter_entities(self):
@@ -170,8 +173,8 @@ check("table versionnable : pas de contenu d'email",
       "addresses:" in raw and "body" not in raw and "subject" not in raw)
 check("table : rechargée à l'identique",
       R.load_routing(cfg)["addresses"]["contact.clientb@gmail.com"] == "clientb/dolibarr")
-check("table hors projects_root (dossier non versionné)",
-      R.routing_file(cfg).parent == cfg.conf_dir)
+check("table hors du dépôt de code : sous state_dir (var/), RM3200",
+      R.routing_file(cfg).parent == cfg.state_dir)
 
 print()
 if fails:

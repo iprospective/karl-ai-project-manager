@@ -64,13 +64,18 @@ paths:
   task_file:           "{tasks_dir}/RM{id}_{slug}.md"
   task_log_file:       "{tasks_dir}/RM{id}_{slug}.log.md"
 
-  # Routage des emails entrants → client/projet (RM2669). Table adresse →
-  # client/projet : de la CONFIGURATION, donc sous `conf_dir` (= le repo de code
-  # par défaut, où elle est versionnée). Surtout PAS sous `projects_root` : ce
-  # dossier est `.gitignore`d côté code et n'est le checkout d'aucun dépôt de
-  # données — la table y serait ni versionnée ni sauvegardée. Aucun contenu
-  # d'email ne s'en approche (la file de triage, elle, reste hors git — RM2668).
-  mail_routing_file:   "{conf_dir}/mail-routing.yml"
+  # Routage des emails entrants → client/projet (RM2669), relogé sous `state_dir`
+  # par RM3200. Elle vivait sous `conf_dir` — donc versionnée avec le code, donc
+  # publiée par le miroir GitHub : or elle NOMME des clients et porte leurs
+  # adresses. Elle n'a rien d'une configuration figée, c'est un état alimenté au
+  # fil de l'eau par les corrections humaines (`karl-mail-route`). Deuxième
+  # raison, pratique : `core-lock lock` chowne la racine du cœur en `root:root`,
+  # si bien que `save_routing()`, exécuté en KARL_USER, ne pouvait pas y écrire ;
+  # `var/` est justement le dossier que le verrou laisse au groupe. Le modèle
+  # versionné, lui, reste `mail-routing.yml.default` à la racine. Toujours PAS
+  # sous `projects_root` : aucun dépôt ne l'y sauvegarderait. Aucun contenu
+  # d'email ne s'en approche (la file de triage reste hors git — RM2668).
+  mail_routing_file:   "{state_dir}/mail-routing.yml"
 
   # Annuaire de contacts (RM2703) — une fiche par personne, `contacts/<ref>.yml`.
   # Ni sous `conf_dir` : le dépôt de CODE part sur un miroir GitHub PUBLIC, et

@@ -73,6 +73,11 @@ def _make_tree(tmp, secondary=True, policy="required"):
     cfg["roots"] = {"pm_dir": str(pm_dir), "projects_root": str(projects),
                     "state_dir": str(tmp / "var"), "conf_dir": str(pm_dir),
                     "log_dir": str(tmp / "var" / "log")}
+    # RM3200 : le test lit la config RÉELLE, mais ne doit dépendre d'aucune URL du
+    # parc — l'instance secondaire qu'il manipule est donc redéclarée en fictif.
+    cfg.setdefault("providers", {}).setdefault("servers", {})["redmine-matnat"] = {
+        "axis": "task", "type": "redmine", "slug": "clientd",
+        "url": "https://tasks.clientd.example"}
     (pm_dir / "pm.config.yml").write_text(yaml.safe_dump(cfg, allow_unicode=True),
                                           encoding="utf-8")
     proj = projects / "clients" / "acme" / "projects" / "site"

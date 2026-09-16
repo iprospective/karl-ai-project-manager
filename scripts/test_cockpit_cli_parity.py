@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests RM3208 (P1) — parité CLI ↔ cockpit : aucune écriture d'état enfermée dans le serveur du cockpit.
 
-Pourquoi : MatNat travaille sans cockpit. Toute route qui MODIFIE l'état en écrivant elle-même (fichier, conf,
+Pourquoi : une instance peut tourner sans cockpit. Toute route qui MODIFIE l'état en écrivant elle-même (fichier, conf,
 état JSON) sans passer par un script CLI ni par un module que le CLI utilise aussi rend ce geste impossible
 hors cockpit — et chaque nouveau panneau pouvait en rouvrir un sans que personne ne le voie.
 

@@ -13,8 +13,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
-- **Le CLI fait ce que le cockpit faisait seul — V1 (RM3208, prérequis du déploiement chez MatNat, qui
-  travaille sans cockpit).** Trois gestes n'existaient que dans le serveur du cockpit, dont la logique était
+- **Le CLI fait ce que le cockpit faisait seul — V1 (RM3208, prérequis d'un déploiement
+  client sans cockpit).** Trois gestes n'existaient que dans le serveur du cockpit, dont la logique était
   enfermée dans ses routes HTTP :
   - **les comptes** : les comptes du cockpit sont ceux des utilisateurs du CLI. Leur logique passe dans
     `pm_accounts` (verrou inter-processus, 0600, propriétaire préservé quand on écrit en root, compte possible

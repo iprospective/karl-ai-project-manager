@@ -57,6 +57,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
 import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)  # noqa: E402
+import pm_worktrees  # RM3209 : pas de dépôt partagé en per_user  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
 GITIGNORE = (
@@ -171,7 +172,7 @@ def local_heads(bare: Path) -> set[str]:
 def ensure_bare(ctx: Ctx, ws: Path, repo: dict):
     """Crée/réconcilie le bare repos/<name>.git + ses remotes (idempotent)."""
     name = repo["name"]
-    bare = ws / "repos" / f"{name}.git"
+    bare = pm_worktrees.central_bare(ws, name)
     remotes = repo["remotes"]
 
     if not bare.exists():
@@ -326,7 +327,7 @@ def teardown(ctx: Ctx, ws: Path, repos: list[dict], only: set[str],
         name = repo["name"]
         if only and name not in only:
             continue
-        bare = ws / "repos" / f"{name}.git"
+        bare = pm_worktrees.central_bare(ws, name)
         if not bare.exists():
             ctx.skip(f"repos/{name}.git absent — rien à défaire")
             continue
@@ -393,6 +394,11 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
+    layout = pm_worktrees.read_layout()
+    if not pm_worktrees.bare_creation_allowed(layout) and not args.teardown:
+        die("git.worktree_source=per_user : pas de dépôt partagé à créer — chaque dev clone son dépôt "
+            "dans son dossier de dépôts (PM_REPOS_DIR, défaut ~/repos) ; les envs se créent par "
+            "`pm-branch-start --worktree` ou `pm-env-session create`.")
     repos = load_repos(ws)
     only = set(args.repo)
     if only:

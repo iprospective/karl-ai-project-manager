@@ -72,6 +72,10 @@ onboarding agent), voir d'abord [README.md](README.md).
   (`test_karl_agent_vault.py`) ne vérifie pas que « ça marche » mais **où le secret
   n'est pas** : il fait tracer argv, environnement et entrée standard par un faux
   `unlock-vault.sh`.
+- **Source des worktrees (RM3209).** Aucun outil ne construit plus `repos/<repo>.git` ni `envs/<env>` à la
+  main : `scripts/pm_worktrees.py` résout le dépôt source (`central` ou `per_user`, dossier des dépôts de
+  l'utilisateur) et la racine des envs (`project` ou `user`) à partir de `git.worktree_source` /
+  `git.envs_layout`. Envs existants à déplacer : `pm-env-relocate`.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

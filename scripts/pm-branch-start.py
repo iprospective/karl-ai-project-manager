@@ -47,6 +47,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_worktrees   # noqa: E402  RM3209 : source des worktrees et emplacement des envs
 try:                                       # RM3095 : journal structuré, jamais bloquant
     import pm_log
     journal = pm_log.journal("pm-branch-start", "pm")
@@ -137,7 +138,7 @@ def is_linked_worktree(git_dir: str, git_common_dir: str) -> bool:
 # <<< is_linked_worktree
 
 
-def worktree_path(root: Path, rm_id: int, branch: str, seq) -> Path:
+def worktree_path(root: Path, rm_id: int, branch: str, seq, envs=None) -> Path:
     """Chemin du worktree de session, convention UNIQUE (RM2523).
 
         envs/<repo>-rm<id>           canonique — même forme que `pm-env-session create`
@@ -147,7 +148,9 @@ def worktree_path(root: Path, rm_id: int, branch: str, seq) -> Path:
     sessions sur le même ticket), au lieu d'être systématique. `pm-env-session`
     résout de toute façon par branche : le nom n'est plus qu'un repère humain.
     """
-    envs = root.parent
+    # RM3209 : `envs` vient des réglages d'instance (disposition project/user, dépôt central ou par
+    # utilisateur). Sans réglage : le dossier parent du worktree courant, comme avant.
+    envs = Path(envs) if envs is not None else root.parent
     canonical = envs / f"{repo_name_of(root)}-rm{rm_id}"
     if not canonical.exists():
         return canonical
@@ -323,7 +326,23 @@ def main():
         # Convention unique, alignée sur `pm-env-session create` :
         #     envs/<repo>-rm<id>            (canonique)
         #     envs/<repo>-rm<id>-s<seq>     (si le canonique sert déjà à une AUTRE branche)
-        wt = worktree_path(root, args.rm_id, branch, seq)
+        # RM3209 — réglages d'instance : source (central / per_user) et disposition des envs.
+        envs_dir = None
+        layout = pm_worktrees.read_layout()
+        if layout != pm_worktrees.Layout():
+            ws = pm_worktrees.workspace_for_task(md_path, cfg.projects_root)
+            if ws is None:
+                sys.exit(f"ERREUR : workspace de RM{args.rm_id} introuvable (lien du projet dans l'index) — "
+                         f"requis par git.worktree_source={layout.source} / git.envs_layout={layout.envs_layout}")
+            if layout.source == "per_user":
+                common = _git(root, "rev-parse", "--git-common-dir", check=False).stdout.strip()
+                attendu = pm_worktrees.source_repo(ws, canonical_repo, layout,
+                                                   repos_dir=pm_worktrees.user_repos_dir())
+                erreur = pm_worktrees.per_user_source_error(root, common, attendu)
+                if erreur:
+                    sys.exit(f"ERREUR : {erreur}")
+            envs_dir = pm_worktrees.envs_root(ws, layout, pm_worktrees.current_user())
+        wt = worktree_path(root, args.rm_id, branch, seq, envs=envs_dir)
         # Idempotence indépendante du cwd (RM2240) : si le frontmatter porte déjà
         # le worktree de CETTE branche, le réutiliser — sinon une relance depuis
         # un autre worktree calcule un chemin imbriqué et plante.

@@ -77,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_session
 import pm_git
+import pm_worktrees   # RM3209 : source des worktrees et emplacement des envs
 import redmine_utils
 
 CORE = Path(__file__).resolve().parent.parent
@@ -108,6 +109,25 @@ def git(args, cwd=None, check=True):
 
 
 # ------------------------------------------------------------- config/manifeste
+
+#: RM3209 — dossier de conf lu pour les réglages d'instance (remplaçable par les tests).
+LAYOUT_CORE = None
+
+
+def source_and_envs(ws: Path, name: str):
+    """(disposition, dépôt source, racine des envs) selon `git.worktree_source` / `git.envs_layout`."""
+    layout = pm_worktrees.read_layout(LAYOUT_CORE or CORE)
+    repos_dir = pm_worktrees.user_repos_dir() if layout.source == "per_user" else None
+    return (layout, pm_worktrees.source_repo(ws, name, layout, repos_dir=repos_dir),
+            pm_worktrees.envs_root(ws, layout, pm_worktrees.current_user()))
+
+
+def missing_source_message(layout, src: Path) -> str:
+    if layout.source == "per_user":
+        return (f"dépôt personnel absent : {src} — clone-le (git.worktree_source=per_user ; "
+                f"dossier réglable par PM_REPOS_DIR dans ~/.config/mmi-pm/.env)")
+    return f"bare absent : {src} (lancer pm-env-init d'abord)"
+
 
 def load_env_runtime_cfg() -> dict:
     """`pm.config.yml :: env_runtime` (+ override pm.config.local.yml)."""
@@ -348,8 +368,8 @@ def cmd_create(args):
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     repo = pick_repo(load_repos(ws), args.repo)
     name, rmid = repo["name"], args.rmid
-    bare = ws / "repos" / f"{name}.git"
-    bare.is_dir() or die(f"bare absent : {bare} (lancer pm-env-init d'abord)")
+    layout, bare, envs = source_and_envs(ws, name)   # RM3209 : dépôt central ou du dev
+    bare.is_dir() or die(missing_source_message(layout, bare))
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
 
@@ -357,7 +377,7 @@ def cmd_create(args):
     # nom des logs). Le worktree, lui, est résolu PAR BRANCHE (RM2394) : il peut
     # déjà être monté sous un nom discriminé par session (RM2034) ou canonique.
     env_name = f"{name}-rm{rmid}"
-    canonical = ws / "envs" / env_name
+    canonical = envs / env_name
     slug = args.slug or task_slug(ws, rmid) or "session"
     branch = f"{rmid}-{slug}"
 
@@ -604,7 +624,7 @@ def cmd_teardown(args):
     # `env_name` = identité STABLE du ticket (vhost, logs, clone BDD) — elle ne
     # dépend PAS du nom du worktree et reste canonique.
     env_name = f"{name}-rm{rmid}"
-    bare = ws / "repos" / f"{name}.git"
+    layout, bare, envs = source_and_envs(ws, name)   # RM3209
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
 
@@ -615,7 +635,7 @@ def cmd_teardown(args):
     # worktree était bien monté. Repli sur le chemin canonique quand le ticket
     # n'a aucune branche checkoutée (worktree déjà démonté, ou jamais créé).
     found = worktree_for_branch(bare, name, rmid)
-    wt = found[0] if found else ws / "envs" / env_name
+    wt = found[0] if found else envs / env_name
     try:
         shown = wt.relative_to(ws)
     except ValueError:
@@ -732,7 +752,8 @@ def cmd_list(args):
     rows: dict[str, tuple[str, str]] = {}   # chemin → (rm, branche)
 
     for repo in load_repos(ws):
-        bare = ws / "repos" / f"{repo['name']}.git"
+        # RM3209 : en per_user, seuls les worktrees du dépôt de l'utilisateur courant sont visibles.
+        _layout, bare, envs = source_and_envs(ws, repo["name"])
         for p, br in list_worktrees(bare):
             if not Path(p).is_dir() or Path(p).resolve() == bare.resolve():
                 continue

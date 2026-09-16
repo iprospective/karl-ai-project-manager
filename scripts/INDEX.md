@@ -84,6 +84,7 @@
 - `pm-env-gc` — GC des worktrees & branches locales des tickets fermés
 - `pm-env-init` — instancie le LAYOUT GIT d'un workspace projet
 - `pm-env-migrate` — migre un workspace PRÉ-NORME vers le layout RM1993
+- `pm-env-relocate` — déplacer des envs existants vers la disposition des réglages, les vhost…
 - `pm-env-session` — env de SESSION par ticket : worktree + runtime
 - `pm-env-status` — santé du poste PM, en une commande
 - `pm-env-vhost` — façade CLI des verbes vhost du helper privilégié
@@ -237,4 +238,5 @@
 - `pm_timesheet` — reconstitution du temps de travail HUMAIN à partir des traces d'agents
 - `pm_transcript` — lecture typée d'un transcript claude (JSONL). RM2305.
 - `pm_worklog_states` — comment un worklog de session CLASSE ce qu'il porte. RM3085 (lot L5 de…
+- `pm_worktrees` — d'où partent les worktrees, où vont les envs
 - `pm_ws_skeleton` — pont vers le verbe privilégié `pm-env-helper ws-init`

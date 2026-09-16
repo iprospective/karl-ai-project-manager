@@ -514,56 +514,31 @@ BASIC_PASS = os.environ.get("KARL_WEB_PASS") or None
 # émet un token d'appareil aléatoire dont SEUL le SHA-256 est mémorisé serveur
 # (var/karl-devices.json) : le client garde le token, jamais le mot de passe.
 # Les deux fichiers sont instance-locaux (var/ gitignoré), écrits en 0600.
-AUTH_VAR_DIR = Path(os.environ.get("KARL_AGENT_AUTH_DIR") or (REPO_ROOT / "var"))
-USERS_FILE = AUTH_VAR_DIR / "karl-users.json"
-DEVICES_FILE = AUTH_VAR_DIR / "karl-devices.json"
-PBKDF2_ITERATIONS = 310_000  # recommandation OWASP pour PBKDF2-HMAC-SHA256
+# RM3208 (U1) : la logique des comptes vit dans `pm_accounts`, partagée avec `mmi-pm user` — les comptes du
+# cockpit SONT ceux du CLI. Ce qui suit n'est plus qu'un adaptateur HTTP (AccountError → ApiError).
+import pm_accounts as _accounts   # noqa: E402
+AUTH_VAR_DIR = _accounts.auth_dir(REPO_ROOT)
+USERS_FILE = AUTH_VAR_DIR / _accounts.USERS_NAME
+DEVICES_FILE = AUTH_VAR_DIR / _accounts.DEVICES_NAME
+PBKDF2_ITERATIONS = _accounts.PBKDF2_ITERATIONS
 _AUTH_LOCK = threading.Lock()          # ThreadingHTTPServer → sérialiser les I/O
 _LOGIN_FAILS: dict = {}                # ip → {"count": n, "until": ts} (mémoire)
 _LOGIN_LOCK_BASE_S = 2                 # 3 échecs → 2 s, puis ×2, plafonné
 _LOGIN_LOCK_MAX_S = 300
 
 
-def _auth_load(path: Path) -> dict:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _auth_save(path: Path, data: dict) -> None:
-    """Écriture atomique (tmp + rename) en 0600 — jamais de secret en clair
-    dedans (hashes uniquement), mais autant restreindre quand même."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-
-
-def _pbkdf2(password: str, salt_hex=None, iterations: int = PBKDF2_ITERATIONS) -> dict:
-    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return {"salt": salt.hex(), "iterations": iterations, "hash": dk.hex()}
-
-
-def _password_ok(password: str, rec: dict) -> bool:
-    try:
-        ref = _pbkdf2(password, rec["salt"], int(rec["iterations"]))
-        return hmac.compare_digest(ref["hash"], rec["hash"])
-    except (KeyError, TypeError, ValueError):
-        return False
-
-
-_USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
+_auth_load = _accounts.load
+_auth_save = _accounts.save
+_pbkdf2 = _accounts.pbkdf2
+_password_ok = _accounts.password_ok
+_USERNAME_RE = _accounts.USERNAME_RE
 
 
 def _issue_device(user: str, admin: bool, device_name: str) -> dict:
     """Émet un token d'appareil ; seul son SHA-256 est mémorisé serveur."""
     token = secrets.token_urlsafe(32)  # 256 bits
     device_id = uuid.uuid4().hex[:12]
-    with _AUTH_LOCK:
+    with _AUTH_LOCK, _accounts.locked(DEVICES_FILE):
         devices = _auth_load(DEVICES_FILE)
         devices[device_id] = {
             "user": user, "admin": bool(admin),
@@ -581,7 +556,7 @@ def _device_auth(token: str):
     if not token:
         return None
     want = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    with _AUTH_LOCK:
+    with _AUTH_LOCK, _accounts.locked(DEVICES_FILE):
         devices = _auth_load(DEVICES_FILE)
         for did, rec in devices.items():
             if hmac.compare_digest(rec.get("token_sha256", ""), want):
@@ -596,14 +571,7 @@ def _device_auth(token: str):
 
 def _revoke_devices(device_ids=None, user=None) -> int:
     with _AUTH_LOCK:
-        devices = _auth_load(DEVICES_FILE)
-        doomed = [d for d, r in devices.items()
-                  if (device_ids and d in device_ids) or (user and r.get("user") == user)]
-        for d in doomed:
-            devices.pop(d, None)
-        if doomed:
-            _auth_save(DEVICES_FILE, devices)
-    return len(doomed)
+        return _accounts.revoke_devices(DEVICES_FILE, device_ids=device_ids, user=user)
 
 
 def _login_throttled(ip: str):
@@ -659,70 +627,36 @@ def op_auth_login(payload: dict, ip: str) -> dict:
 
 def op_auth_users_list() -> dict:
     with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        devices = _auth_load(DEVICES_FILE)
-    per_user: dict = {}
-    for rec in devices.values():
-        per_user[rec.get("user")] = per_user.get(rec.get("user"), 0) + 1
-    out = [{"user": name, "disabled": bool(rec.get("disabled")),
-            "created": rec.get("created"), "devices": per_user.get(name, 0)}
-           for name, rec in sorted(users.items())]
-    return {"users": out, "superadmin": BASIC_USER}
+        return _accounts.list_users(USERS_FILE, DEVICES_FILE, superadmin=BASIC_USER)
 
 
 def op_auth_user_create(payload: dict) -> dict:
-    user = str(payload.get("user") or "").strip().lower()
     password = str(payload.get("pass") or "")
-    if not _USERNAME_RE.match(user):
-        raise ApiError(400, "user : 2-32 car., [a-z0-9._-], commence par [a-z0-9]")
-    if BASIC_USER is not None and user == BASIC_USER.lower():
-        raise ApiError(400, "ce nom est réservé au superadmin (.env)")
-    if len(password) < 8:
-        raise ApiError(400, "pass : 8 caractères minimum")
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        if user in users:
-            raise ApiError(409, f"compte existant : {user}")
-        users[user] = {**_pbkdf2(password),
-                       "created": time.strftime("%Y-%m-%dT%H:%M:%S")}
-        _auth_save(USERS_FILE, users)
-    return {"user": user, "created": True}
+    if len(password) < _accounts.MIN_PASSWORD:      # le cockpit exige un mot de passe ; le CLI, non
+        raise ApiError(400, f"pass : {_accounts.MIN_PASSWORD} caractères minimum")
+    try:
+        with _AUTH_LOCK:
+            return _accounts.create_user(USERS_FILE, payload.get("user"), password, superadmin=BASIC_USER)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_user_update(user: str, payload: dict) -> dict:
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        rec = users.get(user)
-        if not rec:
-            raise ApiError(404, f"compte inconnu : {user}")
-        changed = {}
-        if payload.get("pass"):
-            password = str(payload["pass"])
-            if len(password) < 8:
-                raise ApiError(400, "pass : 8 caractères minimum")
-            rec.update(_pbkdf2(password))
-            changed["pass"] = True
-        if "disabled" in payload:
-            rec["disabled"] = bool(payload["disabled"])
-            changed["disabled"] = rec["disabled"]
-        users[user] = rec
-        _auth_save(USERS_FILE, users)
-    # mdp changé ou compte désactivé ⇒ les appareils existants sont révoqués
-    if changed.get("disabled") or changed.get("pass"):
-        changed["devices_revoked"] = _revoke_devices(user=user)
-    if not changed:
-        raise ApiError(400, "rien à changer (pass et/ou disabled attendus)")
-    return {"user": user, **changed}
+    disabled = bool(payload["disabled"]) if "disabled" in payload else None
+    try:
+        with _AUTH_LOCK:
+            return _accounts.update_user(USERS_FILE, DEVICES_FILE, user,
+                                         password=payload.get("pass") or None, disabled=disabled)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_user_delete(user: str) -> dict:
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        if user not in users:
-            raise ApiError(404, f"compte inconnu : {user}")
-        users.pop(user)
-        _auth_save(USERS_FILE, users)
-    return {"user": user, "deleted": True, "devices_revoked": _revoke_devices(user=user)}
+    try:
+        with _AUTH_LOCK:
+            return _accounts.delete_user(USERS_FILE, DEVICES_FILE, user)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_devices_list(ctx: dict) -> dict:

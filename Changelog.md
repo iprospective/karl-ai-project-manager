@@ -13,6 +13,29 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le CLI fait ce que le cockpit faisait seul — V1 (RM3208, prérequis du déploiement chez MatNat, qui
+  travaille sans cockpit).** Trois gestes n'existaient que dans le serveur du cockpit, dont la logique était
+  enfermée dans ses routes HTTP :
+  - **les comptes** : les comptes du cockpit sont ceux des utilisateurs du CLI. Leur logique passe dans
+    `pm_accounts` (verrou inter-processus, 0600, propriétaire préservé quand on écrit en root, compte possible
+    sans mot de passe), et **`mmi-pm user add|passwd|disable|enable|remove|list`** crée le compte PM
+    *unique* : compte de rôle `<login>-pm`, groupe `pm`, registre, gabarit `~/.config/mmi-pm/.env`, skills et
+    hooks — idempotent, `--dry-run`, mot de passe jamais en argument, `disable` réversible, `remove` ne
+    touche jamais au compte humain. Le runbook de provisionnement se réduit à cet appel.
+  - **le lot de tickets** (« traiter / passer à tester / analyser ») : composition extraite dans `pm_batch`,
+    et **`pm-session-status batch <tickets> [--mode …]`** affiche la même consigne pour la session courante.
+    Le marquage des notifications existait déjà : `pm-notify --read/--done`.
+  - **l'installation hors `/zfs/workspaces`** : les règles sudoers figeaient `/zfs/workspaces/.mmi-pm-core`,
+    que l'installeur ne substituait pas — installée en `/opt/mmi-pm/core`, aucune règle ne s'appliquait et
+    `sudo mmi-pm core update` était refusé. Le gabarit porte `<CORE_DIR>`, `install-mmi-pm --print-sudoers`
+    montre le rendu sans root, `core-lock` et `provision-core` s'auto-localisent, et `.env.example` déclare
+    enfin `KARL_USER` / `KARL_SUDO_USER`, que l'installeur exigeait.
+  - **garde anti-régression** : `test_cockpit_cli_parity.py` lit le dispatch du cockpit et échoue sur toute
+    route qui écrit l'état sans script CLI ni module partagé, hors exceptions nominatives (pilotage des
+    sessions, affichage du cockpit, et trois routes renvoyées en V2, RM3210). Une exception périmée échoue aussi.
+  - reste en revue avant tout code : la normalisation du modèle de propriété (`core-lock` pose `.env` et
+    `var/` sur le groupe `KARL_USER`, `pm-perms` attend `pm`).
+
 - **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
   si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —
   `karl_api_routes`, `pm_log`, `pm_notify`, `pm_bus`, `pm_modules`, `pm_monitor`, `pm_secrets`… — dont

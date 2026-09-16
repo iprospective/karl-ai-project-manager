@@ -74,6 +74,9 @@ Tous ces scripts vivent dans `scripts/` et s'appellent en `python3 scripts/<nom>
 | Ouvrir la merge request | `pm-mr.py …` |
 | Resynchroniser depuis Redmine | `pm-task-sync.py <id>` |
 | Récap d'avancement de la session | `pm-session-status.py` |
+| Composer un lot de tickets (traiter / à tester / analyser) | `pm-session-status.py batch <ids> --mode …` |
+| Lire / marquer les notifications | `pm-notify.py` (`--read <id>`, `--done <id>`) |
+| Créer / retirer un utilisateur (admin) | `sudo mmi-pm user add\|disable\|enable\|remove <login>` |
 
 Flux nominal : `pm-task-take` → `pm-branch-start` → travail + `pm-task-comment` →
 `pm-task-status-update` (livraison) → `pm-mr`. Le worklog de session
@@ -102,3 +105,18 @@ fonctionne sans les skills.
 - Pas de **vhost** ni d'env de session (`pm-env-session`) — coupés par
   `auto_session: false`. Un env de session reste créable **à la main** au besoin
   (`pm-env-session.py create <id> <ws>`), ce n'est simplement plus automatique.
+
+## Ce que le cockpit fait et le CLI pas encore (RM3208)
+
+La règle : une route du cockpit qui **modifie l'état** passe par un script `pm-*` ou par un module que le CLI
+utilise aussi. `scripts/test_cockpit_cli_parity.py` la vérifie sur le code réel, et sa liste `EXCEPTIONS` est
+**la** référence de ce qui manque — cette section n'en est que le résumé :
+
+| Geste du cockpit | En CLI | Pourquoi |
+|---|---|---|
+| Sessions supervisées (`session-set`, lancer, envoyer, tuer, approuver…) | — | pilotage de terminaux : sans objet sans cockpit |
+| Disposition de l'écran, diagnostic mémoire du démon | — | propres au cockpit |
+| Réglages d'instance | à venir | RM3210 (V2) — d'ici là, `pm.config.local.yml` |
+| Affecter un provider à un projet | à venir | RM3210 (V2) — d'ici là, `meta.yml` du projet |
+| Reporter une alerte | à venir | RM3210 (V2) |
+

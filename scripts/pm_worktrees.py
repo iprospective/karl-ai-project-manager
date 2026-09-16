@@ -1,7 +1,7 @@
 """pm_worktrees — d'où partent les worktrees, où vont les envs (RM3209).
 
 Le PM ne connaissait qu'un modèle : un dépôt bare partagé `<ws>/repos/<repo>.git`, des worktrees
-`<ws>/envs/<repo>-rm<id>`. Chez MatNat, chaque dev a SON dépôt ; le chemin du bare était écrit en dur à
+`<ws>/envs/<repo>-rm<id>`. Chez certains clients, chaque dev a SON dépôt ; le chemin du bare était écrit en dur à
 cinq endroits. Ce module est désormais le seul à décider :
 
     git.worktree_source  (instance, admin)   central   → <ws>/repos/<repo>.git

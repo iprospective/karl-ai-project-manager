@@ -108,7 +108,7 @@ def main():
         (data / "RM12_x.md").write_text("---\n---\n")
         (ws).mkdir(exist_ok=True)
         (ws / ".mmi-pm").symlink_to(d / "data" / "site" / ".mmi-pm")
-        link = projects / "clients" / "matnat" / "projects" / "site"
+        link = projects / "clients" / "client-a" / "projects" / "site"
         link.parent.mkdir(parents=True)
         link.symlink_to(ws / ".mmi-pm")
         md = link / "tasks" / "RM12_x.md"

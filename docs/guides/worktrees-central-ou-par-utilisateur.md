@@ -1,6 +1,6 @@
 # Worktrees : dépôt central ou dépôt de chaque utilisateur
 
-- **Ticket** : RM3209 — cas d'origine : MatNat (5 devs, un dépôt chacun, envs servis par vhosts).
+- **Ticket** : RM3209 — cas d'origine : une équipe dont chaque dev a son dépôt, envs servis par vhosts.
 - **Public** : l'administrateur d'une instance PM, puis chaque dev.
 
 ## Les trois réglages
@@ -16,7 +16,7 @@ jamais dans l'environnement (sinon chacun pourrait les contourner), et le cockpi
 inconnue est refusée.
 
 ```yaml
-# pm.config.local.yml — instance MatNat
+# pm.config.local.yml — exemple
 git:
   worktree_source: per_user
   envs_layout: user
@@ -24,8 +24,8 @@ git:
 
 ## Ce que ça change pour un dev
 
-- Son dépôt vit dans son dossier de dépôts : `~/repos/matnat_sf7`.
-- `pm-branch-start <id> --worktree`, lancé **depuis ce dépôt**, crée l'env `<workspace>/envs/<dev>/matnat_sf7-rm<id>`.
+- Son dépôt vit dans son dossier de dépôts : `~/repos/site`.
+- `pm-branch-start <id> --worktree`, lancé **depuis ce dépôt**, crée l'env `<workspace>/envs/<dev>/site-rm<id>`.
   Lancé depuis le dépôt d'un autre, il refuse en nommant les deux chemins.
 - `pm-env-session create` part du même dépôt ; s'il manque, le message dit où le cloner.
 - `pm-env-init` ne crée pas de dépôt partagé en `per_user`.
@@ -39,12 +39,12 @@ quand la racine du workspace n'est écrite que par root.
 pour le format complet) :
 
 ```yaml
-workspace: /home/matnat_sf7
-repo: matnat_sf7
+workspace: /srv/site
+repo: site
 compat_links: [AGENTS.md, data_dev, agent_config]      # liens relatifs qui sortent de l'env
-references: [/etc/apache2/sites-enabled/matnat_sf7.conf, /etc/php/*/fpm/pool.d/*.conf, /home/matnat_sf7/*.sh]
+references: [/etc/apache2/sites-enabled/site.conf, /etc/php/*/fpm/pool.d/*.conf, /srv/site/*.sh]
 envs:
-  - {from: /home/matnat_sf7/alexandre2, name: matnat_sf7-2, owner: alexandre}
+  - {from: /srv/site/alice2, name: site-2, owner: alice}
 ```
 
 Déroulé conseillé :

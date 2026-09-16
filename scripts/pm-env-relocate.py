@@ -5,21 +5,21 @@
     sudo mmi-pm env-relocate --plan plan.yml --snapshot "<nom du snapshot ZFS pris sur l'hôte>" [--reload]
     sudo mmi-pm env-relocate --undo <journal.json>
 
-Cas d'origine : MatNat (décision du 2026-09-16, « déplacer les envs actuels et faire suivre les vhosts »). Chaque
-dev y a des clones complets (`/home/matnat_sf7/<dev>`, `<dev>2`…), servis par des vhosts fixes. Cible : des envs
+Cas d'origine (décision du 2026-09-16, « déplacer les envs actuels et faire suivre les vhosts ») : une équipe dont
+chaque dev a des clones complets (`/srv/site/<dev>`, `<dev>2`…), servis par des vhosts fixes. Cible : des envs
 sous `<workspace>/envs/[<utilisateur>/]`, worktrees du dépôt de leur propriétaire (`git.worktree_source=per_user`).
 
 Plan (YAML, relu AVANT exécution) :
 
-    workspace: /home/matnat_sf7          # racine du projet : envs/ y est créé
-    repo: matnat_sf7                     # nom du dépôt dans le dossier des dépôts de chaque propriétaire
+    workspace: /srv/site          # racine du projet : envs/ y est créé
+    repo: site                     # nom du dépôt dans le dossier des dépôts de chaque propriétaire
     compat_links: [AGENTS.md, data_dev, agent_config]
-    references: [/etc/apache2/sites-enabled/matnat_sf7.conf, /etc/php/*/fpm/pool.d/*.conf, /home/matnat_sf7/*.sh]
+    references: [/etc/apache2/sites-enabled/site.conf, /etc/php/*/fpm/pool.d/*.conf, /srv/site/*.sh]
     validate: ["apachectl configtest"]   # défaut : apachectl configtest si un fichier Apache est touché
     envs:
-      - from: /home/matnat_sf7/alexandre2
-        name: matnat_sf7-2               # nom de l'env (destination selon git.envs_layout)
-        owner: alexandre                 # défaut : propriétaire du dossier
+      - from: /srv/site/alice2
+        name: site-2               # nom de l'env (destination selon git.envs_layout)
+        owner: alice                 # défaut : propriétaire du dossier
         adopt: true                      # défaut : devient un worktree du dépôt du propriétaire
         post: ["runuser -u {owner} -- php {dest}/bin/console cache:clear"]   # optionnel, non bloquant
 
@@ -31,7 +31,7 @@ Ce que l'outil garantit :
 - adoption SANS PERTE : branches locales et stashes importés dans le dépôt du propriétaire
   (`relocate/<env>/…`), arbre de travail intact (worktree `--no-checkout` + `reset` mixte) ; vérifié (même commit,
   mêmes fichiers modifiés), sinon l'adoption est annulée et l'env reste un clone complet, valide, à sa nouvelle place ;
-- réécriture des références au chemin EXACT (`/home/x/alexandre` ne touche pas `/home/x/alexandre2`), sauvegardes,
+- réécriture des références au chemin EXACT (`/home/x/alice` ne touche pas `/home/x/alice2`), sauvegardes,
   validation ; échec de validation ⇒ toutes les références restaurées ;
 - un journal JSON, et `--undo` qui défait tout dans l'ordre inverse.
 
@@ -164,7 +164,7 @@ def reference_files(patterns) -> list:
 
 def rewrite_text(text: str, moves: list) -> str:
     """Remplace chaque ancien chemin par le nouveau, au chemin EXACT : un chemin n'est pas le préfixe d'un autre
-    (`/home/x/alexandre` ne touche pas `/home/x/alexandre2`). Les plus longs d'abord."""
+    (`/home/x/alice` ne touche pas `/home/x/alice2`). Les plus longs d'abord."""
     for old, new in sorted(moves, key=lambda m: -len(m[0])):
         text = re.sub(re.escape(old) + r"(?![A-Za-z0-9_.\-])", lambda _m, n=new: n, text)
     return text

@@ -13,7 +13,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
-- **Worktrees : dépôt central ou dépôt de chaque utilisateur (RM3209, prérequis du déploiement chez MatNat).**
+- **Worktrees : dépôt central ou dépôt de chaque utilisateur (RM3209, prérequis d'un déploiement client multi-utilisateur).**
   Le PM ne connaissait qu'un modèle — un dépôt bare partagé `<ws>/repos/<repo>.git` dont partent les worktrees
   `<ws>/envs/…` — et son chemin était écrit en dur à cinq endroits. `pm_worktrees` décide désormais seul, selon
   trois réglages : `git.worktree_source` (`central` | `per_user`) et `git.envs_layout` (`project` →

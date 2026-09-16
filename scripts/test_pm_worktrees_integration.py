@@ -46,7 +46,7 @@ def g(*args, cwd):
 
 
 def workspace(base: Path) -> Path:
-    ws = base / "matnat_sf7"
+    ws = base / "site"
     (ws / ".mmi-pm" / "tasks").mkdir(parents=True)
     (ws / ".mmi-pm" / "meta.yml").write_text("repos:\n- name: site\n  integration_branch: dev\n  remotes: {}\n")
     return ws

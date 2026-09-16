@@ -493,6 +493,11 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import pm_worktrees   # RM3209
+    if pm_worktrees.read_layout().source == "per_user":
+        die("git.worktree_source=per_user : cet outil adopte des clones dans un dépôt CENTRAL. Pour "
+            "déplacer des envs existants vers le dépôt de chaque dev : `mmi-pm env-relocate --plan <fichier>`.")
     root, groups = discover(ws)
 
     print("=== PLAN ===")

@@ -57,6 +57,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
 import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)  # noqa: E402
+import pm_worktrees  # RM3209 : pas de dépôt partagé en per_user  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
 GITIGNORE = (
@@ -415,6 +416,11 @@ def main():
         print(f"\n{'[dry-run] ' if ctx.dry else ''}teardown : {ctx.changed} action(s).")
         return
 
+    layout = pm_worktrees.read_layout()
+    if not pm_worktrees.bare_creation_allowed(layout) and not args.teardown:
+        die("git.worktree_source=per_user : pas de dépôt partagé à créer — chaque dev clone son dépôt "
+            "dans son dossier de dépôts (PM_REPOS_DIR, défaut ~/repos) ; les envs se créent par "
+            "`pm-branch-start --worktree` ou `pm-env-session create`.")
     for repo in repos:
         name = repo["name"]
         if only and name not in only:

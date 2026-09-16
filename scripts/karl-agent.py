@@ -11980,6 +11980,16 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
+    {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
+     "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
+     "path": ["git", "worktree_source"],
+     "help": "central : dépôt partagé <workspace>/repos/<repo>.git. per_user : le dépôt de chaque dev, "
+             "dans son dossier de dépôts (PM_REPOS_DIR de son ~/.config/mmi-pm/.env, défaut ~/repos)."},
+    {"key": "conf:git.envs_layout", "label": "Emplacement des envs", "group": "Worktrees",
+     "type": "enum", "options": ["project", "user"], "default": "project", "admin": True,
+     "path": ["git", "envs_layout"],
+     "help": "project : <workspace>/envs/<env>. user : <workspace>/envs/<utilisateur>/<env>."},
     # RM2386 — rubrique « Design front » : apparence du cockpit web. Le type
     # `enum` est générique (options[] + défaut), pas ad hoc au thème : les
     # prochains réglages de mise en page s'ajoutent ici sans toucher au rendu.
@@ -12053,6 +12063,11 @@ def _conf_merged() -> dict:
 def yaml_safe_load(text):
     import yaml
     return yaml.safe_load(text)
+
+
+def setting_requires_admin(key) -> bool:
+    """RM3209 : un réglage marqué `admin` ne se modifie que par un administrateur du cockpit."""
+    return any(e.get("key") == key and e.get("admin") for e in _PM_SETTINGS_CONF)
 
 
 def _pm_settings() -> list:
@@ -13471,6 +13486,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
+                if setting_requires_admin(payload.get("key")):   # RM3209 : réglages d'instance
+                    self._require_admin()
                 return self._send_json(200, op_pm_settings_set(payload))
             # RM2748 — déverrouillage depuis le cockpit. Le corps porte un
             # secret saisi par un humain : routes authentifiées, rien mémorisé.

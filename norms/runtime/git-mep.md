@@ -1,5 +1,6 @@
 # runtime·git-mep — branches, commit/push, MR, cycle dev→test→MEP
 Ouvrir quand : je code un ticket (branche) · push / MR · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket · plusieurs tickets dans une session. Outils `pm-branch-start`, `glab`, `pm-task-deploy`, `pm-mr`, `pm-worktree`. Source : `norms/src/modules/git-mep.md`. Référence canonique du workflow de release ; nommage des branches et cycle de vie définis ici seulement.
+Exception tracée (RM3209, 2026-09-17) : § « Source des worktrees » ajouté À LA MAIN, le générateur `pm-norms-runtime --build` exigeant un fournisseur LLM qu'aucune instance ne sert (RM3135).
 
 ## Branches de référence (par projet, `project/overview.md` bloc `git:`)
 `repo` (url/alias, ex. `git:sfy/pisceen-dercya/pisceen-prestashop.git`) · `remote: origin` · `prod_branch: main` (défaut ; `master` legacy, migration au fil de l'eau) · `integration_branch: dev` (agrège les devs testés avant MEP) · `preprod_branch: preprod` OPTIONNEL : sa PRÉSENCE active le flux 3 branches longues protégées `dev → preprod → prod_branch` ; absent ⇒ modèle 2 branches `dev → prod_branch`. Seul levier (pas de flag, pas de bypass).
@@ -35,6 +36,9 @@ Sync : PM → Redmine à chaque écriture ; Redmine → PM à chaque `pm-task-sy
 
 ## Branche de travail par ticket
 `<RM-id>-<slug-court>` (id sans préfixe, 2–4 mots kebab, pas le titre complet ; ex. `1762-etransactions-historique`), créée depuis la branche d'intégration. Frontmatter `git.branch` → la branche, `git.mr_url` → la MR. CF `GIT Branche` (id 3, string) = nom de branche dès la création ; CF `GIT PR` (id 4) = URL de la MR — CF dédiés, pas une note. Livraison par MR, branche distante conservée (jamais supprimée sans accord explicite) ; ménage local seul (`git branch -d`). Schéma `agent/{server}/RM{id}-titre` réservé à l'orchestration distribuée.
+
+## Source des worktrees, emplacement des envs (RM3209)
+Réglages d'INSTANCE, admin seul (`pm.config.local.yml`, jamais l'environnement). `git.worktree_source` : `central` (défaut) = `<ws>/repos/<repo>.git` ; `per_user` = `<dossier des dépôts>/<repo>` du dev (`PM_REPOS_DIR` de son `~/.config/mmi-pm/.env`, défaut `~/repos`). `git.envs_layout` : `project` (défaut) = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<utilisateur>/<env>`. En `per_user` : `pm-branch-start --worktree` depuis SON dépôt (refus sinon) ; `pm-env-init` ne crée pas de dépôt partagé ; envs existants déplacés par `pm-env-relocate --plan`, jamais à la main. Seul résolveur : `pm_worktrees`.
 
 ## Plusieurs tickets dans une session
 Risque vécu : commit d'un ticket sur la branche d'un autre. Avant chaque commit : `git branch --show-current` = ticket commité. Un worktree par ticket plutôt que des checkout successifs : `pm-branch-start <RMid> --worktree` crée `<repo>-<RMid>-s<seq>` et une branche discriminée par session `<RMid>-<slug>-m<PMid>-s<seq>` (`m<PMid>` = `PM_MACHINE_ID` du `.env`, `s<seq>` alloué une fois sous flock), enregistrés dans le registre de session `var/sessions/` (`pm-session-status show` les liste) ; deux sessions sur le même ticket ne se marchent pas dessus. Ménage : `pm-worktree remove <path>`. Forme courte `<RMid>-<slug>` = norme hors concurrence.

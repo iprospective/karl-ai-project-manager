@@ -237,3 +237,18 @@ pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Ac
 
 Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
 tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**
+
+#### D'où partent les worktrees, où vont les envs (RM3209)
+
+Deux réglages d'**instance**, réservés à l'admin — posés dans `pm.config.local.yml`, jamais lus dans
+l'environnement :
+
+- `git.worktree_source` : `central` (défaut) = dépôt partagé `<ws>/repos/<repo>.git` ; `per_user` = le dépôt
+  de chaque dev, `<dossier des dépôts>/<repo>` — dossier réglé **par utilisateur** (`PM_REPOS_DIR` de son
+  `~/.config/mmi-pm/.env`, défaut `~/repos`) ;
+- `git.envs_layout` : `project` (défaut) = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<utilisateur>/<env>`.
+
+En `per_user`, `pm-branch-start --worktree` se lance **depuis son propre dépôt** (refus sinon) et
+`pm-env-init` ne crée pas de dépôt partagé. Des envs existants se déplacent par `pm-env-relocate --plan`,
+jamais à la main. Aucun outil ne construit ces chemins lui-même : `scripts/pm_worktrees.py` est le seul
+résolveur.

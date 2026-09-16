@@ -236,7 +236,8 @@ def unmerged_ticket_branches(md_path, rm_id):
         if len(repos) != 1:   # multi-repo : ambigu → hors garde (comme le hook env)
             return None
         integration = repos[0].get("integration_branch") or "dev"
-        bare = ws / "repos" / f"{repos[0].get('name')}.git"
+        import pm_worktrees   # RM3209 : dépôt central ou de l'utilisateur
+        bare = pm_worktrees.resolve_source(ws, repos[0].get("name"))
         repo = bare if bare.is_dir() else (ws if (ws / ".git").exists() else None)
         if repo is None:
             return None
@@ -310,13 +311,24 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
             out.warn(f"env de session non créé pour RM{rm_id} : le premier `repos:` "
                      f"du manifeste n'a pas de `name`")
             return
-        if not (ws / "repos" / f"{name}.git").is_dir():
-            out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
-                     f"({ws}/repos/{name}.git) — workspace hors layout RM1993 ?")
+        import pm_worktrees   # RM3209 : dépôt central ou de l'utilisateur, disposition des envs
+        try:
+            source = pm_worktrees.resolve_source(ws, name)
+            env_path = pm_worktrees.resolve_env_dir(ws, f"{name}-rm{rm_id}")
+        except pm_worktrees.LayoutError as e:
+            out.warn(f"env de session non créé pour RM{rm_id} : {e}")
+            return
+        if not source.is_dir():
+            if pm_worktrees.read_layout().source == "per_user":
+                out.warn(f"env de session non créé pour RM{rm_id} : dépôt personnel absent "
+                         f"({source}) — à cloner (git.worktree_source=per_user, PM_REPOS_DIR)")
+            else:
+                out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
+                         f"({source}) — workspace hors layout RM1993 ?")
             return
         if new_status == "en_cours":
             verb = "create"
-        elif new_status == "ferme" and (ws / "envs" / f"{name}-rm{rm_id}").is_dir():
+        elif new_status == "ferme" and env_path.is_dir():
             verb = "teardown"
         else:
             return

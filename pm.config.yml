@@ -185,6 +185,16 @@ git:
   # courante est protégée (RM2030), pm_git pousse HEAD:<integration_branch> au
   # lieu de différer indéfiniment ; promotion par lot via pm-promote.py.
   integration_branch: dev
+  # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE, réservés à l'admin : ils se lisent
+  # ici et dans pm.config.local.yml (qui prime), jamais dans l'environnement. Résolveur : scripts/pm_worktrees.py.
+  #   worktree_source : central  → dépôt partagé <workspace>/repos/<repo>.git
+  #                     per_user → le dépôt de chaque dev, <dossier des dépôts>/<repo> ; le dossier se règle PAR
+  #                                UTILISATEUR (PM_REPOS_DIR dans ~/.config/mmi-pm/.env, défaut ~/repos)
+  #   envs_layout     : project  → <workspace>/envs/<env>
+  #                     user     → <workspace>/envs/<utilisateur>/<env>
+  # Déplacer des envs existants vers la disposition retenue : mmi-pm env-relocate --plan <fichier>.
+  worktree_source: central
+  envs_layout: project
 
 # ── Runtime des envs de workspace (RM1834 / RM1947 F1) ─────────────────────
 # Ops privilégiées (vhost Apache, BDD, purge logs) déléguées au helper

@@ -394,6 +394,11 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
+    layout = pm_worktrees.read_layout()
+    if not pm_worktrees.bare_creation_allowed(layout) and not args.teardown:
+        die("git.worktree_source=per_user : pas de dépôt partagé à créer — chaque dev clone son dépôt "
+            "dans son dossier de dépôts (PM_REPOS_DIR, défaut ~/repos) ; les envs se créent par "
+            "`pm-branch-start --worktree` ou `pm-env-session create`.")
     repos = load_repos(ws)
     only = set(args.repo)
     if only:
@@ -416,11 +421,6 @@ def main():
         print(f"\n{'[dry-run] ' if ctx.dry else ''}teardown : {ctx.changed} action(s).")
         return
 
-    layout = pm_worktrees.read_layout()
-    if not pm_worktrees.bare_creation_allowed(layout) and not args.teardown:
-        die("git.worktree_source=per_user : pas de dépôt partagé à créer — chaque dev clone son dépôt "
-            "dans son dossier de dépôts (PM_REPOS_DIR, défaut ~/repos) ; les envs se créent par "
-            "`pm-branch-start --worktree` ou `pm-env-session create`.")
     for repo in repos:
         name = repo["name"]
         if only and name not in only:

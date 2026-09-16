@@ -93,9 +93,14 @@ def user_repos_dir(user: Optional[str] = None, home: Optional[Path] = None, envi
     return p if p.is_absolute() else home / p
 
 
+def central_bare(ws: Path, repo: str) -> Path:
+    """Dépôt partagé du layout RM1993. Seul endroit où ce chemin s'écrit."""
+    return Path(ws) / "repos" / f"{repo}.git"
+
+
 def source_repo(ws: Path, repo: str, layout: Layout, repos_dir: Optional[Path] = None) -> Path:
     if layout.source == "central":
-        return Path(ws) / "repos" / f"{repo}.git"
+        return central_bare(ws, repo)
     if repos_dir is None:
         raise LayoutError("worktree_source per_user : dossier des dépôts de l'utilisateur requis")
     return Path(repos_dir) / repo
@@ -166,3 +171,14 @@ def per_user_source_error(root: Path, git_common_dir: str, expected: Path) -> Op
         return None
     return (f"git.worktree_source=per_user — la branche part de TON dépôt {expected}, pas de {src}. "
             "Place-toi dedans, ou règle PM_REPOS_DIR dans ~/.config/mmi-pm/.env.")
+
+
+def resolve_source(ws: Path, repo: str, core_dir: Path = CORE_DIR) -> Path:
+    """Dépôt source pour l'utilisateur COURANT, selon les réglages de l'instance."""
+    layout = read_layout(core_dir)
+    return source_repo(ws, repo, layout, repos_dir=user_repos_dir() if layout.source == "per_user" else None)
+
+
+def resolve_env_dir(ws: Path, env_name: str, core_dir: Path = CORE_DIR) -> Path:
+    """Dossier d'un env pour l'utilisateur COURANT, selon les réglages de l'instance."""
+    return env_dir(ws, env_name, read_layout(core_dir), current_user())

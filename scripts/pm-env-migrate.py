@@ -45,6 +45,7 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # préservation de l'identité au backfill (RM2838)  # noqa: E402
+import pm_worktrees   # noqa: E402  RM3209 : chemin du dépôt partagé, garde per_user
 
 EXCLUDE_DIRS = {"repos", "envs", "tmp", "sessions", "logs", "data", ".mmi-pm",
                 ".mmi-pm-client", ".claude", "documents", "node_modules", "vendor"}
@@ -243,7 +244,7 @@ def snapshot(ctx, ws, no_snapshot) -> str | None:
 
 def make_bare(ctx, ws, code, basis):
     """Transforme le .git du clone `basis` en bare repos/<code>.git."""
-    bare = ws / "repos" / f"{code}.git"
+    bare = pm_worktrees.central_bare(ws, code)
     ctx.act(f"mv {basis['dir'].name}/.git → repos/{code}.git  (+ core.bare, gc.auto=0)")
     if not ctx.dry:
         (ws / "repos").mkdir(parents=True, exist_ok=True)
@@ -374,7 +375,7 @@ def verify(ctx, ws, groups):
     print("\n— VERIFY —")
     ok = True
     for code in groups:
-        bare = ws / "repos" / f"{code}.git"
+        bare = pm_worktrees.central_bare(ws, code)
         if not bare.exists():
             ctx.warn(f"repos/{code}.git absent après migration"); ok = False; continue
         rc, out = git(["-C", str(bare), "fsck", "--no-progress", "--no-dangling"],
@@ -493,8 +494,6 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import pm_worktrees   # RM3209
     if pm_worktrees.read_layout().source == "per_user":
         die("git.worktree_source=per_user : cet outil adopte des clones dans un dépôt CENTRAL. Pour "
             "déplacer des envs existants vers le dépôt de chaque dev : `mmi-pm env-relocate --plan <fichier>`.")

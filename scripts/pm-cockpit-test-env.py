@@ -141,9 +141,11 @@ def resolve_worktree(ws: Path, rm_id: int) -> Path:
     # canonique — on le trouve par sa branche `<id>-*`, jamais par chemin deviné.
     # Repli sur le chemin canonique si un worktree y est mais sans branche `<id>-*`
     # (état atypique) — préserve le message d'erreur historique.
-    bare = ws / "repos" / f"{name}.git"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import pm_worktrees   # RM3209 : dépôt central ou de l'utilisateur, disposition des envs
+    bare = pm_worktrees.resolve_source(ws, name)
     found = _pes.worktree_for_branch(bare, name, rm_id) if bare.is_dir() else None
-    wt = found[0] if found else ws / "envs" / f"{name}-rm{rm_id}"
+    wt = found[0] if found else pm_worktrees.resolve_env_dir(ws, f"{name}-rm{rm_id}")
     if not wt.is_dir():
         sys.exit(f"ERreur : worktree absent : {wt}\n"
                  f"  → prendre le ticket (en_cours) crée l'env de session, ou pm-env-session create {rm_id}"

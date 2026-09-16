@@ -13,6 +13,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Worktrees : dépôt central ou dépôt de chaque utilisateur (RM3209, prérequis du déploiement chez MatNat).**
+  Le PM ne connaissait qu'un modèle — un dépôt bare partagé `<ws>/repos/<repo>.git` dont partent les worktrees
+  `<ws>/envs/…` — et son chemin était écrit en dur à cinq endroits. `pm_worktrees` décide désormais seul, selon
+  trois réglages : `git.worktree_source` (`central` | `per_user`) et `git.envs_layout` (`project` →
+  `envs/<env>` | `user` → `envs/<utilisateur>/<env>`), réglages d'**instance** lus dans les fichiers de conf
+  uniquement et marqués admin dans le cockpit (la route `/pm/settings` n'exigeait pas l'admin) ; et le **dossier
+  des dépôts** de chaque utilisateur (`PM_REPOS_DIR` de son `~/.config/mmi-pm/.env`, défaut `~/repos`). Défauts
+  = comportement antérieur. Branché sur `pm-branch-start --worktree` (en `per_user`, la branche part du dépôt de
+  l'utilisateur courant, jamais de celui d'un autre), `pm-env-session`, `pm-env-init` (pas de dépôt partagé en
+  `per_user`) et `pm-env-migrate` (renvoi).
+- **`mmi-pm env-relocate --plan` : déplacer des envs existants, les vhosts suivant (RM3209).** Contrôle
+  préalable complet sans mutation ; renommage (même système de fichiers exigé, jamais de copie) ; liens de
+  compatibilité pour les liens relatifs qui sortent de l'env ; adoption en worktree du dépôt du propriétaire
+  **sans perte** (branches locales et stashes importés, arbre de travail intact, vérification sinon annulation) ;
+  deux envs sur une même branche : branche dérivée ; références (vhosts, pools PHP-FPM, scripts) réécrites au
+  chemin exact avec sauvegarde, validation `apachectl configtest` et restauration en cas d'échec ; journal et
+  `--undo` ; snapshot ZFS exigé ou refus assumé.
+
 - **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
   si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —
   `karl_api_routes`, `pm_log`, `pm_notify`, `pm_bus`, `pm_modules`, `pm_monitor`, `pm_secrets`… — dont

@@ -172,7 +172,7 @@ def local_heads(bare: Path) -> set[str]:
 def ensure_bare(ctx: Ctx, ws: Path, repo: dict):
     """Crée/réconcilie le bare repos/<name>.git + ses remotes (idempotent)."""
     name = repo["name"]
-    bare = ws / "repos" / f"{name}.git"
+    bare = pm_worktrees.central_bare(ws, name)
     remotes = repo["remotes"]
 
     if not bare.exists():
@@ -327,7 +327,7 @@ def teardown(ctx: Ctx, ws: Path, repos: list[dict], only: set[str],
         name = repo["name"]
         if only and name not in only:
             continue
-        bare = ws / "repos" / f"{name}.git"
+        bare = pm_worktrees.central_bare(ws, name)
         if not bare.exists():
             ctx.skip(f"repos/{name}.git absent — rien à défaire")
             continue

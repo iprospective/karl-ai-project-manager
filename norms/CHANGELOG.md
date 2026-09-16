@@ -1,5 +1,16 @@
 # Changelog des normes
 
+## [2.51.0] - 2026-09-17
+
+### Ajouté
+- **D'où partent les worktrees, où vont les envs** (RM3209, module `git-mep`). Deux réglages d'instance,
+  réservés à l'admin et lus dans la configuration seulement : `git.worktree_source` (`central` : dépôt
+  partagé `<ws>/repos/<repo>.git` ; `per_user` : le dépôt de chaque dev, dans son dossier de dépôts
+  `PM_REPOS_DIR`, défaut `~/repos`) et `git.envs_layout` (`project` : `<ws>/envs/<env>` ; `user` :
+  `<ws>/envs/<utilisateur>/<env>`). En `per_user`, une branche de ticket part du dépôt de l'utilisateur
+  courant ; les envs existants se déplacent par `pm-env-relocate`, jamais à la main. Le runtime `git-mep`
+  est complété À LA MAIN (exception tracée : générateur indisponible, RM3135).
+
 ## [2.50.0] - 2026-09-15
 
 ### Ajouté

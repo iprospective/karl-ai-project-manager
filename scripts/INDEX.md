@@ -185,12 +185,15 @@
 - `pm-searchdb` — l'index de requêtage de karl-PM
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
+- `pm-user` — le compte PM UNIQUE d'un utilisateur : système, cockpit, profil
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
 - `pm-worklog-merge` — reprendre un worklog de session resté à l'ancien emplacement
 
 ## Bibliothèques (importées, pas lancées)
 
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
+- `pm_accounts` — le registre des comptes PM de l'instance
+- `pm_batch` — composer un lot de tickets pour un agent : plan et consigne
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP

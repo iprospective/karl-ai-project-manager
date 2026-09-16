@@ -35,6 +35,7 @@ from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
 import pm_events   # RM3006 : le worklog change → le cockpit l'apprend sans attendre son tick
 import pm_git     # RM3076 : le pont session → .think.md committe ce qu'il écrit (RM3013)
 import pm_worklog_states   # RM3085 : une seule classification du worklog
+import pm_batch   # RM3208 (W1) : composition d'un lot, partagée avec le cockpit
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -1026,6 +1027,67 @@ def cmd_mr(data, args):
     pmout.op("worklog", extra="MR !%s %s" % (args.iid, entry["state"]))
 
 
+# ── RM3208 (W1) : composer un lot de tickets en CLI ─────────────────────────────────────────────────────
+# Le cockpit envoie la consigne dans le terminal de la session attachée ; en CLI, il n'y a pas de terminal
+# cible : la consigne s'affiche, et la session courante l'exécute. La composition est la même (`pm_batch`).
+def batch_items(rm_ids, find_task):
+    """Items de lot lus sur les fiches : statut, titre, critères restant à cocher. Rend (items, introuvables)."""
+    from pm_markdown import split_frontmatter
+    items, missing, seen = [], [], set()
+    for raw in rm_ids or []:
+        rm = re.sub(r"^RM", "", str(raw).strip(), flags=re.I)
+        if not rm.isdigit():
+            missing.append(str(raw))
+            continue
+        if rm in seen:
+            continue
+        seen.add(rm)
+        path = find_task(int(rm))
+        if not path:
+            missing.append(f"RM{rm}")
+            continue
+        fm, body, _end = split_frontmatter(Path(path).read_text(encoding="utf-8"))
+        fm = fm or {}
+        cl = pm_batch.parse_checklist(body, acceptance=fm.get("acceptance"))
+        items.append({"rm_id": rm, "status": str(fm.get("status") or ""), "title": str(fm.get("title") or ""),
+                      "points": cl["items"], "points_truncated": cl["truncated"]})
+    return items, missing
+
+
+def batch_render(items, missing, mode, allow_large):
+    """(code, texte) : ce qui part, ce qui est écarté et pourquoi, puis la consigne.
+    Codes : 0 = consigne prête · 1 = rien d'actionnable · 2 = plafond dépassé sans --allow-large.
+    Un mode inconnu lève `pm_batch.BatchError` (refus, jamais rabattu sur le défaut)."""
+    plan = pm_batch.batch_plan(items, mode)
+    todo = plan["todo"]
+    lines = [f"  ✗ {m} : fiche introuvable" for m in missing]
+    lines += [f"  – RM{sk['rm_id']} ({sk['status'] or '?'}) écarté : {sk['reason']}" for sk in plan["skipped"]]
+    if not todo:
+        return 1, "\n".join(lines + ["aucun ticket actionnable dans la sélection"])
+    if len(todo) > pm_batch.BATCH_MAX and not allow_large:
+        return 2, "\n".join(lines + [f"{len(todo)} tickets : au-delà de {pm_batch.BATCH_MAX}, confirme avec "
+                                     "--allow-large (une file trop longue déborde le contexte de l'agent)"])
+    return 0, "\n".join([f"{len(todo)} ticket(s) — mode {mode}", *lines, "", pm_batch.batch_prompt(todo, mode)])
+
+
+def cmd_batch(data, args):
+    from pm_paths import PMConfig
+    items, missing = batch_items(args.rm_ids, PMConfig.load().find_task)
+    try:
+        if args.batch_json:
+            plan = pm_batch.batch_plan(items, args.mode)
+            prompt = pm_batch.batch_prompt(plan["todo"], args.mode) if plan["todo"] else ""
+            print(json.dumps({"mode": args.mode, **plan, "missing": missing, "prompt": prompt},
+                             ensure_ascii=False, indent=1))
+            return
+        rc, text = batch_render(items, missing, args.mode, args.allow_large)
+    except pm_batch.BatchError as e:
+        sys.exit(f"pm-session-status batch : {e}")
+    print(text)
+    if rc:
+        sys.exit(rc)
+
+
 def main():
     p = argparse.ArgumentParser(description="Suivi d'avancement par session")
     p.add_argument("--session", help="override session id (défaut: $CLAUDE_CODE_SESSION_ID)")
@@ -1106,6 +1168,14 @@ def main():
     n.add_argument("--all", action="store_true",
                    help="avec --clear : supprimer AUSSI les ouvertes et les critiques")
 
+    b = sub.add_parser("batch", help="composer la consigne d'un lot de tickets — traiter, passer à tester, "
+                                     "analyser (RM3208 ; même consigne que le cockpit)")
+    b.add_argument("rm_ids", nargs="+", help="tickets (RM123 ou 123)")
+    b.add_argument("--mode", choices=list(pm_batch.BATCH_MODES), default="traiter")
+    b.add_argument("--allow-large", dest="allow_large", action="store_true",
+                   help=f"au-delà de {pm_batch.BATCH_MAX} tickets")
+    b.add_argument("--json", dest="batch_json", action="store_true", help="plan + consigne en JSON")
+
     args = p.parse_args()
     pmout.configure(args)
     data = load(session_id(args.session))
@@ -1115,8 +1185,8 @@ def main():
         args.no_live = False
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
      "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
-     "mr": cmd_mr, "request": cmd_request}[cmd](data, args)
-    if cmd != "show":
+     "mr": cmd_mr, "request": cmd_request, "batch": cmd_batch}[cmd](data, args)
+    if cmd not in ("show", "batch"):      # batch ne modifie rien : pas d'événement
         pm_events.publish(["worklog", "sessions", "pending"], source="pm-session-status", cmd=cmd)
 
 

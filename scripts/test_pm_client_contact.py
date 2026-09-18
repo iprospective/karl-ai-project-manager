@@ -128,7 +128,7 @@ check("reprise : ancien champ `name` retiré (plus de doublon)", "name" not in c
 
 # ── fiches vides du gabarit ──────────────────────────────────────────────────
 check("fiche vide reconnue", P.is_empty({"name": "", "email": "", "role": "owner"}))
-check("fiche nommée non vide", not P.is_empty({"name": "Lydie Mariller", "email": ""}))
+check("fiche nommée non vide", not P.is_empty({"name": "Alice Martin", "email": ""}))
 check("fiche avec téléphone seul non vide", not P.is_empty({"phone": "0475000000"}))
 check("fiche avec fonction seule non vide", not P.is_empty({"title": "Gérant"}))
 

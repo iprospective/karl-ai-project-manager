@@ -12,7 +12,7 @@ Usage :
 
     # Rattacher à un projet Redmine déjà existant (skip création) :
     pm-project-new.py --client clientg --slug clientg-com \\
-                      --name "Lydie Mariller — site web" \\
+                      --name "Clientg — site web" \\
                       --workspace /zfs/workspaces/clientg/clientg.example \\
                       --existing-redmine-id clientg
 

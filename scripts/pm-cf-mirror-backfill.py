@@ -106,6 +106,23 @@ def norm(value, is_list):
     return pm_cf_mirror.normalize_text(value) or None
 
 
+def cf_vide_vers_push(action, value, motifs, local, remote, source, remote_de_la_description):
+    """RM3240 — le CF est VIDE et la valeur « Redmine » n'est que la section de la DESCRIPTION.
+
+    `decide_acceptance` compare deux listes ; il ne sait pas que l'une est un repli. Deux sorties
+    y deviennent fausses : « sync » (la section du corps = celle de la description) et « pull »
+    (rien en local) concluaient que Redmine était à jour, et seul le miroir local était écrit —
+    le CF 33 restait vide pour toujours (743 tickets au dry-run du 2026-09-19, dont RM1587).
+    Dans ces deux cas on POUSSE vers le CF ; le miroir local suit (source ≠ frontmatter).
+    Fonction PURE — (action, valeur, source, motifs)."""
+    if not remote_de_la_description or action not in ("sync", "pull"):
+        return action, value, source, motifs
+    if local is not None:
+        return "push", local, source, ["CF vide : critères repris de la section « " + source + " »"]
+    return "push", remote, "description Redmine", [
+        "CF vide : critères repris de la section de la description Redmine"]
+
+
 def decide_acceptance(local, remote, body):
     """Que faire des critères d'un ticket ? Fonction PURE — (action, valeur, motifs).
 
@@ -256,6 +273,7 @@ def main():
             raw = next((c.get("value") for c in issue.get("custom_fields", [])
                         if c.get("id") == cid), None)
             remote = norm(raw, is_list)
+            remote_de_la_description = False
             if key == "acceptance" and remote is None:
                 # Côté Redmine aussi la lecture est à DOUBLE SOURCE : le CF vient d'être
                 # créé, il est donc vide partout, et la matière est encore dans la
@@ -264,9 +282,12 @@ def main():
                 # alors que la description porte les vrais critères : sans ceci, ils ne
                 # seraient jamais migrés — et leur matière resterait hors du champ.
                 remote = pm_acceptance.adoptable_section(issue.get("description") or "")
+                remote_de_la_description = remote is not None
 
             if key == "acceptance":
                 action, value, motifs = decide_acceptance(local, remote, m.group(4))
+                action, value, source, motifs = cf_vide_vers_push(
+                    action, value, motifs, local, remote, source, remote_de_la_description)
                 if action == "sync" and source != "frontmatter":
                     # Le CF porte déjà les bons critères, mais la valeur comparée venait
                     # de la SECTION du corps : le miroir local, lui, est toujours vide.

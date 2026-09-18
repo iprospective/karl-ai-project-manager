@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
+  --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
+  description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local
+  était écrit — le CF restait vide (743 tickets au dry-run du 2026-09-19, dont RM1587). Quand la valeur
+  « Redmine » n'est qu'un repli sur la description, l'action devient un PUSH vers le CF (+ miroir local).
+  Dry-run global recompté : 839 à remonter, 52 conflits inchangés (à trancher à la main).
+
 - **Garde « questions et MEP » : un ticket seulement CITÉ ne bloque plus (RM3239).** La garde de RM3238
   lisait les tickets d'un lot comme l'annotation de `pm-promote` (RM2809) : tout « RM<id> » du sujet et du
   corps. La première promotion réelle a buté sur RM3035 et RM3116, cités dans des corps de commit

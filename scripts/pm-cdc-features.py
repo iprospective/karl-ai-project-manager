@@ -115,7 +115,8 @@ ETATS_VERSION = ETATS_MANUELS
 RANG_ETAT = {"écarté": 0, "en pause": 1, "prévu": 2, "en cours": 3, "livré": 4}
 _VERSION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")
 ACTIFS = {"en_cours", "a_tester_dev", "a_tester_demandeur", "a_tester_verifier", "a_tester_preprod", "a_mep", "en_mep", "a_corriger"}
-PREVUS = {"a_faire", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider"}
+PREVUS = {"a_faire", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider",
+          "etude_chiffrage_a_corriger"}
 FM_RE = re.compile(r"\A---\n(.*?)\n---", re.S)
 
 

@@ -1,5 +1,16 @@
 # Changelog des normes
 
+## [2.53.0] - 2026-09-18
+
+### Ajouté
+- **Statut `etude_chiffrage_a_corriger`** (RM3228, Redmine **24** « Etude/CDC à corriger », modules
+  `status-workflow` / `status-workflow-pratique`, énumération du KERNEL). Pendant d'`a_corriger` côté
+  étude : depuis `etude_chiffrage_a_valider`, le demandeur **renvoie** l'étude avec une **note
+  obligatoire** ; le ticket revient à l'**auteur de l'étude** (assigné avant la dernière soumission, lu
+  dans les journaux Redmine), qui la reprend (`→ etude_chiffrage_en_cours`) puis la resoumet. Les
+  runtimes `status-workflow` et `schema` sont complétés À LA MAIN (exception tracée, même motif que
+  RM3221 : générateur par fournisseur, RM3135).
+
 ## [2.52.0] - 2026-09-18
 
 ### Ajouté

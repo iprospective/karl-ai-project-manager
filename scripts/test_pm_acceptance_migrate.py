@@ -86,6 +86,25 @@ chk("le verrou ne se déclenche pas quand tout est dans la section",
 chk("les deux côtés vides restent 'vide' même avec des cases errantes",
     bf.decide_acceptance(None, None, ERRANT)[0] == "vide")
 
+# ── RM3240 : CF vide, « Redmine » = section de la description ────────────────
+F = bf.cf_vide_vers_push
+a, v, src, _ = F("sync", None, [], "- [x] un", "- [x] un", "section du corps", True)
+chk("CF vide + même section des deux côtés → PUSH vers le CF (et plus « déjà conforme »)",
+    (a, v, src) == ("push", "- [x] un", "section du corps"))
+a, v, src, _ = F("pull", "- [ ] un", [], None, "- [ ] un", "frontmatter", True)
+chk("CF vide + rien en local → PUSH de la section de la description, miroir local écrit",
+    (a, v, src) == ("push", "- [ ] un", "description Redmine"))
+chk("un CF RÉELLEMENT rempli ne change rien (le pull local reste un pull)",
+    F("pull", "- [ ] un", [], None, "- [ ] un", "frontmatter", False)[0] == "pull"
+    and F("sync", None, [], "- [ ] un", "- [ ] un", "frontmatter", False)[0] == "sync")
+chk("un conflit reste un conflit, même CF vide",
+    F("conflit", None, ["x"], "- [ ] a", "- [ ] b", "section du corps", True)[0] == "conflit")
+chk("une union reste une union (elle pousse déjà)",
+    F("union", "- [ ] a\n- [ ] b", [], "- [ ] a", "- [ ] a\n- [ ] b", "frontmatter", True)[0] == "union")
+_src = (HERE / "pm-cf-mirror-backfill.py").read_text(encoding="utf-8")
+chk("la boucle sait d'où vient la valeur « Redmine »",
+    "remote_de_la_description = remote is not None" in _src and "cf_vide_vers_push(" in _src)
+
 # ── le registre ──────────────────────────────────────────────────────────────
 chk("`acceptance` est un miroir déclaré", "acceptance" in bf.MIRRORS)
 chk("… adossé au CF « Critères d'acceptation »",
@@ -96,4 +115,4 @@ chk("l'adoption de section n'est plus codée en dur sur implementation",
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — migration des critères : union, conflits, verrou des cases errantes (RM2882)")
+print("OK — migration des critères : union, conflits, verrou des cases errantes, CF vide poussé (RM2882, RM3240)")

@@ -63,6 +63,29 @@ for bad in ({"id": "D1", "action": "delete"}, {"id": "D001", "action": "delete"}
         ka._cdc_think_args(bad); check(f"refus {bad}", False)
     except ka.ApiError:
         check(f"refus {bad}", True)
+# RM3227 : le commentaire joint au geste qui tranche une question devient sa réponse (décision liée)
+A = ka._cdc_think_answer_args
+check("_cdc_think_answer_args : question validée + commentaire → décision « Qnnn : … » validée, dédupliquée",
+      A({"action": "state", "state": "valide", "comment": "  copie   dédiée "}, "44", "Q002", "mathieu")
+      == ["44", "--decide", "Q002 : copie dédiée", "--state", "valide", "--by", "mathieu", "--dedupe"])
+check("_cdc_think_answer_args : question écartée → « Qnnn écartée : … »",
+      A({"action": "state", "state": "invalide", "comment": "hors sujet"}, "44", "Q002")[2] == "Q002 écartée : hors sujet")
+check("_cdc_think_answer_args : sans commentaire → rien (comportement d'avant)",
+      A({"action": "state", "state": "valide"}, "44", "Q002") is None
+      and A({"action": "state", "state": "valide", "comment": "   "}, "44", "Q002") is None)
+check("_cdc_think_answer_args : une note ou une décision n'a pas de « réponse »",
+      A({"action": "state", "state": "valide", "comment": "x"}, "44", "N001") is None
+      and A({"action": "state", "state": "valide", "comment": "x"}, "44", "D001") is None)
+check("_cdc_think_answer_args : jamais sur une suppression", A({"action": "delete", "comment": "x"}, "44", "Q002") is None)
+check("_cdc_think_answer_args : auteur par défaut = le demandeur (M)", A({"action": "state", "state": "valide", "comment": "x"}, "44", "Q002", "")[6] == "M")
+try:
+    A({"action": "state", "state": "valide", "comment": "x" * 1001}, "44", "Q002"); check("commentaire trop long refusé", False)
+except ka.ApiError:
+    check("commentaire trop long refusé", True)
+_src = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("op_cdc_think consigne la réponse AVANT de changer l'état (rejouable grâce à --dedupe)",
+      _src.index("_pm_script(\"pm-task-think.py\", answer)") < _src.index("out = _pm_script(\"pm-task-think.py\", args)"))
+check("la route passe l'utilisateur authentifié (signature de la réponse)", "op_cdc_think(payload, self.auth_ctx)" in _src)
 tdir = base / "acme" / "projects" / "site" / "tasks"; tdir.mkdir(parents=True); (tdir / "RM77_x.md").write_text("---\nredmine_id: 77\n---\n"); (tdir / "RM77_x.think.md").write_text("# think\n")
 check("_task_project : (client, projet) d'un ticket, le think ignoré", ka._task_project("77") == ("acme", "site") and ka._task_project("9999") is None)
 try:

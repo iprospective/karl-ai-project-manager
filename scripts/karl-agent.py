@@ -8784,15 +8784,39 @@ def _cdc_think_args(payload: dict) -> tuple:
     raise ApiError(400, "action inconnue (delete | state)")
 
 
-def op_cdc_think(payload: dict) -> dict:
-    """État ou suppression d'une entrée de think depuis le panneau CDC, puis refusion du projet."""
+_THINK_COMMENT_MAX = 1000
+
+
+def _cdc_think_answer_args(payload: dict, rm: str, local: str, by: str = "M"):
+    """RM3227 : le commentaire joint au geste qui tranche une QUESTION devient sa réponse — une décision
+    validée « Qnnn : … » (« Qnnn écartée : … » si la question est invalidée). C'est la convention que
+    lisent déjà la vue Redmine des questions (CF 36) et la fusion `cdc-decisions.md` : aucun format
+    nouveau dans le think. Rien si pas de commentaire, ou si l'entrée n'est pas une question. Pur, testé."""
+    comment = " ".join(str(payload.get("comment") or "").split())
+    if not comment or not local.startswith("Q") or payload.get("action") != "state":
+        return None
+    if len(comment) > _THINK_COMMENT_MAX:
+        raise ApiError(400, f"commentaire trop long ({len(comment)} > {_THINK_COMMENT_MAX} caractères)")
+    ecartee = str(payload.get("state") or "") == "invalide"
+    texte = f"{local} écartée : {comment}" if ecartee else f"{local} : {comment}"
+    return [rm, "--decide", texte, "--state", "valide", "--by", by or "M", "--dedupe"]
+
+
+def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
+    """État ou suppression d'une entrée de think depuis le panneau CDC ou la fiche, puis refusion du
+    projet. RM3227 : un commentaire joint au geste qui tranche une question est consigné comme sa
+    réponse AVANT le changement d'état — rejouer après un échec ne double rien (`--dedupe`)."""
     rm, local, args = _cdc_think_args(payload)
+    answer = _cdc_think_answer_args(payload, rm, local, str((auth_ctx or {}).get("user") or "M"))
+    if answer:
+        _pm_script("pm-task-think.py", answer)
     out = _pm_script("pm-task-think.py", args)
     proj = _task_project(rm)
     merged = None
     if proj:
         merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
-    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged}
+    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
+            "answer": bool(answer)}
 
 
 def _task_project(rm: str):
@@ -13532,7 +13556,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
                 return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
-                return self._send_json(200, op_cdc_think(payload))
+                return self._send_json(200, op_cdc_think(payload, self.auth_ctx))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
                 return self._send_json(200, op_cdc_feature(payload))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement

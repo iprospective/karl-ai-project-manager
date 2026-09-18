@@ -10,6 +10,7 @@ import { SessionsService } from "./sessions.service.js";
 import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewModel, CountersViewModel, ReviewTileViewModel, SessionTitleViewModel } from "./SessionsViewModel.js";
 import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle } from "./Sessions.view.js";
 import { contextGauge, contextCrossed } from "./sessions.js";                      // RM3082
+import { unseenIn } from "./unseen.js";                                                  // RM3236
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";           // RM3082
 import { effDisposition, restartTip, approveShortcutVisible, tmuxName, toggleDisposition } from "./sessions.js";
 import { mount, paint } from "../../core/dom.js";
@@ -22,10 +23,15 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const sess = ctx.sess();                                               // store session.registry : rm_id → entrée /sessions (RM2166 ; RM3005)
   const resolve = () => ctx.resolve();                                   // store ticket.resolve
   const attached = () => (ctx.attached ? ctx.attached() : null);
+  // RM3236 : « regarder » une session, c'est l'avoir attachée ET l'onglet du cockpit visible. Attachée dans un onglet
+  // caché, elle peut finir sans qu'on le voie : elle doit clignoter quand on revient.
+  const doc = ctx.document !== undefined ? ctx.document : (typeof document !== "undefined" ? document : null);
+  const visible = ctx.visible || (() => !(doc && doc.hidden));
+  const watching = (rm) => String(attached()) === String(rm) && visible();
   const selection = () => (ctx.selection ? ctx.selection() : { on: false, set: new Set() });
   const sets = () => (ctx.sets ? ctx.sets() : { sets: [], current: "default", view: "set" });
   const lend = { pin: (k, key) => (ctx.pin ? ctx.pin(k, key) : "") || "", titleLink: (rm, t) => (ctx.titleLink ? ctx.titleLink(rm, t) : "") || "" };
-  const state = { ordered: [], groups: {}, byKey: {} };
+  const state = { ordered: [], groups: {}, byKey: {}, last: null };   // RM3236 : `last` = dernière liste reçue, pour repeindre au clic
   const h = hosts.list ? mount(hosts.list, raw(hosts.list.innerHTML || ""), { events: [
     ["click", "[data-action]", (ev, el) => onAction(ev, el)],
     // RM2792 : le menu complet au clic droit — le navigateur, lui, n'a rien d'utile à proposer ici.
@@ -37,6 +43,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
     }]] }) : null;
   const disposers = [];
   const listen = (node, type, fn) => { if (node && node.addEventListener) { node.addEventListener(type, fn); disposers.push(() => node.removeEventListener(type, fn)); } };
+  // RM3236 : revenir sur l'onglet du cockpit, c'est aller voir la session attachée — on repeint sans attendre la cadence.
+  listen(doc, "visibilitychange", () => { if (visible() && attached() && svc.markSeen(attached()) && ctx.refresh) ctx.refresh(); });
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
   listen(hosts.list, "mouseenter", () => svc.enter()); listen(hosts.list, "mouseleave", () => svc.leave()); listen(hosts.list, "mousemove", () => svc.moved());
 
@@ -45,7 +53,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const ctxSeen = new Map(), ctxPulsing = new Set();
   const ctxTh = () => ((ctx.cfg ? ctx.cfg() : {}) || {}).context_thresholds || { warn: 50, high: 75, crit: 90 };
   const gaugeOf = (s) => contextGauge(s, ctxTh(), ctxPct, modelWindow, fmtWin);
-  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
+  const tileCtx = (s) => { const sel = selection(); return { unseen: svc.unseen, resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
   const toggleSel = (s) => { const set = selection().set; set.has(s.rm_id) ? set.delete(s.rm_id) : set.add(s.rm_id); if (ctx.refresh) ctx.refresh(); };
 
   /** Peint la liste depuis le bloc /sessions ; rend les compteurs (la pile /refresh y lit sa cadence — RM2613). */
@@ -55,6 +63,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
       const rcache = resolve().view;   // lecture indexée pour les fonctions pures (computeGroups, sessionInClient)
       const d = svc.compute(sessions, rcache, ctx.clientContext ? ctx.clientContext() : "");   // RM2515 ordre, groupes, RM2639 visibilité
       sessions.forEach(s => sess.set(s.rm_id, s));                                         // RM2166 : registre pour l'encart
+      state.last = sessions;
+      svc.trackUnseen(sessions, watching);                                                     // RM3236 : qui a fini sans qu'on le voie
       if (ctx.composerRefresh) ctx.composerRefresh();                                          // RM2527 : la garde suit l'état live
       const att = attached();
       if (att && !sessions.some(s => s.rm_id === att && !s.ghost) && ctx.detach) ctx.detach();   // kill externe (RM2427 : un fantôme ne compte pas)
@@ -83,14 +93,14 @@ export function mountSessions(hosts = {}, ctx = {}) {
       if (cc) parts.push(CtxBanner(cc, d.hidden));
       for (const key of d.visKeys) {
         const group = d.groups.get(key); state.groups[key] = group;
-        const gvm = new GroupViewModel({ key, sessions: group, folded: svc.isCollapsed(key) });
+        const gvm = new GroupViewModel({ key, sessions: group, folded: svc.isCollapsed(key), unseen: unseenIn(group, svc.unseen) });
         parts.push(Group(gvm, gvm.folded ? [] : group.map(s => { const vm = s.ghost ? new GhostTileViewModel(s, tileCtx(s)) : new SessionTileViewModel(s, tileCtx(s)); state.byKey[vm.key] = s; return s.ghost ? Ghost(vm) : Tile(vm, lend); })));
       }
       const revCur = ctx.review && ctx.review.current ? ctx.review.current() : null;
       parts.push(ReviewGroup(reviews.map(rm => new ReviewTileViewModel(rm, rcache[rm], revCur === rm && !att)), lend));   // RM2210
       h.update(raw(parts.map(String).join("")));
       if (ctx.announce) ctx.announce(sessions);                                                // RM2329 : mode voix
-      paintCounters(new CountersViewModel(d.counts));
+      paintCounters(new CountersViewModel(d.counts, svc.unseen.size));
       if (ctx.renderTitle) ctx.renderTitle();
       return d.counts;
     } catch (e) { console.error("sessions : rendu en erreur", e); return null; }
@@ -100,12 +110,18 @@ export function mountSessions(hosts = {}, ctx = {}) {
     if (hosts.counters) paint(hosts.counters, Counters(cvm));
     if (hosts.navCount) { hosts.navCount.textContent = String(cvm.c.total); show(hosts.navCount, cvm.c.total); }
     if (hosts.navAtt) { hosts.navAtt.textContent = "⚠" + cvm.waiting; show(hosts.navAtt, cvm.waiting); }
+    if (hosts.navSeen) { hosts.navSeen.textContent = "👁" + cvm.unseen; show(hosts.navSeen, cvm.unseen); }   // RM3236
     show(hosts.yesAll, cvm.showYesAll);                                                        // RM2327
     if (ctx.docTitle) ctx.docTitle(cvm.docTitle);                                              // titre du navigateur
   }
   function onAction(ev, el) {
     const a = el.dataset.action, s = el.dataset.k ? state.byKey[el.dataset.k] : null;
-    if (a === "attach") { if (!s) return; selection().on ? toggleSel(s) : (ctx.attach && ctx.attach(s.rm_id)); }
+    if (a === "attach") {
+      if (!s) return;
+      if (selection().on) { toggleSel(s); return; }
+      if (svc.markSeen(s.rm_id) && state.last) render(state.last);                              // RM3236 : le compteur descend au clic
+      if (ctx.attach) ctx.attach(s.rm_id);
+    }
     else if (a === "relaunch") { if (!s) return; selection().on ? toggleSel(s) : (ctx.relaunch && ctx.relaunch(s)); }   // RM2427/RM2448
     else if (a === "approve") approve(s ? s.rm_id : attached());                              // RM2302 : « Oui » direct depuis la liste
     else if (a === "kill") { if (s && ctx.kill) ctx.kill(s.rm_id); }

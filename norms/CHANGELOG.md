@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.52.0] - 2026-09-18
+
+### Ajouté
+- **Environnements de recette sous le domaine de test de l'instance** (RM3221, module `environments`).
+  Une recette vit sous `<site>.<TEST_DOMAIN>`, servie par le conteneur de dev ; un dev nominatif sous
+  `<site>-<qui>.<DEV_DOMAIN>`. Les valeurs sont propres à l'instance et vivent dans son `pm.env`, jamais
+  dans le repo ; une conf de synchro écrit `DOMAIN="<site>.${TEST_DOMAIN}"`, jamais un domaine en dur. Le
+  runtime `environments` est complété À LA MAIN (exception tracée : générateur indisponible, RM3135).
+
 ## [2.51.0] - 2026-09-17
 
 ### Ajouté

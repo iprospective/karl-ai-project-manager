@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
+  existait dans les faits (`pisceen-presta.test.iprospective.fr`, RM2707) mais n'était écrite nulle part :
+  chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.
+  Trois clés d'instance, **dans `pm.env`** — la config non secrète et non versionnée qui porte déjà
+  `GITLAB_URL` ou `REDMINE_URL` — plutôt qu'un fichier propre au framework : `TEST_DOMAIN`, `TEST_HOST`,
+  `DEV_DOMAIN`. Le framework les **lit** sans exécuter `pm.env` ni en importer les autres clés ; une conf
+  écrit `DOMAIN="<site>.${TEST_DOMAIN}"`, et `sync.sh` s'arrête avant tout accès à la prod si la clé manque.
+  Le garde-fou reconnaît désormais le domaine réel de l'instance. Règle écrite dans le module NORMS
+  `environments`.
+
 - **Worktrees : dépôt central ou dépôt de chaque utilisateur (RM3209, prérequis d'un déploiement client multi-utilisateur).**
   Le PM ne connaissait qu'un modèle — un dépôt bare partagé `<ws>/repos/<repo>.git` dont partent les worktrees
   `<ws>/envs/…` — et son chemin était écrit en dur à cinq endroits. `pm_worktrees` décide désormais seul, selon

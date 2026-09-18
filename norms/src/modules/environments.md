@@ -43,6 +43,28 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 > Résolveur partagé : `pm-env-session.worktree_for_branch()`.
 
 
+### Environnements de recette — domaine de test (RM3221)
+
+**Règle.** Un environnement de **recette** — site cloné de la prod pour faire valider
+une livraison, par le client ou en interne — est servi par le conteneur de dev de
+l'instance, sous un **sous-domaine du domaine de test** : `<site>.<TEST_DOMAIN>`. Un
+environnement de **dev nominatif** (un intervenant, une branche longue) vit sous
+`<site>-<qui>.<DEV_DOMAIN>`. On ne crée pas de domaine ad hoc, et on ne devine pas la
+convention : elle se lit.
+
+**Où lire la valeur.** Ces domaines sont propres à l'instance — le repo PM est
+fédérable — et ne sont donc **pas** dans le repo : ils vivent dans le **`pm.env`** de
+l'instance, la config d'instance non secrète et non versionnée qui porte déjà
+`GITLAB_URL` ou `REDMINE_URL` (RM2438) ; clés `TEST_DOMAIN`, `TEST_HOST`, `DEV_DOMAIN`.
+Le framework de synchro les lit seul. Une conf d'environnement écrit
+`DOMAIN="<site>.${TEST_DOMAIN}"`, jamais un domaine en dur ; si la clé manque,
+`sync.sh` s'arrête avant tout accès à la prod, avec la marche à suivre.
+
+**Pourquoi une convention et non un choix par recette.** Le garde-fou de
+`guard_local_target` reconnaît alors le domaine de test réel au lieu de deviner par
+motif, et un domaine de recette se repère au premier coup d'œil — dans un vhost, un
+log ou une URL envoyée au client.
+
 ### Gestion des secrets — vaults déclarés
 
 Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,

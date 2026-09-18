@@ -29,10 +29,16 @@ guard_local_target() {
     *_test|*_dev|*_presta|*_sync|*_preprod|*_local|*_dolibarr) : ;;
     *) die "DB_TO='$DB_TO' ne ressemble pas à une base locale (suffixe _test/_dev/...). Sécurité : abandon." ;;
   esac
-  case "$DOMAIN" in
-    *.local|*.test.*|*.dev.*) : ;;
-    *) warn "DOMAIN='$DOMAIN' n'a pas l'air d'un domaine local/test — vérifie la conf." ;;
-  esac
+  # Le domaine de test de l'instance (pm.env, RM3221) fait foi quand il est
+  # déclaré ; les motifs génériques ne servent plus que de filet sans lui.
+  if [ -n "${TEST_DOMAIN:-}" ] && [[ "$DOMAIN" == *."$TEST_DOMAIN" ]]; then :
+  elif [ -n "${DEV_DOMAIN:-}" ] && [[ "$DOMAIN" == *."$DEV_DOMAIN" ]]; then :
+  else
+    case "$DOMAIN" in
+      *.local|*.test.*|*.dev.*) : ;;
+      *) warn "DOMAIN='$DOMAIN' n'a pas l'air d'un domaine local/test. Convention : une recette vit sous <site>.${TEST_DOMAIN:-<TEST_DOMAIN>}, servie par ${TEST_HOST:-<TEST_HOST>} (pm.env de l'instance)." ;;
+    esac
+  fi
 }
 
 # --- Résolution de secret --------------------------------------------------

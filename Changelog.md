@@ -21,6 +21,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `cdc-decisions.md` : aucun format nouveau. Même route (`/cdc/think`, D022) ; la réponse est écrite avant le
   changement d'état, et rejouer ne la double pas. Annuler la saisie n'écrit rien ; OK à vide tranche comme avant.
 
+- **Les questions d'un ticket ont leur champ Redmine : CF 36 « Questions à trancher » (RM3226).** RM3116 les
+  régénérait dans la description, entre marqueurs ; elles en sortent, même trajet que les critères d'acceptation
+  (CF 33) — la description change quand la demande change, les questions au fil de l'étude. Le `.think.md` reste
+  la source, le CF une vue jamais rapatriée ; une coche manuelle y est signalée, pas prise pour une réponse.
+  Changement de rythme : `pm-task-think` pousse désormais le CF **à chaque question posée ou tranchée, et à chaque
+  décision qui en cite une** (`Q001 : …`) — la vue locale seule de RM3116 laissait Redmine muet jusqu'à un
+  `pm-task-questions` manuel (`PM_THINK_LOCAL=1` pour rester hors ligne). L'ancienne section est retirée de la
+  description à la première régénération ; `pm-task-questions --all` fait la reprise, et parcourt enfin tous les
+  projets (il ne parcourait rien : `cfg.tasks_dir` n'existe pas).
+
 - **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
   existait dans les faits (l'environnement client de RM2707) mais n'était écrite nulle part :
   chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.

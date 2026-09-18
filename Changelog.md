@@ -14,7 +14,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 - **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
-  existait dans les faits (`pisceen-presta.test.iprospective.fr`, RM2707) mais n'était écrite nulle part :
+  existait dans les faits (l'environnement client de RM2707) mais n'était écrite nulle part :
   chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.
   Trois clés d'instance, **dans `pm.env`** — la config non secrète et non versionnée qui porte déjà
   `GITLAB_URL` ou `REDMINE_URL` — plutôt qu'un fichier propre au framework : `TEST_DOMAIN`, `TEST_HOST`,

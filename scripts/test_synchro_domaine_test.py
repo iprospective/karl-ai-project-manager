@@ -94,8 +94,18 @@ with tempfile.TemporaryDirectory() as td:
           "monsite.test.exemple.org" in out, out[-300:])
 
 # --- aucune valeur propre à une instance dans le code versionné
+# Le test ne suppose AUCUNE instance (le repo est fédérable) : il lit le domaine de test
+# de l'instance qui le lance, s'il en a un, et vérifie qu'il n'est pas écrit en dur ; puis
+# il refuse tout hôte de test littéral autre qu'un exemple neutre.
+import re
 code = "".join((SYNCHRO / p).read_text() for p in ("sync.sh", "lib/common.sh", "lib/helpers.sh"))
-check("aucun domaine d'instance en dur dans le framework", "iprospective.fr" not in code)
+pm_env_reel = HERE.parent / "pm.env"
+m = re.search(r'^\s*TEST_DOMAIN\s*=\s*["\']?([^"\'#\s]+)', pm_env_reel.read_text(), re.M) if pm_env_reel.exists() else None
+if m:
+    check("le domaine de test de CETTE instance n'est pas en dur dans le framework", m.group(1) not in code)
+litteraux = {h for h in re.findall(r"\b[a-z0-9-]+\.(?:test|dev)\.[a-z0-9.-]+\.[a-z]{2,}\b", code)
+             if not re.search(r"exemple|example", h)}
+check("aucun hôte de test littéral dans le framework (hors exemples neutres)", not litteraux, str(litteraux))
 
 print(f"\n{len(fails)} échec(s)")
 raise SystemExit(1 if fails else 0)

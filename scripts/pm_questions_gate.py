@@ -39,7 +39,8 @@ _BRANCH_ID = re.compile(r"^(?:[^/]+/)?(\d{3,6})-")
 
 
 def ids_in_text(text: str) -> list:
-    """RM<id> cités dans des messages de commit, sans doublon, dans l'ordre d'apparition."""
+    """RM<id> CITÉS dans des messages de commit, sans doublon, dans l'ordre d'apparition — lecture
+    large, pour ANNOTER un lot (RM2809). Pour bloquer, `carried_ids` (RM3239)."""
     ids, seen = [], set()
     for rx in (_RM_IN_TEXT, _MERGE_BRANCH):
         for m in rx.finditer(text or ""):
@@ -47,6 +48,29 @@ def ids_in_text(text: str) -> list:
             if i not in seen:
                 seen.add(i)
                 ids.append(i)
+    return ids
+
+
+# RM3239 — ce qu'un lot PORTE, par opposition à ce qu'il CITE. `ids_in_text` lit tout « RM<id> » du
+# sujet ET du corps : juste pour annoter (RM2809), faux pour bloquer — « résorption RM3035 » dans un
+# corps de commit bloquait une promotion où RM3035 n'était pour rien. On ne lit que les SUJETS, et
+# seulement les formes qui désignent le ticket du commit :
+_SUBJECT_RM = re.compile(r"^\W*RM(\d{3,6})\b")                                   # « RM3226 : … »
+_SUBJECT_MERGE = re.compile(r"^Merge (?:branch|remote-tracking branch) '(?:[^']*/)?(\d{3,6})-")
+_SUBJECT_INTO = re.compile(r"\binto '?(?:[^' ]*/)?(\d{3,6})-")                   # « … into 3227-slug »
+
+
+def carried_ids(messages) -> list:
+    """Tickets PORTÉS par des commits — lus dans la 1re ligne (sujet) de chaque message :
+    sujet qui commence par `RM<id>`, merge de `<id>-…`, merge `into <id>-…`. Sans doublon."""
+    ids, seen = [], set()
+    for msg in messages or []:
+        sujet = (msg or "").strip().split("\n", 1)[0]
+        for rx in (_SUBJECT_RM, _SUBJECT_MERGE, _SUBJECT_INTO):
+            m = rx.search(sujet)
+            if m and int(m.group(1)) not in seen:
+                seen.add(int(m.group(1)))
+                ids.append(int(m.group(1)))
     return ids
 
 

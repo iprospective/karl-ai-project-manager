@@ -254,8 +254,13 @@ def main():
         print("  aucun ticket identifié dans le lot")
 
     # RM3238 — annoncé aussi en dry-run : c'est là qu'on veut l'apprendre, pas au merge.
-    if (pm_questions_gate.is_prod_branch(tgt) and not pm_questions_gate.is_data_repo(local_repo=repo)):
-        bm = pm_questions_gate.blocked(ids)
+    carried = ids
+    _gate_on = pm_questions_gate.is_prod_branch(tgt) and not pm_questions_gate.is_data_repo(local_repo=repo)
+    if _gate_on:
+        # RM3239 : la garde ne regarde que les tickets PORTÉS (sujets), pas ceux que le lot cite
+        _s = _git(repo, "log", "--format=%s", f"origin/{tgt}..{count_from}")
+        carried = pm_questions_gate.carried_ids(_s.stdout.splitlines()) if _s.returncode == 0 else ids
+        bm = pm_questions_gate.blocked(carried)
         if bm:
             print("  ⚠ tickets du lot avec des questions non tranchées (RM3238) :\n"
                   + pm_questions_gate.describe(bm))
@@ -275,7 +280,8 @@ def main():
         pr = forge.create_pr(project, src, tgt, title,
                              "Promotion automatique du lot d'auto-commits pm-* (RM2298).", token)
         print(f"✓ MR !{pr.iid} créée")
-    pmmr._merge_with_policy(forge, project, pr.iid, token, ticket_ids=ids, local_repo=repo,
+    pmmr._merge_with_policy(forge, project, pr.iid, token, ticket_ids=carried if _gate_on else ids,
+                            local_repo=repo,
                             ignore_questions=args.ignore_questions)
 
     # 4. Tracer la promotion sur les tickets du lot (RM2809). Best-effort : le

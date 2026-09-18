@@ -640,6 +640,9 @@ def next_transitions(rm_id, check_redmine=True):
             allowed_ids = None
     sids = redmine_utils.status_ids()
 
+    import pm_questions_gate as _gate
+    _open_qs = _gate.open_questions_of_sheet(md_path) if any(
+        t in _gate.GATED_STATUSES for t, _ in nexts) else []
     seen, transitions = set(), []
     for tgt, cond in nexts:
         if tgt in seen:          # `en_pause`/`ferme` génériques peuvent doubler une règle
@@ -656,6 +659,8 @@ def next_transitions(rm_id, check_redmine=True):
             # La condition est écrite dans NORMS_TRANSITIONS, juste au-dessus — ce
             # n'est pas un contrat externe qu'on parserait à l'aveugle.
             "needs_note": "note obligatoire" in cond,
+            # RM3238 : MEP prod refusée tant qu'une question est ouverte — l'UI le montre AVANT
+            "blocked_by_questions": [q for q, _ in _open_qs] if tgt in _gate.GATED_STATUSES else [],
         })
     return {"rm_id": int(rm_id), "status": cur, "transitions": transitions,
             "redmine_checked": allowed_ids is not None,
@@ -675,6 +680,8 @@ def list_next(rm_id, as_json=False):
         mark = ""
         if t["redmine_ok"] is not None:
             mark = "  [Redmine OK]" if t["redmine_ok"] else "  [Redmine REFUSERA pour ce compte]"
+        if t.get("blocked_by_questions"):
+            mark += f"  [🔒 questions ouvertes : {', '.join(t['blocked_by_questions'])} — RM3238]"
         print(f"  → {t['status']:<26} {t['condition']}{mark}")
     if not data["redmine_checked"]:
         print("  (vérification live Redmine indisponible — transitions NORMS seules)")
@@ -695,7 +702,9 @@ def main():
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--ignore-think", action="store_true",
-                    help="RM3053 : fermer malgré des questions ouvertes / notes à trier dans le .think.md")
+                    help="RM3053 : fermer malgré des questions ouvertes / notes à trier dans le .think.md ; "
+                         "RM3238 : entrer en MEP prod (a_mep_prod, en_mep) malgré une question ouverte "
+                         "— le contournement est tracé dans la note Redmine")
     ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
@@ -821,6 +830,27 @@ def main():
     # RM2285 : réouverture d'un ticket fermé — uniquement vers a_faire (retour
     # backlog, la reprise suit le flow normal), note motivée obligatoire,
     # close_reason purgé. status_history conserve le cycle précédent.
+    # RM3238 : pas de MEP prod avec une question en suspens. La clôture (ci-dessus) arrive APRÈS la
+    # prod : c'est ici, à l'entrée en file de MEP prod ou en prod, que la réponse peut encore compter.
+    # `a_mep` (préprod) avertit seulement — la préprod sert justement à trancher.
+    import pm_questions_gate as _qg
+    _gate_note = None
+    if args.status != old_status and args.status in _qg.GATED_STATUSES + _qg.WARN_STATUSES:
+        _qs = _qg.open_questions_of_sheet(md_path)
+        if _qs:
+            _bm = {int(args.rm_id): _qs}
+            if args.status in _qg.GATED_STATUSES and not args.ignore_think:
+                sys.exit(_qg.refusal(_bm, f"passage en {args.status}", "--ignore-think"))
+            _lst = ", ".join(q for q, _ in _qs)
+            if args.status in _qg.GATED_STATUSES:
+                out.warn(f"RM{args.rm_id} : {args.status} malgré {len(_qs)} question(s) ouverte(s) "
+                         f"({_lst}) — --ignore-think, tracé dans la note")
+                _gate_note = (f"⚠ Passage en {args.status} malgré {len(_qs)} question(s) non tranchée(s) "
+                              f"({_lst}) — garde RM3238 levée par --ignore-think.")
+            else:
+                out.warn(f"RM{args.rm_id} : {len(_qs)} question(s) encore ouverte(s) ({_lst}) — "
+                         f"la MEP prod sera refusée tant qu'elles ne sont pas tranchées (RM3238)")
+
     reopening = (old_status == "ferme" and args.status != "ferme")
     if reopening:
         if args.status != "a_faire":
@@ -876,7 +906,7 @@ def main():
     # Lignes ajoutées à la note par les gardes elles-mêmes (RM2884 : le motif d'un
     # --allow-unchecked doit rester dans le ticket, sinon le contournement ne laisse
     # aucune trace et redevient indiscernable d'un oubli).
-    extra_notes = []
+    extra_notes = [_gate_note] if _gate_note else []
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).

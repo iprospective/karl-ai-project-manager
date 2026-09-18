@@ -53,6 +53,7 @@ _spec.loader.exec_module(pmmr)
 import pm_forge
 import pm_git
 import pm_paths
+import pm_questions_gate
 
 
 def _git(repo, *a):
@@ -63,13 +64,9 @@ def origin_range(tgt, src):
     return f"origin/{tgt}..origin/{src}"
 
 
-# RM2809 — deux façons dont un lot nomme ses tickets, et il faut les deux :
-#   « RM2857 : … »                         → commit direct sur une branche de ticket
-#   « Merge branch '2777-slug' into … »    → commit de merge, dont le sujet ne
-#                                            porte PAS le RM<id>
-# Sans la seconde, un lot passé par MR (le cas nominal) ressort vide.
-_RM_IN_TEXT = re.compile(r"\bRM(\d{3,6})\b")
-_MERGE_BRANCH = re.compile(r"(?:Merge (?:branch|remote-tracking branch) '(?:[^']*/)?)(\d{3,6})-")
+# RM2809 — un lot nomme ses tickets de deux façons (« RM2857 : … » et « Merge branch
+# '2777-slug' … ») : la lecture vit dans pm_questions_gate.ids_in_text, partagée avec la
+# garde RM3238 qui doit voir EXACTEMENT les mêmes tickets.
 
 
 def batch_ticket_ids(repo, tgt, count_from):
@@ -81,14 +78,7 @@ def batch_ticket_ids(repo, tgt, count_from):
     p = _git(repo, "log", "--format=%s%n%b", f"origin/{tgt}..{count_from}")
     if p.returncode != 0:
         return []
-    ids, seen = [], set()
-    for rx in (_RM_IN_TEXT, _MERGE_BRANCH):
-        for m in rx.finditer(p.stdout):
-            i = int(m.group(1))
-            if i not in seen:
-                seen.add(i)
-                ids.append(i)
-    return ids
+    return pm_questions_gate.ids_in_text(p.stdout)      # même lecture que la garde RM3238
 
 
 def _task_status(task_file):
@@ -177,6 +167,9 @@ def main():
     ap.add_argument("--advance", action="store_true",
                     help="applique la transition a_mep → en_mep sur les tickets du lot "
                          "(sinon elle est seulement proposée)")
+    ap.add_argument("--ignore-questions", action="store_true",
+                    help="RM3238 : promouvoir vers main/master malgré des questions non tranchées "
+                         "sur des tickets du lot (tracé)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -260,6 +253,15 @@ def main():
     else:
         print("  aucun ticket identifié dans le lot")
 
+    # RM3238 — annoncé aussi en dry-run : c'est là qu'on veut l'apprendre, pas au merge.
+    if (pm_questions_gate.is_prod_branch(tgt) and not pm_questions_gate.is_data_repo(local_repo=repo)):
+        bm = pm_questions_gate.blocked(ids)
+        if bm:
+            print("  ⚠ tickets du lot avec des questions non tranchées (RM3238) :\n"
+                  + pm_questions_gate.describe(bm))
+            if not args.dry_run and not args.ignore_questions:
+                sys.exit(pm_questions_gate.refusal(bm, f"promotion {src} → {tgt}", "--ignore-questions"))
+
     if args.dry_run:
         print("  (dry-run : ni MR ni merge, ni note sur les tickets)")
         return
@@ -273,7 +275,8 @@ def main():
         pr = forge.create_pr(project, src, tgt, title,
                              "Promotion automatique du lot d'auto-commits pm-* (RM2298).", token)
         print(f"✓ MR !{pr.iid} créée")
-    pmmr._merge_with_policy(forge, project, pr.iid, token)
+    pmmr._merge_with_policy(forge, project, pr.iid, token, ticket_ids=ids, local_repo=repo,
+                            ignore_questions=args.ignore_questions)
 
     # 4. Tracer la promotion sur les tickets du lot (RM2809). Best-effort : le
     #    merge est fait, plus rien ici ne doit faire échouer la commande.

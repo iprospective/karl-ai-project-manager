@@ -220,6 +220,7 @@
 - `pm_paths` — Résolution de chemins du système PM iprospective.
 - `pm_proclive` — « une session d'agent tourne-t-elle encore sur ce sid ? ». RM2810.
 - `pm_provider_types` — le CATALOGUE des types de fournisseurs
+- `pm_questions_gate` — pas de mise en prod avec une question en suspens
 - `pm_registry` — registre de serveurs (instances) + résolution d'instance par projet.
 - `pm_reporting` — ledger annexe des données de reporting d'un ticket
 - `pm_repos` — manifeste `repos[]` d'un projet PM : transport, identité, rattachement.

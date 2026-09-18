@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Pas de mise en prod avec une question non tranchée (RM3238, NORMS 2.54.0).** Une question ouverte du
+  `.think.md` ne refusait que la clôture — qui arrive après la prod, quand la réponse ne change plus rien.
+  Elle refuse désormais l'entrée en `a_mep_prod` / `en_mep` (`a_mep`, la préprod, avertit seulement) et le
+  merge vers `main` / `master` par `pm-mr merge` (et `create --merge`) et `pm-promote` ; les tickets d'une
+  promotion `dev→main` sont lus dans les commits de la MR (nouvelle primitive forge `pr_commit_messages`),
+  avec la même lecture que le lot de `pm-promote` (`pm_questions_gate`, une seule définition). Jamais sur un
+  dépôt de données PM. `--list-next` et le menu du cockpit montrent la transition verrouillée, questions
+  nommées. Contournement explicite et tracé : `--ignore-think` (statut) / `--ignore-questions` (merge).
+
 - **Statut « Etude/CDC à corriger » (Redmine 24) → `etude_chiffrage_a_corriger` (RM3228, NORMS 2.53.0).**
   Pendant d'`a_corriger` côté étude : depuis une étude à valider, le demandeur la **renvoie** avec une note
   obligatoire, et le ticket revient à l'**auteur de l'étude** — l'assigné d'avant la dernière soumission, lu

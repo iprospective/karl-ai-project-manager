@@ -162,15 +162,24 @@ export function mountReview(el, ctx = {}) {
 
   /** RM3089 : trancher une question (ou une note) depuis la fiche. Passe par la route de RM3064
    *  (D022) : une seconde route d'écriture ferait deux chemins de validation et deux endroits où
-   *  la refusion du projet peut être oubliée. */
+   *  la refusion du projet peut être oubliée.
+   *  RM3227 : trancher une QUESTION demande un commentaire facultatif — la réponse. Le serveur le
+   *  consigne en décision « Qnnn : … », ce qu'affiche la vue Redmine des questions (CF 36). La
+   *  saisie tient lieu de confirmation : Annuler n'écrit rien, OK à vide tranche sans réponse. */
   async function thinkState(n) {
     const rm = String(state.current || ""), id = n.dataset.id, etat = n.dataset.state;
     if (!rm || !id) return;
-    if (!ask("Marquer " + id + " comme « " + etat + " » sur RM" + rm + " ?")) return;
+    let comment = "";
+    if (/^Q/.test(id)) {
+      const verbe = etat === "invalide" ? "Écarter " : "Trancher ";
+      const saisie = prompt(verbe + id + " sur RM" + rm + " (« " + etat + " »)\nRéponse / commentaire (facultatif) :", "");
+      if (saisie === null) return;
+      comment = saisie.trim();
+    } else if (!ask("Marquer " + id + " comme « " + etat + " » sur RM" + rm + " ?")) return;
     n.disabled = true;
     try {
-      await ctx.cdc.thinkEdit({ rm, id, action: "state", state: etat });
-      notify(id + " → " + etat);
+      await ctx.cdc.thinkEdit(comment ? { rm, id, action: "state", state: etat, comment } : { rm, id, action: "state", state: etat });
+      notify(id + " → " + etat + (comment ? " · réponse consignée" : ""));
       T.reload(rm);
     } catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }

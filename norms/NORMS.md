@@ -1,9 +1,9 @@
 ---
-schema_version: "2.54.0"
-updated: 2026-09-17
+schema_version: "2.55.0"
+updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.54.0
+# Normes de gestion des tâches — v2.55.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -35,6 +35,7 @@ updated: 2026-09-17
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
+| j'écris un **test, une fixture, un exemple, un template ou une fiche `knowledge/`** dans un dépôt publiable (`.client-data-guard.yml`), je range une information propre à un client (instance, domaine, version, compte, contact) — ou le hook refuse mon commit pour « données client » | **tripwire #21** + `modules/client-data.md` | `pm-check-no-client-data` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
@@ -113,6 +114,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 20. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
+
+21. **Aucune donnée client dans un dépôt publiable (RM3201).** Un dépôt qui porte `.client-data-guard.yml` à sa racine est **publié** — le dépôt de code PM part sur un miroir GitHub public. Il ne nomme **aucun client ni aucune de ses instances** : nom ou slug (collé compris : `php_<x>`, `<x>-presta`), domaine, IP, chemin serveur, **version déployée**, compte d'accès, nom ou adresse de contact. Exemples, fixtures, templates, docstrings : le jeu fictif `clienta`…, domaines en `.example` (RFC 2606). La **méthode** va dans `knowledge/`, les **instances** dans le `environments.md` du projet (privé), la **conf réelle** hors git (`var/`, `~/.config/mmi-pm/.env`). Le hook pre-commit refuse l'ajout (`pm-check-no-client-data`) ; il ne connaît que ce que les données privées déclarent — un client dont le domaine ne porte pas son nom lui échappe tant que ses instances ne sont pas renseignées. Aucun secret n'avait fui, et c'est pour ça que personne ne l'avait vu : une URL de prod avec sa version exacte est une liste de failles applicables (incident RM3200 : 25 jours d'exposition). → `modules/client-data.md`
 
 ## Propriété, verrou & journal — tripwires structurels
 
@@ -3728,6 +3731,142 @@ décide qu'il y a du travail.
 
 Exemple de référence : `pm-context-budget --check` (invariant : le plafond) et
 `pm-context-budget --notify` (tendance : la marge de 10 %), travail `norms-budget-watch`.
+> 📂 **Module `client-data` — quand lire ceci :** j'écris un test, une fixture, un exemple, un template ou une fiche `knowledge/` dans un dépôt publiable (`.client-data-guard.yml` à sa racine) · le hook pre-commit refuse mon commit pour « données client » · je dois ranger une information d'exploitation propre à un client (instance, domaine, version déployée, compte d'accès, contact).
+> **Outils :** `pm-check-no-client-data`, `pm-pre-commit` · **Préchargé par :** *(personne — ouvert à la demande via le déclencheur KERNEL, tripwire #21)*.
+
+## Données client — rien dans un dépôt publiable
+
+Ce module détaille le **tripwire #21**.
+
+### Pourquoi
+
+Le dépôt de code PM part sur un **miroir GitHub public**. Pendant 25 jours, il y a exposé
+les URL des ERP de production de trois clients **avec leur version exacte** de Dolibarr,
+leurs branches de déploiement, un chemin serveur, un compte d'accès chez un hébergeur,
+une table de routage mail et des adresses nominatives de contacts (incident RM3200,
+2026-09-15). Rien de tout cela n'était un secret au sens du tripwire #11 — aucun token
+n'a fui — et c'est précisément pourquoi personne ne l'avait vu : **une URL couplée à
+une version précise et à un retard de déploiement documenté est une liste de
+vulnérabilités applicables**, servie sur un plateau.
+
+Deux causes, qu'il ne faut pas confondre :
+
+- **aucune règle ne l'interdisait**. Les jeux de test avaient été écrits en recopiant
+  les données de travail — le plus court chemin vers un test réaliste ;
+- **le miroir a changé la nature de l'existant sans que personne ne le repasse en
+  revue**. Ce qui était une négligence interne est devenu une exposition publique le
+  jour de sa création.
+
+### Ce qui est interdit dans un dépôt publiable
+
+Tout ce qui nomme un client ou l'une de ses instances :
+
+| Donnée | Exemple de fuite réelle (RM3200, anonymisé) |
+|---|---|
+| nom ou slug de client, y compris collé (`php_<client>`, `<client>-presta`) | un slug dans une fixture de cockpit |
+| domaine ou nom d'hôte, y compris sous un domaine qui ne porte PAS son nom | `erp.<client>.com`, le Gogs d'un client sous son nom commercial |
+| IP d'une machine | — |
+| chemin serveur | `/home/erp-<client>/public_html` dans un **template** d'aspect, donc recopié dans chaque projet créé |
+| version déployée d'une instance | un tableau « instance / version / branche » dans une fiche `knowledge/` |
+| compte d'accès | `<client>@srv1.<hebergeur>.com` en exemple de syntaxe dans la référence NORMS |
+| nom, prénom, adresse d'un contact | les vraies fiches de l'annuaire, recopiées en fixtures |
+
+Un nom de client en prose — « corrigé chez X » dans un Changelog — reste une mention
+commerciale et non une donnée d'exploitation ; il reste **interdit à l'ajout** (le hook
+le refuse), mais l'existant est une dette à part, sans urgence.
+
+### Où va quoi
+
+| Ce que c'est | Où ça vit | Pourquoi |
+|---|---|---|
+| la **méthode** (procédure de MEP, protocole de test, recette) | `knowledge/<produit>/` | publiable, partagée entre clients |
+| les **instances** d'un client (URL, hôte, chemin, branche, version) | frontmatter `environments:` du `environments.md` **de son projet** | privé, versionné par le dépôt de données, lu par les scripts |
+| la **conf réelle** apprise au fil de l'eau (routage mail, …) | `state_dir` (`var/`), hors git | ni versionnée ni publiée ; `var/` est aussi le seul dossier que `core-lock` laisse écrivable au groupe |
+| la **conf d'instance** (URL de forge, de Redmine) | `${VAR}` dans `pm.config.yml`, valeur dans `~/.config/mmi-pm/.env` | le mécanisme existe déjà (`GITLAB_URL`, `REDMINE_URL`) |
+| les **contacts** | `contacts_dir`, dépôt de données | cf. note de `contacts_dir` dans `pm.config.yml` |
+
+Une fiche `knowledge/` qui a besoin de l'état du parc **renvoie** vers les
+`environments.md` des projets : elle ne le recopie pas. Modèle : `knowledge/dolibarr/mep.md`.
+
+### Le jeu fictif
+
+Exemples, fixtures, templates, docstrings : jamais une donnée réelle, même « juste pour
+le test ».
+
+- clients : `clienta`, `clientb`… — **un seul mot, sans tiret** : `client-a` n'est pas
+  un identifiant JS valide (`{ client-a: true }` ne compile pas) ;
+- domaines : TLD **`.example`** (réservé, RFC 2606 — ne peut jamais exister) ;
+  `example.com` pour une adresse chez un webmail ;
+- personnes : prénoms et noms génériques (Alice Martin, Bob…) ; vérifier qu'une même
+  fixture ne donne pas deux fois le même prénom (collision rencontrée en RM3200).
+
+Trois pièges vus en renommant l'existant, à connaître avant d'écrire un test :
+
+- une valeur **dérivée de la conf réelle** (le slug déduit d'une instance déclarée dans
+  `pm.config.yml`) ne se renomme pas dans le test seul — on redéclare l'instance en
+  fictif **dans la fixture**, pour que le test ne dépende plus du tout du parc ;
+- un renommage **change l'ordre alphabétique** : les attendus d'ordre et d'index sont à
+  revoir ;
+- un domaine peut être **échappé** dans une regex (`srv\.x\.com`) : un remplacement
+  naïf ne le voit pas.
+
+### Le garde-fou — `pm-check-no-client-data`
+
+**Activation par dépôt.** Un dépôt se déclare publiable par un fichier versionné
+`.client-data-guard.yml` à sa racine. Sans lui, rien n'est contrôlé : un dépôt de projet
+client nomme son client, c'est son objet. Le fichier ne porte **aucune donnée client** :
+`exempt` (globs non contrôlés — chaque entrée est un trou, à justifier par un ticket) et
+`common_words` (mots courants qui, s'ils sont aussi un slug de client, ne sont signalés
+qu'en position d'identifiant).
+
+**Au commit.** `pm-pre-commit` lance le contrôle sur les **lignes ajoutées** de l'index —
+une dette existante ne bloque pas chaque commit qui touche le fichier. Une donnée client
+⇒ **refus**, avec fichier, ligne et nature.
+
+**Les motifs** ne sont jamais écrits dans le code : ils sont lus à chaque exécution
+dans les données privées — entités `type: client` (slug, nom), manifestes et
+`environments.md` de leurs projets (hôtes, adresses, IP), annuaire de contacts
+(adresses, « prénom nom » des non-internes), table de routage mail. Un produit
+(`type: product`), soi-même (`self`), le domaine maison, un webmail grand public et
+une plateforme partagée (GitHub, OVH…) ne sont jamais des motifs.
+
+**Limite assumée.** Le garde-fou ne connaît que ce que les données déclarent. Un client
+dont le domaine ne porte pas son nom lui échappe tant que ses instances ne sont pas
+renseignées — c'est exactement ainsi que le domaine commercial d'un client avait échappé
+au premier audit de RM3200. **Renseigner le `environments.md` d'un projet, c'est aussi
+armer le garde-fou.**
+
+| Commande | Effet |
+|---|---|
+| `pm-check-no-client-data` (`--staged`) | lignes ajoutées dans l'index — ce que lance le hook |
+| `pm-check-no-client-data --all [--summary]` | audit de tout le versionné (l'existant) |
+| `pm-check-no-client-data --history [--summary]` | tout l'historique : chaque version de chaque fichier, supprimés compris, et les messages de commit |
+| `pm-check-no-client-data --patterns` | combien de motifs par nature — **jamais les valeurs** : elles sont les données |
+
+Sorties : `0` rien trouvé (ou dépôt non déclaré publiable), `1` donnée client trouvée,
+`2` contrôle impossible (données privées injoignables d'ici — rien n'a été vérifié).
+
+**Échappatoires, toutes tracées.**
+
+- marqueur `client-data-guard: allow` sur la ligne : pour une **dette connue et suivie
+  par un ticket** (la conf active d'un client dans `pm.config.yml`, en attendant son
+  déplacement), jamais pour faire passer un commit ;
+- `PM_SKIP_CLIENT_DATA_CHECK=1` : désactive le contrôle, **annoncé à l'écran** ;
+- `git commit --no-verify` désactive tous les hooks.
+
+Le hook est **fail-open** comme les autres garde-fous du dépôt : une erreur interne laisse
+passer le commit — mais le dit.
+
+### L'existant
+
+Le HEAD du dépôt de code a été nettoyé par RM3200. L'**historique** git garde les
+données, et le miroir public les a exposées : leur purge (`git filter-repo
+--replace-text`) est un chantier à part, qui réécrit tous les SHA — et donc impose de
+recréer chaque clone et chaque worktree.
+
+Avant de rendre un dépôt publiable — nouveau miroir, module rendu public — le passer à
+`pm-check-no-client-data --history` : un miroir publie tout ce qu'il reçoit, chaque
+version de chaque fichier et chaque message de commit, pas seulement le HEAD.
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 

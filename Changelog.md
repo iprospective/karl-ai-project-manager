@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Aucune donnée client dans un dépôt publiable (RM3201, NORMS 2.55.0, tripwire #21).** Le dépôt de code
+  est miroité en public sur GitHub ; RM3200 y a trouvé des URL d'ERP de prod avec leur version exacte, un
+  chemin serveur, un compte d'hébergeur et des adresses de contacts clients, versionnés faute de règle. Un
+  dépôt se déclare désormais publiable par un `.client-data-guard.yml` versionné (celui-ci l'est), et
+  `pm-pre-commit` y refuse toute ligne AJOUTÉE qui nomme un client ou l'une de ses instances. Les motifs
+  (slugs et noms de clients, domaines, IP, adresses, « prénom nom » de contacts) sont lus à chaque
+  exécution dans les données privées — jamais écrits dans le code ; produits, soi-même, webmails et
+  plateformes partagées n'en sont jamais. `pm-check-no-client-data --all` / `--history` audite l'existant,
+  historique et messages de commit compris. Limite assumée : un client dont le domaine ne porte pas son
+  nom n'est connu qu'une fois ses instances renseignées dans son `environments.md`. Détail :
+  `norms/src/modules/client-data.md`.
+
 - **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
   --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
   description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local

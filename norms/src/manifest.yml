@@ -27,6 +27,7 @@ sources:
   - modules/git-mep.md
   - modules/git-mep-pratique.md   # RM2582 : mode d'emploi + cas particuliers, hors précharge
   - modules/testing.md            # RM3028 : discipline de tests (TDD, unitaires, fonctionnels/workflow au fil de l'eau)
+  - modules/client-data.md        # RM3201 : aucune donnée client dans un dépôt publiable, hors précharge
   # --- métriques, liens, traçabilité ---
   - modules/roi-pricing.md
   - modules/roi-pricing-pratique.md   # RM3037 : mécanique de mesure et journal, hors précharge

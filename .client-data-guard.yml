@@ -1,0 +1,19 @@
+# Ce dépôt est PUBLIÉ (RM3201) — le dépôt de code PM part sur un miroir GitHub public.
+#
+# Sa seule présence arme le contrôle `pm-check-no-client-data`, lancé par le hook
+# pre-commit : une ligne ajoutée qui nomme un client ou l'une de ses instances (slug,
+# nom, domaine, IP, adresse, « prénom nom » d'un contact) fait refuser le commit.
+# Les motifs ne sont PAS ici : ils sont lus dans les données privées du PM à chaque
+# exécution. Ce fichier ne porte donc aucune donnée client, et ne doit jamais en porter.
+#
+# Règle et « où va quoi » : norms/src/modules/client-data.md (tripwire #21).
+
+# Chemins non contrôlés (globs). Chaque entrée est un trou : n'en ajouter qu'avec un
+# ticket qui dit pourquoi.
+exempt: []
+
+# Mots courants : si l'un d'eux est aussi le slug d'un client, il n'est signalé qu'en
+# position d'identifiant (`clients/<x>/`, `php_<x>`, `<x>-presta`), jamais en prose.
+# Liste volontairement générique : elle ne dit pas lequel est un client.
+common_words: [alors, avec, bien, chez, dans, donc, mais, pour, sans, site, test, tout,
+               infra, projet, client, service, admin, demo, dev, prod, shop, web]

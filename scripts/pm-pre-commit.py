@@ -16,6 +16,11 @@ passer. Trois vérifications, du plus dur au plus doux :
    courante a des worktrees de ticket actifs sur CE repo → AVERTISSEMENT
    bruyant (non bloquant : merges et hotfix légitimes).
 
+0. Dépôt PUBLIABLE (`.client-data-guard.yml` à la racine, RM3201) : une ligne
+   ajoutée qui nomme un client ou l'une de ses instances → REFUS. Indépendant du
+   workspace PM : c'est le dépôt qui se déclare publié, pas son emplacement.
+   Escape : PM_SKIP_CLIENT_DATA_CHECK=1 (tracé à l'écran), ou `--no-verify`.
+
 Toute erreur interne du hook laisse passer le commit (fail-open) : un garde-fou
 ne doit jamais bloquer le travail par accident.
 """
@@ -83,7 +88,49 @@ def warn_integration_branch(top: Path, branch: str):
               "  Commit laissé passer (merge/hotfix légitimes possibles).", file=sys.stderr)
 
 
+def client_data_check(top: Path) -> int:
+    """RM3201 : un dépôt publiable ne reçoit aucune donnée client. 0 = passe, 1 = refus."""
+    if not (top / ".client-data-guard.yml").is_file():
+        return 0
+    if os.environ.get("PM_SKIP_CLIENT_DATA_CHECK") == "1":
+        print("pm-pre-commit: ⚠ contrôle des données client DÉSACTIVÉ "
+              "(PM_SKIP_CLIENT_DATA_CHECK=1) sur un dépôt publiable.", file=sys.stderr)
+        return 0
+    try:
+        import pm_client_data_guard as G
+        from pm_paths import PMConfig
+        conf = G.load_guard_config(top)
+        pat = G.collect(PMConfig.load(), conf.get("common_words") or ())
+        if pat.empty():
+            print("pm-pre-commit: ⚠ données client NON contrôlées — les données privées du "
+                  "PM sont injoignables d'ici (RM3201).", file=sys.stderr)
+            return 0
+        found = G.check_staged(top, pat, conf.get("exempt") or ())
+    except Exception as e:  # fail-open, mais bruyant
+        print(f"pm-pre-commit: ⚠ contrôle des données client en erreur, commit laissé "
+              f"passer ({e})", file=sys.stderr)
+        return 0
+    if not found:
+        return 0
+    print("pm-pre-commit: REFUS — ce dépôt est publiable (.client-data-guard.yml) et le "
+          "commit y ajoute des données client (RM3201) :", file=sys.stderr)
+    for f in found[:30]:
+        print(f"    {f}", file=sys.stderr)
+    if len(found) > 30:
+        print(f"    … et {len(found) - 30} autre(s)", file=sys.stderr)
+    print("  Jeu fictif (clienta…, domaines en .example) ; conf réelle hors git ; instances "
+          "dans le environments.md du projet — norms/src/modules/client-data.md.\n"
+          "  Dette connue et tracée seulement : marqueur `client-data-guard: allow` sur la ligne.",
+          file=sys.stderr)
+    return 1
+
+
 def main():
+    top_r = sh("git", "rev-parse", "--show-toplevel")
+    if top_r.returncode == 0:
+        rc = client_data_check(Path(top_r.stdout.strip()))
+        if rc:
+            return rc
     if os.environ.get("PM_SKIP_WORKTREE_CHECK") == "1":
         return 0
     top_r = sh("git", "rev-parse", "--show-toplevel")

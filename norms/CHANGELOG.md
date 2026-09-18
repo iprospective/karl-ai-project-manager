@@ -1,5 +1,20 @@
 # Changelog des normes
 
+## [2.55.0] - 2026-09-19
+
+### Ajouté
+- **Aucune donnée client dans un dépôt publiable** (RM3201, tripwire **#21** du KERNEL, nouveau
+  module `client-data`). Incident fondateur RM3200 : le dépôt de code PM, miroité en public sur
+  GitHub, exposait depuis 25 jours des URL d'ERP de production avec leur version exacte, un chemin
+  serveur, un compte d'hébergeur, une table de routage mail et des adresses de contacts clients —
+  sans qu'aucune règle ne l'interdise. Un dépôt se déclare publiable par un
+  `.client-data-guard.yml` versionné ; `pm-pre-commit` y refuse toute ligne ajoutée qui nomme un
+  client ou l'une de ses instances (`pm-check-no-client-data`, motifs lus dans les données
+  privées, jamais écrits dans le code). « Où va quoi » : méthode → `knowledge/`, instances →
+  `environments.md` du projet, conf réelle → hors git. Jeu fictif `clienta`…, domaines en
+  `.example`. Runtime `KERNEL` complété À LA MAIN (même exception que RM3195 : générateur par
+  fournisseur, RM3135) ; « Propriété, verrou, journal » y passe de 21 à 22.
+
 ## [2.54.0] - 2026-09-18
 
 ### Ajouté

@@ -128,6 +128,14 @@ pm-repo-new.py --forge github --path <owner>/<nom> [--branches main,dev] [--remo
 #   protection selon le plan (avertissement si le plan ne l'a pas), jeton GITHUB__<OWNER>__TOKEN.
 ```
 
+**Ce dépôt est publié** (RM3201) : il part sur un miroir GitHub public, et
+`.client-data-guard.yml` à sa racine arme un contrôle au commit — aucune ligne ajoutée
+ne peut nommer un client ni l'une de ses instances. Exemples, fixtures, templates et
+docstrings utilisent le jeu fictif (`clienta`…, domaines en `.example`) ; la conf réelle
+vit hors git, les instances dans le `environments.md` du projet. Avant de rendre un autre
+dépôt public : `pm-check-no-client-data --history`. Règle et « où va quoi » :
+`norms/src/modules/client-data.md`.
+
 **La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`
 purge au contraire les variables qui pointent le runtime (`PM_CORE_DIR`,
 `PROJECTS_PATH`…) : chaque test se fabrique le core jetable dont il a besoin, via

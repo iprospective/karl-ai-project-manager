@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Garde « questions et MEP » : un ticket seulement CITÉ ne bloque plus (RM3239).** La garde de RM3238
+  lisait les tickets d'un lot comme l'annotation de `pm-promote` (RM2809) : tout « RM<id> » du sujet et du
+  corps. La première promotion réelle a buté sur RM3035 et RM3116, cités dans des corps de commit
+  (« résorption RM3035 ») sans être dans le lot. La garde ne retient plus que les tickets PORTÉS — sujet
+  qui commence par `RM<id>`, merge de `<id>-…` ou `into <id>-…` — pour `pm-promote` comme pour `pm-mr`.
+  L'annotation garde sa lecture large : une note de trop est bénigne, un blocage à tort ne l'est pas.
+
 - **Pas de mise en prod avec une question non tranchée (RM3238, NORMS 2.54.0).** Une question ouverte du
   `.think.md` ne refusait que la clôture — qui arrive après la prod, quand la réponse ne change plus rien.
   Elle refuse désormais l'entrée en `a_mep_prod` / `en_mep` (`a_mep`, la préprod, avertit seulement) et le

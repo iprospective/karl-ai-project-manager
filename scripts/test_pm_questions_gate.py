@@ -59,6 +59,21 @@ check("branche sans préfixe → aucun", G.id_from_branch("dev") is None and G.i
 promote = (HERE / "pm-promote.py").read_text(encoding="utf-8")
 check("pm-promote délègue sa lecture à la garde (une seule définition)", "pm_questions_gate.ids_in_text" in promote)
 
+print("\n[RM3239] tickets PORTÉS par un lot, pas simplement cités")
+LOT = ["Merge branch '3238-bloquer-la-mep-prod-et-le-merge-vers-mai-m1-s112' into 'dev'",
+       "Merge origin/dev dans RM3238 : normes 2.54.0 après 2.53.0 (RM3228), plafond relevé (RM3035)",
+       "Merge remote-tracking branch 'origin/dev' into 3228-statut-redmine-24-etude-cdc-a-corriger-m-m1-s112",
+       "Merge branch '3227-cockpit-commentaire' into 'dev'",
+       "RM3226 : les questions passent dans le CF 36\n\nSort la section RM3116 de la description ; RM3035.",
+       "pm(think): RM3218 +Q001"]
+got = G.carried_ids(LOT)
+check("le lot réel du 2026-09-18 : 3238, 3228, 3227, 3226", sorted(got) == [3226, 3227, 3228, 3238], got)
+check("un auto-commit `pm(…): RM<id>` (plomberie de données) ne porte pas de livraison", 3218 not in got)
+check("un ticket cité dans un CORPS n'est pas porté (RM3116, RM3035)", 3116 not in got and 3035 not in got)
+check("…ni cité en fin de SUJET", 3035 not in G.carried_ids(["Merge origin/dev dans RM3238 : blabla (RM3035)"]))
+check("« into '<id>-…' » est reconnu", G.carried_ids(["Merge branch 'dev' into '4001-x'"]) == [4001])
+check("la lecture large d'annotation (RM2809) reste inchangée", 3035 in G.ids_in_text("\n".join(LOT)))
+
 print("\n[RM3238] ce qui est de la prod, ce qui n'en est pas")
 check("main et master sont la prod", G.is_prod_branch("main") and G.is_prod_branch("master"))
 check("dev n'est pas la prod", not G.is_prod_branch("dev") and not G.is_prod_branch("3238-x"))
@@ -126,10 +141,15 @@ check("promotion dev → main : les tickets viennent des commits de la MR",
 check("dépôt de données *-core : jamais bloqué", not refuse(Forge(["RM3001"]), PR("dev", "main"), prj=PRJ("a/b-core")))
 check("forge muette sur les commits : on ne bloque pas sur de l'inconnu", not refuse(Forge(None), PR("dev", "main")))
 check("un ticket sans question ne bloque pas", not refuse(Forge(["RM4242"]), PR("4242-x", "main")))
+check("RM3239 : un ticket seulement CITÉ dans un commit de la MR ne bloque pas",
+      not refuse(Forge(["RM4242 : x\n\nvoir aussi RM3001"]), PR("dev", "main")))
+check("RM3239 : …mais un commit qui le PORTE bloque", refuse(Forge(["RM3001 : x"]), PR("dev", "main")))
 check("pm-promote fournit son lot : il fait foi", refuse(Forge([]), PR("dev", "main"), ids=[3001]))
 mr = (HERE / "pm-mr.py").read_text(encoding="utf-8")
 check("merge et create --merge exposent --ignore-questions", mr.count('add_argument("--ignore-questions"') == 2)
 check("la garde n'agit que sur une MR encore ouverte", 'if pr.state == "opened":\n        _guard_questions' in mr)
+check("pm-promote : la garde lit les SUJETS du lot (portés), l'annotation garde la lecture large",
+      'carried_ids(_s.stdout.splitlines())' in promote and "pm_questions_gate.ids_in_text" in promote)
 check("pm-promote : refus hors dry-run, annonce en dry-run",
       "not args.dry_run and not args.ignore_questions" in promote and "questions non tranchées (RM3238)" in promote)
 

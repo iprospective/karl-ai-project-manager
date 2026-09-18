@@ -244,7 +244,7 @@ def _guard_questions(forge, project, pr, token, ids=None, local_repo=None, ignor
         if msgs is None and not bid:
             out.warn(f"MR !{pr.iid} → {pr.target} : tickets du lot inconnus (la forge ne liste pas "
                      f"les commits) — garde des questions non appliquée (RM3238)")
-        for i in qg.ids_in_text("\n".join(msgs or [])):
+        for i in qg.carried_ids(msgs or []):          # RM3239 : portés, pas cités
             if i not in ids:
                 ids.append(i)
     bm = qg.blocked(ids)

@@ -7,6 +7,7 @@ _uncovered:
 - a_mep
 - a_mep_prod
 - en_mep
+- etude_chiffrage_a_corriger
 transitions:
   nouveau:
   - a_corriger
@@ -29,6 +30,7 @@ transitions:
   - a_tester_preprod
   - en_mep
   - en_pause
+  - etude_chiffrage_a_corriger
   - etude_chiffrage_en_cours
   - ferme
   - nouveau
@@ -42,6 +44,7 @@ transitions:
   - en_cours
   - en_mep
   - en_pause
+  - etude_chiffrage_a_corriger
   - etude_chiffrage_en_cours
   - ferme
   - nouveau
@@ -106,6 +109,7 @@ transitions:
   - a_tester_demandeur
   - a_tester_preprod
   - en_mep
+  - etude_chiffrage_a_corriger
   a_tester_preprod:
   - a_corriger
   - a_mep_prod
@@ -114,4 +118,5 @@ transitions:
   - a_etudier_chiffrer
   - a_faire
   - en_pause
+  - etude_chiffrage_a_corriger
   - etude_chiffrage_en_cours

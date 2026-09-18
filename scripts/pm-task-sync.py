@@ -48,12 +48,15 @@ REDMINE_TO_NORMS_STATUS = {
     8:  "a_etudier_chiffrer",
     14: "etude_chiffrage_en_cours",
     21: "etude_chiffrage_a_valider",  # Etude/CDC à valider (transition assignee-only, cf. redmine-post-note)
+    24: "etude_chiffrage_a_corriger", # RM3228 : Etude/CDC à corriger (étude renvoyée par le demandeur)
     12: "a_faire",
     2:  "en_cours",
     19: "a_tester_dev",
     9:  "a_tester_demandeur",        # ex-a_tester_verifier (déprécié)
     3:  "a_mep",                     # Résolu/Validé/A MEP (non terminal)
-    20: "en_mep",                    # MEP/Tester en preprod
+    20: "a_tester_preprod",          # MEP/Tester en preprod (RM2893 ; ex-en_mep)
+    22: "en_mep",                    # MEP/Vérifier en prod (RM2893)
+    23: "a_mep_prod",                # MEP/Preprod OK/A MEP (RM2926)
     13: "en_pause",                  # Attente retour / en pause
     11: "a_corriger",
     18: "ferme",                     # terminal réel — raison via CF "Raison Fermé" (id 11)
@@ -63,6 +66,23 @@ REDMINE_TO_NORMS_STATUS = {
     6:  ("ferme", "wont_fix"),       # ou hors_perimetre — ambigu
     7:  ("ferme", "invalide"),       # ou doublon — ambigu
 }
+
+
+
+def _depuis_reference():
+    """RM3228 : les statuts CANONIQUES se lisent dans redmine.reference.yml (source unique,
+    NORMS § status) — la table ci-dessus, recopiée à la main, avait dérivé : 20 y restait
+    `en_mep` après RM2893, 22 et 23 y manquaient, et un statut Redmine inconnu d'elle n'est
+    tout simplement PAS rapatrié. Elle ne garde que les ids dépréciés (tuples → ferme+raison)
+    et sert de repli si la référence est illisible."""
+    try:
+        import redmine_utils
+        return {int(i): nom for nom, i in redmine_utils.status_ids().items()}
+    except Exception:  # noqa: BLE001 — référence illisible : la table en dur fait foi
+        return {}
+
+
+REDMINE_TO_NORMS_STATUS.update(_depuis_reference())
 
 # CF "Raison Fermé" (id=11, enumeration) → close_reason NORMS, par value_id.
 # La valeur arrive en id (string), pas en label. Cf. NORMS § Mapping NORMS → Redmine.

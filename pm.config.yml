@@ -237,6 +237,9 @@ context:
     # tranchée » vit en entier dans git-mep (préchargé), pas en renvoi d'une ligne : worker-infra
     # passe ~29,1k. Plafond relevé pour CE rôle seulement ; résorption par dégraissage : RM3035.
     worker-infra: 30000
+    # Même arbitrage, une fois RM3228 (statut etude_chiffrage_a_corriger) et RM3238 combinés sur dev :
+    # worker-dev précharge les deux règles et passe ~29,0k. Résorption : RM3035.
+    worker-dev: 30000
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
 # ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────

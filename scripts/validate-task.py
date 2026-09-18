@@ -35,7 +35,9 @@ VALID_TYPES = {
 
 VALID_STATUSES = {
     "nouveau",  # statut d'entrée : ticket créé non encore trié (défaut pm-task-add)
-    "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider", "a_faire",
+    "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider",
+    "etude_chiffrage_a_corriger",  # RM3228 : étude renvoyée par le demandeur
+    "a_faire",
     "en_cours", "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep",
     "en_pause", "a_corriger", "ferme",
     "a_tester_verifier",  # déprécié — alias de a_tester_demandeur (rétrocompat)

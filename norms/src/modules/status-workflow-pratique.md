@@ -18,6 +18,8 @@ la prise) sont restées dans `status-workflow.md`.
 | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
 | `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
 | `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
+| `etude_chiffrage_a_valider` | `etude_chiffrage_a_corriger` | étude renvoyée par le demandeur — note obligatoire ; ré-attribution à l'auteur de l'étude (RM3228) |
+| `etude_chiffrage_a_corriger` | `etude_chiffrage_en_cours` | reprise de l'étude selon les retours |
 | `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
 | `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
 | `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
@@ -116,6 +118,7 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 | `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
 | `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
 | `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
+| `etude_chiffrage_a_corriger` | Etude/CDC à corriger (24) | **Étude renvoyée** par le demandeur, avec ce qui est à reprendre (note). Ticket ré-attribué à l'auteur de l'étude, qui la reprend (`→ etude_chiffrage_en_cours`) puis la resoumet. RM3228. |
 
 **Contenu de l'étude** (`etude_chiffrage_en_cours`) :
 - **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
@@ -138,6 +141,7 @@ développement. C'est le pendant amont du `a_tester_demandeur` aval.
 - `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + proposition d'implémentation + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
+- `etude_chiffrage_a_valider → etude_chiffrage_a_corriger → etude_chiffrage_en_cours` — étude **renvoyée** (RM3228) : le demandeur dit ce qui est à reprendre (note obligatoire), le ticket revient à l'auteur de l'étude ; c'est la voie à préférer quand le retour vient du demandeur, la reprise directe restant possible pour l'agent.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
 
 Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase

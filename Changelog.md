@@ -22,6 +22,34 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   dépôt de données PM. `--list-next` et le menu du cockpit montrent la transition verrouillée, questions
   nommées. Contournement explicite et tracé : `--ignore-think` (statut) / `--ignore-questions` (merge).
 
+- **Statut « Etude/CDC à corriger » (Redmine 24) → `etude_chiffrage_a_corriger` (RM3228, NORMS 2.53.0).**
+  Pendant d'`a_corriger` côté étude : depuis une étude à valider, le demandeur la **renvoie** avec une note
+  obligatoire, et le ticket revient à l'**auteur de l'étude** — l'assigné d'avant la dernière soumission, lu
+  dans les journaux Redmine (introuvable ⇒ attribution conservée et signalée). Sortie : reprise
+  (`→ etude_chiffrage_en_cours`) puis resoumission. Câblé dans la référence, `pm-task-status-update`,
+  `pm-task-sync`, `validate-task`, le cockpit (famille « à faire », lots analyser / à tester, worklog) et
+  `workflow.reference.yml` (arêtes observées dans Redmine). Au passage, la table de `pm-task-sync` dérive
+  désormais de `redmine.reference.yml` : recopiée à la main, elle mappait encore 20 sur `en_mep` (c'est
+  `a_tester_preprod` depuis RM2893) et ignorait 22 et 23 — un statut posé dans l'UI n'y était pas rapatrié.
+
+- **Cockpit : trancher une question avec sa réponse (RM3227).** Les boutons ✅ / ❌ de la fiche (et le sélecteur
+  d'état du panneau CDC) ne faisaient que changer l'état : la réponse n'était écrite nulle part, et la vue des
+  questions affichait « *tranchée ; la décision n'est pas reliée* ». Trancher une **question** demande désormais un
+  commentaire facultatif, consigné par le serveur en **décision validée « Qnnn : … »** (« Qnnn écartée : … » pour ❌),
+  signée de l'utilisateur du cockpit — la convention déjà lue par la vue des questions et fusionnée dans
+  `cdc-decisions.md` : aucun format nouveau. Même route (`/cdc/think`, D022) ; la réponse est écrite avant le
+  changement d'état, et rejouer ne la double pas. Annuler la saisie n'écrit rien ; OK à vide tranche comme avant.
+
+- **Les questions d'un ticket ont leur champ Redmine : CF 36 « Questions à trancher » (RM3226).** RM3116 les
+  régénérait dans la description, entre marqueurs ; elles en sortent, même trajet que les critères d'acceptation
+  (CF 33) — la description change quand la demande change, les questions au fil de l'étude. Le `.think.md` reste
+  la source, le CF une vue jamais rapatriée ; une coche manuelle y est signalée, pas prise pour une réponse.
+  Changement de rythme : `pm-task-think` pousse désormais le CF **à chaque question posée ou tranchée, et à chaque
+  décision qui en cite une** (`Q001 : …`) — la vue locale seule de RM3116 laissait Redmine muet jusqu'à un
+  `pm-task-questions` manuel (`PM_THINK_LOCAL=1` pour rester hors ligne). L'ancienne section est retirée de la
+  description à la première régénération ; `pm-task-questions --all` fait la reprise, et parcourt enfin tous les
+  projets (il ne parcourait rien : `cfg.tasks_dir` n'existe pas).
+
 - **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
   existait dans les faits (l'environnement client de RM2707) mais n'était écrite nulle part :
   chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.

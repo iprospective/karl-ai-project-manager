@@ -5976,6 +5976,7 @@ BATCH_ACTIONS = {
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "etude_chiffrage_a_corriger": ("etudier", "reprendre l'étude selon les retours du demandeur, puis la resoumettre à validation"),
     "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
     "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
     "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
@@ -6017,6 +6018,7 @@ BATCH_ATESTER_SKIP = {
     "a_etudier_chiffrer": "à étudier : une étude se rend en validation, pas en test",
     "etude_chiffrage_en_cours": "étude en cours : elle se rend en validation, pas en test",
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+    "etude_chiffrage_a_corriger": "étude renvoyée : elle se reprend et se revalide, pas en test",
 }
 
 # RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
@@ -6027,6 +6029,7 @@ BATCH_ETUDIER = {
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "etude_chiffrage_a_corriger": ("etudier", "reprendre l'étude selon les retours du demandeur, puis la resoumettre à validation"),
 }
 BATCH_ETUDIER_SKIP = {
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
@@ -7562,7 +7565,7 @@ def _norms_statuses() -> list:
     except Exception:  # noqa: BLE001
         noms = []
     ordre = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "etude_chiffrage_a_valider", "etude_chiffrage_a_corriger", "a_faire", "en_cours", "a_corriger",
              "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep",
              "en_pause", "ferme", "annule"]
     if not noms:
@@ -8781,15 +8784,39 @@ def _cdc_think_args(payload: dict) -> tuple:
     raise ApiError(400, "action inconnue (delete | state)")
 
 
-def op_cdc_think(payload: dict) -> dict:
-    """État ou suppression d'une entrée de think depuis le panneau CDC, puis refusion du projet."""
+_THINK_COMMENT_MAX = 1000
+
+
+def _cdc_think_answer_args(payload: dict, rm: str, local: str, by: str = "M"):
+    """RM3227 : le commentaire joint au geste qui tranche une QUESTION devient sa réponse — une décision
+    validée « Qnnn : … » (« Qnnn écartée : … » si la question est invalidée). C'est la convention que
+    lisent déjà la vue Redmine des questions (CF 36) et la fusion `cdc-decisions.md` : aucun format
+    nouveau dans le think. Rien si pas de commentaire, ou si l'entrée n'est pas une question. Pur, testé."""
+    comment = " ".join(str(payload.get("comment") or "").split())
+    if not comment or not local.startswith("Q") or payload.get("action") != "state":
+        return None
+    if len(comment) > _THINK_COMMENT_MAX:
+        raise ApiError(400, f"commentaire trop long ({len(comment)} > {_THINK_COMMENT_MAX} caractères)")
+    ecartee = str(payload.get("state") or "") == "invalide"
+    texte = f"{local} écartée : {comment}" if ecartee else f"{local} : {comment}"
+    return [rm, "--decide", texte, "--state", "valide", "--by", by or "M", "--dedupe"]
+
+
+def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
+    """État ou suppression d'une entrée de think depuis le panneau CDC ou la fiche, puis refusion du
+    projet. RM3227 : un commentaire joint au geste qui tranche une question est consigné comme sa
+    réponse AVANT le changement d'état — rejouer après un échec ne double rien (`--dedupe`)."""
     rm, local, args = _cdc_think_args(payload)
+    answer = _cdc_think_answer_args(payload, rm, local, str((auth_ctx or {}).get("user") or "M"))
+    if answer:
+        _pm_script("pm-task-think.py", answer)
     out = _pm_script("pm-task-think.py", args)
     proj = _task_project(rm)
     merged = None
     if proj:
         merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
-    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged}
+    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
+            "answer": bool(answer)}
 
 
 def _task_project(rm: str):
@@ -10194,7 +10221,7 @@ def _actions_catalog() -> list:
 # Spec d'un arg : {name, label?, type: rm_id|int|enum|text|bool, required?,
 #                  positional?, flag?, choices?, max_len?}
 _PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-                "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+                "etude_chiffrage_a_valider", "etude_chiffrage_a_corriger", "a_faire", "en_cours", "a_tester_dev",
                 "a_tester_demandeur", "a_tester_verifier", "a_mep", "en_mep",
                 "en_pause", "a_corriger", "ferme"]
 _PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
@@ -13529,7 +13556,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
                 return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
-                return self._send_json(200, op_cdc_think(payload))
+                return self._send_json(200, op_cdc_think(payload, self.auth_ctx))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
                 return self._send_json(200, op_cdc_feature(payload))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement

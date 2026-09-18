@@ -582,15 +582,20 @@ def load_all(tasks_dir) -> dict:
     return dict(sorted(out.items()))
 
 
-# ── La section « questions ouvertes » de la description du ticket (RM3116) ─────
+# ── Les questions d'un ticket, dans son CF Redmine 36 « Questions à trancher » (RM3116 → RM3226) ──
 #
 # Les questions gouvernent déjà des choses sérieuses — un ticket ne se ferme pas avec une question
-# ouverte — mais elles ne se voyaient nulle part où l'on LIT un ticket. D'où cette section, régénérée
-# dans la description Redmine comme les chapitres du CDC le sont du même fichier : deux vues, une donnée.
+# ouverte — mais elles ne se voyaient nulle part où l'on LIT un ticket. RM3116 les a régénérées dans la
+# DESCRIPTION, entre marqueurs ; RM3226 les en sort vers leur champ dédié, même trajet que les critères
+# d'acceptation (CF 33, RM2882) : la description change quand la demande change, les questions au fil
+# de l'étude. Deux rythmes, deux contenants. Le `.think.md` reste la SOURCE ; le CF est une vue.
 #
 # Une question ne se résout pas en cochant une case, elle se résout par une RÉPONSE. Une question
 # tranchée s'affiche donc cochée AVEC la décision qui l'a tranchée : sans elle, la trace mentirait par
 # omission — on verrait que c'est réglé sans savoir comment.
+QUESTIONS_CF_NAME = "Questions à trancher"
+QUESTIONS_CF_ENV = "REDMINE_CF_QUESTIONS_ID"
+#: marqueurs de l'ANCIENNE section de description (RM3116) — lus pour la retirer, plus jamais écrits
 QUESTIONS_BEGIN = "<!-- questions:begin — section RÉGÉNÉRÉE depuis le .think.md, ne pas éditer entre les marqueurs -->"
 QUESTIONS_END = "<!-- questions:end -->"
 #: une question est CLOSE quand elle est tranchée (validée) ou écartée (invalidée) ; le reste attend
@@ -601,63 +606,68 @@ def _decision_liee(parsed: dict, qid: str) -> str:
     """La décision qui a tranché cette question, s'il y en a une qui la nomme.
 
     Convention légère : une décision qui cite `Q001` dans son texte est la réponse à Q001. Rien n'oblige
-    à la poser, mais quand elle existe elle est ce qu'un lecteur cherche."""
+    à la poser, mais quand elle existe elle est ce qu'un lecteur cherche. La DERNIÈRE qui la cite gagne :
+    une réponse corrigée remplace la précédente."""
+    trouvee = ""
     for r in (parsed.get("decision", {}) or {}).get("rows", []):
         texte = " ".join(str(c) for c in r.get("cells", [])[1:])
-        if qid and qid in texte:
-            return " ".join(texte.split())[:300]
-    return ""
+        if qid and re.search(rf"\b{re.escape(qid)}\b", texte) and r.get("state") != "invalide":
+            trouvee = " ".join(texte.split())[:300]
+    return trouvee
 
 
-def render_questions(parsed: dict) -> str:
-    """La section à poser dans la description : une case par question, cochée si elle est tranchée."""
+def questions_text(parsed: dict) -> str:
+    """Le contenu du CF 36 : une case par question, cochée si elle est tranchée. Jamais vide — un PUT
+    de CF à vide EFFACE le champ, et « aucune question » est une information."""
     rows = (parsed.get("question", {}) or {}).get("rows", [])
-    ouvertes = [r for r in rows if not r["closed"] and r["state"] not in _Q_CLOSES]
-    L = [QUESTIONS_BEGIN, "", "## ❓ Questions ouvertes", ""]
     if not rows:
-        L += ["*Aucune question consignée sur ce ticket.*", "", QUESTIONS_END]
-        return "\n".join(L)
-    L.append(f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
-             "en attente. Section régénérée depuis le `.think.md` du ticket par `mmi-pm task-questions` : "
-             "trancher se fait là, pas ici.")
-    L.append("")
+        return "*Aucune question consignée sur ce ticket.*"
+    ouvertes = [r for r in rows if not r["closed"] and r["state"] not in _Q_CLOSES]
+    L = [f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
+         "en attente. Vue régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : "
+         "trancher se fait là, pas ici.", ""]
     for r in rows:
         cells = r.get("cells", [])
         texte = " ".join(str(cells[1] if len(cells) > 1 else "").split())
         tranchee = r["closed"] or r["state"] in _Q_CLOSES
-        case = "[x]" if tranchee else "[ ]"
-        ligne = f"- {case} **{r['id']}** — {texte}"
+        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {texte}"
         if tranchee:
             rep = _decision_liee(parsed, r["id"])
             ligne += f"  \n  → {rep}" if rep else "  \n  → *(tranchée ; la décision n'est pas reliée)*"
         L.append(ligne)
-    L += ["", QUESTIONS_END]
     return "\n".join(L)
 
 
-def cochees_a_la_main(description: str, parsed: dict) -> list:
-    """Les questions cochées DANS la description alors que le think les dit encore ouvertes.
+def strip_questions(description: str) -> str:
+    """La description SANS l'ancienne section RM3116 (marqueurs compris). Le reste n'est pas touché."""
+    d = description or ""
+    if QUESTIONS_BEGIN not in d or QUESTIONS_END not in d:
+        return d
+    a = d.index(QUESTIONS_BEGIN); b = d.index(QUESTIONS_END) + len(QUESTIONS_END)
+    avant, apres = d[:a].rstrip(), d[b:].lstrip("\n")
+    if not avant:
+        return apres
+    return avant + ("\n\n" + apres if apres.strip() else "\n")
+
+
+def cochees_a_la_main(texte: str, parsed: dict) -> list:
+    """Les questions cochées dans une vue (CF, ou ancienne section de description) alors que le think
+    les dit encore ouvertes.
 
     On ne les décoche pas en silence : quelqu'un a voulu dire quelque chose. On les rapporte pour
     qu'elles soient tranchées là où ça compte — une coche n'est pas une réponse."""
-    import re as _re
-    if QUESTIONS_BEGIN not in (description or ""):
-        return []
-    bloc = description.split(QUESTIONS_BEGIN, 1)[1].split(QUESTIONS_END, 1)[0]
-    cochees = {m.group(1) for m in _re.finditer(r"- \[x\]\s+\*\*(Q\d{3}[a-z]?)\*\*", bloc, _re.I)}
+    bloc = texte or ""
+    if QUESTIONS_BEGIN in bloc:
+        bloc = bloc.split(QUESTIONS_BEGIN, 1)[1].split(QUESTIONS_END, 1)[0]
+    cochees = {m.group(1) for m in re.finditer(r"- \[x\]\s+\*\*(Q\d{3}[a-z]?)\*\*", bloc, re.I)}
     ouvertes = {r["id"] for r in (parsed.get("question", {}) or {}).get("rows", [])
                 if not r["closed"] and r["state"] not in _Q_CLOSES}
     return sorted(cochees & ouvertes)
 
 
-def pose_questions(description: str, parsed: dict) -> str:
-    """Remplace (ou ajoute) la section dans une description. Ce qui est hors marqueurs n'est pas touché."""
-    section = render_questions(parsed)
-    d = description or ""
-    if QUESTIONS_BEGIN in d and QUESTIONS_END in d:
-        a = d.index(QUESTIONS_BEGIN); b = d.index(QUESTIONS_END) + len(QUESTIONS_END)
-        return d[:a] + section + d[b:]
-    return (d.rstrip() + "\n\n" + section + "\n") if d.strip() else (section + "\n")
+def cite_question(texte: str) -> bool:
+    """Ce texte (une décision) répond-il à une question ? — `Q001` cité quelque part."""
+    return bool(re.search(r"\bQ\d{3}[a-z]?\b", texte or ""))
 
 
 def render_merged(kind: str, thinks: dict) -> str:

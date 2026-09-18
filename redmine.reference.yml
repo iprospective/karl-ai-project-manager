@@ -50,6 +50,7 @@ custom_fields:
   8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_DEPLOY_ACTIONS_ID (.env) ; pm-task-deploy → miroir frontmatter deploy_actions (liste ordonnée, 1 étape par ligne) = la PROCÉDURE DE MEP du ticket. Rapatrié par pm-task-sync ; reprise de l'existant par pm-cf-mirror-backfill. Câblé par RM2563 — jusque-là le CF et le champ existaient tous les deux SANS lien. string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
   31: {name: "Proposition d'implémentation", format: text, type: issue,     trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_IMPLEMENTATION_ID (.env) ; pm-task-implementation → miroir frontmatter implementation (RM2563). Esquisse technique de la phase d'étude — le COMMENT, là où la description porte le quoi. Rédigée AVANT le passage en etude_chiffrage_a_valider."}
   33: {name: "Critères d'acceptation", format: text, type: issue,          used_by: "REDMINE_CF_ACCEPTANCE_ID (.env) ; pm-task-acceptance → miroir frontmatter acceptance (RM2882). Les critères SORTENT de la description parce qu'ils en ont un autre rythme : le CDC change quand la demande change, les critères quand on apprend en faisant. Lecture à double source (pm_acceptance) : champ non vide ⇒ il fait foi, sinon la section de la description."}
+  36: {name: "Questions à trancher", format: text, type: issue,            used_by: "REDMINE_CF_QUESTIONS_ID (.env) ; pm-task-questions → VUE des questions (Q) du .think.md, régénérée à chaque question posée/tranchée ou décision qui en cite une (pm-task-think). La source reste le think : jamais rapatrié, une coche manuelle est signalée, pas prise pour une réponse. Sort les questions de la description (RM3116 → RM3226), comme le CF 33 pour les critères."}
 
 # ── CF27 « AI Test par agent » — faut-il une passe agent-testeur indépendante ──
 # Mapping frontmatter `requires_agent_test` → value id d'énumération Redmine.
@@ -106,6 +107,8 @@ statuses:
   a_etudier_chiffrer:       8    # "A étudier / Qualifier"
   etude_chiffrage_en_cours: 14   # "Etude/CDC en cours"
   etude_chiffrage_a_valider: 21  # "Etude/CDC à valider"  (étude/CDC finie → validation par le demandeur)
+  etude_chiffrage_a_corriger: 24 # RM3228 : "Etude/CDC à corriger" — le demandeur RENVOIE l'étude à reprendre
+                                 # (pendant d'a_corriger côté étude) ; réattribuée à l'auteur de l'étude.
   a_faire:                  12   # "A Faire"
   en_cours:                 2    # "En cours"
   a_tester_dev:             19   # "A tester/vérifier dev"        (test par testeur ≠ dev)

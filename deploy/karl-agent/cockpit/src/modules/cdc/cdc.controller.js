@@ -88,9 +88,19 @@ export function mountCdc(el, ctx = {}) {
     try { await svc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée, registres régénérés"); await renderChapters(); }
     catch (e) { notify("suppression impossible : " + e.message, true); }
   }
+  // RM3227 : trancher une QUESTION (valide / invalide) propose un commentaire facultatif — sa réponse,
+  // consignée en décision « Qnnn : … » par le serveur. Annuler n'écrit rien (et remet le sélecteur).
   async function onThinkState(n) {
     const state = n.value; if (!state) return;
-    try { await svc.thinkEdit({ rm: n.dataset.rm, id: n.dataset.id, action: "state", state }); notify(n.dataset.id + " → " + state); await renderChapters(); }
+    let comment = "";
+    if (/(^|-)Q\d/.test(n.dataset.id || "") && (state === "valide" || state === "invalide")) {
+      const saisie = window.prompt(n.dataset.id + " → " + state + "\nRéponse / commentaire (facultatif) :", "");
+      if (saisie === null) { n.value = ""; return; }
+      comment = saisie.trim();
+    }
+    const body = { rm: n.dataset.rm, id: n.dataset.id, action: "state", state };
+    if (comment) body.comment = comment;
+    try { await svc.thinkEdit(body); notify(n.dataset.id + " → " + state + (comment ? " · réponse consignée" : "")); await renderChapters(); }
     catch (e) { notify("changement d'état impossible : " + e.message, true); }
   }
   async function onFeatureState(n) {

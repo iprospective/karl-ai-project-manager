@@ -1,6 +1,6 @@
 ---
 name: mmi-pm-task-status-update
-description: Change le statut d'une tâche : sync Redmine (PUT + note auto) + sync MD (frontmatter `status`, append `status_history`, refresh `updated`) + append log. Statuts NORMS : nouveau, a_etudier_chiffrer, etude_chiffrage_en_cours, etude_chiffrage_a_valider, a_faire, en_cours, a_tester_dev, a_tester_demandeur, a_mep, en_mep, en_pause, a_corriger, ferme. Réattribution auto au demandeur sur etude_chiffrage_a_valider et a_tester_demandeur. Usage : "/mmi-pm-task-status-update 1669 en_cours" ou langage naturel "passe RM1669 en cours", "soumets l'étude de RM1234 à validation", "ferme RM1234 résolu".
+description: Change le statut d'une tâche : sync Redmine (PUT + note auto) + sync MD (frontmatter `status`, append `status_history`, refresh `updated`) + append log. Statuts NORMS : nouveau, a_etudier_chiffrer, etude_chiffrage_en_cours, etude_chiffrage_a_valider, etude_chiffrage_a_corriger, a_faire, en_cours, a_tester_dev, a_tester_demandeur, a_mep, en_mep, en_pause, a_corriger, ferme. Réattribution auto au demandeur sur etude_chiffrage_a_valider et a_tester_demandeur, à l'auteur de l'étude sur etude_chiffrage_a_corriger. Usage : "/mmi-pm-task-status-update 1669 en_cours" ou langage naturel "passe RM1669 en cours", "soumets l'étude de RM1234 à validation", "ferme RM1234 résolu".
 allowed-tools: Bash, Read, AskUserQuestion
 ---
 
@@ -33,6 +33,9 @@ scripts/pm-task-status-update.py <RM-id> <new-status> [--close-reason X] [--note
 
 # Fin de la phase d'étude : soumettre le CDC/chiffrage au demandeur (auto-réassigne à l'author)
 ./pm-task-status-update.py 1669 etude_chiffrage_a_valider --note "CDC + chiffrage finis, à valider"
+
+# Le demandeur renvoie l'étude (note obligatoire) : le ticket revient à l'auteur de l'étude (RM3228)
+./pm-task-status-update.py 1669 etude_chiffrage_a_corriger --note "Chiffrer aussi l'option B"
 
 # Passer a_tester_demandeur (auto-réassigne au demandeur côté Redmine)
 ./pm-task-status-update.py 1669 a_tester_demandeur --note "Livré en commit abcd"

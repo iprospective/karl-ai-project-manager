@@ -37,21 +37,26 @@ KIND_FLAGS = (("note", "note"), ("question", "question"), ("decide", "decision")
 
 
 def _resync_questions(rm_id, sheet, kind=None):
-    """RM3116 : la section « Questions ouvertes » de la description suit le think, au fil de l'eau.
+    """Le CF 36 « Questions à trancher » suit le think au fil de l'eau (RM3116 → RM3226).
 
-    Poser une question ou la trancher change ce qu'un lecteur du ticket doit voir — attendre une
-    commande de plus, c'est accepter que la description mente entre-temps. Localement seulement :
-    pousser vers Redmine à chaque geste ferait un appel réseau par consignation, et le sync de la
-    description a son propre moment (livraison, `--check`)."""
+    Poser une question, la trancher, ou poser la décision qui y répond change ce qu'un lecteur du
+    ticket doit voir — attendre une commande de plus, c'est accepter que Redmine mente entre-temps.
+    RM3116 s'en tenait au MD local, par économie d'appels ; mais la vue EST désormais côté Redmine, et
+    l'appel n'a lieu que sur ces gestes-là (pas sur chaque note), un GET puis un PUT seulement si le
+    champ a changé. `PM_THINK_LOCAL=1` revient au local seul (hors ligne, rafales scriptées).
+    Muet, et jamais bloquant : une vue ne doit pas casser une consignation."""
     try:
+        import contextlib
         import importlib.util
+        import io
         spec = importlib.util.spec_from_file_location(
             "_qs", pathlib.Path(__file__).resolve().parent / "pm-task-questions.py")
         Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q)
         from pm_paths import PMConfig
-        Q.une(int(rm_id), PMConfig.load(), local=True)
-    except Exception:
-        pass                    # une section de description ne doit jamais casser une consignation
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            Q.une(int(rm_id), PMConfig.load(), local=bool(os.environ.get("PM_THINK_LOCAL")))
+    except (Exception, SystemExit):     # noqa: BLE001 — fetch_issue sort en sys.exit sur erreur réseau
+        pass                    # une vue des questions ne doit jamais casser une consignation
 
 
 def _log_path(sheet):
@@ -152,7 +157,8 @@ def main():
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
-        _resync_questions(a.rm_id, sheet)
+        if a.set[:1].upper() in ("Q", "D"):          # une question, ou une décision qui peut y répondre
+            _resync_questions(a.rm_id, sheet)
         pmout.op("think", extra=f"RM{a.rm_id} {a.set}"
                  + (f" → {pm_think.STATE_ICON[a.state]}" if a.state else "")
                  + (" amendée" if a.text is not None else ""))
@@ -189,8 +195,8 @@ def main():
                           when=a.when, sid=a.sid, bloque=a.bloque, urgence=a.urgence, domaine=a.domaine,
                           version=a.version, origine=a.origine, lot=a.lot, dest=a.dest)
     pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
-    if kind == "question":
-        _resync_questions(a.rm_id, sheet, kind)      # une question posée se voit tout de suite
+    if kind == "question" or (kind == "decision" and pm_think.cite_question(text)):
+        _resync_questions(a.rm_id, sheet, kind)      # une question posée, ou sa réponse, se voit tout de suite
     pmout.op("think", extra=f"RM{a.rm_id} +{rid} [{kind}] {text[:80]}")
     if not a.no_commit:
         pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} +{rid}")

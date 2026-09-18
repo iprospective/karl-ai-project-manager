@@ -37,6 +37,10 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(/aucune transition/.test(menu({ status: "ferme", transitions: [] })) && /aucune transition/.test(menu(null)));
   const viewSrc = require("fs").readFileSync(path.join(DIR, "src/modules/review/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/modules/review/review.controller.js"), "utf8");
   for (const s of CFG.statuses) assert(!viewSrc.includes('"' + s + '"'), "aucun statut en dur dans la vue ni le contrôleur : " + s);
+  // RM3238 : MEP prod verrouillée par des questions non tranchées, questions nommées dans l'infobulle
+  const gq = menu({ status: "a_mep", redmine_checked: true, transitions: [{ status: "en_mep", condition: "déployé", redmine_ok: true, blocked_by_questions: ["Q001", "Q003"] }, { status: "en_pause", condition: "blocage", redmine_ok: true, blocked_by_questions: [] }] });
+  assert(/data-st="en_mep"[^>]*disabled/.test(gq) && /Q001, Q003/.test(gq) && /non tranchée/.test(gq), "une MEP bloquée par des questions est verrouillée et dit lesquelles");
+  assert(!/disabled/.test(/data-st="en_pause"[^>]*>/.exec(gq)[0]), "une transition sans question en cause reste ouverte");
   console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus, mode dégradé, zéro règle recopiée");
   // — RM2726 / RM2873 / RM2833 : consignes —
   assert.strictEqual(P.taskPromptText("traiter", "2726", "iprospective", "pm-ai-agents"), "traite la tâche RM2726 du client iprospective projet pm-ai-agents");

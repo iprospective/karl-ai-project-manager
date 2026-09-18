@@ -110,7 +110,11 @@ export class StatusMenuViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); }
   get status() { return String(this.e.status || "?"); }
   get degraded() { return this.e.redmine_checked === false; }
-  items() { return (this.e.transitions || []).map(t => ({ status: String(t.status), refused: t.redmine_ok === false, reason: !!t.needs_close_reason, note: !!t.needs_note,
-    tip: String(t.condition || "") + (t.redmine_ok === false ? " — Redmine refusera cette transition pour ce compte" : "") })); }
+  /** RM3238 : une MEP prod bloquée par des questions non tranchées se montre verrouillée, questions à
+   *  l'appui — le refus du script ne doit pas être la première nouvelle. Le contournement reste en CLI. */
+  items() { return (this.e.transitions || []).map(t => { const qs = t.blocked_by_questions || [];
+    return { status: String(t.status), refused: t.redmine_ok === false || qs.length > 0, reason: !!t.needs_close_reason, note: !!t.needs_note,
+      tip: String(t.condition || "") + (t.redmine_ok === false ? " — Redmine refusera cette transition pour ce compte" : "")
+        + (qs.length ? " — bloqué : question(s) non tranchée(s) " + qs.join(", ") + " (à trancher dans 🧠 Réflexion)" : "") }; }); }
 }
 bindEntity("review", ReviewViewModel);   // RM3002

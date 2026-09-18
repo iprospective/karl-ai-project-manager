@@ -71,6 +71,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [a_tester_preprod]   ──► [en_mep]      (RM2920 : instruction « mets en prod » → MEP dans la foulée)
 [a_tester_preprod]   ──► [a_mep_prod]  (RM2926 : « préprod ok » → file de MEP PROD, sans déployer encore)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
+[etude_chiffrage_a_valider] ── étude renvoyée ──► [etude_chiffrage_a_corriger] ── reprise ──► [etude_chiffrage_en_cours]
+                                                  (RM3228 : note obligatoire ; → auteur de l'étude)
 ```
 
 > **⚙ Sémantique du tronçon aval (RM2893, livrée).** Il a été
@@ -157,6 +159,12 @@ définitive sur l'instance). Plus aucun script ne le consulte.
 - Passage en `etude_chiffrage_a_valider` → ré-attribuer au **demandeur** (author) :
   l'étude / CDC / chiffrage sont finis et soumis à sa validation. **Même résolveur
   que `a_tester_demandeur`** (author ≠ karl → author ; author == karl → Manager IA).
+  Appliqué automatiquement par `pm-task-status-update.py`.
+- Passage en `etude_chiffrage_a_corriger` (RM3228, Redmine **24** « Etude/CDC à corriger ») →
+  ré-attribuer à l'**auteur de l'étude** : l'assigné juste avant la dernière soumission en
+  `etude_chiffrage_a_valider`, lu dans les journaux Redmine. C'est le pendant d'`a_corriger`
+  côté étude : le demandeur **renvoie** l'étude, avec une **note obligatoire** (ce qui est à
+  reprendre). Auteur introuvable ⇒ attribution conservée et signalée, jamais devinée.
   Appliqué automatiquement par `pm-task-status-update.py`.
 - Passage en `a_tester_dev` → ré-attribuer à un **testeur ≠ le dev** (agent ou
   humain), pour un test indépendant en env `test`. Manuel via `--assign-to <id>`

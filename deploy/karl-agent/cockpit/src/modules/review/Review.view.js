@@ -31,7 +31,7 @@ export function ThinkPane(th) {
   if (!th) return "";
   const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${e.closed
     ? html`<span style="opacity:.6;text-decoration:line-through">${e.text}</span>` : e.text}${e.open
-    ? html` <span class="thk-acts"><button class="mini" title="Trancher : validé" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="valide">✅</button><button class="mini" title="Écarter : invalidé (le motif reste au carnet)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="invalide">❌</button></span>` : ""}</div>`;
+    ? html` <span class="thk-acts"><button class="mini" title="Trancher : validé (réponse facultative pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="valide">✅</button><button class="mini" title="Écarter : invalidé (le motif reste au carnet ; motif facultatif pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="invalide">❌</button></span>` : ""}</div>`;
   const bloc = (titre, rows, rub) => (rows.length
     ? html`<div class="ms"><h4>${titre} (${String(rows.length)})</h4>${rows.map(e => ligne(e, rub))}</div>` : "");
   const c = th.counts || {};

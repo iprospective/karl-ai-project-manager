@@ -60,3 +60,24 @@ assert.ok(/"think": _ticket_think\(tf\)/.test(srv), "le serveur sert la réflexi
 assert.ok(/def _ticket_think/.test(srv) && /limite: int = 40/.test(srv), "lecture bornée : une fiche s'ouvre souvent");
 
 console.log("✓ réflexion sur la fiche d'un ticket (RM3089) : compteurs, rubriques, gestes sur l'ouvert, route unique");
+
+// ── RM3227 : le commentaire joint à la réponse d'une question ──────────────
+import { CdcService } from "./src/modules/cdc/cdc.service.js";
+{
+  const sent = [];
+  const svc = new CdcService({ repo: { thinkEdit: async (b) => { sent.push(b); return { ok: true }; } } });
+  await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", comment: "copie dédiée" });
+  await svc.thinkEdit({ rm: "44", id: "Q003", action: "state", state: "valide", comment: "" });
+  assert.deepStrictEqual(sent[0], { rm: "44", id: "Q002", action: "state", state: "valide", comment: "copie dédiée" },
+    "le service transmet le commentaire à la route");
+  assert.ok(!("comment" in sent[1]), "sans commentaire, la requête est celle d'avant (pas de champ vide)");
+}
+assert.ok(/if \(\/\^Q\/\.test\(id\)\)/.test(ctl), "la fiche ne demande une réponse que pour une QUESTION");
+assert.ok(/if \(saisie === null\) return;/.test(ctl), "Annuler la saisie n'écrit rien");
+assert.ok(/comment \? \{ rm, id, action: "state", state: etat, comment \}/.test(ctl), "le commentaire part avec le geste, par la même route");
+assert.ok(/else if \(!ask\(/.test(ctl), "une note garde sa simple confirmation");
+const cdcCtl = fs.readFileSync(new URL("./src/modules/cdc/cdc.controller.js", import.meta.url), "utf8");
+assert.ok(/RM3227/.test(cdcCtl) && /body\.comment = comment/.test(cdcCtl) && /n\.value = ""; return;/.test(cdcCtl),
+  "le panneau CDC propose la même réponse, et Annuler remet le sélecteur");
+assert.ok(/def _cdc_think_answer_args/.test(srv) && /--decide/.test(srv), "le serveur consigne la réponse en décision liée");
+console.log("✓ RM3227 : réponse commentée d'une question — saisie facultative, même route, décision liée côté serveur");

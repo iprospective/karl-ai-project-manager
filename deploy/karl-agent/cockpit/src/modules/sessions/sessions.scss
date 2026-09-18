@@ -124,3 +124,19 @@
 /* RM3131 — le compteur de tickets d'une session, discret : il informe au passage,
    il ne dispute pas la place au titre ni à la jauge de contexte. */
 .runitem .tcount { margin-left: 4px; font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+
+// RM3236 — une session « à voir » : elle a fini son tour pendant qu'on regardait ailleurs. Toute la tuile respire
+// doucement (fond + bordure), sans jamais toucher à la lisibilité du texte : attirer l'œil, pas le fatiguer.
+@keyframes unseenpulse {
+  0%, 100% { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 0 transparent; }
+  50%      { background: transparent;        border-color: var(--line);   box-shadow: 0 0 0 2px var(--accent-soft); }
+}
+.runitem.unseen { animation: unseenpulse 2.4s ease-in-out infinite; }
+.runitem.unseen:hover { animation-play-state: paused; }
+.gunseen { color: var(--accent); font-weight: 600; }
+.pill.unseen { color: var(--accent); border-color: var(--accent); }
+.nbadge.unseen { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+// Mouvement réduit demandé : une surbrillance FIXE porte la même information, sans rien qui bouge.
+@media (prefers-reduced-motion: reduce) {
+  .runitem.unseen { animation: none; background: var(--accent-soft); border-color: var(--accent); }
+}

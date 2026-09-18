@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 1c36905efc987107 (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 27c8512b630fa2b7 (38 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1520,6 +1520,49 @@ html[data-layout=mobile] .foot {
   white-space: nowrap;
 }
 
+@keyframes unseenpulse {
+  0%, 100% {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    background: transparent;
+    border-color: var(--line);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+}
+.runitem.unseen {
+  animation: unseenpulse 2.4s ease-in-out infinite;
+}
+
+.runitem.unseen:hover {
+  animation-play-state: paused;
+}
+
+.gunseen {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pill.unseen {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.nbadge.unseen {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runitem.unseen {
+    animation: none;
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+}
 /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
 #authgate {
   position: fixed;

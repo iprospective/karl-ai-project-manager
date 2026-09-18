@@ -557,7 +557,7 @@ const testqueue = testqueueRef = mountTestQueue({ card: byId("tqcard"), badge: b
 // la liste « en cours » (RM2283/2346/2427/2445/2448/2515/2598/2639/2787/2793/2210) et les raccourcis Oui / auto-oui (RM2302/2327/2332),
 // le titre de la session attachée et l'en-tête droit (RM2894) : le registre live est PARTAGÉ par référence (sessCache) ; le monolithe prête
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
-sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
+sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), navSeen: byId("ln-seen"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
   cfg: () => CFG,                                                                          // RM3082 : paliers de la jauge de contexte (context_thresholds)
   sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),

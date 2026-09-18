@@ -34,6 +34,8 @@ export class SessionTileViewModel extends EntityViewModel {
   get key() { return "s:" + this.s.rm_id; }
   get idLabel() { return displayId(this.s); }
   get active() { return this.ctx.attached === this.s.rm_id; }
+  /** RM3236 : a fini son tour pendant qu'on regardait ailleurs — la tuile clignote jusqu'à ce qu'on y aille. */
+  get unseen() { return !!(this.ctx.unseen && this.ctx.unseen.has(String(this.s.rm_id))); }
   get tip() { return tabTip(this.s, this.r); }
   /** RM2515 : la disposition raffine `idle` (et CÈDE au live : nulle hors idle). */
   get disp() { return effDisposition(this.s.state, this.s.disposition); }
@@ -105,7 +107,7 @@ export class GhostTileViewModel extends EntityViewModel {
 
 /** En-tête d'un groupe client/projet (RM2353 clic = fiche projet, RM2448 chevron = pli). */
 export class GroupViewModel {
-  constructor({ key, sessions, folded }) { this.key = key; this.sessions = sessions; this.folded = !!folded; }
+  constructor({ key, sessions, folded, unseen = 0 }) { this.key = key; this.sessions = sessions; this.folded = !!folded; this.unseen = unseen; }
   get att() { return this.sessions.filter(s => s.state === "attention").length; }
   get cho() { return this.sessions.filter(s => s.state === "choice").length; }
   get count() { return this.sessions.length; }
@@ -127,10 +129,11 @@ export class AttnChipViewModel {
 
 /** RM2283 : compteurs globaux — panneau, badges de l'onglet « en cours », « ✔ tout », titre du navigateur. */
 export class CountersViewModel {
-  constructor(counts) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; }
+  constructor(counts, unseen = 0) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; this.unseen = unseen; }
   get waiting() { return this.c.attention + this.c.choice; }   // RM2327 : ❓ compte aussi
   get showYesAll() { return this.c.attention > 1; }           // RM2327 : dès 2 sessions en attention
-  get docTitle() { return (this.waiting ? "⚠" + this.waiting + " " : "") + "Cockpit karl-agent"; }
+  /** RM3236 : le compteur « à voir » passe dans le titre — c'est lui qu'on aperçoit depuis un autre onglet. */
+  get docTitle() { return (this.unseen ? "👁" + this.unseen + " " : "") + (this.waiting ? "⚠" + this.waiting + " " : "") + "Cockpit karl-agent"; }
 }
 
 /** RM2210 : tuile d'une revue ouverte (pas une session tmux). */

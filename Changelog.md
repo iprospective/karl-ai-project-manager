@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Cockpit : trancher une question avec sa réponse (RM3227).** Les boutons ✅ / ❌ de la fiche (et le sélecteur
+  d'état du panneau CDC) ne faisaient que changer l'état : la réponse n'était écrite nulle part, et la vue des
+  questions affichait « *tranchée ; la décision n'est pas reliée* ». Trancher une **question** demande désormais un
+  commentaire facultatif, consigné par le serveur en **décision validée « Qnnn : … »** (« Qnnn écartée : … » pour ❌),
+  signée de l'utilisateur du cockpit — la convention déjà lue par la vue des questions et fusionnée dans
+  `cdc-decisions.md` : aucun format nouveau. Même route (`/cdc/think`, D022) ; la réponse est écrite avant le
+  changement d'état, et rejouer ne la double pas. Annuler la saisie n'écrit rien ; OK à vide tranche comme avant.
+
 - **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
   existait dans les faits (l'environnement client de RM2707) mais n'était écrite nulle part :
   chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.

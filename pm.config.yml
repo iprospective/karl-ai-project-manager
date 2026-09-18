@@ -232,6 +232,11 @@ context:
     # plafond garde ~20 % de marge — assez pour écrire une règle sans tout
     # rejouer, trop peu pour laisser la dérive s'installer sans qu'on la voie.
     default: 29000
+    # RM3238 — dette ASSUMÉE (arbitrage Mathieu, 2026-09-18) : « je préfère que les directives
+    # soient enregistrées correctement ». La règle « pas de MEP prod avec une question non
+    # tranchée » vit en entier dans git-mep (préchargé), pas en renvoi d'une ligne : worker-infra
+    # passe ~29,1k. Plafond relevé pour CE rôle seulement ; résorption par dégraissage : RM3035.
+    worker-infra: 30000
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
 # ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────

@@ -3,7 +3,8 @@
 ## [2.54.0] - 2026-09-18
 
 ### Ajouté
-- **Pas de mise en prod avec une question non tranchée** (RM3238, modules `git-mep` — renvoi d'une ligne, budget worker-infra — et `git-mep-pratique`).
+- **Pas de mise en prod avec une question non tranchée** (RM3238, modules `git-mep` et `session-tooling` ; plafond de contexte de worker-infra relevé à 30 000 —
+  dette assumée, résorption RM3035).
   Une question ouverte du `.think.md` refusait la clôture ; elle refuse aussi l'entrée en `a_mep_prod` /
   `en_mep` (`a_mep` avertit) et le merge vers `main` / `master` par `pm-mr` et `pm-promote`, jamais sur un
   dépôt `*-core`. Contournement explicite et tracé : `--ignore-think` / `--ignore-questions`. Runtime `git-mep` complété

@@ -511,11 +511,12 @@ def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=No
 
 
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
-                        notes=None, timeout=20, creds=None):
-    """PUT générique sur une issue : custom_fields + estimated_hours + note.
+                        notes=None, subject=None, timeout=20, creds=None):
+    """PUT générique sur une issue : custom_fields + estimated_hours + titre + note.
 
     `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
-    Redmine). `notes` : str optionnel (journalise le changement). N'envoie que les
+    Redmine). `notes` : str optionnel (journalise le changement). `subject` : le titre
+    du ticket (RM3242, `pm-task-rename`). N'envoie que les
     attributs fournis. Retourne (ok: bool, err: str).
 
     ⚠ Piège permissions (cf. knowledge/redmine/api.md) : sans « Edit issues »,
@@ -532,6 +533,8 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
         issue["estimated_hours"] = estimated_hours
     if notes:
         issue["notes"] = notes
+    if subject:
+        issue["subject"] = subject
     if not issue:
         return True, ""
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,

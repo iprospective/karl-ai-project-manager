@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un ticket se renomme enfin depuis le PM** (RM3242) : `pm-task-rename <id> --title "…" --note "motif"`
+  réécrit le titre du frontmatter ET de Redmine, sous verrou, puis **relit Redmine** (qui répond 204 même
+  quand il ignore le champ faute de droit). L'ancien titre reste dans le journal et dans la note Redmine :
+  c'est sous ce nom qu'on cherchera encore le ticket. Les fichiers ne sont pas renommés — le slug est
+  référencé ailleurs, et NORMS n'exige que le préfixe `RM<id>_`. Jusqu'ici, un ticket dont l'objet
+  avait changé gardait un titre qui mentait (RM3186 : « déplacer » les données sur un ticket qui décide
+  de ne rien déplacer), ou portait un bandeau d'avertissement en tête de description (RM2783).
 - **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
   --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
   description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local

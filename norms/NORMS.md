@@ -1,9 +1,9 @@
 ---
-schema_version: "2.52.0"
+schema_version: "2.54.0"
 updated: 2026-09-17
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.52.0
+# Normes de gestion des tâches — v2.54.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -3103,6 +3103,7 @@ tâche). Exemple : `1762-etransactions-historique`.
 Un ticket qui touche un env porte **sa** procédure de MEP dans `deploy_actions` : ce qui doit être
 fait au déploiement, dans l'ordre, avec la commande exacte. La rédiger fait partie de la **livraison**,
 pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Actions au déploiement.**
+Une question non tranchée bloque la MEP prod et le merge vers `main`/`master` (RM3238) : `git-mep-pratique` § Questions et MEP.
 
 #### Plusieurs tickets dans une session : bonne branche, bon worktree
 
@@ -3549,6 +3550,24 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   ticket ne se marchent pas dessus**. Le registre `var/sessions/` mémorise les
   branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
   courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
+
+## Questions et MEP — pas de prod avec une question non tranchée (RM3238)
+
+Une question ouverte dans le `.think.md` d'un ticket (rubrique Q) refusait déjà sa **clôture** ; elle
+refuse désormais aussi sa **mise en production** — c'est là que la réponse peut encore changer quelque
+chose. Gardes posées par l'outillage (`pm_questions_gate`) :
+
+- **statut** : entrer en `a_mep_prod` ou `en_mep` est refusé ; `a_mep` (préprod) **avertit** seulement ;
+  `--list-next` et le menu du cockpit montrent la transition verrouillée, questions nommées ;
+- **merge vers `main` / `master`** par `pm-mr merge` (ou `create --merge`) et `pm-promote` : refusé si un
+  ticket de la MR — préfixe `<id>-` de la branche, ou tickets du lot (commits) pour une promotion
+  `dev→main` — a une question ouverte. `pm-promote --dry-run` l'annonce sans échouer ;
+- **jamais** sur un dépôt de données PM (`*-core`) : ses commits citent des tickets sans rien mettre en prod.
+
+Trancher = poser la réponse (`--decide "Qnnn : …"`) et fermer la question (`--set Qnnn --state
+valide|invalide`), ou ✅/❌ sur la fiche du cockpit. Passer outre reste possible en connaissance de cause
+— `--ignore-think` (statut) / `--ignore-questions` (merge) — et **se trace** (note Redmine, journal).
+Un merge fait à la main dans l'UI GitLab échappe à ces gardes : ne pas s'en servir pour les contourner.
 > 📂 **Module `testing` — quand lire ceci :** je code ou modifie de la logique (fonction, règle, calcul, parsing, transition d'état, flux) · je livre un ticket · je rédige un protocole de test.
 > **Outils :** `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` · **Préchargé par :** *(personne — ouvert à la demande via le déclencheur KERNEL, tripwire #17)*.
 

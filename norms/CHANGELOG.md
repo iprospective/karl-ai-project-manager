@@ -1,5 +1,14 @@
 # Changelog des normes
 
+## [2.54.0] - 2026-09-18
+
+### Ajouté
+- **Pas de mise en prod avec une question non tranchée** (RM3238, modules `git-mep` — renvoi d'une ligne, budget worker-infra — et `git-mep-pratique`).
+  Une question ouverte du `.think.md` refusait la clôture ; elle refuse aussi l'entrée en `a_mep_prod` /
+  `en_mep` (`a_mep` avertit) et le merge vers `main` / `master` par `pm-mr` et `pm-promote`, jamais sur un
+  dépôt `*-core`. Contournement explicite et tracé : `--ignore-think` / `--ignore-questions`. Runtime `git-mep` complété
+  À LA MAIN (même exception que RM3221).
+
 ## [2.52.0] - 2026-09-18
 
 ### Ajouté

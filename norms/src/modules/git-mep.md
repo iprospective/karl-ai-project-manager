@@ -232,6 +232,7 @@ tâche). Exemple : `1762-etransactions-historique`.
 Un ticket qui touche un env porte **sa** procédure de MEP dans `deploy_actions` : ce qui doit être
 fait au déploiement, dans l'ordre, avec la commande exacte. La rédiger fait partie de la **livraison**,
 pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Actions au déploiement.**
+Une question non tranchée bloque la MEP prod et le merge vers `main`/`master` (RM3238) : `git-mep-pratique` § Questions et MEP.
 
 #### Plusieurs tickets dans une session : bonne branche, bon worktree
 

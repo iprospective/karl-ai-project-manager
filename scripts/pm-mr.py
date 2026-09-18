@@ -226,11 +226,50 @@ def _hook_mr(iid, **kw):
         pass
 
 
-def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None):
+def _guard_questions(forge, project, pr, token, ids=None, local_repo=None, ignore=False):
+    """RM3238 — pas de merge vers la prod (`main`/`master`) tant qu'un ticket de la MR a une
+    question ouverte. Tickets : `ids` fourni (pm-promote, qui connaît son lot), sinon le préfixe
+    de la branche source puis les commits de la MR (une promotion `dev→main` ne porte pas de
+    préfixe). Dépôts de données PM exclus. Forge incapable de lister les commits ⇒ on le dit,
+    on ne bloque pas sur de l'inconnu."""
+    import pm_questions_gate as qg
+    if not qg.is_prod_branch(pr.target) or qg.is_data_repo(project.path, local_repo):
+        return
+    if ids is None:
+        ids = []
+        bid = qg.id_from_branch(pr.source)
+        if bid:
+            ids.append(bid)
+        msgs = forge.pr_commit_messages(project, pr.iid, token)
+        if msgs is None and not bid:
+            out.warn(f"MR !{pr.iid} → {pr.target} : tickets du lot inconnus (la forge ne liste pas "
+                     f"les commits) — garde des questions non appliquée (RM3238)")
+        for i in qg.ids_in_text("\n".join(msgs or [])):
+            if i not in ids:
+                ids.append(i)
+    bm = qg.blocked(ids)
+    if not bm:
+        return
+    if not ignore:
+        sys.exit(qg.refusal(bm, f"merge de !{pr.iid} ({pr.source} → {pr.target})",
+                            "--ignore-questions"))
+    out.warn(f"merge de !{pr.iid} → {pr.target} malgré des questions ouvertes (--ignore-questions) :\n"
+             + qg.describe(bm))
+    if journal:
+        journal.warn("merge prod malgré questions ouvertes", iid=pr.iid, target=pr.target,
+                     tickets=",".join(f"RM{i}" for i in bm))
+
+
+def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None,
+                       ignore_questions=False, ticket_ids=None, local_repo=None):
     """Merge le cœur d'une PR avec les gardes PM. `expect_rm` (RM2232, tripwire #13
-    étendu) : refuse si la branche source n'est pas préfixée `<expect_rm>-`."""
+    étendu) : refuse si la branche source n'est pas préfixée `<expect_rm>-`.
+    RM3238 : vers la prod, refuse tant qu'un ticket de la MR a une question ouverte."""
     pr = forge.get_pr(project, iid, token)
     _guard_expect_rm(pr, iid, expect_rm)
+    if pr.state == "opened":
+        _guard_questions(forge, project, pr, token, ids=ticket_ids, local_repo=local_repo,
+                         ignore=ignore_questions)
     if pr.state == "merged":
         # déjà mergée : le worklog peut l'ignorer encore, on le remet d'aplomb
         _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
@@ -266,7 +305,8 @@ def _resolved_project(forge, token, args):
 def cmd_merge(args, forge, token):
     project = _resolved_project(forge, token, args)
     _merge_with_policy(forge, project, args.iid, token,
-                       squash=args.squash, expect_rm=args.expect_rm)
+                       squash=args.squash, expect_rm=args.expect_rm,
+                       ignore_questions=args.ignore_questions, local_repo=args.repo)
 
 
 def cmd_close(args, forge, token):
@@ -504,7 +544,8 @@ def cmd_create(args, forge, token):
         # Sans ticket, la garde `expect_rm` n'a rien à vérifier (aucun id attendu).
         _merge_with_policy(forge, project, pr.iid, forge.token("manager"),
                            expect_rm=None if args.no_ticket else
-                           (args.rm_id if src.startswith(f"{args.rm_id}-") else None))
+                           (args.rm_id if src.startswith(f"{args.rm_id}-") else None),
+                           ignore_questions=args.ignore_questions, local_repo=args.repo)
 
 
 def main():
@@ -536,6 +577,9 @@ def main():
                          "capture fiable, JAMAIS de prédiction d'iid (tripwire #13/RM2232)")
     pc.add_argument("--merge", action="store_true",
                     help="merge la PR créée dans la foulée (atomique ; forge avec API PR)")
+    pc.add_argument("--ignore-questions", action="store_true",
+                    help="RM3238 : avec --merge vers main/master, passer outre les questions "
+                         "non tranchées des tickets (tracé)")
 
     pm = sub.add_parser("merge", help="merge une PR (conserve la branche)")
     pm.add_argument("target_pr", nargs="?", metavar="URL|iid",
@@ -548,6 +592,9 @@ def main():
     pm.add_argument("--expect-rm", type=int, default=None,
                     help="refuse si la branche source de la PR n'est pas préfixée <id>- "
                          "(protège d'un iid prédit/erroné — RM2232)")
+    pm.add_argument("--ignore-questions", action="store_true",
+                    help="RM3238 : merger vers main/master malgré des questions non tranchées "
+                         "sur les tickets de la MR (tracé)")
 
     pcl = sub.add_parser("close", help="ferme une PR sans merger (conserve la branche)")
     pcl.add_argument("target_pr", nargs="?", metavar="URL|iid",

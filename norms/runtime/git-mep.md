@@ -42,3 +42,5 @@ Réglages d'INSTANCE, admin seul (`pm.config.local.yml`, jamais l'environnement)
 
 ## Plusieurs tickets dans une session
 Risque vécu : commit d'un ticket sur la branche d'un autre. Avant chaque commit : `git branch --show-current` = ticket commité. Un worktree par ticket plutôt que des checkout successifs : `pm-branch-start <RMid> --worktree` crée `<repo>-<RMid>-s<seq>` et une branche discriminée par session `<RMid>-<slug>-m<PMid>-s<seq>` (`m<PMid>` = `PM_MACHINE_ID` du `.env`, `s<seq>` alloué une fois sous flock), enregistrés dans le registre de session `var/sessions/` (`pm-session-status show` les liste) ; deux sessions sur le même ticket ne se marchent pas dessus. Ménage : `pm-worktree remove <path>`. Forme courte `<RMid>-<slug>` = norme hors concurrence.
+
+**Questions et MEP (RM3238)** : une question non tranchée du `.think.md` bloque `a_mep_prod` / `en_mep` et le merge vers `main`/`master` (`pm-mr`, `pm-promote`), jamais sur un `*-core` ; `a_mep` avertit. Contournement tracé : `--ignore-think` / `--ignore-questions`.

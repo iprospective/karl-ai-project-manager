@@ -422,6 +422,11 @@ class Forge:
     def compare_url(self, source, target):
         raise NotImplementedError
 
+    def pr_commit_messages(self, project, iid, token):
+        """Messages des commits d'une PR (titre + corps), ou None si la forge ne sait pas les
+        lister — l'appelant doit alors distinguer « aucun » de « inconnu » (RM3238)."""
+        return None
+
 
 # ── GitLab (iso-comportement pm-mr / RM1871) ──────────────────────────────────
 class GitlabForge(Forge):
@@ -516,6 +521,19 @@ class GitlabForge(Forge):
         if st != 200 or not mr:
             raise ForgeError(f"MR !{iid} introuvable (HTTP {st}).")
         return self._pr_from(mr)
+
+    def pr_commit_messages(self, project, iid, token):
+        """RM3238 : les commits d'une MR, paginés — de quoi nommer les tickets d'une promotion."""
+        page, acc = 1, []
+        while True:
+            st, data, _ = self.api("GET", f"/projects/{project.id}/merge_requests/{iid}/commits"
+                                          f"?per_page=100&page={page}", token)
+            if st != 200 or not isinstance(data, list):
+                return None if page == 1 else acc
+            acc += [f"{c.get('title') or ''}\n{c.get('message') or ''}" for c in data]
+            if len(data) < 100:
+                return acc
+            page += 1
 
     def create_pr(self, project, source, target, title, description, token):
         st, mr, raw = self.api("POST", f"/projects/{project.id}/merge_requests", token, fields={

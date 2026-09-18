@@ -211,6 +211,7 @@
 - `pm_log` — journal structuré du système PM et de karl-agent
 - `pm_mail_routing` — de l'expéditeur d'un email au couple client/projet
 - `pm_markdown` — Utilitaires markdown partagés par l'outillage PM
+- `pm_mep_script` — le script de MEP d'un ticket
 - `pm_modules` — le registre des MODULES de PM
 - `pm_monitor` — les OBSERVATEURS du parc, en lecture
 - `pm_norms_anchors` — ce qui doit survivre à une réécriture dense des normes

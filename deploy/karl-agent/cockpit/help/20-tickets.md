@@ -181,3 +181,23 @@ tenter la fermeture vaut mieux que de découvrir le refus.
 Au survol d'une entrée **encore ouverte**, deux gestes : ✅ trancher, ❌ écarter.
 Une entrée déjà tranchée n'en propose aucun. L'écriture passe par le même chemin
 que le panneau CDC, et les registres du projet sont régénérés dans la foulée.
+
+## La mise en production du ticket
+
+Quand un ticket a une procédure de MEP, sa fiche porte un bloc **🚀 Mise en
+production** :
+
+- les **actions au déploiement**, dans l'ordre où elles s'exécutent (champ Redmine
+  « Actions au déploiement ») ;
+- le **script de MEP** conservé à côté de la fiche (`RM<id>_<slug>.script-mep.sh`),
+  avec ses deux commandes de lancement — **contrôle** (ne modifie rien) puis
+  **exécution** (`--apply`) — chacune copiable d'un clic (📋), et le texte du script.
+
+Le script est déplié d'office quand le ticket est **à mettre en prod** ou **en MEP** :
+c'est le moment où il sert. Si l'alias ssh de la cible n'est pas connu (champ
+`ssh_alias` de l'environnement prod du projet, ou en-tête du script), la fiche le
+signale : la commande n'est alors pas prête à coller. Un manque au contrat du script
+(pas de `--apply`, pas de rollback…) s'affiche en avertissement.
+
+Le script ne s'exécute jamais depuis le cockpit : la mise en prod reste un geste
+humain, sur feu vert.

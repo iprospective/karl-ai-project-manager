@@ -398,6 +398,53 @@ Redmine » veut dire « pas d'information », pas « efface ». Le vidage volont
 > défaut, ne remplace jamais du contenu par du vide, et **signale les désaccords au lieu
 > de trancher**.
 
+##### Script de MEP : la procédure s'automatise, et se conserve — v2.55.0 (RM3225)
+
+Dès que `deploy_actions` contient autre chose qu'un geste trivial (supprimer un dossier non
+suivi, recâbler un submodule, écrire une version en base, vérifier un rendu…), la procédure
+**s'automatise dans un script**, et ce script **se conserve** avec le ticket (décision de
+Mathieu du 2026-09-18, premier cas réel RM3219) :
+
+```
+tasks/RM<id>_<slug>.script-mep.sh        # frère de la fiche, comme .log.md / .think.md
+```
+
+Il est versionné avec les données du projet et **jamais supprimé**, même ticket fermé :
+c'est l'historique **exécutable** des MEP. `pm-task-move` l'emporte avec le ticket.
+
+**Contrat minimal** — ce qu'un relecteur doit pouvoir vérifier d'un coup d'œil :
+
+- `set -euo pipefail` ;
+- **mode CONTRÔLE par défaut** (lecture seule, hors `git fetch`) et **`--apply`** pour exécuter ;
+- **idempotent** : relancé après succès, il constate l'état et ne touche à rien ;
+- **gardes avant le point de non-retour** (le contenu à supprimer est-il celui qu'on croit ?
+  le lot est-il promu ?) — une garde qui échoue arrête tout, avec le motif ;
+- **vérification finale** de l'état obtenu ;
+- **rollback** en en-tête ; **aucun secret**.
+
+**Lancement** : le script s'exécute **sur la cible** et se lance depuis le poste de
+l'opérateur, par l'entrée standard — rien n'est copié sur le serveur :
+
+```bash
+ssh <alias> 'bash -s' < .mmi-pm/tasks/RM<id>_<slug>.script-mep.sh             # contrôle
+ssh <alias> 'bash -s -- --apply' < .mmi-pm/tasks/RM<id>_<slug>.script-mep.sh  # exécution
+```
+
+`deploy_actions` **référence** le script (ces deux commandes, puis le contrôle visuel) au
+lieu d'en recopier les étapes. **Le tester** avant la MEP : maquette locale pour les cas
+limites, puis **mode contrôle sur la vraie cible**.
+
+**Où il se voit** : sur la fiche du ticket au cockpit (bloc « 🚀 Mise en production » —
+actions au déploiement, commandes copiables, texte du script, déplié en `a_mep`/`en_mep`),
+au passage en `a_mep` (`pm-task-status-update` l'affiche avec ses commandes) et dans
+`pm-task-deploy <id>`. Une seule lecture : `scripts/pm_mep_script.py`, qui signale aussi
+(sans bloquer) ce qui manque au contrat. L'alias ssh vient du champ `ssh_alias` de l'env
+`prod` du projet, sinon de l'en-tête du script.
+
+**Sécurité prod** : le script ne lève **aucune** garde. Le consentement humain porte sur
+« lancer **ce** script en `--apply` » — une action précise et relue, plus simple à donner
+qu'une suite de commandes tapées à la main.
+
 #### Plusieurs tickets dans une session : bonne branche, bon worktree — v1.20.5
 
 Une session peut légitimement toucher **plusieurs tickets à la fois** (correctifs

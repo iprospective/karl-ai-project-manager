@@ -86,6 +86,9 @@ def main():
     make_project(root, "gamma", "shared", "gamma-shared")
     make_project(root, "delta", "shared", "delta-shared")
     make_task(src / "tasks", 9001)
+    # RM3225 : le script de MEP est un frère de la fiche — il suit le ticket
+    (src / "tasks" / "RM9001_tache-de-test.script-mep.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8")
 
     r = run(env, "9001", "--to", "shared", "--no-redmine")
     check("slug nu ambigu refusé (tripwire #14)",
@@ -106,7 +109,7 @@ def main():
     print("· déplacement nominal (sans git)")
     r = run(env, "9001", "--to", "beta/two", "--no-redmine", "--no-commit")
     check("sortie 0", r.returncode == 0, r.stderr[:300])
-    for suffix in (".md", ".log.md", ".reporting.yml"):
+    for suffix in (".md", ".log.md", ".reporting.yml", ".script-mep.sh"):
         name = f"RM9001_tache-de-test{suffix}"
         check(f"{suffix} déplacé",
               (dst / "tasks" / name).exists() and not (src / "tasks" / name).exists())

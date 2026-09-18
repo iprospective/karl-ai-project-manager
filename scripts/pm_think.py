@@ -86,7 +86,7 @@ def sheet_of(path) -> Path:
     """La fiche à partir de n'importe quel frère (`RM12_x.think.md` → `RM12_x.md`)."""
     p = Path(path)
     stem = p.name
-    for suf in (THINK_SUFFIX, LOG_SUFFIX, ".reporting.yml"):
+    for suf in (THINK_SUFFIX, LOG_SUFFIX, ".reporting.yml", ".script-mep.sh"):
         if stem.endswith(suf):
             return p.with_name(stem[: -len(suf)] + ".md")
     return p
@@ -103,10 +103,10 @@ def rm_id_of(path):
 
 
 def siblings(sheet) -> list:
-    """(fiche, log, think, reporting) — les frères d'une fiche, existants ou non."""
+    """(fiche, log, think, reporting, script de MEP) — les frères d'une fiche, existants ou non."""
     p = Path(sheet); stem = p.name[:-3]
     return [p, p.with_name(stem + LOG_SUFFIX), p.with_name(stem + THINK_SUFFIX),
-            p.with_name(stem + ".reporting.yml")]
+            p.with_name(stem + ".reporting.yml"), p.with_name(stem + ".script-mep.sh")]
 
 
 def iter_sheets(tasks_dir):

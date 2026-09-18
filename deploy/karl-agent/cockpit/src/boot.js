@@ -487,11 +487,14 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 });
 // le terminal de la session attachée (RM2522 client maison opt-in / iframe ttyd, RM2700 cookie de gate, RM2807 sonde) et le composer
 // (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
+// copie presse-papiers : repli textarea + execCommand quand navigator.clipboard manque (http, iframe) —
+// partagé par le terminal et la fiche ticket (RM3225 : copier les commandes de lancement du script de MEP)
+const copyFallback = (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; };
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => CFG, notify: notify.toast,
   attached: () => attachCtl.current(), sess: () => stores.sess, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
-  copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
+  copyFallback,
   capture: (t, txt) => doc.openPlain(t, txt), domCount: () => document.getElementsByTagName("*").length,
 });
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
@@ -500,6 +503,7 @@ review = mountReview(byId("reviewpane"), {
   // RM3089 : trancher une entrée de réflexion depuis la fiche passe par le service CDC (D022) —
   // une seule route d'écriture, une seule refusion du projet.
   cdc: { thinkEdit: (body) => cdc.thinkEdit(body) },
+  clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null, copyFallback,   // RM3225
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
   resolve: () => stores.resolve, cfg: () => CFG,

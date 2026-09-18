@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.55.0] - 2026-09-19
+
+### Ajouté
+- **Script de MEP par ticket, conservé et visible au cockpit** (RM3225, module `git-mep-pratique` §
+  Actions au déploiement). Une MEP qui demande plus que le workflow générique s'automatise dans
+  `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, versionné et jamais supprimé (`pm-task-move`
+  l'emporte). Contrat minimal : `set -euo pipefail`, contrôle par défaut, `--apply`, idempotent, gardes
+  avant le point de non-retour, vérification finale, rollback en en-tête. Lancement par
+  `ssh <alias> 'bash -s [-- --apply]' < script`. Affiché sur la fiche du cockpit (bloc « Mise en
+  production », avec les actions au déploiement, jusque-là absentes du cockpit), au passage en `a_mep`
+  et par `pm-task-deploy`. Lecture unique : `scripts/pm_mep_script.py`. Premier cas : RM3219.
+
 ## [2.54.0] - 2026-09-18
 
 ### Ajouté

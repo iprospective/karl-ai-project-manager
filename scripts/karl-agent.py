@@ -6908,7 +6908,10 @@ def _read_project_envs(project_dir: Path) -> list:
         if re.match(r"^environments:\s*$", line):
             in_block = True
             continue
-        if in_block and re.match(r"^\S", line):   # autre clé top-level → fin du bloc
+        # autre clé top-level → fin du bloc. RM3225 : un item de liste en colonne 0
+        # (`- name: prod`, YAML valide et forme de pisceen) n'est PAS une clé — le prendre
+        # pour la fin du bloc rendait la liste vide, et le cockpit sans aucun environnement.
+        if in_block and re.match(r"^\S", line) and not line.startswith("- "):
             break
         if not in_block:
             continue
@@ -6922,8 +6925,15 @@ def _read_project_envs(project_dir: Path) -> list:
         if cur is not None:
             mu = re.match(r"url:\s*(.+)", s)
             if mu:
-                u = mu.group(1).strip().strip("'\"")
+                u = mu.group(1).strip()
+                if not u.startswith(("'", '"')):          # RM3225 : commentaire YAML en fin de ligne
+                    u = re.sub(r"\s+#.*$", "", u)
+                u = u.strip("'\"")
                 cur["url"] = "" if u in _NULLISH else u
+            # RM3225 : l'alias ssh sert à composer la commande de lancement du script de MEP.
+            ma = re.match(r"ssh_alias:\s*(\S+)", s)
+            if ma and ma.group(1).strip("'\"") not in _NULLISH:
+                cur["ssh_alias"] = ma.group(1).strip("'\"")
     if cur:
         envs.append(cur)
     return envs
@@ -7209,6 +7219,18 @@ def _ticket_think(task_file, limite: int = 40) -> dict:
             "counts": pm_think.counters(parsed), "file": th.name}
 
 
+def _ticket_mep_script(task_file, envs=None):
+    """Le script de MEP du ticket (RM3225) : texte borné, commandes de lancement, manques
+    au contrat — ou None. L'alias ssh vient de l'environnement de prod du projet s'il le
+    déclare, sinon de l'en-tête du script. Illisible : None, la fiche s'ouvre quand même."""
+    try:
+        import pm_mep_script
+        prod = next((e for e in (envs or []) if e.get("name") == "prod"), {})
+        return pm_mep_script.describe(Path(task_file), alias=prod.get("ssh_alias"))
+    except Exception:      # noqa: BLE001
+        return None
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -7310,6 +7332,11 @@ def op_resolve(rm_id: str) -> dict:
         # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
         # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
         "think": _ticket_think(tf),
+        # RM3225 : la MISE EN PRODUCTION du ticket — ses actions au déploiement (CF 8, miroir
+        # frontmatter) et son script de MEP conservé à côté de la fiche. Ni l'un ni l'autre
+        # n'était visible au cockpit : la procédure ne se lisait que dans Redmine ou sur disque.
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()],
+        "mep_script": _ticket_mep_script(tf, envs),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.

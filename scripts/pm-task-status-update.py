@@ -1047,6 +1047,14 @@ def main():
                 # c'est toute sa raison d'être.
                 out.warn(f"RM{args.rm_id} — {len(_acts)} action(s) au déploiement :\n"
                          + "\n".join(f"    · {_a}" for _a in _acts))
+            # RM3225 : le script de MEP conservé à côté de la fiche — et ses commandes.
+            import pm_mep_script
+            _s = pm_mep_script.describe(md_path)
+            if _s:
+                out.warn(f"RM{args.rm_id} — script de MEP : {_s['file']}\n"
+                         f"    contrôle  : {_s['launch']['check']}\n"
+                         f"    exécution : {_s['launch']['apply']}"
+                         + (f"\n    ⚠ contrat : manque {', '.join(_s['lint'])}" if _s['lint'] else ""))
         except Exception:  # noqa: BLE001 — rappel informatif, jamais bloquant
             pass
 

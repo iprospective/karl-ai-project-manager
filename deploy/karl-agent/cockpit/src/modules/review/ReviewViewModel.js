@@ -51,6 +51,8 @@ export class ReviewViewModel extends EntityViewModel {
             // doit pas disparaître de la fiche.
             { id: "requester", title: "demandeur", summary: true, body: () => this.requester, empty: "inconnu" },
             { id: "environments", title: "environnements", body: () => { const e = this.environments; return e ? (e.test_url ? [["test", e.test_url]] : []).concat(e.list.map(x => [x.name || "env", x.url])) : null; }, empty: "aucun environnement" },
+            // RM3225 : la procédure de MEP — actions au déploiement + script conservé
+            { id: "mep", title: "mise en production", body: () => { const m = this.mep; return m ? m.actions.concat(m.script ? ["script : " + m.script.file] : []).join(" · ") : null; }, empty: "rien de particulier" },
             { id: "protocol", title: "protocole de test", body: () => (this.protocol ? html`<pre>${this.protocol.text}</pre>` : null), empty: "pas de protocole" },
             // RM3137 : la description est du MARKDOWN, et elle est repliée à la source vers 80 colonnes
             // (c'est la convention d'écriture des fiches). Rendue dans un <pre>, ces retours à la ligne
@@ -77,6 +79,21 @@ export class ReviewViewModel extends EntityViewModel {
     if (this.e.tqLoaded && this.found) return { kind: "left", status: this.r.status || "?" };
     if (this.e.tqSize) return { kind: "outside" };
     return { kind: "loading" };
+  }
+  /** RM3225 : la MISE EN PRODUCTION du ticket — ses actions au déploiement (CF 8) et son script
+   *  de MEP conservé à côté de la fiche (`RM<id>_<slug>.script-mep.sh`). `null` quand il n'y a ni
+   *  l'un ni l'autre : une fiche n'affiche pas une section vide. `focus` : le ticket est à mettre
+   *  en prod (ou en cours de MEP) — c'est là que la procédure doit sauter aux yeux. */
+  get mep() {
+    const r = this.r || {};
+    const actions = (r.deploy_actions || []).map(a => String(a)).filter(a => a.trim());
+    const s = r.mep_script && r.mep_script.file ? r.mep_script : null;
+    if (!actions.length && !s) return null;
+    const launch = (s && s.launch) || {};
+    return { actions, focus: r.status === "a_mep" || r.status === "en_mep",
+      script: s ? { file: String(s.file), text: String(s.text || ""), truncated: !!s.truncated,
+        lines: Number(s.lines) || 0, check: String(launch.check || ""), apply: String(launch.apply || ""),
+        aliasKnown: !!s.alias, lint: (s.lint || []).map(String) } : null };
   }
   /** RM3089 : la réflexion du ticket — les quatre rubriques, prêtes à rendre. `null` si le carnet
    *  n'existe pas encore : une fiche sans carnet n'affiche pas un bloc vide. */

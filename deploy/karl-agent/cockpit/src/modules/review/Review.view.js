@@ -39,12 +39,28 @@ export function ThinkPane(th) {
     ? html` — <b>la clôture est refusée tant qu'il en reste</b>` : ""}</div></div>${bloc("❓ questions", th.questions, "question")}${bloc("⚖ décisions et conseils", th.decisions, "decision")}${bloc("✳ fonctionnalités", th.features, "feature")}${bloc("📝 notes", th.notes, "note")}`;
 }
 
+/** RM3225 : la mise en production du ticket. Les actions au déploiement, puis le script de MEP
+ *  conservé à côté de la fiche : ses deux commandes de lancement (contrôle, puis --apply) et son
+ *  texte. Déplié d'office quand le ticket est à mettre en prod — c'est le moment où il sert. */
+export function MepPane(m) {
+  if (!m) return "";
+  // bloc de code aligné à gauche, coupé où il faut (un chemin de script est long) ; le clic
+  // sélectionne toute la commande, 📋 la copie
+  const cmd = (label, c) => (c ? html`<div style="margin:4px 0 6px"><div style="${muted};font-size:12px">${label} <button class="mini" title="Copier la commande" data-action="copy" data-text="${c}">📋</button></div><code style="display:block;text-align:left;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-all;user-select:all;background:rgba(127,127,127,.12);padding:4px 8px;border-radius:6px">${c}</code></div>` : "");
+  const s = m.script;
+  return html`<div class="ms"><h4>🚀 Mise en production</h4>${m.actions.length
+    ? html`<div style="${muted};font-size:12px;margin-bottom:4px">actions au déploiement, dans l'ordre :</div><ol style="margin:0 0 8px 18px;padding:0;font-size:13px;line-height:1.45">${m.actions.map(a => html`<li>${a}</li>`)}</ol>` : ""}${s
+    ? html`<details${m.focus ? " open" : ""}><summary style="cursor:pointer"><b>📜 Script de MEP</b> <span style="${muted};font-size:12px">(${s.file} · ${String(s.lines)} lignes)</span></summary><div style="margin-top:6px">${cmd("contrôle", s.check)}${cmd("exécution", s.apply)}${s.aliasKnown ? "" : html`<div style="${muted};font-size:11.5px">alias ssh inconnu : à remplacer dans la commande (champ <code>ssh_alias</code> de l'environnement prod).</div>`}${s.lint.length
+      ? html`<div style="color:var(--warn,#d29922);font-size:12px;margin:4px 0">⚠ contrat du script : manque ${s.lint.join(", ")}</div>` : ""}<pre style="font-size:12px;line-height:1.4;max-height:420px;overflow:auto;background:rgba(127,127,127,.08);padding:8px 10px;border-radius:8px">${s.text}</pre>${s.truncated
+      ? html`<div style="${muted};font-size:11.5px">texte tronqué — le fichier complet est à côté de la fiche.</div>` : ""}</div></details>` : ""}</div>`;
+}
+
 export function ReviewPane(vm, { md, titleLink, mcBanner }) {
   const r = vm.r, rm = vm.rm, env = vm.env, envs = vm.environments, v = vm.version;
   return html`<div style="max-width:720px"><h3 style="margin:0 0 4px">🧪 RM${rm}${vm.found ? html` — ${raw(titleLink(rm, r.title))}` : ""}</h3>${vm.found
     ? html`<div style="${muted};margin-bottom:6px">${r.client + "/" + r.project} · <span class="${pillClass(r.status)}">${r.status || "?"}</span>${r.priority ? html` · <span class="pill">${r.priority}</span>` : ""}${TagPills(vm.tags)}${vm.q && vm.q.branch ? html` · branche <span class="pill" title="${vm.q.branch}">${vm.q.branch}</span>` : ""}${v ? html` · <span title="dernière écriture du ticket : ${v.iso}">version ${v.label}</span>` : ""} <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque" data-action="reload">↻</span></div>${vm.links.length ? html`<div style="margin-bottom:12px">${vm.links.map((l, i) => html`${i ? " · " : ""}<a href="${l.href}" target="_blank">${l.label}</a>`)}</div>` : ""}<div class="ms"><h4>Sessions</h4>${TicketSessions(vm.sessions())}</div>${ThinkPane(vm.think)}${vm.protocol
       ? html`<div class="ms"><h4>📋 Protocole de test <span style="${muted};font-weight:normal;font-size:12px">(${vm.protocol.source})</span></h4><div style="font-size:13.5px;line-height:1.5;background:rgba(127,127,127,.08);padding:10px 12px;border-radius:8px;max-height:340px;overflow:auto">${raw(md(vm.protocol.text))}</div></div>`
-      : html`<div class="ms"><h4>📋 Protocole de test</h4><div style="${muted}">aucune section « À tester » dans la note de livraison ni la description — voir la description ci-dessous. (Norme RM2229 : toute livraison devrait en inclure une.)</div></div>`}${r.description
+      : html`<div class="ms"><h4>📋 Protocole de test</h4><div style="${muted}">aucune section « À tester » dans la note de livraison ni la description — voir la description ci-dessous. (Norme RM2229 : toute livraison devrait en inclure une.)</div></div>`}${MepPane(vm.mep)}${r.description
       ? html`<div class="ms"><details><summary style="cursor:pointer"><b>📝 Description du ticket</b></summary><div style="font-size:13px;line-height:1.45;margin-top:8px;max-height:380px;overflow:auto">${raw(md(r.description))}</div></details></div>` : ""}${r.log_tail
       ? html`<div class="ms"><details><summary style="cursor:pointer"><b>🕘 Dernière activité (log)</b></summary><div style="white-space:pre-wrap;font-size:12.5px;${muted};margin-top:8px;max-height:300px;overflow:auto">${r.log_tail}</div></details></div>` : ""}` : ""}<div class="ms"><h4>Env de test du ticket</h4>${env.kind === "live"
     ? html`<div style="margin:6px 0 10px;font-size:15px">🔗 <a href="http://${env.host}/" target="_blank"><b>${env.host}</b> ↗</a> <span style="color:var(--ok,#3fb950)">●</span></div><div class="rels"><button class="chip" data-action="env-teardown" data-rm="${rm}">🧹 démonter cet env</button></div>`

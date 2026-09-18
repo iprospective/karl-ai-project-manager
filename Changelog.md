@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Statut « Etude/CDC à corriger » (Redmine 24) → `etude_chiffrage_a_corriger` (RM3228, NORMS 2.53.0).**
+  Pendant d'`a_corriger` côté étude : depuis une étude à valider, le demandeur la **renvoie** avec une note
+  obligatoire, et le ticket revient à l'**auteur de l'étude** — l'assigné d'avant la dernière soumission, lu
+  dans les journaux Redmine (introuvable ⇒ attribution conservée et signalée). Sortie : reprise
+  (`→ etude_chiffrage_en_cours`) puis resoumission. Câblé dans la référence, `pm-task-status-update`,
+  `pm-task-sync`, `validate-task`, le cockpit (famille « à faire », lots analyser / à tester, worklog) et
+  `workflow.reference.yml` (arêtes observées dans Redmine). Au passage, la table de `pm-task-sync` dérive
+  désormais de `redmine.reference.yml` : recopiée à la main, elle mappait encore 20 sur `en_mep` (c'est
+  `a_tester_preprod` depuis RM2893) et ignorait 22 et 23 — un statut posé dans l'UI n'y était pas rapatrié.
+
 - **Environnements de recette : le domaine de test est un paramètre d'instance (RM3221).** La convention
   existait dans les faits (l'environnement client de RM2707) mais n'était écrite nulle part :
   chaque conf de `tools/synchro/` codait son domaine en dur, et le garde-fou ne faisait que deviner par motif.

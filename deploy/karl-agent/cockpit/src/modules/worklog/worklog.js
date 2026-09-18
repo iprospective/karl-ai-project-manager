@@ -142,7 +142,8 @@ export function batchButtons(items, mrRefs, cfg) {
 export function closeBatchPlan(items, cfg) {
   const closables = new Set((cfg || {}).closable_statuses || []);
   const raisons = { nouveau: "pas encore pris en charge : rien à fermer", a_etudier_chiffrer: "à étudier : rien n'a encore été livré", etude_chiffrage_en_cours: "étude en cours",
-    etude_chiffrage_a_valider: "étude rendue : elle se valide, elle ne se ferme pas ici", a_faire: "pas encore traité", en_cours: "en cours de réalisation : rien n'a été livré",
+    etude_chiffrage_a_valider: "étude rendue : elle se valide, elle ne se ferme pas ici",
+    etude_chiffrage_a_corriger: "étude renvoyée : elle se reprend, elle ne se ferme pas ici", a_faire: "pas encore traité", en_cours: "en cours de réalisation : rien n'a été livré",
     a_corriger: "renvoyé en correction", en_pause: "en pause", ferme: "déjà fermé", annule: "annulé" };
   const todo = [], skipped = [];
   for (const it of (items || [])) {

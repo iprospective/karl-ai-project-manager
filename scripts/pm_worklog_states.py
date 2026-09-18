@@ -26,6 +26,7 @@ MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 #: actifs : le flow NORMS moins ce qui précède, plus les variantes libres des chantiers hors ticket
 TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider",
+        "etude_chiffrage_a_corriger",
         "a_faire", "à_faire", "en_cours", "a_corriger", "todo", "à faire", "en cours"}
 
 #: RM2621/RM2635 — statuts qui sortent une demande du « à traiter » : elle a trouvé sa suite.

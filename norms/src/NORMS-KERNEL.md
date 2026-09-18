@@ -216,7 +216,7 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `etude_chiffrage_a_corriger` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
 
 Liste exhaustive et **source unique** : `redmine.reference.yml :: statuses`. Ne pas recopier
 les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en silence.

@@ -7,6 +7,7 @@ Usage :
     pm-task-status-update.py 1670 en_cours --no-assign        # désactive l'auto-assign
     pm-task-status-update.py 1670 en_cours --assign-to 5      # assigne à user 5 explicitement
     pm-task-status-update.py 1670 etude_chiffrage_a_valider   # étude/CDC finie → validation par le demandeur
+    pm-task-status-update.py 1670 etude_chiffrage_a_corriger  # le demandeur renvoie l'étude → son auteur la reprend
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
@@ -14,12 +15,15 @@ Usage :
     pm-task-status-update.py 1670 --list-next --json     # idem, sortie machine (cockpit, RM2888)
 
 Statuts NORMS valides (source : redmine.reference.yml) :
-    a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
+    a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider
+    etude_chiffrage_a_corriger | a_faire | en_cours
     a_tester_dev | a_tester_demandeur | a_mep | en_mep | en_pause | a_corriger | ferme
     (alias déprécié accepté : a_tester_verifier → a_tester_demandeur)
 
 Réattribution au demandeur (author ; author==karl → Manager IA) :
     etude_chiffrage_a_valider et a_tester_demandeur soumettent le ticket au demandeur.
+Réattribution à l'auteur de l'étude (RM3228) :
+    etude_chiffrage_a_corriger rend le ticket à qui l'avait avant sa dernière soumission.
 
 close_reason (si --status ferme) :
     resolu | abandonne | wont_fix | hors_perimetre | invalide | doublon
@@ -483,6 +487,35 @@ def resolve_assign_value(value, issue):
         return None
 
 
+def study_author_uid(rm_id, journals=None):
+    """RM3228 — l'auteur d'une étude : l'assigné AVANT sa dernière soumission à validation.
+
+    La soumission (→ etude_chiffrage_a_valider) réattribue au demandeur ; le journal Redmine de
+    ce changement porte l'ancien assigné (`assigned_to_id.old_value`). Si ce journal ne touche pas
+    l'assignation, on remonte aux journaux précédents jusqu'au dernier changement d'assigné.
+    `journals` injectable (tests)."""
+    sub_id = str((redmine_utils.status_ids() or {}).get("etude_chiffrage_a_valider", 21))
+    if journals is None:
+        try:
+            issue = redmine_utils.fetch_issue(rm_id, include="journals")
+        except (Exception, SystemExit):  # noqa: BLE001 — Redmine illisible : on ne devine pas
+            return None
+        journals = issue.get("journals") or []
+    for i in range(len(journals) - 1, -1, -1):
+        details = journals[i].get("details") or []
+        if not any(d.get("name") == "status_id" and str(d.get("new_value")) == sub_id for d in details):
+            continue
+        for j in range(i, -1, -1):                   # le journal de soumission, puis ceux d'avant
+            for d in journals[j].get("details") or []:
+                if d.get("name") == "assigned_to_id" and d.get("old_value"):
+                    try:
+                        return int(d["old_value"])
+                    except (TypeError, ValueError):
+                        return None
+        return None
+    return None
+
+
 # ── Transitions NORMS (source : module status-workflow, § « Transitions valides ») ──
 # {statut courant: [(cible, condition), ...]}. S'ajoutent les règles génériques :
 # tout état actif → en_pause ; tout état → ferme (close_reason requis) ;
@@ -501,7 +534,12 @@ NORMS_TRANSITIONS = {
     ],
     "etude_chiffrage_a_valider": [
         ("a_faire", "validé par le demandeur → prêt à coder"),
+        ("etude_chiffrage_a_corriger", "renvoyée par le demandeur : note obligatoire (ce qui est à reprendre) ; réattribuée à l'auteur de l'étude"),
         ("etude_chiffrage_en_cours", "retour demandeur (ajustements)"),
+    ],
+    # RM3228 : pendant d'a_corriger côté étude — la balle revient à l'auteur de l'étude.
+    "etude_chiffrage_a_corriger": [
+        ("etude_chiffrage_en_cours", "reprise de l'étude selon les retours du demandeur"),
     ],
     "a_faire": [
         ("en_cours", "création branche <RMid>-<desc> + CF GIT Branche (pm-branch-start)"),
@@ -793,6 +831,10 @@ def main():
                      "(motiver la réouverture)")
         out.info("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
 
+    # RM3228 : une étude renvoyée sans dire quoi reprendre renvoie son auteur à la devinette.
+    if args.status == "etude_chiffrage_a_corriger" and old_status != args.status and not args.note:
+        sys.exit("ERREUR : --note obligatoire pour renvoyer une étude (ce qui est à reprendre)")
+
     fm["status"] = args.status
     if args.close_reason:
         fm["close_reason"] = args.close_reason
@@ -1002,6 +1044,17 @@ def main():
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
         out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
+    elif args.status == "etude_chiffrage_a_corriger":
+        # RM3228 : l'étude renvoyée retourne à son AUTEUR — l'assigné juste avant la dernière
+        # soumission (→ etude_chiffrage_a_valider), lu dans les journaux Redmine : la soumission
+        # a réattribué au demandeur, le journal garde l'ancien assigné. Introuvable ⇒ on ne
+        # devine pas : attribution conservée, et on le dit.
+        _auteur = study_author_uid(args.rm_id)
+        if _auteur:
+            assign_override_value = str(_auteur)
+        else:
+            out.warn(f"RM{args.rm_id} : auteur de l'étude introuvable dans les journaux — "
+                     f"attribution conservée (--assign-to <id> pour la rendre à quelqu'un)")
     elif args.status in ("a_tester_demandeur", "a_tester_preprod", "etude_chiffrage_a_valider", "a_mep", "en_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
         #         a_tester_preprod (RM2893)   → responsable recette préprod (défaut demandeur/author).

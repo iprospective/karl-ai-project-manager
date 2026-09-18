@@ -1,9 +1,9 @@
 ---
-schema_version: "2.52.0"
+schema_version: "2.53.0"
 updated: 2026-09-17
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.52.0
+# Normes de gestion des tâches — v2.53.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -223,7 +223,7 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+`nouveau` | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `etude_chiffrage_a_corriger` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_tester_preprod` | `a_mep` | `a_mep_prod` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
 
 Liste exhaustive et **source unique** : `redmine.reference.yml :: statuses`. Ne pas recopier
 les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en silence.
@@ -2018,6 +2018,8 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [a_tester_preprod]   ──► [en_mep]      (RM2920 : instruction « mets en prod » → MEP dans la foulée)
 [a_tester_preprod]   ──► [a_mep_prod]  (RM2926 : « préprod ok » → file de MEP PROD, sans déployer encore)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
+[etude_chiffrage_a_valider] ── étude renvoyée ──► [etude_chiffrage_a_corriger] ── reprise ──► [etude_chiffrage_en_cours]
+                                                  (RM3228 : note obligatoire ; → auteur de l'étude)
 ```
 
 > **⚙ Sémantique du tronçon aval (RM2893, livrée).** Il a été
@@ -2104,6 +2106,12 @@ définitive sur l'instance). Plus aucun script ne le consulte.
 - Passage en `etude_chiffrage_a_valider` → ré-attribuer au **demandeur** (author) :
   l'étude / CDC / chiffrage sont finis et soumis à sa validation. **Même résolveur
   que `a_tester_demandeur`** (author ≠ karl → author ; author == karl → Manager IA).
+  Appliqué automatiquement par `pm-task-status-update.py`.
+- Passage en `etude_chiffrage_a_corriger` (RM3228, Redmine **24** « Etude/CDC à corriger ») →
+  ré-attribuer à l'**auteur de l'étude** : l'assigné juste avant la dernière soumission en
+  `etude_chiffrage_a_valider`, lu dans les journaux Redmine. C'est le pendant d'`a_corriger`
+  côté étude : le demandeur **renvoie** l'étude, avec une **note obligatoire** (ce qui est à
+  reprendre). Auteur introuvable ⇒ attribution conservée et signalée, jamais devinée.
   Appliqué automatiquement par `pm-task-status-update.py`.
 - Passage en `a_tester_dev` → ré-attribuer à un **testeur ≠ le dev** (agent ou
   humain), pour un test indépendant en env `test`. Manuel via `--assign-to <id>`
@@ -2229,6 +2237,8 @@ la prise) sont restées dans `status-workflow.md`.
 | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
 | `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
 | `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
+| `etude_chiffrage_a_valider` | `etude_chiffrage_a_corriger` | étude renvoyée par le demandeur — note obligatoire ; ré-attribution à l'auteur de l'étude (RM3228) |
+| `etude_chiffrage_a_corriger` | `etude_chiffrage_en_cours` | reprise de l'étude selon les retours |
 | `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
 | `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
 | `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
@@ -2327,6 +2337,7 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 | `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
 | `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
 | `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
+| `etude_chiffrage_a_corriger` | Etude/CDC à corriger (24) | **Étude renvoyée** par le demandeur, avec ce qui est à reprendre (note). Ticket ré-attribué à l'auteur de l'étude, qui la reprend (`→ etude_chiffrage_en_cours`) puis la resoumet. RM3228. |
 
 **Contenu de l'étude** (`etude_chiffrage_en_cours`) :
 - **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
@@ -2349,6 +2360,7 @@ développement. C'est le pendant amont du `a_tester_demandeur` aval.
 - `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + proposition d'implémentation + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
+- `etude_chiffrage_a_valider → etude_chiffrage_a_corriger → etude_chiffrage_en_cours` — étude **renvoyée** (RM3228) : le demandeur dit ce qui est à reprendre (note obligatoire), le ticket revient à l'auteur de l'étude ; c'est la voie à préférer quand le retour vient du demandeur, la reprise directe restant possible pour l'agent.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
 
 Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase

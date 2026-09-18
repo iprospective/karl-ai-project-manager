@@ -39,8 +39,8 @@ def check(name, cond):
 # — le mode « analyser » existe et ne recouvre QUE l'étude —
 check("le mode `etudier` est déclaré", "etudier" in ka.BATCH_MODES)
 etu = ka.BATCH_MODES["etudier"]["actions"]
-check("il couvre les trois statuts d'étude",
-      set(etu) == {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours"})
+check("il couvre les statuts d'étude — dont l'étude renvoyée à reprendre (RM3228)",
+      set(etu) == {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_corriger"})
 check("…et rien d'autre : pas de réalisation",
       "a_faire" not in etu and "en_cours" not in etu)
 skip_etu = ka.BATCH_MODES["etudier"]["skip"]

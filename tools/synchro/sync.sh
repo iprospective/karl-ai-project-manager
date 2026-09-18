@@ -46,6 +46,13 @@ log "Environnement : $ARG"
 : "${WEBSITE_TYPE:?WEBSITE_TYPE manquant dans la conf}"
 : "${WEBSITE_PATH:?}" "${SSH_AUTH:?}" "${DB_FROM:?}" "${DB_TO:?}" "${DOMAIN:?}"
 
+# Un DOMAIN bâti sur ${TEST_DOMAIN} ou ${DEV_DOMAIN} alors que ces clés manquent se
+# termine par un point (« monsite. ») : il passerait la validation ci-dessus et
+# produirait un vhost et des URL invalides. Arrêt ici, avant tout accès à la prod.
+case "$DOMAIN" in
+  *.) die "DOMAIN='$DOMAIN' est incomplet : TEST_DOMAIN/DEV_DOMAIN n'est pas défini pour cette instance. Ajoute TEST_DOMAIN, TEST_HOST et DEV_DOMAIN au pm.env de l'instance (RM3221)." ;;
+esac
+
 # Charge le module de type
 TYPE_LIB="$SELF_DIR/lib/$WEBSITE_TYPE.sh"
 [ -f "$TYPE_LIB" ] || die "Type non supporté : $WEBSITE_TYPE (pas de lib/$WEBSITE_TYPE.sh)"

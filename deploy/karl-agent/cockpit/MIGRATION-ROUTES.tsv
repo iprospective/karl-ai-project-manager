@@ -22,6 +22,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
 /client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
 /cockpit-config	L2	sessions	/api/session/cockpit-config	1	kill
+/compact	L2	sessions	/api/session/compact	1	compact
 /conf	L4	projects	/api/project/conf	1	openCenterConf
 /contact	L4	projects	/api/project/contact	1	openContact
 /contacts	L4	projects	/api/project/contacts	1	openContacts

@@ -100,6 +100,7 @@ TARGET_TO_CURRENT = {
     "/api/session-set/session-sets": "/session-sets",
     "/api/session/approve-all": "/approve-all",
     "/api/session/cockpit-config": "/cockpit-config",
+    "/api/session/compact": "/compact",
     "/api/session/disposition": "/disposition",
     "/api/session/events": "/events",
     "/api/session/events/publish": "/events/publish",

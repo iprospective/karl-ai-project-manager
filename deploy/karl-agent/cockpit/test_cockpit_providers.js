@@ -22,7 +22,7 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {}; const self 
     llm_services: [
       { id: "openrouter", label: "OpenRouter", type: "openai", url: "https://openrouter.ai/api/v1", keys_url: "https://openrouter.ai/keys", note: "passerelle", local: false, listable: true, needs_key: true },
       { id: "ollama", label: "Ollama (local)", type: "ollama", url: "http://localhost:11434", keys_url: "", note: "", local: true, listable: true, needs_key: false }] };
-  const data = { user: "mathieu", admin: true, defaults: { task: "redmine-ipro", llm: "ollama-strix" },
+  const data = { user: "mathieu", admin: true, can_global: true, defaults: { task: "redmine-ipro", llm: "ollama-strix" },
     instances: [
       { name: "redmine-ipro", axis: "task", type: "redmine", local: false, fields: { url: "https://r.example" }, secrets: [{ key: "API_KEY", label: "Clé d'API", var: "REDMINE__REDMINE_IPRO__API_KEY", set: true }] },
       { name: "redmine-matnat", axis: "task", type: "redmine", local: true, fields: { url: "https://m.example" }, secrets: [{ key: "API_KEY", label: "Clé d'API", var: "REDMINE__REDMINE_MATNAT__API_KEY", set: false }] },
@@ -68,6 +68,8 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {}; const self 
   assert(/data-action="secret-save"/.test(s) && /data-action="default"/.test(s) && /data-action="delete"/.test(s), "gestes en data-action");
   assert(/data-role="scope"/.test(s), "l'administrateur peut viser le .env global");
   assert(!/data-role="scope"/.test(String(V.ProvidersCard(new VM.ProvidersViewModel({ cat, data: { ...data, admin: false }, open: "redmine-ipro" })))), "un non-administrateur n'a pas l'option globale");
+  // RM3070 L2 : admin, mais l'instance ne PEUT pas écrire le .env global (sudo demande un mot de passe)
+  assert(!/data-role="scope"/.test(String(V.ProvidersCard(new VM.ProvidersViewModel({ cat, data: { ...data, can_global: false }, open: "redmine-ipro" })))), "sans capacité sudo, pas de case « global » — un bouton qui échoue toujours vaut moins que pas de bouton");
   assert(/Ollama/.test(String(V.ProvidersCard(new VM.ProvidersViewModel({ cat, data, open: "+llm" })))), "création : le formulaire propose les types de l'axe");
   console.log("✓ vue : secret en écriture seule, état affiché, gestes en data-*, option globale réservée à l'admin");
 

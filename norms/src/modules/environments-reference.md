@@ -38,6 +38,11 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
 - `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
+- `snapshot` : **cible du point de restauration pré-MEP** sur le parc opensvc/LXC/ZFS
+  (RM2989), lue par `pm-snapshot` : `{svc: <service opensvc>, rid: sync#root_hour}`
+  (`rid` ∈ `sync#root_hour|day|week`, défaut `hour`). Le nœud n'est pas déclaré : il est
+  constaté à chaque prise. Un projet dont la prod EST le conteneur peut le poser dans
+  `meta.yml` au lieu d'un env.
 - `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
   env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
   déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).

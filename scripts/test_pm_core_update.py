@@ -62,12 +62,16 @@ with tempfile.TemporaryDirectory() as td:
     check("dry-run : plan complet, rien écrit, code 0", rc == 0 and "[dry] git pull --ff-only origin" in o and "[dry] hook post-commit : link" in o and "[dry] hook pre-push : manual" in o and "/usr/local/sbin/pm-env-helper : à installer" in o and "[dry] alias mmi-core" in o and not (core / ".git" / "hooks" / "post-commit").exists(), o)
     if os.geteuid() != 0:
         out = io.StringIO()
+        _vrai = C.code_a_moi
+        C.code_a_moi = lambda *a, **k: False      # un code root-owned, vu d'un compte ordinaire
         try:
             with redirect_stdout(out):
                 C.update(core, dry=False)
-            check("hors root sans dry-run : refus explicite", False)
+            check("hors root, code qui n'est pas à moi : refus explicite", False)
         except SystemExit as e:
-            check("hors root sans dry-run : refus explicite (le re-exec sudo est dans main)", "doit tourner en root" in str(e))
+            check("hors root, code qui n'est pas à moi : refus explicite (le re-exec sudo est dans main)", "doit tourner en root" in str(e))
+        finally:
+            C.code_a_moi = _vrai
     else:
         check("(root) garde sudo non testée", True)
     try:
@@ -99,6 +103,44 @@ with tempfile.TemporaryDirectory() as td:
     check("claude_hooks_missing : settings vide → hooks manquants", C.claude_hooks_missing(core, home) is True)
     (core / ".env").write_text("KARL_USER=utilisateur-inexistant-xyz\n")
     check("instance_user : user inconnu → None (provisioning ignoré, jamais bloquant)", C.instance_user(core) is None)
+
+# ── RM3070 L1 : installation mono — le code appartient à l'utilisateur, la mise à jour se passe de sudo
+check("code_a_moi : root n'est jamais « à moi » (il garde le chemin complet)", C.code_a_moi(HERE, euid=0) is False)
+check("code_a_moi : un code à un autre compte → non", C.code_a_moi(pathlib.Path("/"), euid=4242) is False)
+check("as_user : un autre compte, sans root → None (signalé, pas tenté)",
+      os.geteuid() == 0 or C.as_user("utilisateur-inexistant-xyz", ["true"], []) is None)
+if os.geteuid() != 0:
+    import pwd as _pwd
+    moi = _pwd.getpwuid(os.geteuid()).pw_name
+    check("as_user : moi-même, sans root → la commande directe, sans runuser",
+          C.as_user(moi, ["true"], ["A=1"]) == ["env", "A=1", "true"])
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        g = lambda *a: subprocess.run(["git", *a], check=True, capture_output=True, text=True)
+        g("init", "-q", "--bare", "-b", "main", str(td / "origin.git"))
+        g("clone", "-q", str(td / "origin.git"), str(td / "amont"))
+        for d in ("amont",):
+            g("-C", str(td / d), "config", "user.email", "t@t"); g("-C", str(td / d), "config", "user.name", "t")
+        (td / "amont" / "README.md").write_text("v1"); g("-C", str(td / "amont"), "add", "-A")
+        g("-C", str(td / "amont"), "commit", "-qm", "v1"); g("-C", str(td / "amont"), "push", "-q", "origin", "HEAD:main")
+        g("clone", "-q", "-b", "main", str(td / "origin.git"), str(td / "core"))
+        core = td / "core"
+        # KARL_USER inexistant : ni le VRAI service karl-agent ni le vrai ~/.claude ne sont touchés
+        (core / ".env").write_text("KARL_USER=utilisateur-inexistant-xyz\n")
+        (td / "amont" / "README.md").write_text("v2"); g("-C", str(td / "amont"), "commit", "-qam", "v2")
+        g("-C", str(td / "amont"), "push", "-q", "origin", "HEAD:main")
+        check("code_a_moi : mon propre checkout → oui", C.code_a_moi(core) is True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = C.update(core, dry=False)
+        o = out.getvalue()
+        check("mise à jour SANS sudo : le code avance", rc == 0 and (core / "README.md").read_text() == "v2", o)
+        check("…et elle dit son profil : installation mono, verrou sauté",
+              "installation mono" in o and "re-verrouillé" not in o, o)
+        r = subprocess.run([sys.executable, str(HERE / "pm-core-update.py"), "--core-dir", str(core)],
+                           capture_output=True, text=True, timeout=60)
+        check("CLI sans --dry-run : pas de re-exec sudo quand le code est à moi",
+              r.returncode == 0 and "re-exec sudo" not in r.stdout + r.stderr, r.stdout + r.stderr)
 
 print()
 if fails:

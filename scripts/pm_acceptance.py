@@ -105,6 +105,16 @@ def parse_items(text):
     comparaison des deux sources, et ferait PERDRE la fin du critère à la réécriture.
     Un libellé peut ainsi contenir des `\n` ; `norm_label` les réduit pour comparer.
     """
+    return [(ok, lab) for _, _, ok, lab in _item_spans(text)]
+
+
+def _item_spans(text):
+    """Items réels avec leurs lignes : [(début, fin_exclue, coché, libellé), …].
+
+    Base commune de `parse_items` et de `purge_decision` : pour savoir si retirer une
+    section perd de la matière, il faut savoir quelles lignes les items OCCUPENT — tout
+    le reste (prose, tableau, sous-liste sans case) serait perdu en silence.
+    """
     lines = (text or "").split("\n")
     flags = pm_markdown.code_line_flags(lines)
     debuts = pm_markdown.real_checklist_lines(text or "")
@@ -114,12 +124,14 @@ def parse_items(text):
     out = []
     for i, m in debuts:
         parts = [m.group(3)[1:].strip()]
+        fin = i + 1
         for j in range(i + 1, len(lines)):
             ln = lines[j]
             if j in coupures or flags[j] or not ln.strip() or _H_RE.match(ln):
                 break
             parts.append(ln.strip())
-        out.append((m.group(2).lower() == "x", "\n".join(parts).strip()))
+            fin = j + 1
+        out.append((i, fin, m.group(2).lower() == "x", "\n".join(parts).strip()))
     return out
 
 
@@ -229,3 +241,145 @@ def adoptable_section(body):
     """
     items = parse_items(extract_section(body) or "")
     return render_items(items) if items else None
+
+
+# ── RM3241 : retirer la section de la description une fois reprise dans le CF ──────
+
+def _section_bounds(body):
+    """[(début, fin_exclue), …] des sections « Critères d'acceptation », titre compris.
+
+    Mêmes bornes que `extract_sections` — c'est voulu : on retire exactement ce qu'on a
+    lu et comparé, ni une ligne de plus, ni une de moins.
+    """
+    lines = (body or "").split("\n")
+    flags = pm_markdown.code_line_flags(lines)
+    out = []
+    for i, line in enumerate(lines):
+        if flags[i] or not CRITERIA_HEADING_RE.match(line):
+            continue
+        level, _ = _heading_level(line)
+        end = len(lines)
+        for j in range(i + 1, len(lines)):
+            if flags[j]:
+                continue
+            lv, _ = _heading_level(lines[j])
+            if lv is not None and lv <= level:
+                end = j
+                break
+        out.append((i, end))
+    return out
+
+
+def strip_sections(body):
+    """Le corps SANS ses sections « Critères d'acceptation » ; tout le reste intact.
+
+    Seule retouche hors des sections : les lignes vides à la jointure sont ramenées à
+    une, pour ne pas laisser un trou de trois lignes là où la section était.
+    """
+    bounds = _section_bounds(body)
+    if not bounds:
+        return body or ""
+    lines = (body or "").split("\n")
+    retire = set()
+    for a, b in bounds:
+        retire.update(range(a, b))
+    garde = [ln for k, ln in enumerate(lines) if k not in retire]
+    out = []
+    for ln in garde:
+        if not ln.strip() and out and not out[-1].strip():
+            continue
+        out.append(ln)
+    return "\n".join(out).strip("\n") + ("\n" if (body or "").endswith("\n") else "")
+
+
+def _stray_lines(section):
+    """Lignes non vides d'une section qui ne sont NI un item réel NI un gabarit."""
+    lines = (section or "").split("\n")
+    couvertes = set()
+    for a, b, _, _ in _item_spans(section):
+        couvertes.update(range(a, b))
+    couvertes.update(i for i, _ in pm_markdown.placeholder_lines(section or ""))
+    return [ln.strip() for k, ln in enumerate(lines)
+            if ln.strip() and k not in couvertes and not _is_marker(ln)]
+
+
+def _is_marker(line):
+    """Le bandeau « ⚠ À définir » de `render_md` (RM2789) : ni un critère ni de la matière."""
+    return line.lstrip().startswith(">") and "définir" in line.lower()
+
+
+def purge_decision(cf_text, body):
+    """Peut-on retirer les sections de critères de `body`, sachant que le CF porte `cf_text` ?
+
+    Rend `(action, motifs)`, action ∈ {"rien", "retire", "garde"}. Fonction PURE.
+
+    La règle de RM3241 telle qu'écrite — « aucun retrait si la coche diffère » — aurait
+    laissé en place exactement les descriptions les plus trompeuses : sur les 15 tickets
+    où les deux copies avaient déjà divergé (mesure du 2026-09-19), 11 l'étaient parce
+    que le CF avait été COCHÉ et la description non (RM3173 : 4/4 dans le CF, 0/4 dans la
+    description, ticket en MEP). La règle retenue est donc orientée :
+
+    - le CF est vide                                 → garde (il n'y a pas de copie)
+    - un item de la section manque au CF             → garde (on perdrait un critère)
+    - un item coché dans la section, pas dans le CF  → garde (la description est EN AVANCE :
+                                                       personne ne sait qui a raison)
+    - la section porte du texte hors cases           → garde (prose, tableau : perdu sinon)
+    - sinon — CF identique ou en avance              → retire
+    """
+    bounds = _section_bounds(body)
+    if not bounds:
+        return "rien", []
+    cf_items = parse_items(cf_text or "")
+    if not cf_items:
+        # Rien de réel dans la section (bandeau « À définir », gabarit) : pas une copie,
+        # pas un conflit — il n'y a simplement pas encore de critères.
+        if not any(parse_items(t) or _stray_lines(t) for _, t in extract_sections(body)):
+            return "rien", []
+        return "garde", ["CF 33 vide — la section est la seule copie"]
+    cf_by = {norm_label(lab): ok for ok, lab in cf_items}
+    motifs, en_avance = [], 0
+    for titre, texte in extract_sections(body):
+        for ok, lab in parse_items(texte):
+            key = norm_label(lab)
+            court = lab.split("\n")[0][:70]
+            if key not in cf_by:
+                motifs.append(f"absent du CF : « {court} »")
+            elif ok and not cf_by[key]:
+                motifs.append(f"coché dans la description, pas dans le CF : « {court} »")
+            elif cf_by[key] and not ok:
+                en_avance += 1
+        for ln in _stray_lines(texte):
+            motifs.append(f"texte hors cases dans la section : « {ln[:70]} »")
+    if motifs:
+        return "garde", motifs
+    return "retire", ([f"CF en avance de {en_avance} coche(s) sur la description"]
+                      if en_avance else [])
+
+
+def cf_text_of_issue(issue):
+    """Le texte du CF 33 d'un ticket Redmine (dict de l'API), normalisé ; "" si absent."""
+    import pm_cf_mirror
+    cid = pm_cf_mirror.resolve_cf_id(ENV_VAR, CF_NAME)
+    if cid is None:
+        return ""
+    for cf in (issue or {}).get("custom_fields") or []:
+        if cf.get("id") == cid:
+            return pm_cf_mirror.normalize_text(cf.get("value")) or ""
+    return ""
+
+
+def split_for_creation(description):
+    """RM3241 — à la création, les critères partent dans le champ, pas dans la description.
+
+    Rend `(description_sans_section, critères)` ; `critères` vaut None si la description
+    ne porte pas de vrais critères — elle est alors rendue telle quelle, gabarit compris
+    (c'est le bandeau « À définir » de RM2789 qui doit continuer de le signaler).
+    On ne retire la section que si RIEN d'autre n'y vivait (même garde que la purge).
+    """
+    crit = adoptable_section(description)
+    if not crit:
+        return description, None
+    action, _ = purge_decision(crit, description)
+    if action != "retire":
+        return description, None
+    return strip_sections(description), crit

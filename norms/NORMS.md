@@ -2572,6 +2572,18 @@ porte ses critères en section `## Critères d'acceptation` du corps, se reprend
 `--from-description` (en masse : `pm-cf-mirror-backfill --field acceptance
 --adopt-sections` — le corps est **conservé**, rien n'est effacé).
 
+**Une seule copie (RM3241).** Une fois repris dans le champ, les critères **sortent** de la
+description : deux copies divergent, et la périmée est celle que lit l'humain dans Redmine
+(RM3173 : 4/4 cochés dans le champ, 0/4 dans la description, ticket en MEP). À la
+création, `pm-task-add` envoie la section de critères de `--description` au champ, pas
+à la description. Sur un ticket migré, `pm-task-description-update` retire la section
+d'un `--set-from-file` que le champ couvre déjà, et **refuse** celle qui en diffère
+(critère ou coche en plus) ainsi que `--add-criterion` : on passe par `pm-task-acceptance`.
+L'existant se purge par `pm-acceptance-purge` (dry-run par défaut, dump JSONL avant
+écriture), selon une règle **orientée** : la section part si le champ la couvre ou est
+**en avance** ; elle reste si la description est en avance, si un item manque au champ,
+ou si elle porte de la prose — rien ne se perd, le reste se tranche à la main.
+
 **Lecture à double source, et sans bascule.** Champ non vide ⇒ il fait foi ; vide ⇒ la
 section de la description, exactement comme avant. Tous les lecteurs partagent la même
 fonction (`pm_acceptance.criteria_text`) : le garde-fou de statut, la livraison, le

@@ -49,6 +49,7 @@ from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
 import pm_tags
+import pm_acceptance
 
 try:
     import yaml
@@ -351,6 +352,18 @@ def main():
     _tags_cf = pm_tags.cf_payload(tags_norm)
     if _tags_cf and _tags_cf["value"]:
         extra_cf.append(_tags_cf)
+    # RM3241 : les critères naissent dans leur champ (CF 33), plus dans la description.
+    # Ils y étaient recopiés depuis RM2882 — donc deux copies dès la création, dont
+    # une que plus rien ne met à jour (8 tickets créés après la reprise RM3240).
+    # Sans CF résolu, ou si la section porte autre chose que des cases (prose,
+    # gabarit), la description part telle quelle : rien ne se perd.
+    import pm_cf_mirror
+    acc_cid = pm_cf_mirror.resolve_cf_id(pm_acceptance.ENV_VAR, pm_acceptance.CF_NAME)
+    description, criteres = args.description, None
+    if acc_cid:
+        description, criteres = pm_acceptance.split_for_creation(args.description)
+        if criteres:
+            extra_cf.append({"id": acc_cid, "value": criteres})
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
@@ -360,7 +373,7 @@ def main():
         tracker_id=tracker_id,
         priority_id=priority_id,
         subject=args.title,
-        description=args.description,
+        description=description,
         author_id=target_author,
         parent_issue_id=args.parent,
         extra_custom_fields=extra_cf or None,
@@ -379,6 +392,9 @@ def main():
         out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
     if _tags_cf and _tags_cf.get("value"):
         out.info(f"  · CF{_tags_cf['id']} tags → {', '.join(tags_norm)}")
+    if criteres:
+        n = len(pm_acceptance.parse_items(criteres))
+        out.info(f"  · CF{acc_cid} critères d'acceptation → {n} critère(s), hors description")
     if target_author is not None:
         out.info(f"  · author_id → {target_author}")
 
@@ -419,7 +435,9 @@ def main():
     # Propre à la création : un ticket ADOPTÉ (pm-task-import) n'a pas ces champs.
     if args.type == "bugfix":
         fm = _with_bug(fm, args.bug_reproducibility or "always", bug_steps)
-    md = render_md(fm, args.description)
+    if criteres:
+        fm[pm_acceptance.FM_KEY] = criteres     # miroir local du CF 33, comme pm-task-acceptance
+    md = render_md(fm, description)
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)
     md_path = tasks_dir / f"RM{rm_id}_{slug}.md"

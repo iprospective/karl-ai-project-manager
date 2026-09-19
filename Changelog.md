@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
+  une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
+  remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un
+  mu-plugin de recette que `--delete` ne supprime pas, extensions listées désactivées,
+  `wp-config.php` et compte MySQL propres à la recette (mot de passe jamais en argument).
+  Nouvelle stratégie de dump `remote-mysqldump-socket` : aucun mot de passe de prod à détenir.
+  Le framework gagne un README.
 - **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
   ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
   fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit

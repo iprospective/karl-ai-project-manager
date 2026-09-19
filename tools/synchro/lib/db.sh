@@ -11,6 +11,9 @@ DUMP_FILE=""   # rempli par db_dump_from_prod
 #       génère backup/mysql/<db>.sql.gz ; on l'exécute via ssh puis on rsync.
 #   remote-mysqldump : on lance mysqldump à distance via ssh (creds prod requis :
 #       REMOTE_DB_USER + REMOTE_DB_SECRET : URI de secret).
+#   remote-mysqldump-socket : mysqldump à distance avec l'authentification du compte
+#       SSH lui-même (root MariaDB par socket unix) — aucun mot de passe de prod à
+#       détenir ni à transmettre (RM3250).
 db_dump_from_prod() {
   mkdir -p "$TMP_PATH"
   DUMP_FILE="$TMP_PATH/$DB_TO.sql.gz"
@@ -33,6 +36,11 @@ db_dump_from_prod() {
         "MYSQL_PWD=$(printf %q "$rpass") mysqldump --single-transaction --skip-comments -u$ruser $DB_FROM | gzip" \
         > "$DUMP_FILE" || die "Échec mysqldump distant."
       unset rpass
+      ;;
+    remote-mysqldump-socket)
+      ssh $SSH_OPTS "$SSH_AUTH" -- \
+        "set -o pipefail; mysqldump --single-transaction --skip-comments $(printf %q "$DB_FROM") | gzip" \
+        > "$DUMP_FILE" || die "Échec mysqldump distant (authentification par socket)."
       ;;
     *) die "DB_DUMP_STRATEGY inconnue : $strategy" ;;
   esac

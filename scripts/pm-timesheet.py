@@ -37,6 +37,9 @@ except ImportError:
 
 
 def _periode(args):
+    if getattr(args, "day", None):
+        debut = datetime.fromisoformat(args.day)
+        return debut, debut + timedelta(days=1), args.day
     if args.month:
         an, mois = (int(x) for x in args.month.split("-"))
         debut = datetime(an, mois, 1)
@@ -285,28 +288,53 @@ def calculer(args, cfg, conf):
     if args.quantum is not None:
         params["quantum_min"] = args.quantum
 
-    cache_dir = Path(args.out).parent / "cache" if args.out else \
-        Path(cfg.pm_dir) / "var" / "timesheet" / "cache"
-    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir, cfg)
-    if not events:
+    cache_dir = Path(args.out).parent / "cache" if args.out else W.ETAT / "rapatriement"
+    # Cache par jour (RM3229) : une journée TERMINÉE se relit depuis son cache au lieu
+    # de rejouer tous les transcripts — c'est ce qui rend la vue journée interactive.
+    # Aujourd'hui n'est jamais figé : il n'est pas fini.
+    jours = [(debut + timedelta(days=i)).date().isoformat() for i in range((fin - debut).days)]
+    aujourdhui = date.today().isoformat()
+    items, manquants = [], []
+    for j in jours:
+        lu = None if getattr(args, "refresh", False) or j >= aujourdhui else W.cache_lire(j)
+        if lu is None:
+            manquants.append(j)
+        else:
+            items += lu
+    detail = [("cache", str(W.ETAT / "cache"), len(items))] if items else []
+    if manquants:
+        d0 = datetime.fromisoformat(manquants[0])
+        d1 = datetime.fromisoformat(manquants[-1]) + timedelta(days=1)
+        events, det = collecter(conf, d0, d1, args.verbose, cache_dir, cfg)
+        detail += det
+        tours = {}
+        for s in _sources(conf):
+            if s.get("kind") != "claude-transcripts":
+                continue
+            chemin = str(Path(s.get("path", "")).expanduser())
+            if s.get("host"):
+                chemin = str(Path(cache_dir) /
+                             __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
+                if not Path(chemin).is_dir():
+                    continue
+            tours.update(W.rm_par_tour(chemin, d0, d1))
+        frais = collections.defaultdict(list)
+        for e in events:
+            j = e.ts.date().isoformat()
+            if j in manquants:
+                frais[j].append((e, tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))))
+        for j in manquants:
+            if j < aujourdhui:
+                W.cache_ecrire(j, frais.get(j, []))
+            items += frais.get(j, [])
+    if not items:
         sys.exit(f"Aucune trace sur la période {libelle} — sources : "
                  + ", ".join(s.get("kind", "?") for s in _sources(conf)))
 
     resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
-    tours = {}
-    for s in _sources(conf):
-        if s.get("kind") != "claude-transcripts":
-            continue
-        chemin = str(Path(s.get("path", "")).expanduser())
-        if s.get("host"):
-            chemin = str(Path(cache_dir) /
-                         __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
-            if not Path(chemin).is_dir():
-                continue
-        tours.update(W.rm_par_tour(chemin, debut, fin))
-    for e in events:
-        rm = tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))
+    for e, rm in items:
         resolver.resolve(e, rm_du_tour=rm)
+    events = [e for e, _rm in items]
 
     regles = W.regles_depuis_config(conf, cfg)
     alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
@@ -314,9 +342,8 @@ def calculer(args, cfg, conf):
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
-    deduit = []
+    deduit, toutes = [], []
     if not args.sans_deduction:
-        toutes = []
         for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
             saisies = saisies_humaines(url, key, uid, debut, fin, basic)
             if args.verbose:
@@ -328,12 +355,20 @@ def calculer(args, cfg, conf):
 
     # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
     # à la main compte dans le plancher, il ne s'y ajoute pas.
-    ajouts, transferts = W.appliquer_presences(final, conf.get("presences"),
-                                               debut, fin, par_heure, par_heure_cible)
+    surcharges = {}
+    for mois in sorted({j[:7] for j in jours}):
+        surcharges.update(W.surcharges_charger(mois))
+    presences = W.presences_effectives(conf.get("presences"), surcharges)
+    deja_par_jour = collections.Counter()
+    for sa in toutes:
+        deja_par_jour[sa["jour"]] += float(sa["minutes"])
+    ajouts, transferts = W.appliquer_presences(final, presences, debut, fin, par_heure,
+                                               par_heure_cible, deja_par_jour)
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
     return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+            "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
@@ -554,10 +589,23 @@ def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--month", help="mois à traiter (AAAA-MM)")
+    ap.add_argument("--day", help="une journée (AAAA-MM-JJ) — l'unité de validation")
+    ap.add_argument("--start", help="avec --day : heure de début normale (HH:MM)")
+    ap.add_argument("--end", help="avec --day : heure de fin normale (HH:MM)")
+    ap.add_argument("--client", help="avec --day : client principal de la journée")
+    ap.add_argument("--projet", help="avec --day : projet PM du client principal")
+    ap.add_argument("--pause", type=float, help="avec --day : pause en heures (défaut 1 h au-delà de 6 h)")
+    ap.add_argument("--exclusif", action="store_true",
+                    help="avec --day : journée presque exclusivement pour le client principal")
+    ap.add_argument("--clear-override", action="store_true", help="avec --day : retire l'ajustement")
+    ap.add_argument("--validate-empty", action="store_true",
+                    help="avec --day : valider une journée saisie entièrement à la main")
+    ap.add_argument("--refresh", action="store_true", help="ignorer le cache par jour")
+    ap.add_argument("--json", action="store_true", help="sortie JSON (cockpit)")
     ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
     ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
     ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
-    ap.add_argument("--config", help="fichier de configuration (défaut : <core>/timesheet.yml)")
+    ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/timesheet.yml)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les saisies Redmine depuis la proposition validée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
@@ -574,13 +622,19 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    if not args.month and not (args.depuis and args.jusqu_a):
-        ap.error("--month AAAA-MM, ou --from et --to")
+    if not args.month and not args.day and not (args.depuis and args.jusqu_a):
+        ap.error("--month AAAA-MM, --day AAAA-MM-JJ, ou --from et --to")
+    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet, args.pause)) \
+        or args.exclusif or args.clear_override or args.validate_empty
+    if ajuste and not args.day:
+        ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
 
     cfg = PMConfig.load()
     conf = W.charger_config(args.config, cfg=cfg)
-    dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "timesheet"
+    dossier = Path(args.out) if args.out else W.ETAT
     _d, _f, libelle = _periode(args)
+    if ajuste:
+        ajuster_journee(args)
 
     if args.fix_activities:
         return corriger_activites(cfg, conf, args, libelle)
@@ -593,6 +647,9 @@ def main():
 
     res = calculer(args, cfg, conf)
     md, yml, prop = ecrire_sorties(res, dossier, libelle)
+    if args.json:
+        print(json.dumps(vue_json(res, prop), ensure_ascii=False, default=str))
+        return 0
     total = sum(res["final"].values())
     print(f"✓ timesheet {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "
           f"{len(res['totaux'])} journées → {_fmt(total)} à noter "
@@ -603,6 +660,65 @@ def main():
     print(f"  rapport : {md}\n  proposition (à amender) : {yml}")
     print(f"  puis : mmi-pm timesheet --month {libelle} --apply")
     return 0
+
+
+def ajuster_journee(args):
+    """Pose, modifie ou efface la surcharge d'une journée (début, fin, client principal).
+
+    C'est le geste de l'écran de validation : la journée se recalcule aussitôt, depuis
+    son cache. Une journée DÉJÀ validée ne bouge plus — ses saisies sont déduites —
+    et on le dit, plutôt que de laisser croire à un recalcul silencieux.
+    """
+    mois = args.day[:7]
+    donnees = W.surcharges_charger(mois)
+    jour = dict(donnees.get(args.day) or {})
+    if args.clear_override:
+        donnees.pop(args.day, None)
+        W.surcharges_ecrire(mois, donnees)
+        print(f"✓ journée {args.day} : surcharge retirée")
+        return
+    for champ, valeur in (("debut", args.start), ("fin", args.end), ("client", args.client),
+                          ("projet", args.projet), ("pause_h", args.pause)):
+        if valeur is not None:
+            jour[champ] = valeur
+    if args.exclusif:
+        jour["exclusif"] = True
+    if args.validate_empty:
+        jour["valide_sans_ajout"] = True
+    donnees[args.day] = jour
+    W.surcharges_ecrire(mois, donnees)
+    if jour.get("debut") and jour.get("fin"):
+        h = W.heures_travaillees(jour["debut"], jour["fin"], jour.get("pause_h"))
+        print(f"✓ journée {args.day} : {jour['debut']}–{jour['fin']} ({h:g} h)"
+              + (f", client principal {jour['client']}" if jour.get("client") else ""))
+    elif args.validate_empty:
+        print(f"✓ journée {args.day} : validée sans ajout")
+
+
+def vue_json(res, prop):
+    """La matière de l'écran de validation (cockpit) : une entrée par journée."""
+    jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
+                   | {s["jour"] for s in res.get("saisies", [])})
+    sortie = []
+    for j in jours:
+        surcharge = (res.get("surcharges") or {}).get(j) or {}
+        saisies = [s for s in res.get("saisies", []) if s["jour"] == j]
+        sortie.append({
+            "date": j,
+            "mesure_min": round(res["totaux"].get(j, 0)),
+            "periodes": [[a.strftime("%H:%M"), b.strftime("%H:%M")]
+                         for a, b in res["periodes"].get(j, [])],
+            "journal": res["journal"].get(j, {}),
+            "proposition": [l for l in prop["lignes"] if l["jour"] == j],
+            "deja_saisi": [{"minutes": round(s["minutes"]), "ticket": s.get("rm"),
+                            "libelle": s.get("libelle", "")} for s in saisies],
+            "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
+                      for (d, c, m), v in res["ajouts"].items() if d == j],
+            "surcharge": surcharge or None,
+            "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
+                      or bool(surcharge.get("valide_sans_ajout")),
+        })
+    return {"periode": res["libelle"], "jours": sortie}
 
 
 def _fmt(minutes):

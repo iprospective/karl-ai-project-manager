@@ -14,7 +14,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 - **Préfixe de vhost par repo** (RM3247) : `runtime.vhost_prefix` au manifeste nomme le vhost
-  d'un env de ticket (`calicote-erp-rm3040.lxc` au lieu de `dolibarr-rm3040.lxc`). Le dossier
+  d'un env de ticket (`client-a-erp-rm<id>.lxc` au lieu de `dolibarr-rm<id>.lxc`). Le dossier
   garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le
   cockpit sonde l'hôte réellement servi — celui de `test_url` — au lieu de le déduire du
   dossier, ce qui l'aurait fait passer pour mort. Nouveau placeholder `{host}` pour `post_create`.

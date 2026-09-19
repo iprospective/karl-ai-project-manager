@@ -91,8 +91,8 @@ with tempfile.TemporaryDirectory() as tmp:
     hors_path = str(faux / "opencode")
     check("trouvé hors du PATH, dans l'emplacement usuel de l'outil",
           bool(chemin_reel) and (chemin_reel == hors_path or "opencode" in chemin_reel), chemin_reel)
-    check("un binaire sous un home est de portée « utilisateur »", E.portee_du_chemin(hors_path) == "user")
-    check("un binaire hors des homes est de portée « système »", E.portee_du_chemin("/usr/local/bin/opencode") == "system")
+    check("un binaire sous un home est de portée « utilisateur »", E.portee_du_chemin(hors_path)[0] == "user")
+    check("un binaire hors des homes est de portée « système »", E.portee_du_chemin("/usr/local/bin/opencode")[0] == "system")
     check("un outil vraiment absent reste absent", E.trouve("recette-qui-nexiste-pas") == "")
     os.environ.pop("PM_TARGET_HOME", None)
 
@@ -101,12 +101,39 @@ st = {d["id"]: d for d in E.etats()}
 check("les cinq recettes sont rapportées", set(st) == set(R.RECETTES))
 check("un outil présent porte son chemin, sa version et sa portée",
       (not st["claude"]["installed"]) or (st["claude"]["path"] and st["claude"]["version"] and st["claude"]["scope"] in R.PORTEES))
-check("un outil absent n'annonce aucune portée d'installation", all(d["scope"] == "" for d in st.values() if not d["installed"]))
+check("un outil absent n'annonce aucune portée d'installation",
+      all(d["scope"] == "" for d in st.values() if not d["installed"] and not d["installed_elsewhere"]))
 check("chaque état dit dans quelles portées il PEUT s'installer", all(d["scopes"] for d in st.values()))
 check("un outil absent est dit absent, sans version", all(d["version"] == "" for d in st.values() if not d["installed"]))
 r = subprocess.run([sys.executable, str(HERE / "pm-engine-install.py"), "--recipe", "claude", "--action", "install", "--dry-run", "--json"],
                    capture_output=True, text=True)
 check("le CLI en JSON n'exécute rien avec --dry-run", r.returncode == 0 and '"dry_run": true' in r.stdout, r.stdout[-200:])
+
+# ── RM3097 : « pour moi », c'est le home du DÉVELOPPEUR CONNECTÉ, pas celui du démon ──
+print("\n[RM3097] installé pour qui ?")
+import pwd as _pwd   # noqa: E402
+moi = _pwd.getpwuid(os.getuid()).pw_name
+autre = next((u.pw_name for u in _pwd.getpwall()
+              if 1000 <= u.pw_uid < 65534 and u.pw_name != moi and os.path.isdir(u.pw_dir)), None)
+check("home_de() sans argument = le nôtre", E.home_de() == os.path.expanduser("~"))
+check("home_de(<login>) = le sien", (not autre) or E.home_de(autre) == _pwd.getpwnam(autre).pw_dir)
+sous_moi = os.path.join(os.path.expanduser("~"), ".local", "bin", "truc")
+check("un binaire de MON home, vu pour moi : portée utilisateur", E.portee_du_chemin(sous_moi)[0] == "user")
+if autre:
+    p, proprio = E.portee_du_chemin(sous_moi, autre)
+    check("…le même binaire, vu pour un AUTRE développeur : « other », avec mon login",
+          p == "other" and proprio == moi, f"{p}/{proprio}")
+    st2 = {d["id"]: d for d in E.etats(autre)}
+    check("…et l'état le dit : pas « installed » pour lui",
+          all(not d["installed"] for d in st2.values() if d.get("installed_elsewhere")), str([d for d in st2.values() if d.get("installed_elsewhere")][:1]))
+    r = E.execute("claude", "install", dry=True, portee="user", cible=autre)
+    check("installer « pour moi » dans le home d'un autre : refusé, avec la commande à lancer en tant que lui",
+          r["ok"] is False and autre in r["error"] and "--scope user" in r["error"], str(r)[:200])
+else:
+    print("· ignoré (aucun autre utilisateur réel sur cette machine) — les gardes « other » tournent ailleurs")
+r = E.execute("claude", "install", dry=True, portee="user", cible=moi)
+check("pour moi-même : rien ne change, la simulation passe", r["ok"] is True and r.get("dry_run"), str(r)[:160])
+check("…et la réponse dit pour QUI elle vaut", r.get("for_user") == moi or "for_user" in r, str(r)[:120])
 
 print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm-engine-install"))
 sys.exit(1 if FAIL else 0)

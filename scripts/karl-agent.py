@@ -7269,6 +7269,23 @@ def _project_docs(project_dir: Path) -> list:
     return docs
 
 
+def _ticket_acceptance(fm: dict, body: str) -> dict:
+    """Critères d'acceptation d'un ticket, PAR la fonction de lecture unique (RM2882) : texte, items, provenance.
+
+    La provenance est rendue parce qu'elle change le geste : sur un ticket migré on coche avec
+    `pm-task-acceptance`, sinon dans la description. L'afficher évite de cocher dans le vide.
+    Jamais fatal : un module absent donne un onglet vide, pas une fiche en erreur.
+    """
+    try:
+        import pm_acceptance
+        text, source = pm_acceptance.criteria_text(fm, body)
+        items = [{"done": ok, "label": lab} for ok, lab in pm_acceptance.parse_items(text)]
+    except Exception as e:  # noqa: BLE001
+        _jlog("ticket", "warn", f"lecture des critères impossible : {e}")
+        return {"source": None, "items": [], "text": ""}
+    return {"source": source, "items": items[:80], "text": text[:6000]}
+
+
 def op_resolve(rm_id: str) -> dict:
     """Résout un rm_id en métadonnées riches depuis le MD local (RM1893 §1) — pour
     pré-remplir le lanceur ET alimenter le panneau de pilotage du cockpit. Pas de
@@ -7329,6 +7346,12 @@ def op_resolve(rm_id: str) -> dict:
              "text": str(pick("test_protocol"))[:4000]}
             if str(pick("test_protocol") or "").strip() not in ("", "None")
             else _test_protocol(tf, _task_body(text))),
+        # RM3175 : les trois onglets Critères · Implémentation · Déploiement de la fiche.
+        "acceptance": _ticket_acceptance(fm, _task_body(text)),
+        "implementation": str(pick("implementation") or "").strip()[:8000]
+        if str(pick("implementation") or "").strip() not in ("", "None") else "",
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()]
+        if isinstance(fm.get("deploy_actions"), list) else [],
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",

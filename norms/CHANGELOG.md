@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.58.0] - 2026-09-19
+
+### Ajouté
+- **Un module ne contourne aucun garde-fou** (RM3145, nouveau module `modules-pm`, hors
+  précharge ; une ligne-déclencheur au KERNEL). Les tripwires valent dans le code d'un module
+  exactement comme ailleurs : outillage PM pour tout changement d'état, pas de push direct sur une
+  branche protégée, aucun secret en clair (un module DÉCLARE ses secrets), aucune action de
+  production sans consentement, un abonné qui échoue ne casse pas l'émetteur. Ce qui rend un module
+  facile à ajouter est aussi ce qui permet de l'ajouter sans relire les normes : la règle le dit là
+  où l'on regarde quand on écrit un module. Le module porte aussi le contrat : natif ou tiers,
+  l'état d'activation dans la configuration de l'instance, le refus motivé, le forçage sous double
+  sécurité, et `mmi-pm module new`.
+
 ## [2.57.0] - 2026-09-19
 
 ### Ajouté

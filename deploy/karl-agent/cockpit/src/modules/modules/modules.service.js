@@ -8,4 +8,6 @@ export class ModulesService {
     catch (e) { this.data = null; this.error = e.message; }
     return this.data;
   }
+  async setState(body) { return await this.repo.setState(body); }
+  async setPolicy(allow) { return await this.repo.setPolicy(allow); }
 }

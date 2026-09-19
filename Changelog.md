@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les modules s'allument et s'éteignent** (RM3145, lot 1). Jusqu'ici « activable » n'était
+  qu'un mot : l'état vivait dans le manifeste, versionné avec le noyau — éteindre un module aurait
+  modifié le code livré. Il vit désormais dans la configuration de l'INSTANCE. Les trois
+  arbitrages du demandeur sont portés : un module **natif** s'éteint mais ne se retire pas ;
+  éteindre un module dont d'autres dépendent est **refusé en les nommant** ; le **forçage** reste
+  possible sous double sécurité (réglage de l'instance, PUIS recopier le nom du module), et ses
+  conséquences se signalent tant qu'elles durent. Éteindre ne supprime rien. `mmi-pm module new`
+  crée un module valide du premier coup. Au passage : `mmi-pm module list` **plantait** dès qu'un
+  module exposait une route (la variable de boucle écrasait la résolution) — la liste s'arrêtait
+  net à `release-watch`, et les modules suivants n'apparaissaient jamais.
+
 - **Bot Telegram : on sait qui parle, et le verrou vit au coffre** (RM1777). Une liste blanche vide
   laissait n'importe quel compte Telegram interroger Redmine (« mode découverte ») : elle n'autorise
   désormais personne, seul `/whoami` répond. Une table `telegram.users` (conf locale) dit qui est chaque

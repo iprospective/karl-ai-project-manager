@@ -38,15 +38,26 @@ def cmd_list(a) -> int:
     if not mods:
         print(f"aucun module décrit dans {M.racine()}")
         return 0
+    routes = M.routes(modules=mods)
     for m in sorted(mods, key=lambda x: x.name):
-        etat = "désactivé" if not m.enabled else ("bloqué" if m.name in r["bloques"] else "actif")
-        print(f"  {ETAT[m.ok]} {m.name:24} {m.version:8} {etat:10} {m.label}")
+        etat = ("éteint (forcé)" if m.forced else "éteint") if not m.enabled else (
+            "bloqué" if m.name in r["bloques"] else "actif")
+        nature = "" if m.native else " [tiers]"
+        print(f"  {ETAT[m.ok]} {m.name:24} {m.version:8} {etat:14} {m.label}{nature}")
         for k, n in m.fournit():
             print(f"  {'':26} · {k} {n}")
-        for r in [x for x in M.routes(modules=mods) if x.module == m.name and x.ok]:
-            print(f"  {'':26} → {r.method} {r.url}")
+        # RM3145 L1 — la variable de boucle s'appelait `r`, comme la résolution : après le premier
+        # module exposant une route, `r` devenait une Route et `r["bloques"]` plantait. `module list`
+        # s'arrêtait net en production à `release-watch`, et les modules suivants n'étaient jamais
+        # listés.
+        for rt in [x for x in routes if x.module == m.name and x.ok]:
+            print(f"  {'':26} → {rt.method} {rt.url}")
         for motif in m.errors + r["bloques"].get(m.name, []):
             print(f"  {'':26} ⚠ {motif}")
+        if m.forced:
+            casses = M.dependants_actifs(m.name, mods)
+            if casses:
+                print(f"  {'':26} ⚠ éteint en forçant : {', '.join(casses)} ne fonctionne(nt) plus")
     print(f"\n  {len(mods)} module(s) · ordre de chargement : " + (" → ".join(r["ordre"]) or "—"))
     return 0
 
@@ -122,6 +133,54 @@ def cmd_inventory(a) -> int:
     return 0
 
 
+def cmd_enable(a) -> int:
+    """Allume un module (RM3145 L1). Refusé si une de ses dépendances est éteinte."""
+    try:
+        M.activer(a.name)
+    except M.ModuleError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 1
+    print(f"✓ module {a.name} actif")
+    return 0
+
+
+def cmd_disable(a) -> int:
+    """Éteint un module (RM3145 L1, Q003).
+
+    Refusé si d'autres modules actifs en dépendent — en disant lesquels. Le forçage est possible, et
+    il demande une confirmation FORTE : retaper le nom du module. Un simple `--force` se tape par
+    réflexe ; recopier un nom oblige à lire ce qu'on casse.
+    """
+    if a.force and a.confirm != a.name:
+        print(f"✗ forçage : confirmez en retapant le nom du module — --force --confirm {a.name}",
+              file=sys.stderr)
+        return 1
+    try:
+        r = M.desactiver(a.name, force=a.force)
+    except M.ModuleError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 1
+    if r["etat"] == "deja-eteint":
+        print(f"✓ module {a.name} déjà éteint")
+    elif r["force"]:
+        print(f"✓ module {a.name} éteint EN FORÇANT — ne fonctionne(nt) plus : {', '.join(r['casses'])}")
+    else:
+        print(f"✓ module {a.name} éteint — ce qu'il a produit reste en place")
+    return 0
+
+
+def cmd_new(a) -> int:
+    """Crée un module vide mais valide (RM3145 D005) : l'outil qui rend la modularisation simple."""
+    try:
+        d = M.squelette(a.name, a.description, label=a.label or "")
+    except M.ModuleError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 1
+    print(f"✓ module {a.name} créé : {d}")
+    print(f"  manifeste {d / M.MANIFESTE} · dossiers : {', '.join(M.SOUS_DOSSIERS)}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", action="store_true")
@@ -131,8 +190,16 @@ def main() -> int:
     s = sub.add_parser("show", help="un module en détail"); s.add_argument("name")
     sub.add_parser("check", help="contrôle des manifestes et des dépendances")
     sub.add_parser("inventory", help="les registres, décrits ou non")
+    s = sub.add_parser("enable", help="allumer un module"); s.add_argument("name")
+    s = sub.add_parser("disable", help="éteindre un module (refusé si d'autres en dépendent)")
+    s.add_argument("name")
+    s.add_argument("--force", action="store_true", help="éteindre malgré les modules qui en dépendent")
+    s.add_argument("--confirm", default="", help="avec --force : retaper le nom du module")
+    s = sub.add_parser("new", help="créer un module vide mais valide (squelette + manifeste)")
+    s.add_argument("name"); s.add_argument("--description", required=True); s.add_argument("--label")
     a = ap.parse_args()
-    return {"show": cmd_show, "check": cmd_check, "inventory": cmd_inventory}.get(a.cmd or "list", cmd_list)(a)
+    return {"show": cmd_show, "check": cmd_check, "inventory": cmd_inventory, "enable": cmd_enable,
+            "disable": cmd_disable, "new": cmd_new}.get(a.cmd or "list", cmd_list)(a)
 
 
 if __name__ == "__main__":

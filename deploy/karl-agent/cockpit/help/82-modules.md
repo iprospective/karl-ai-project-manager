@@ -45,3 +45,22 @@ flatteur et faux.
 
 `mmi-pm module list` · `show <nom>` · `check` · `inventory` — la même chose en ligne de
 commande. Ni l'un ni l'autre ne charge le code d'un module : ils lisent.
+
+## Allumer, éteindre, forcer (lot 1)
+
+Ouvrez un module : **○ éteindre** ou **● allumer**.
+
+- **Éteindre ne supprime rien.** Ce que le module a produit — tickets, notifications,
+  fichiers — reste en place. Il cesse d'agir, il n'efface rien.
+- **Un module dont d'autres dépendent ne s'éteint pas** : le panneau dit lesquels. C'est
+  le comportement normal — éteignez d'abord ceux qui en dépendent.
+- **Forcer** est possible, sous **deux** sécurités. D'abord cochez « autoriser le
+  forçage » en haut du panneau (réglage de l'instance). Ensuite, à chaque fois, **recopiez
+  le nom du module** : le bouton reste grisé tant que ce n'est pas exact. Les modules que
+  vous cassez ainsi sont signalés `bloqué`, et le module forcé `éteint (forcé)`, tant que
+  ça dure.
+- **Natif / tiers** : un module natif est livré avec le noyau — il s'éteint, il ne se
+  retire pas. Seul un module tiers se désinstalle.
+
+En ligne de commande : `mmi-pm module enable|disable <nom>` — le forçage demande
+`--force --confirm <nom>`. Pour créer un module : `mmi-pm module new <nom> --description "…"`.

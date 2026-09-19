@@ -11,6 +11,7 @@ sources:
   - modules/session-tooling.md
   - modules/session-tooling-pratique.md   # RM3037 : trous d'outillage + idiomes, hors précharge
   - modules/scheduler.md      # RM2792 : travaux périodiques + registre, hors précharge
+  - modules/modules-pm.md     # RM3145 : contrat des modules + « aucun garde-fou contourné », hors précharge
   - modules/project-modeling.md
   - modules/project-modeling-pratique.md   # RM3037 : relation d'implémentation, hors précharge
   - modules/project-creation.md

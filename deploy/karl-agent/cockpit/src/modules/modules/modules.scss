@@ -32,3 +32,12 @@
    d'élargir le tableau — c'est la leçon de RM3112. */
 .mdl-manq { white-space: normal; word-break: break-word; color: var(--muted); font-size: 11.5px; }
 .mdl-ecart { margin-top: 12px; }
+
+/* RM3145 L1 — les gestes, et la confirmation forte du forçage */
+.mdl-gestes { margin: 6px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mdl-nat { font-size: .8em; opacity: .6; padding: 0 5px; border: 1px solid rgba(127,127,127,.3); border-radius: 3px; }
+.mdl-refus { flex-basis: 100%; color: var(--due, #c33); }
+.mdl-confirm { flex-basis: 100%; margin-top: 4px; padding: 8px; border: 1px solid var(--due, #c33); border-radius: 4px; }
+.mdl-confirm > div { margin: 6px 0; }
+.mdl-confirm-in { font-family: monospace; }
+.mdl-policy { display: inline-flex; gap: 6px; align-items: center; margin: 4px 0 8px; font-size: .9em; }

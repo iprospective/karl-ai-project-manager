@@ -9146,17 +9146,60 @@ def op_modules() -> dict:
         # cliquer, et elle ne se répond pas en lisant le manifeste du module lui-même.
         d["required_by"] = sorted(x.name for x in mods
                                   if any(dep == m.name for dep, _, _ in x.deps()))
-        d["state"] = ("erreur" if not m.ok else "désactivé" if not m.enabled
-                      else "bloqué" if m.name in r["bloques"] else "actif")
+        d["state"] = ("erreur" if not m.ok else ("éteint (forcé)" if m.forced else "désactivé")
+                      if not m.enabled else "bloqué" if m.name in r["bloques"] else "actif")
+        # RM3145 L1 — ceux qu'on casserait MAINTENANT (actifs), pas seulement ceux qui le déclarent
+        d["breaks"] = pm_modules.dependants_actifs(m.name, mods)
         d["triggers"] = [t for t in triggers if t["module"] == m.name]
         out.append(d)
     inv = pm_modules.inventaire(REPO_ROOT, mods)
     return {"modules": out, "order": r["ordre"], "cycles": r["cycles"],
+            # RM3145 L1 — le forçage est-il PERMIS ici ? Sans ce réglage, le panneau n'offre pas le geste.
+            "allow_force": pm_modules.forcage_autorise(REPO_ROOT),
             "inventory": inv, "core_version": pm_modules.CORE_VERSION,
             "kinds": list(pm_modules.KINDS),
             "root": str(pm_modules.racine(REPO_ROOT)),
             "routes": [rt.as_dict() for rt in pm_modules.routes(REPO_ROOT, mods)],
             "bus": _bus_sante()}
+
+
+def op_modules_state(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/state — allumer ou éteindre un module (RM3145 lot 1).
+
+    {name, enabled: bool, force?: bool, confirm?: str}. Éteindre un module dont d'autres dépendent
+    est REFUSÉ, en disant lesquels (409) ; forcer exige que le forçage soit permis sur l'instance
+    ET que `confirm` recopie le nom du module. La même règle qu'en ligne de commande : deux chemins
+    vers un même geste ne doivent pas avoir deux sévérités.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    nom = str((payload or {}).get("name") or "").strip()
+    if not nom:
+        raise ApiError(400, "name requis")
+    force = bool((payload or {}).get("force"))
+    try:
+        if (payload or {}).get("enabled"):
+            return {"ok": True, **pm_modules.activer(nom, REPO_ROOT)}
+        if force:
+            if not pm_modules.forcage_autorise(REPO_ROOT):
+                raise ApiError(403, "le forçage n'est pas permis sur cette instance "
+                                    "(réglage « autoriser le forçage » des modules)")
+            if str((payload or {}).get("confirm") or "") != nom:
+                raise ApiError(400, f"confirmation forte : recopiez le nom du module « {nom} »")
+        return {"ok": True, **pm_modules.desactiver(nom, force=force, root=REPO_ROOT)}
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+
+
+def op_modules_policy(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/policy — permettre (ou non) le forçage sur l'instance (RM3145 Q003)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    try:
+        pm_modules.autoriser_forcage(bool((payload or {}).get("allow_force")), REPO_ROOT)
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+    return {"ok": True, "allow_force": pm_modules.forcage_autorise(REPO_ROOT)}
 
 
 def _bus_sante() -> dict:
@@ -13486,6 +13529,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/engines/options":  # RM3139 : cocher/décocher depuis le cockpit, plutôt qu'éditer le YAML
                 return self._send_json(200, op_engine_options_set(payload, self.auth_ctx))
+            if path == "/modules/state":    # RM3145 L1 : allumer / éteindre un module — geste d'administration
+                self._require_admin()
+                return self._send_json(200, op_modules_state(payload, self.auth_ctx))
+            if path == "/modules/policy":   # RM3145 Q003 : permettre le forçage sur l'instance
+                self._require_admin()
+                return self._send_json(200, op_modules_policy(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.

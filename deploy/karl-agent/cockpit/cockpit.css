@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 3697f1c25ec1f52c (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5616f317d28cd5da (38 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -5232,6 +5232,52 @@ button.mini.soft:hover {
 
 .mdl-ecart {
   margin-top: 12px;
+}
+
+/* RM3145 L1 — les gestes, et la confirmation forte du forçage */
+.mdl-gestes {
+  margin: 6px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.mdl-nat {
+  font-size: 0.8em;
+  opacity: 0.6;
+  padding: 0 5px;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 3px;
+}
+
+.mdl-refus {
+  flex-basis: 100%;
+  color: var(--due, #c33);
+}
+
+.mdl-confirm {
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--due, #c33);
+  border-radius: 4px;
+}
+
+.mdl-confirm > div {
+  margin: 6px 0;
+}
+
+.mdl-confirm-in {
+  font-family: monospace;
+}
+
+.mdl-policy {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0 8px;
+  font-size: 0.9em;
 }
 
 .cn-head {

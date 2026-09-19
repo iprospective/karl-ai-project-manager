@@ -66,6 +66,8 @@ TARGET_TO_CURRENT = {
     "/api/pm/engines": "/pm/engines",
     "/api/pm/llm-models": "/pm/llm-models",
     "/api/pm/modules": "/modules",
+    "/api/pm/modules-policy": "/modules/policy",
+    "/api/pm/modules-state": "/modules/state",
     "/api/pm/provider-assign": "/pm/provider-assign",
     "/api/pm/provider-secret": "/pm/provider-secret",
     "/api/pm/provider-types": "/pm/provider-types",

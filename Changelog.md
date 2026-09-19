@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Étiquettes : reprise de l'existant** (RM2828). Le socle RM2829 ne poussait le CF Redmine qu'à
+  l'écriture : 909 fiches étiquetées côté PM, 40 tickets seulement côté Redmine. `pm-tags-backfill`
+  rattrape le parc — additive (elle ne retire jamais une valeur posée dans l'UI), dry-run par défaut,
+  dump JSONL avant écriture — et compte séparément les trois raisons de ne pas monter : mot-clé local
+  assumé, alias à normaliser, valeur pas encore créée dans Redmine (sans id, elle ferait échouer le PUT).
+
 - **« Installer pour moi » vise enfin VOTRE home, et « installé » dit pour qui** (RM3097). L'action
   partait dans le home du démon, et la détection balayait tous les homes de la machine : un moteur posé
   par un autre développeur était rapporté présent pour tout le monde, avec un chemin que votre compte ne

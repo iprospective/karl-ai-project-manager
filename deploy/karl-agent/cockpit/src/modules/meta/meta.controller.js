@@ -101,7 +101,9 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
   const acts = {
     "refresh-usage": (n) => refreshUsage(n.dataset.rm), "copy-infos": (n) => copyInfos(n.dataset.rm),
     tab: (n) => setTab(n.dataset.rm), facet: (n) => setFacet(n.dataset.facet), ticket: (n) => showTicket(n.dataset.rm),
-    launcher: (n) => ctx.gotoTicket && ctx.gotoTicket(n.dataset.rm), review: (n) => ctx.openReview && ctx.openReview(n.dataset.rm),
+    launcher: (n) => ctx.gotoTicket && ctx.gotoTicket(n.dataset.rm),
+    estimate: (n) => ctx.estimateTicket && ctx.estimateTicket(n.dataset.rm),          // RM1838 : (re)chiffrer par un agent
+    review: (n) => ctx.openReview && ctx.openReview(n.dataset.rm),
     reload: (n) => ctx.reload && ctx.reload(n.dataset.rm), status: (n, e) => ctx.openStatusMenu && ctx.openStatusMenu(n.dataset.rm, n, e),
     reopen: (n) => ctx.reopen && ctx.reopen(n.dataset.rm), project: (n) => ctx.openProject && ctx.openProject(n.dataset.key),
     "attach-session": (n) => ctx.attachSession && ctx.attachSession(n.dataset.sid),

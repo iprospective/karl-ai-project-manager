@@ -49,6 +49,13 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
   function setRm(rm, opts) { const i = el.rm(); if (i) i.value = rm; const p = resolve(); if (opts && opts.switchPanel && ctx.switchPanel) ctx.switchPanel("sessions"); if (opts && opts.scroll && i && i.scrollIntoView) i.scrollIntoView({ block: "nearest", behavior: "smooth" }); return p; }
   /** RM2173 : depuis un RM-id → lanceur pré-rempli, et rattache si la session tourne déjà (RM2427 : jamais une fantôme). */
   async function goto(rm) { setRm(rm, { switchPanel: true }); if (await svc.isRunning(rm) && ctx.attach) ctx.attach(rm); }
+  /** RM1838 : prépare le lanceur pour un ticket ET un gabarit (« chiffrer »…), sans rien lancer ni attacher. Le gabarit est
+   *  posé AVANT la résolution : c'est elle qui rédige la consigne (applyTemplate), avec le client/projet du ticket. */
+  function prepare(rm, tpl) {
+    const sel = el.tpl();
+    if (sel && tpl) sel.value = tpl;
+    return setRm(rm, { switchPanel: true, scroll: true });
+  }
   async function spawn() {
     const sb = spawnBody({ rm: val(el.rm()), engine: val(el.engine()), model: val(el.model()), cwd: val(el.cwd()), prompt: val(el.prompt()) });
     if (sb.error) { notify(sb.error, true); return; }
@@ -124,6 +131,6 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
   listen(ntcard, "click", (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (n && n.dataset.action === "create") { e.preventDefault(); createTicket(); } });
   listen(clientctx, "change", (e) => setClientContext(e.target.value));
   if (ctx.onContext && svc.clientContext) ctx.onContext(svc.clientContext, "", true);   // le contexte restauré est connu du reste dès le montage
-  return { resolve, setRm, goto, spawn, reopen, createTicket, populateModels, applyTemplate, fillTicketForm, loadProjects, setClientContext, projects: () => svc.projects, clientContext: () => svc.clientContext, resolved: () => svc.resolved, rm: () => val(el.rm()).trim(),
+  return { resolve, setRm, goto, prepare, spawn, reopen, createTicket, populateModels, applyTemplate, fillTicketForm, loadProjects, setClientContext, projects: () => svc.projects, clientContext: () => svc.clientContext, resolved: () => svc.resolved, rm: () => val(el.rm()).trim(),
     unmount() { clearTimeout(resolveTimer); disposers.forEach(d => d()); disposers.length = 0; } };
 }

@@ -407,3 +407,13 @@ engines:
     # Arguments libres, ajoutés tels quels après les options cochées. Ce que PM pose
     # lui-même (--model, --session-id, --resume) y est REFUSÉ : ce serait un doublon.
     extra_args: ""
+
+# Point de restauration pré-MEP (RM2989, tripwire #10) — consommé par pm-snapshot.
+# PM ne touche aucun hôte : le snapshot est pris par atlas (ops svc-status /
+# svc-snapshot, RM3254) via le canal orchestrateur. Les nœuds sont tous interrogés ;
+# il faut exactement UNE instance up, sinon rien n'est exécuté.
+snapshot:
+  nodes: [srv3, srv4, srv5]
+  rid: "sync#root_hour"
+  atlas_orch_host: "atlas-orch@atlas.iprospective.net"
+  atlas_orch_key: "~/.ssh/id_ed25519_karl"

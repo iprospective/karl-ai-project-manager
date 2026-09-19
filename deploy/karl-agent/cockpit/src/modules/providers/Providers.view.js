@@ -2,13 +2,13 @@
 // Un champ de secret ne se PRÉREMPLIT JAMAIS : il n'affiche que « posée » ou « non renseignée », et remplace.
 import { html } from "../../core/html.js";
 
-const Secret = (inst, s, admin) => html`<div class="pv-secret">
+const Secret = (inst, s, canGlobal) => html`<div class="pv-secret">
   <span class="pv-skey" title="${s.var}">${s.label}</span>
   <span class="st ${s.set ? "ok" : ""}">${s.set ? "posée" : "non renseignée"}</span>
   <input type="password" class="pv-sval" autocomplete="new-password" placeholder="saisir pour remplacer"
          data-role="secret" data-name="${inst.name}" data-type="${inst.type}" data-key="${s.key}">
   <button class="mini" data-action="secret-save" data-name="${inst.name}" data-type="${inst.type}" data-key="${s.key}">enregistrer</button>
-  ${admin ? html`<label class="pv-glob"><input type="checkbox" data-role="scope" data-name="${inst.name}" data-key="${s.key}"> global</label>` : ""}
+  ${canGlobal ? html`<label class="pv-glob"><input type="checkbox" data-role="scope" data-name="${inst.name}" data-key="${s.key}"> global</label>` : ""}
   ${s.set ? html`<button class="mini pv-del" data-action="secret-unset" data-name="${inst.name}" data-type="${inst.type}" data-key="${s.key}" title="Effacer cette clé">✕</button>` : ""}
 </div>`;
 
@@ -55,7 +55,7 @@ export function ProvidersCard(vm) {
       ${i.open ? html`<div class="pv-body">
         <div class="pv-fields">${i.fields.map(f => html`<span><b>${f.k}</b> ${f.v}</span>`)}</div>
         ${i.listable ? Modeles(i) : ""}
-        ${i.secrets.length ? i.secrets.map(s => Secret(i, s, vm.admin)) : html`<div class="pv-nosecret">aucun secret pour ce type</div>`}
+        ${i.secrets.length ? i.secrets.map(s => Secret(i, s, vm.canGlobal)) : html`<div class="pv-nosecret">aucun secret pour ce type</div>`}
         ${i.uses.length ? html`<table class="cdc-table"><tbody>${i.uses.map(u => html`<tr><td>${u.project}</td><td><span class="st ${u.role === "primary" ? "ok" : ""}">${u.role === "primary" ? "primaire" : "secondaire"}</span></td><td class="cdc-dom">${u.params}</td></tr>`)}</tbody></table>`
           : html`<div class="pv-nosecret">utilisée par aucun projet</div>`}
         <div class="pv-actions"><button class="mini" data-action="edit" data-name="${i.name}" data-type="${i.type}" data-axis="${a.axis}">Modifier</button>

@@ -11,7 +11,7 @@ le lance (installation mono, non verrouillée) se met à jour sans sudo ; le ver
   3. re-verrou par `scripts/core-lock lock` (SOURCE UNIQUE de la politique 3 couches) ;
   4. hooks PM du core lui-même (post-commit, pre-push, pre-commit — .git/hooks root-owned, RM2240) ;
   5. si `scripts/karl-agent.py` a changé : redémarrage du service USER karl-agent (RM2308 — KillMode=process, tmux intacts) ;
-  6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent ;
+  6. co-déploiement de pm-env-helper (RM2358), karl-vhost-render (RM2565) et karl-ttyd-auth (RM2146) dans /usr/local/sbin s'ils diffèrent ;
   7c. déclencheur périodique de l'ordonnanceur posé s'il manque (RM3151, `pm-scheduler install-timer`,
      en tant que `KARL_USER`) — idempotent : sans changement, il n'écrit ni ne recharge rien ;
   7b. stores de session ramenés du HOME vers `var/` du core s'il en reste (RM2992, `pm-stores-migrate`, en tant que
@@ -35,7 +35,8 @@ from pathlib import Path
 CORE_DIR = Path(__file__).resolve().parent.parent
 HOOKS = (("post-commit", "pm-post-commit.py"), ("pre-push", "pm-pre-push"), ("pre-commit", "pm-pre-commit.py"))
 DEPLOYS = (("tools/env-runtime/pm-env-helper.sh", "/usr/local/sbin/pm-env-helper", "RM2358"),
-           ("deploy/karl-agent/karl-vhost-render.sh", "/usr/local/sbin/karl-vhost-render", "RM2565"))
+           ("deploy/karl-agent/karl-vhost-render.sh", "/usr/local/sbin/karl-vhost-render", "RM2565"),
+           ("deploy/karl-agent/karl-ttyd-auth.py", "/usr/local/sbin/karl-ttyd-auth", "RM2146"))
 # RM3033 : alias courts `mmi-<domaine> <verbe>` ≡ `mmi-pm <domaine>-<verbe>` — des liens vers le dispatcher, à côté de /usr/local/bin/mmi-pm
 ALIAS_DOMAINS = ("core", "task", "env", "index", "session", "mr", "norms", "project", "client")
 BIN_DIR = Path("/usr/local/bin")

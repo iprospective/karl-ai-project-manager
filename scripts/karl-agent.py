@@ -8849,7 +8849,16 @@ def _cdc_think_args(payload: dict) -> tuple:
         if state not in _THINK_STATES:
             raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
         return rm, local, [rm, "--set", local, "--state", state]
-    raise ApiError(400, "action inconnue (delete | state)")
+    if action == "move":                      # RM3258 : l'entrée part au carnet d'un autre ticket
+        to = str(payload.get("to") or "").strip().lstrip("Rr Mm#")
+        if not to.isdigit():
+            raise ApiError(400, "ticket destinataire requis (rm-id)")
+        if to == rm:
+            raise ApiError(400, "l'entrée est déjà sur ce ticket")
+        # --cross-project : le cockpit voit tous les projets, et une question mal attribuée
+        # l'est souvent D'UN projet à l'autre — c'est le cas d'usage, pas l'exception.
+        return rm, local, [rm, "--move", local, "--to", to, "--cross-project"]
+    raise ApiError(400, "action inconnue (delete | state | move)")
 
 
 _THINK_COMMENT_MAX = 1000
@@ -8879,10 +8888,13 @@ def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
     if answer:
         _pm_script("pm-task-think.py", answer)
     out = _pm_script("pm-task-think.py", args)
-    proj = _task_project(rm)
+    # RM3258 : un déplacement touche DEUX carnets — et, si les tickets ne sont pas du même projet,
+    # deux jeux de registres. Refondre le seul projet d'origine laisserait la cible périmée.
+    projets = [p for p in (_task_project(rm), _task_project(str(payload.get("to") or "").strip()) if
+                           str(payload.get("action") or "") == "move" else None) if p]
     merged = None
-    if proj:
-        merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
+    for pr in dict.fromkeys(projets):
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{pr[0]}/{pr[1]}"]).strip().splitlines()[-1:]
     return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
             "answer": bool(answer)}
 

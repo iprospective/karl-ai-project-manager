@@ -16,8 +16,10 @@ export function termAvailable(storage, win) {
 /** Le repli iframe est-il seulement joignable d'ici ? (RM3124)
  *
  * Non en accès proxifié : l'UI ttyd native exige la RACINE de son serveur — elle fetch
- * « /token » en absolu et ne survit pas au préfixe `/ttyd/`. Elle a donc besoin du port
- * dédié 7681, qui n'écoute que sur le bridge LXC. Le dire vaut mieux que de poser une
+ * « /token » en absolu et ne survit pas au préfixe `/ttyd/`. Elle a donc besoin de ttyd
+ * en direct sur :7681, qui n'écoute qu'en loopback : seul un accès direct au port de
+ * karl-agent depuis le conteneur y arrive (le vhost :7681 du bridge, ouvert sans auth,
+ * est supprimé — RM2146). Le dire vaut mieux que de poser une
  * URL morte : le navigateur ne rend alors qu'un « impossible de se connecter » qui
  * n'apprend rien.
  */

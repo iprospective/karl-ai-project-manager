@@ -525,6 +525,45 @@ kernel = (SCRIPTS.parent / "norms/src/NORMS-KERNEL.md").read_text(encoding="utf-
 check("…et le KERNEL le déclenche quand le contexte se remplit",
       "une compaction approche" in kernel)
 
+# ── RM3258 : déplacer une entrée vers le carnet d'un autre ticket ─────────────────
+# Une question consignée au mauvais ticket bloque la clôture de celui-ci et manque à celui
+# qu'elle concerne. La supprimer perd le verbatim ; la réécrire perd sa date et sa signature.
+mv = Path(tempfile.mkdtemp(prefix="rm3258-"))
+src_th, dst_th = mv / "RM10_a.think.md", mv / "RM20_b.think.md"
+pm_think.append(src_th, "question", "Faut-il un index sur le champ X ?", by="M", when="2026-09-01", urgence="haute")
+pm_think.append(src_th, "note", "Une note qui reste sur le ticket d'origine", by="A", when="2026-09-02")
+pm_think.append(dst_th, "question", "Une question déjà là", by="M", when="2026-09-03")
+avant_src = pm_think.load(src_th)
+check("find_row trouve l'entrée, et rend sa rubrique", pm_think.find_row(avant_src, "q001")[0] == "question")
+check("find_row : id inconnu → (None, None)", pm_think.find_row(avant_src, "Q404") == (None, None))
+res = pm_think.move_row(src_th, "Q001", dst_th, rm_id=20, title="Ticket B")
+check("move_row rend (rubrique, ancien id, nouvel id)", res == ("question", "Q001", "Q002"), str(res))
+src_p, dst_p = pm_think.load(src_th), pm_think.load(dst_th)
+check("l'entrée a quitté le carnet d'origine", not any(r["id"] == "Q001" for r in src_p["question"]["rows"]))
+check("…et ses autres entrées n'ont pas bougé", [r["id"] for r in src_p["note"]["rows"]] == ["N001"])
+arrivee = [r for r in dst_p["question"]["rows"] if r["id"] == "Q002"][0]
+check("le verbatim arrive intact", "index sur le champ X" in " ".join(arrivee["cells"]))
+check("…avec sa date et son urgence", "haute" in arrivee["cells"] and "🕐" in " ".join(arrivee["cells"]))
+check("le nouvel id suit la numérotation de la CIBLE (ids locaux, jamais réattribués)", arrivee["id"] == "Q002")
+check("déplacer une ligne absente ne fait rien", pm_think.move_row(src_th, "Q404", dst_th, rm_id=20) is None)
+try:
+    pm_think.move_row(src_th, "N001", src_th, rm_id=10); check("même fichier → refus", False)
+except ValueError:
+    check("même fichier source et cible → refus", True)
+# une note porte, elle, son auteur et sa session : le déplacement doit les garder aussi
+pm_think.append(src_th, "note", "Note signée à déplacer", by="M", when="2026-09-04", sid="abcd1234ef")
+pm_think.move_row(src_th, "N002", dst_th, rm_id=20)
+n = [r for r in pm_think.load(dst_th)["note"]["rows"] if r["id"] == "N001"][0]
+check("une note déplacée garde son auteur et sa session", "s:abcd1234" in " ".join(n["cells"]) and "2026-09-04" in " ".join(n["cells"]))
+# le CLI : --move exige --to, refuse le même ticket, et trace des deux côtés
+src_cli = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --move exige --to", '"--move exige --to' in src_cli or "--move exige --to" in src_cli)
+check("CLI : le déplacement est tracé dans les DEUX journaux",
+      src_cli.count("_log_deplacement(") == 3)
+check("CLI : les compteurs sont refaits des deux côtés", "for feuille, chemin in ((sheet, think), (cible, think_cible))" in src_cli)
+check("CLI : la garde de périmètre RM2274 couvre le ticket destinataire",
+      "pm_scope.assert_task_scope(a.to, cible, a.cross_project" in src_cli)
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

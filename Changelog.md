@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une entrée du carnet peut changer de ticket** (RM3258) : `pm-task-think <id> --move Qnnn --to <autre-id>`
+  déplace la ligne telle quelle (verbatim, date, signature) vers le carnet du ticket qu'elle concerne,
+  sous un nouvel id — les ids sont locaux au ticket et jamais réattribués. Les deux journaux tracent
+  le déplacement, les compteurs (donc la garde de clôture) sont refaits des deux côtés, et les
+  registres des DEUX projets sont refondus. Dans le cockpit, le volet « Réflexion » de la revue gagne
+  → (déplacer) et ✕ (supprimer) à côté de ✅ / ❌ : la suppression n'existait que dans la vue CDC,
+  alors que c'est dans la revue qu'on voit les entrées et que la clôture est refusée.
+
 - **Critères d'acceptation : une seule copie, dans leur champ** (RM3241, suite de RM2882/RM3240).
   Après la reprise, 783 tickets portaient leurs critères deux fois — CF 33 et description — et 15
   avaient déjà divergé, la description restant non cochée (RM3173 en MEP : 4/4 dans le champ, 0/4
@@ -24,7 +32,6 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   ou refuse la section sur un ticket migré (et `--add-criterion` → `pm-task-acceptance --append`),
   `pm-task-import` / `redmine-fetch-task` reprennent le CF et n'ajoutent plus de squelette,
   l'email client lit les critères par `pm_acceptance`.
-
 - **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
   `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
   `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation

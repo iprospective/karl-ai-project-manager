@@ -220,15 +220,34 @@ def _git_out(repo, *args, timeout=20):
         return ""
 
 
+def _git_ok(repo, *args, timeout=15) -> bool:
+    """Code retour de git (True = 0) ; toute erreur d'exécution ⇒ False."""
+    try:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              timeout=timeout).returncode == 0
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return False
+
+
 def unmerged_ticket_branches(md_path, rm_id):
     """RM2319 : branches du ticket non mergées dans la branche d'intégration.
 
     Cherche par PRÉFIXE `<rm_id>-` (locales + distantes) dans le repo du
     workspace co-localisé — le frontmatter git.branch peut être tronqué/périmé
-    (cas RM2238). Retourne (repo, integration, [branches non mergées]) ou None
-    si rien à vérifier (pas de workspace/repo résoluble, aucune branche).
+    (cas RM2238). Retourne (repo, integration, [branches non mergées], infos)
+    ou None si rien à vérifier (pas de workspace/repo résoluble, aucune branche,
+    tout est mergé). `infos` = {"fresh": le fetch a réussi}.
     Best-effort : toute résolution impossible ⇒ None (on ne bloque jamais sur
-    un problème d'infra), le réseau n'est pas requis (fetch tenté, non exigé).
+    un problème d'infra).
+
+    RM3173 — LE DISTANT FAIT FOI. La branche locale du dépôt central reste sur
+    ses anciens commits quand la branche a été rebasée et poussée depuis un
+    autre worktree : ses SHA ne sont jamais entrés dans `dev`, alors que le
+    code, lui, y est. Juger la locale donnait un refus sur du code en
+    production (RM3091, RM3059). Une locale n'est donc jugée QUE si elle n'a
+    pas de version distante (jamais poussée). Un patch-id (`git cherry`) ne
+    suffirait pas : un rebase avec résolution de conflit change le patch
+    (constaté sur RM3059). Mergée dans `main` compte aussi : c'est la prod.
     """
     try:
         real = md_path.resolve()
@@ -245,31 +264,32 @@ def unmerged_ticket_branches(md_path, rm_id):
         repo = bare if bare.is_dir() else (ws if (ws / ".git").exists() else None)
         if repo is None:
             return None
-        # refs fraîches si le réseau le permet (silencieux sinon)
-        _git_out(repo, "fetch", "origin", "--prune", timeout=25)
+        # refs fraîches : sans elles on ne peut pas conclure « non mergée » (RM3173)
+        fresh = _git_ok(repo, "fetch", "origin", "--prune", timeout=25)
         refs = _git_out(repo, "for-each-ref", "--format=%(refname:short)",
                         f"refs/heads/{rm_id}-*", f"refs/remotes/origin/{rm_id}-*")
         branches = [r for r in refs.splitlines() if r.strip()]
         if not branches:
             return None
-        target = (f"origin/{integration}"
-                  if _git_out(repo, "rev-parse", "--verify", "--quiet",
-                              f"refs/remotes/origin/{integration}") else integration)
+        remotes = {b.removeprefix("origin/") for b in branches if b.startswith("origin/")}
+        targets = []
+        for name in dict.fromkeys((integration, "main")):
+            if _git_out(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}"):
+                targets.append(f"origin/{name}")
+            elif _git_out(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}"):
+                targets.append(name)
+        if not targets:
+            return None
         unmerged = []
         for br in branches:
-            ok = subprocess.run(
-                ["git", "-C", str(repo), "merge-base", "--is-ancestor", br, target],
-                capture_output=True, timeout=20).returncode == 0
-            if not ok:
+            if not br.startswith("origin/") and br in remotes:
+                continue          # sa version distante est jugée à sa place
+            if not any(_git_ok(repo, "merge-base", "--is-ancestor", br, tg, timeout=20)
+                       for tg in targets):
                 unmerged.append(br)
-        # une même branche vue en local ET en origin/ : dédoublonner par nom court
-        seen, uniq = set(), []
-        for br in unmerged:
-            short = br.removeprefix("origin/")
-            if short not in seen:
-                seen.add(short)
-                uniq.append(br)
-        return (repo, integration, uniq) if uniq else None
+        if not unmerged:
+            return None
+        return (repo, integration, unmerged, {"fresh": fresh})
     except Exception:  # noqa: BLE001 — garde best-effort
         return None
 
@@ -986,7 +1006,17 @@ def main():
     if merge_gate and not args.allow_unmerged:
         found = unmerged_ticket_branches(md_path, args.rm_id)
         if found:
-            repo, integration, branches = found
+            repo, integration, branches, infos = found
+            if not infos["fresh"]:
+                # RM3173 : sans fetch, les refs distantes peuvent être périmées — on ne
+                # sait pas, et on le dit, plutôt que d'affirmer « non mergée ».
+                sys.exit(
+                    f"ERREUR : impossible de conclure pour RM{args.rm_id} — le fetch de "
+                    f"{repo} a échoué, les refs locales disent {', '.join(branches)} "
+                    f"non mergée(s) dans '{integration}' mais elles peuvent être périmées.\n"
+                    f"  → Rétablir l'accès au dépôt distant et relancer ;\n"
+                    f"  → ou, si tu as vérifié ailleurs que le code est livré : "
+                    f"relance avec --allow-unmerged.")
             sys.exit(
                 f"ERREUR : branche(s) du ticket RM{args.rm_id} non mergée(s) dans "
                 f"'{integration}' : {', '.join(branches)} — passer en "

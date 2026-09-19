@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
+  `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
+  `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation
+  par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
+  git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
+  jetable de RM2667 et l'édition à la main dans Roundcube.
 - **Les modules s'allument et s'éteignent** (RM3145, lot 1). Jusqu'ici « activable » n'était
   qu'un mot : l'état vivait dans le manifeste, versionné avec le noyau — éteindre un module aurait
   modifié le code livré. Il vit désormais dans la configuration de l'INSTANCE. Les trois

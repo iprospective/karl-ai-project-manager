@@ -196,7 +196,8 @@ class PMConfig:
                  log_dir: Optional[Path] = None,
                  zfs_backup: Optional[dict] = None,
                  mail: Optional[dict] = None,
-                 snapshot: Optional[dict] = None):
+                 snapshot: Optional[dict] = None,
+                 sieve: Optional[dict] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
@@ -219,6 +220,9 @@ class PMConfig:
         # Point de restauration pré-MEP (RM2989) — section `snapshot:`. Même
         # traitement : optionnelle, exposée telle quelle. Consommée par pm-snapshot.
         self.snapshot = snapshot or {}
+        # Filtres Sieve (RM3171) — section `sieve:` (hôte, port, boîte → URI du vault).
+        # Même traitement : optionnelle, exposée telle quelle. Consommée par pm-sieve.
+        self.sieve = sieve or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -305,7 +309,8 @@ class PMConfig:
                    conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir,
                    zfs_backup=cfg.get("zfs_backup", {}),
                    mail=cfg.get("mail", {}),
-                   snapshot=cfg.get("snapshot", {}))
+                   snapshot=cfg.get("snapshot", {}),
+                   sieve=cfg.get("sieve", {}))
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:

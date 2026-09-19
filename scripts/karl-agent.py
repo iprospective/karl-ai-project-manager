@@ -12880,6 +12880,17 @@ def _resolve_asset(rel: str):
     return target
 
 
+# ── APK de l'app Android (RM2331) ───────────────────────────────────────────
+# Publiée par deploy/karl-agent/android/build-apk.sh dans l'état de l'agent (hors
+# git). Route PUBLIQUE : on l'installe depuis le navigateur du téléphone, avant
+# d'avoir le moindre jeton ; l'APK ne contient aucun secret (code public).
+APK_NAME = "karl-cockpit.apk"
+
+
+def _apk_file():
+    return STATE_DIR / "app" / APK_NAME
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
 
@@ -12970,6 +12981,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_apk(self):
+        try:
+            body = _apk_file().read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": "APK non publiée (deploy/karl-agent/android/build-apk.sh)"})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{APK_NAME}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -13136,6 +13160,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
         if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
             return self._send_asset(path[len("/static/"):])
+        if path == "/app/" + APK_NAME:      # RM2331 : installation de l'app Android
+            return self._send_apk()
         if path == "/help":                  # RM2593 : sommaire de l'aide intégrée
             return self._send_json(200, op_help_list())
         if path.startswith("/help/"):        # RM2593 : contenu markdown d'un topic

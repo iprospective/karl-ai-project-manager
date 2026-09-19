@@ -9465,11 +9465,14 @@ def _engines_mod():
     return R, E
 
 
-def op_engines() -> dict:
+def op_engines(auth_ctx=None) -> dict:
     """Le catalogue et l'état réel : présent, version installée, version disponible, sessions en cours.
-    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas."""
+    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas.
+
+    RM3097 : l'état est rendu POUR LE DÉVELOPPEUR CONNECTÉ. « Installé » sans dire pour qui déclarait
+    présent un binaire vivant dans le home d'un autre, que le compte courant ne peut pas exécuter."""
     R, E = _engines_mod()
-    return {"catalogue": R.catalogue(), "etats": E.etats()}
+    return {"catalogue": R.catalogue(), "etats": E.etats(_user_unix(auth_ctx)), "user": _user_unix(auth_ctx)}
 
 
 def op_engine_install(payload: dict, auth_ctx=None) -> dict:
@@ -9497,7 +9500,7 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
                             f"--action {action} --scope system")
     try:
         r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")),
-                      portee=portee)
+                      portee=portee, cible=_user_unix(auth_ctx))
     except (KeyError, ValueError) as e:
         raise ApiError(400, str(e))
     _jlog("env", "info", f"moteur {nom} : {action} ({portee})"
@@ -13330,7 +13333,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
         if path == "/pm/engines":            # RM3069 : catalogue + état des moteurs et serveurs
-            return self._send_json(200, op_engines())
+            return self._send_json(200, op_engines(self.auth_ctx))
         if path == "/modules":               # RM3145 : les modules de l'instance, et l'écart
             return self._send_json(200, op_modules())
         if path.startswith("/api/modules/"):  # RM3145 (lot 4) : une route servie par un MODULE

@@ -32,13 +32,16 @@ export class EnginesViewModel extends EntityViewModel {
     return { id: r.id, label: r.label, bin: r.bin, note: r.note || "", config: r.config || "",
       providerType: r.provider_type || "", path: e.path || "",
       installed: !!e.installed, version: e.version || "", latest: e.latest || "",
+      // RM3097 : présent sur la machine, mais dans le home d'un AUTRE — ce n'est pas installé POUR VOUS
+      elsewhere: !!e.installed_elsewhere, owner: e.owner || "",
       scope: e.scope || "", scopeLabel: e.scope ? EnginesViewModel.portee(e.scope) : "",
       updatable: !!e.update_available, service: e.service || "", sessions,
       busy: this.e.busy === r.id, actions,
       cmd: (actions.find(a => a.primary) || actions[0] || {}).cmd || "",
-      state: !e.installed ? "absent"
+      state: e.installed_elsewhere ? `installé par ${e.owner || "un autre utilisateur"} — pas pour vous`
+             : !e.installed ? "absent"
              : (e.update_available ? "à mettre à jour" : "à jour") + " · " + EnginesViewModel.portee(e.scope),
-      cls: !e.installed ? "" : (e.update_available ? "wait" : "ok"),
+      cls: e.installed_elsewhere ? "wait" : (!e.installed ? "" : (e.update_available ? "wait" : "ok")),
       warn: sessions && e.update_available ? `${sessions} session(s) en cours : la mise à jour les couperait` : "" };
   }
   get groupes() {
@@ -47,7 +50,11 @@ export class EnginesViewModel extends EntityViewModel {
             { key: "servers", label: "Serveurs de modèles", help: "ils ne tiennent pas de session : ils servent les modèles, et se déclarent ensuite comme fournisseurs de l'axe « modèles de travail »",
               rows: (this.cat.servers || []).map(r => this.ligne(r)) }];
   }
-  get count() { const n = this.etats.filter(e => e.installed).length; return `${n} installé(s) sur ${this.etats.length}`; }
+  get count() {
+    const n = this.etats.filter(e => e.installed).length;
+    const ailleurs = this.etats.filter(e => e.installed_elsewhere).length;
+    return `${n} installé(s) sur ${this.etats.length}` + (ailleurs ? ` · ${ailleurs} pour un autre utilisateur` : "");
+  }
 }
 
 /** RM3139 — comment les moteurs sont LANCÉS : les options cochables, ce qui est saisi à la main, et

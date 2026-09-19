@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Configurer la clé d'un autre développeur marche, et une clé illisible ne passe plus pour absente**
+  (RM3096). Le démon appelait `sudo -u <dev>`, que la règle sudoers n'autorise pas (elle n'ouvre le
+  script qu'en root) et n'utilisait jamais l'option `--user` prévue pour ce cas : l'écriture échouait
+  toujours. Pire, la lecture d'état avalait l'échec et affichait **« non renseignée » partout**, ce qui
+  envoyait chercher une configuration manquante là où il n'y avait qu'un refus de privilège. Désormais :
+  root + `--user <dev>`, et une clé dont l'état n'a pas pu être lu se dit **« état inconnu »**, avec le
+  motif et sans bouton d'effacement.
+
 - **Le cockpit cesse de proposer ce qui ne peut pas aboutir** (RM3070, lot L2). Deux portées se
   donnaient sans pouvoir tenir : le `.env` **global** d'un secret et l'installation d'un moteur **pour
   toute la machine**. Les deux passent par `sudo -n`, or la règle sudoers exige un mot de passe — la

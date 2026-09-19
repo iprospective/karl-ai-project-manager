@@ -125,6 +125,9 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
+  Si le sujet remplit le critère d'**aspect partagé** (CDC, cluster ≥ 2 tickets, transverse
+  durable — `project-modeling-pratique.md` § *Aspect partagé*), le livrable **est** cet
+  aspect, lié par `pm-task-doc` : la description du ticket y renvoie au lieu de le recopier.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
 - **Proposition d'implémentation** — l'esquisse technique, dans le CF 31 via
   `pm-task-implementation` (§ dédiée ci-dessous). **Obligatoire dès que l'étude débouche

@@ -1,2 +1,2 @@
-# Normes de gestion des tâches — v2.55.1
+# Normes de gestion des tâches — v2.56.0
 

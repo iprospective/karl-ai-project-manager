@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.56.0] - 2026-09-19
+
+### Ajouté
+- **`project-modeling-pratique` — l'aspect partagé adossé à un cluster de tickets** (RM1889, RM1856).
+  Quand créer une doc factorisée (C1 CDC, C2 cluster ≥ 2 tickets, C3 transverse durable) et surtout
+  quand NE PAS en créer (défaut : pas d'aspect) ; emplacement `docs/<slug>.md`, slug stable sans
+  RM-id, liaison bidirectionnelle `related_tickets[]` ↔ mention en description, posée par
+  `pm-task-doc`. L'outil et le gabarit existaient (RM1890, RM1891) ; la règle qui dit quand s'en
+  servir n'était écrite nulle part ailleurs que dans le CDC.
+- **`status-workflow-pratique` § Phase d'étude** : quand le critère est rempli, le livrable d'étude
+  EST cet aspect, et la description du ticket y renvoie au lieu de le recopier.
+- **`worker-common`** : le réflexe de qualification « ce sujet mérite-t-il un aspect partagé ? »,
+  en trois lignes (précharge : +76 tokens, rien de plus).
+
 ## [2.55.1] - 2026-09-19
 
 ### Modifié

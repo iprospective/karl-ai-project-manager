@@ -10516,6 +10516,16 @@ PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
 # sur disque : le supprimer effacerait un historique, même inexploité.
 
 
+def _env_test_host(env, test_url):
+    """Hôte à sonder pour un env de session (RM3247) : celui de `test_url` s'il est en `.lxc`,
+    sinon `<dossier>.lxc` (comportement historique). Un `test_url` hors `.lxc` (préprod,
+    recette distante) ne désigne pas le vhost local du worktree : on ne le suit pas."""
+    if not env:
+        return None
+    hote = urlparse(str(test_url or "").strip()).hostname or ""
+    return hote if hote.endswith(".lxc") else f"{env}.lxc"
+
+
 def _probe_env(host: str, env: str) -> tuple:
     """Vivacité d'un env de session (RM2229) → (live: bool, reason: str).
 
@@ -11938,7 +11948,10 @@ def op_test_queue(qs: dict) -> list:
             hits = sorted((ws / "envs").glob(f"*-rm{e['rm_id']}")) if (ws / "envs").is_dir() else []
             env = hits[0].name if hits else None
         e["env"] = env
-        e["test_host"] = f"{env}.lxc" if env else None
+        # RM3247 : le vhost peut porter un préfixe distinct du dossier (runtime.vhost_prefix) —
+        # l'hôte servi est celui que pm-env-session a inscrit dans `test_url`. Le déduire du
+        # nom du dossier sonderait un nom qui n'existe pas, et l'env passerait pour mort.
+        e["test_host"] = _env_test_host(env, fm.get("test_url"))
         # RM2356 : ticket cockpit-testable = son worktree embarque karl-agent
         e["cockpit_testable"] = bool(
             ws and env and (ws / "envs" / env / "scripts" / "karl-agent.py").is_file())

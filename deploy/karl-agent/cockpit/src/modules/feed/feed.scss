@@ -17,3 +17,13 @@
 #feedbtn .feed-badge { font-family: var(--mono); font-size: 11px; margin-left: 3px; }
 #feedbtn.has-warn { color: var(--warn); border-color: var(--warn); }
 #feedbtn.has-critical { color: var(--danger); border-color: var(--danger); animation: kblink 1s ease-in-out infinite; }
+
+/* RM3206 — le contexte d'une notification : d'où elle vient, de quoi elle parle. Discret par
+   construction : il situe, il ne doit pas concurrencer le message lui-même. */
+.feed-job { margin-left: 4px; opacity: .65; font-size: .85em; }
+.feed-job::before { content: "/"; margin-right: 3px; opacity: .5; }
+.feed-mes { margin-left: 5px; padding: 0 5px; border-radius: 3px;
+            background: rgba(127, 127, 127, .14); font-variant-numeric: tabular-nums; }
+.feed-rep i { font-style: normal; opacity: .7; }
+.feed-ou, .feed-sid { margin-left: 5px; opacity: .7; font-size: .85em; white-space: nowrap; }
+.feed-sid { font-variant-numeric: tabular-nums; }

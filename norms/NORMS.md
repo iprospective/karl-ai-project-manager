@@ -1,9 +1,9 @@
 ---
-schema_version: "2.56.0"
+schema_version: "2.57.0"
 updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.56.0
+# Normes de gestion des tâches — v2.57.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1116,6 +1116,32 @@ ne doit pas se traduire par « la moitié des travaux ont tourné ».
 - **Pas de recouvrement.** Un job encore en cours n'est pas relancé : il est tracé
   « déjà en cours ». Un job qui échoue ou qui dépasse son `timeout` n'empêche jamais les
   autres de tourner ; le passage sort en code ≠ 0 pour que l'échec reste visible.
+
+## Un seuil qui dérive : notifier, pas ticketer (RM3177)
+
+Un **état qui dérive** — budget de contexte, invariant du doctor, test rouge durable — se
+**notifie** au fil (`pm_notify.add`, RM2792). Il ne produit pas de ticket. Seule une
+**action décidée** se ticket (« dégraisser `git-mep.md` », « relever le plafond à N parce
+que… »).
+
+Pourquoi c'est une règle et pas un conseil : le budget de précharge NORMS a produit **trois
+tickets** pour le même seuil (RM2974, RM2756, RM3035) pendant que la mesure passait de
+91,4 % à 96,7 % sans que personne soit alerté au bon moment. Un ticket ne se relit pas, il
+attend qu'on aille le chercher. Et un test rouge en permanence cesse d'être un signal : il
+devient du décor.
+
+Une veille bien faite tient en quatre points — `pm-context-budget --notify` est l'exemple :
+
+1. **Un job du registre**, pas un cron : la mesure tourne seule.
+2. **Des paliers** (info / warn / critical), pas un seul seuil : la marge sert à prévenir
+   AVANT de constater.
+3. **Un message STABLE, les chiffres en champs.** Sinon chaque mesure écrit une entrée neuve
+   et l'anti-répétition du fil tombe : une dérive qui dure doit faire UNE entrée qui remonte.
+4. **La tendance, pas seulement la valeur.** « 98 % » ne distingue pas un plateau d'une
+   dérive ; « +5,3 pts en 21 j » dit ce qu'il faut faire.
+
+Le gate BLOQUANT (test, doctor en CI) reste en place : la veille ne le remplace pas, elle
+fait savoir qu'il est rouge entre deux modifications.
 
 ## Regarder ce qui tourne
 

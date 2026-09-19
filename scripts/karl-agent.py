@@ -5488,7 +5488,7 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 client_hash = rest[0] if rest else ""
             elif name == "health":
                 data = {"status": "ok", "sessions": len(_list_sessions()),
-                        "tmux": _tmux("-V")[0] == 0}
+                        "tmux": _tmux("-V")[0] == 0, "install": _install_state()}
                 client_hash = rest[0] if rest else ""
             elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
                 data = op_pending({}, auth_ctx)
@@ -10315,6 +10315,13 @@ _PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
 _PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
                      "invalide", "doublon"]
 _PM_COMMANDS_DEFAULT = [
+    # RM2940 : la maintenance des providers, exposée au cockpit — en LECTURE SEULE. Ces deux
+    # contrôles n'existaient qu'en CLI : une dérive (id de CF renommé, primaire que l'écriture
+    # ne sert pas) restait invisible tant que personne ne pensait à les lancer.
+    {"name": "providers-check", "label": "Vérifier la config Redmine (ids live vs référence)",
+     "category": "maintenance", "script": "redmine-config-check.py", "args": []},
+    {"name": "pm-doctor", "label": "Vérifier la cohérence PM (projets, providers, liens partenaires)",
+     "category": "maintenance", "script": "pm-doctor.py", "args": []},
     {"name": "task-status", "label": "Changer le statut d'un ticket",
      "category": "ticket", "script": "pm-task-status-update.py",
      "mutate": True, "confirm": True, "args": [
@@ -12108,6 +12115,13 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM3070 L0 — le mode d'installation. Réglage d'INSTANCE : admin seul. KARL_INSTALL_MODE,
+    # posé par l'unité de service, l'emporte ; /health dit lequel fait foi et ce qu'il contredit.
+    {"key": "conf:install.mode", "label": "Mode d'installation", "group": "Installation",
+     "type": "enum", "options": ["mono", "multi"], "default": "mono", "admin": True,
+     "path": ["install", "mode"],
+     "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
+             "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
     # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
     {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
@@ -12186,6 +12200,24 @@ def _conf_merged() -> dict:
             else:
                 out[k] = v
     return out
+
+
+_INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
+
+
+def _install_state() -> dict:
+    """RM3070 L0 : le mode d'installation déclaré (mono|multi) et ses écarts constatés.
+    Recalculé au plus toutes les 60 s — /health est appelé à chaque tick du cockpit."""
+    now = time.time()
+    if _INSTALL_CACHE["etat"] is None or now - _INSTALL_CACHE["at"] > 60:
+        import pm_install_mode
+        try:
+            _INSTALL_CACHE["etat"] = pm_install_mode.etat(_conf_merged(), REPO_ROOT, USERS_FILE)
+        except Exception as e:   # jamais un /health en panne à cause du contrôle
+            _INSTALL_CACHE["etat"] = {"mode": "mono", "source": "défaut", "signals": {},
+                                      "warnings": [f"contrôle du mode impossible : {e}"]}
+        _INSTALL_CACHE["at"] = now
+    return _INSTALL_CACHE["etat"]
 
 
 def yaml_safe_load(text):
@@ -12923,6 +12955,17 @@ def _resolve_asset(rel: str):
     return target
 
 
+# ── APK de l'app Android (RM2331) ───────────────────────────────────────────
+# Publiée par deploy/karl-agent/android/build-apk.sh dans l'état de l'agent (hors
+# git). Route PUBLIQUE : on l'installe depuis le navigateur du téléphone, avant
+# d'avoir le moindre jeton ; l'APK ne contient aucun secret (code public).
+APK_NAME = "karl-cockpit.apk"
+
+
+def _apk_file():
+    return STATE_DIR / "app" / APK_NAME
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
 
@@ -13013,6 +13056,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_apk(self):
+        try:
+            body = _apk_file().read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": "APK non publiée (deploy/karl-agent/android/build-apk.sh)"})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{APK_NAME}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -13179,6 +13235,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
         if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
             return self._send_asset(path[len("/static/"):])
+        if path == "/app/" + APK_NAME:      # RM2331 : installation de l'app Android
+            return self._send_apk()
         if path == "/help":                  # RM2593 : sommaire de l'aide intégrée
             return self._send_json(200, op_help_list())
         if path.startswith("/help/"):        # RM2593 : contenu markdown d'un topic
@@ -13285,6 +13343,7 @@ class Handler(BaseHTTPRequestHandler):
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
                     "journal": jsante,
+                    "install": _install_state(),     # RM3070 L0
                 })
             if path == "/monitor/alerts":    # RM3112 : les alertes de l'observateur, situées
                 return self._send_json(200, op_monitor_alerts({k: v[0] for k, v in parse_qs(parsed.query).items()}))
@@ -13854,6 +13913,13 @@ def main():
     purged = purge_tmux_logs()
     if purged:
         _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
+    # RM3070 L0 : le mode déclaré, et ce que l'installation réelle en contredit — dit
+    # une fois au démarrage, sans jamais refuser de démarrer.
+    _ist = _install_state()
+    _jlog("system", "warn" if _ist["warnings"] else "info",
+          f"mode {_ist['mode']} ({_ist['source']})"
+          + (f" — {len(_ist['warnings'])} écart(s) : " + " ; ".join(_ist["warnings"])
+             if _ist["warnings"] else ""))
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

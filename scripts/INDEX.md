@@ -207,6 +207,7 @@
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
 - `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
+- `pm_install_mode` — le mode d'installation de karl, déclaré et contrôlé
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer

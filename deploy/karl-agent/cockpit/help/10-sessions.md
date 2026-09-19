@@ -201,4 +201,7 @@ marque sert à dire), et l'absence de session. Une session **🔖 parké** ou
 
 La colonne de droite affiche le terminal de la session attachée (client maison
 xterm.js). Il passe par un **WebSocket même origine** derrière le vhost HTTPS ;
-un repli sur le port dédié `:7681` existe si le bundle xterm.js n'est pas chargé.
+ce WebSocket exige ta session (cookie posé par le cockpit) : sans elle, refus 403.
+Si le bundle xterm.js ne se charge pas, le cockpit le signale : le repli sur l'UI
+ttyd native n'est possible qu'en accès direct depuis le conteneur (plus de port
+`:7681` exposé sur le réseau, RM2146).

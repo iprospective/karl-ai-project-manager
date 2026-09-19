@@ -65,8 +65,10 @@ def origin_range(tgt, src):
 
 
 # RM2809 — un lot nomme ses tickets de deux façons (« RM2857 : … » et « Merge branch
-# '2777-slug' … ») : la lecture vit dans pm_questions_gate.ids_in_text, partagée avec la
-# garde RM3238 qui doit voir EXACTEMENT les mêmes tickets.
+# '2777-slug' … »). RM3222 — seuls les tickets PORTÉS par un commit (lus dans son SUJET)
+# sont du lot : un RM-id CITÉ dans un corps de commit recevait une fausse note « Promu »
+# (promotion !1199 : 8 tickets annoncés pour 1 livré). La lecture est celle de la garde
+# RM3238 (pm_questions_gate.carried_ids) : annotation et garde voient le même lot.
 
 
 def batch_ticket_ids(repo, tgt, count_from):
@@ -75,10 +77,10 @@ def batch_ticket_ids(repo, tgt, count_from):
     Best-effort : un lot sans aucun ticket (auto-commits pm-*, MR sans ticket)
     rend une liste vide, ce qui n'est pas une anomalie.
     """
-    p = _git(repo, "log", "--format=%s%n%b", f"origin/{tgt}..{count_from}")
+    p = _git(repo, "log", "--format=%s", f"origin/{tgt}..{count_from}")
     if p.returncode != 0:
         return []
-    return pm_questions_gate.ids_in_text(p.stdout)      # même lecture que la garde RM3238
+    return pm_questions_gate.carried_ids(p.stdout.splitlines())   # sujets seuls (RM3222)
 
 
 def _task_status(task_file):
@@ -254,13 +256,10 @@ def main():
         print("  aucun ticket identifié dans le lot")
 
     # RM3238 — annoncé aussi en dry-run : c'est là qu'on veut l'apprendre, pas au merge.
-    carried = ids
     _gate_on = pm_questions_gate.is_prod_branch(tgt) and not pm_questions_gate.is_data_repo(local_repo=repo)
     if _gate_on:
-        # RM3239 : la garde ne regarde que les tickets PORTÉS (sujets), pas ceux que le lot cite
-        _s = _git(repo, "log", "--format=%s", f"origin/{tgt}..{count_from}")
-        carried = pm_questions_gate.carried_ids(_s.stdout.splitlines()) if _s.returncode == 0 else ids
-        bm = pm_questions_gate.blocked(carried)
+        # RM3239 : la garde ne regarde que les tickets PORTÉS — `ids` l'est déjà (RM3222)
+        bm = pm_questions_gate.blocked(ids)
         if bm:
             print("  ⚠ tickets du lot avec des questions non tranchées (RM3238) :\n"
                   + pm_questions_gate.describe(bm))
@@ -280,7 +279,7 @@ def main():
         pr = forge.create_pr(project, src, tgt, title,
                              "Promotion automatique du lot d'auto-commits pm-* (RM2298).", token)
         print(f"✓ MR !{pr.iid} créée")
-    pmmr._merge_with_policy(forge, project, pr.iid, token, ticket_ids=carried if _gate_on else ids,
+    pmmr._merge_with_policy(forge, project, pr.iid, token, ticket_ids=ids,
                             local_repo=repo,
                             ignore_questions=args.ignore_questions)
 

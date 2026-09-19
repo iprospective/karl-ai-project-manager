@@ -1,9 +1,9 @@
 ---
-schema_version: "2.54.1"
+schema_version: "2.55.0"
 updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.54.1
+# Normes de gestion des tâches — v2.55.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -108,7 +108,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 18. **Restitution point par point (RM3127).** Un message du demandeur qui porte **plusieurs demandes ou questions** se traite **point par point, dans SON ordre**, en reprenant l'intitulé de chacun : il doit vérifier d'un coup d'œil que rien n'a été perdu, **sans relire son propre message**. **La réponse d'abord, le raisonnement après.** Ce qui n'a **pas** été traité se dit **explicitement, à sa place dans la liste** — jamais par omission, jamais renvoyé à la fin. Répondre en prose continue à un lot de demandes oblige le demandeur à faire l'inventaire lui-même ; s'il doit demander « tu as bien tout pris ? », la restitution a échoué (incident fondateur : 2026-09-13, deux messages, quatre demandes tombées).
 
-19. **Antériorité avant de ticketer (RM3130).** Une **nouvelle demande** du demandeur se cherche d'abord dans l'existant : `mmi-pm task-search <mots-clés>` — titres, corps et `.think.md`, **fermés inclus** (un ticket clos est souvent la meilleure réponse). Un résultat proche se **lie** (`pm-task-link … relates`) ou **complète** le ticket trouvé ; il ne donne pas un doublon. Vaut aussi avant de consigner une F ou une D. Sans cette recherche, on recrée ce qui existe et on éparpille un même sujet sur trois tickets — la sortie est volontairement brève pour qu'aucun agent n'ait de raison de s'en passer.
+19. **Antériorité avant de ticketer (RM3130).** Une **nouvelle demande** du demandeur se cherche d'abord dans l'existant : `mmi-pm task-search <mots-clés>` — titres, corps et `.think.md`, **fermés inclus** (un ticket clos est souvent la meilleure réponse). Un résultat proche se **lie** (`pm-task-link … relates`) ou **complète** le ticket trouvé ; il ne donne pas un doublon. Vaut aussi avant de consigner une F ou une D. Sans cette recherche, on recrée ce qui existe et on éparpille un même sujet sur trois tickets — la sortie est volontairement brève pour qu'aucun agent n'ait de raison de s'en passer. **`pm-task-add` fait la recherche lui-même (RM3248)** : il affiche les antériorités, et **refuse** de créer sur une correspondance forte dans le même projet sauf `--not-duplicate "<pourquoi>"`, tracé au journal. La recherche manuelle reste due sur les MOTS-CLÉS du besoin, que le titre ne contient pas toujours : la garde ne compare que des titres.
 
 20. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
 

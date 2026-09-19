@@ -20,6 +20,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   vibe ; le shell n'en a pas, donc pas de bouton). Hors repos, le bouton reste visible mais
   éteint : pendant un tour la ligne se mêlerait à la saisie, et sur une question elle
   partirait comme réponse au menu. Route `POST /compact` (`/api/session/compact`).
+- **Antériorité vérifiée à la création** (RM3248) : `pm-task-add` lance la recherche de
+  `pm-task-search` avant de créer, affiche les tickets voisins, et refuse un doublon probable du
+  même projet sauf acquittement motivé (`--not-duplicate`, tracé au journal). `--relates <id>`
+  lie le ticket créé d'un geste. Un moteur en panne n'empêche jamais la création.
 - **Préfixe de vhost par repo** (RM3247) : `runtime.vhost_prefix` au manifeste nomme le vhost
   d'un env de ticket (`client-a-erp-rm<id>.lxc` au lieu de `dolibarr-rm<id>.lxc`). Le dossier
   garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le

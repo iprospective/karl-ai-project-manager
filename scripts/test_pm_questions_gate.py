@@ -57,7 +57,7 @@ check("un auto-commit pm(...) nomme son ticket", G.ids_in_text("pm(think): RM321
 check("branche <id>-slug → ticket", G.id_from_branch("3238-bloquer-la-mep") == 3238)
 check("branche sans préfixe → aucun", G.id_from_branch("dev") is None and G.id_from_branch("feature/x") is None)
 promote = (HERE / "pm-promote.py").read_text(encoding="utf-8")
-check("pm-promote délègue sa lecture à la garde (une seule définition)", "pm_questions_gate.ids_in_text" in promote)
+check("pm-promote délègue sa lecture à la garde (une seule définition)", "pm_questions_gate.carried_ids" in promote)
 
 print("\n[RM3239] tickets PORTÉS par un lot, pas simplement cités")
 LOT = ["Merge branch '3238-bloquer-la-mep-prod-et-le-merge-vers-mai-m1-s112' into 'dev'",
@@ -148,8 +148,8 @@ check("pm-promote fournit son lot : il fait foi", refuse(Forge([]), PR("dev", "m
 mr = (HERE / "pm-mr.py").read_text(encoding="utf-8")
 check("merge et create --merge exposent --ignore-questions", mr.count('add_argument("--ignore-questions"') == 2)
 check("la garde n'agit que sur une MR encore ouverte", 'if pr.state == "opened":\n        _guard_questions' in mr)
-check("pm-promote : la garde lit les SUJETS du lot (portés), l'annotation garde la lecture large",
-      'carried_ids(_s.stdout.splitlines())' in promote and "pm_questions_gate.ids_in_text" in promote)
+check("pm-promote : garde ET annotation lisent les SUJETS du lot (portés) — RM3222",
+      'carried_ids(p.stdout.splitlines())' in promote and "ids_in_text" not in promote)
 check("pm-promote : refus hors dry-run, annonce en dry-run",
       "not args.dry_run and not args.ignore_questions" in promote and "questions non tranchées (RM3238)" in promote)
 

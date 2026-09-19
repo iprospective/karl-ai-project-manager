@@ -13,6 +13,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
+  ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
+  fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit
+  recevait une note « Promu sur `main` » fausse et pouvait être proposé en `en_mep`.
 - **Compacter une session depuis sa tuile** (RM3249) : au palier critique de la jauge de
   contexte (90 % par défaut, `context_thresholds.crit`), la tuile de la session offre 🗜.
   Le clic demande au serveur de compacter ; c'est lui qui tape la commande du moteur de

@@ -169,7 +169,9 @@ def render_md(fm, description=""):
                              default_flow_style=False).rstrip()
     desc = description or "_(pas de description fournie au moment de la création)_"
     md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
-    if not has_acceptance_criteria(desc):
+    # RM3241 : critères déjà dans leur champ (`acceptance`, miroir du CF 33) ⇒ la
+    # description n'en porte plus, et le bandeau « À définir » mentirait.
+    if not has_acceptance_criteria(desc) and not str(fm.get("acceptance") or "").strip():
         # RM2789 — marqueur VISIBLE mais NON COMPTABLE. En case à cocher, il bloquait la
         # livraison sans que personne puisse le cocher, et le seul recours désactivait le
         # garde-fou pour les vrais critères aussi.

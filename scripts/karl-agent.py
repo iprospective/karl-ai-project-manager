@@ -5537,7 +5537,12 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
         raise ApiError(404, f"session absente : {_session_name(rm_id)}")
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
+    # RM2852 : de quel projet la session EST-elle ? Le worklog mêle les projets ; sans
+    # ce repère, le cockpit ne peut pas mettre en tête celui sur lequel on travaille.
+    _tf = _find_task_file(str(rm_id))
+    _cl, _pr = _task_client_project(_tf) if _tf else ("", "")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
+             "client": _cl, "project": _pr,
              "title": None, "updated": None, "checked_ts": None,
              "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
              "integration": _integration_branch(),
@@ -5563,6 +5568,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     # RM2466 : le canal de notifications remonte avec le travail — c'est le même
     # « état de session », vu depuis le cockpit plutôt que depuis le terminal.
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
+            "client": _cl, "project": _pr,          # RM2852 — le projet de la session
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
             # RM2715 : seules les notifications OUVERTES — une notification

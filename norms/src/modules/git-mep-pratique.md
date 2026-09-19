@@ -111,8 +111,15 @@ Points de vigilance :
   de rollback (cf. `modules/traceability.md`) — un point de restauration non tracé ne
   sert à rien le jour où il faut revenir en arrière.
 
-> **Trou d'outillage** (à combler) : pas encore de script PM dédié
-> (`pm-snapshot-pre-mep`) — la commande `om` est passée à la main pour l'instant.
+> **Outil : `pm-snapshot` (RM2989).** `pm-snapshot <RM-id> --dry-run` constate le nœud
+> qui porte l'instance `up` et affiche la commande exacte ; `pm-snapshot <RM-id>` prend
+> le snapshot, affiche son nom et journalise (`.log.md` + note Redmine) le nom et la
+> commande de rollback. PM ne touche aucun hôte : le snapshot est pris par **atlas**
+> (ops `svc-status` / `svc-snapshot`, RM3254) via le canal orchestrateur — frontière D3
+> (RM2421). La cible se **déclare** (`snapshot: {svc: <service>, rid: sync#root_hour}` sur
+> l'env de `environments.md`, ou dans `meta.yml` quand la prod du projet EST le
+> conteneur) : jamais devinée. Zéro ou plusieurs instances `up` ⇒ refus, rien
+> d'exécuté. Hors parc opensvc (hébergement tiers, cf. RM2567) : pas de couverture.
 
 > Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
 > à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`

@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.55.1] - 2026-09-19
+
+### Modifié
+- **`project-creation` — le coffre n'est plus nommé comme s'il était unique** (RM2662). La liste des
+  fondations d'un projet disait « Vaultwarden » ; elle dit désormais « le coffre à secrets », et la
+  ligne du gabarit `001-secrets-vaultwarden` précise « Vaultwarden par défaut, ou celui qu'impose le
+  projet ou son client ». Depuis RM2662, un projet peut en effet utiliser KeePass, 1Password,
+  Nextcloud Passwords ou un fichier age, et la cascade projet → client → défaut est désormais
+  réellement consultée. Aucune règle ajoutée ni retirée : une formulation qui décrivait un seul cas
+  décrit maintenant le cas général. Le NOM du gabarit est conservé, parce que les projets existants
+  le référencent dans leur `bootstrap.done[]`.
+
 ## [2.55.0] - 2026-09-19
 
 ### Modifié

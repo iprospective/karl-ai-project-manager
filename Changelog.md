@@ -13,6 +13,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un projet peut enfin utiliser un autre coffre que celui par défaut** (RM2662) : le registre savait
+  dire « ce client impose son KeePass » — cascade projet → client → défaut — mais personne ne le lui
+  demandait. Un secret à instance implicite (`secret:<chemin>`) partait au démon, qui prenait toujours
+  son coffre par défaut : la surcharge déclarée n'était jamais consultée. Le démon ne pouvait pas le
+  faire lui-même — il est partagé par tous les projets et ne sait pas d'où on l'appelle. La cascade se
+  résout donc chez l'appelant (`pm-secret-instance`, branché dans `resolve-secret.sh`), qui réécrit
+  `secret:<chemin>` en `secret://<instance>/<chemin>`. `secret://` et `vaultwarden://` ne sont jamais
+  réécrits, et hors projet — ou en cas de doute — l'URI repart inchangée : un résolveur qui casserait
+  les secrets de tout un poste pour une config illisible ferait pire que le trou qu'il bouche. La doc
+  cesse de nommer Vaultwarden comme s'il était unique (NORMS 2.55.1).
+
+- **`pm-snapshot` : le point de restauration pré-MEP depuis le ticket** (RM2989, atlas RM3254) :
+  `pm-snapshot <RM-id> [--dry-run]` résout le service opensvc déclaré (`snapshot:` sur l'env de
+  `environments.md`, ou `meta.yml`), interroge chaque nœud candidat, exige exactement UNE
+  instance `up`, fait prendre le snapshot par atlas (`om <svc> sync update --rid sync#root_hour`)
+  et journalise son nom avec la commande de rollback. PM ne touche aucun hôte (D3, RM2421) ;
+  section `snapshot:` de `pm.config.yml` (nœuds, rid, canal atlas).
 - **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
   ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
   fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit

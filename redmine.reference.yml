@@ -41,7 +41,7 @@ custom_fields:
   4:  {name: "GIT PR",              format: link,        type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de la MR de livraison (RM1820 string→link)"}
   34: {name: "GIT Branche mergée",  format: enumeration, type: issue,      multiple: true, values: {75: Dev, 76: "Main/Master"}, used_by: "RM2926 : axe 'où est le code' (merge dev/main) — auto-renseignable depuis git (pm_git). Multi-valeur : [], [Dev], [Dev, Main/Master]."}
   14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
-  9:  {name: "Réf ticket outil externe", format: string, type: issue,
+  9:  {name: "Réf ticket externe", format: string, type: issue,
       max_length: 16,
       used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
   35: {name: "Sync ticket externe", format: enumeration, type: issue,

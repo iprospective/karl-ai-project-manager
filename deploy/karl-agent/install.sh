@@ -7,10 +7,19 @@
 # (claude ou opencode) dans le PATH ; alias SSH `mmi` joignable depuis `dev`.
 set -euo pipefail
 
-REPO="/zfs/workspaces/ai/project-management"
+# RM3070 L1 : plus de chemin en dur. Le dépôt est celui d'où le script est lancé (chemin LOGIQUE :
+# lancé via le lien ai/project-management, c'est ce lien qui est retenu), sauf PM_ROOT explicite.
+REPO="${PM_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 UNIT_SRC="$REPO/deploy/karl-agent"
 UNIT_DST="$HOME/.config/systemd/user"
-WORKSPACES_ROOT="$(dirname "$(dirname "$REPO")")"   # /zfs/workspaces — racine des workspaces
+WORKSPACES_ROOT="${PM_WORKSPACES_ROOT:-$(dirname "$(dirname "$REPO")")}"   # racine des workspaces
+
+# Les units versionnées portent @PM_ROOT@ ; on les REND à la pose. Une unit copiée telle quelle
+# lancerait `@PM_ROOT@/scripts/karl-agent.py` : d'où le contrôle qu'il n'en reste aucun.
+render_unit() {
+  sed "s#@PM_ROOT@#$REPO#g" "$UNIT_SRC/$1" > "$UNIT_DST/$1"
+  if grep -q "@PM_ROOT@" "$UNIT_DST/$1"; then echo "ERREUR : $1 mal rendue" >&2; exit 1; fi
+}
 
 echo "==> Vérification des prérequis"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "  MANQUANT : $1"; MISSING=1; }; }
@@ -122,12 +131,12 @@ fi
 
 echo "==> Installation des units dans $UNIT_DST"
 mkdir -p "$UNIT_DST"
-cp "$UNIT_SRC/karl-agent.service"          "$UNIT_DST/"
-cp "$UNIT_SRC/karl-agent-tunnel.service"   "$UNIT_DST/"
-cp "$UNIT_SRC/ttyd.service"                "$UNIT_DST/"
+render_unit karl-agent.service
+render_unit karl-agent-tunnel.service
+render_unit ttyd.service
 # RM2376 : watchdog auth SSH GitLab (« karl peut-il pousser ? ») — timer 15 min
-cp "$UNIT_SRC/karl-gitlab-check.service"   "$UNIT_DST/"
-cp "$UNIT_SRC/karl-gitlab-check.timer"     "$UNIT_DST/"
+render_unit karl-gitlab-check.service
+render_unit karl-gitlab-check.timer
 systemctl --user daemon-reload
 
 echo "==> Activation du linger (survie aux reboots sans session ouverte)"

@@ -19,6 +19,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
   git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
   jetable de RM2667 et l'édition à la main dans Roundcube.
+
+- **karl s'installe et se met à jour ailleurs que sur cette machine** (RM3070, lot L1). `core-update`
+  exigeait toujours root, donc une ligne sudoers : un développeur seul, propriétaire de son checkout,
+  ne pouvait pas maintenir karl. Quand le code appartient au compte qui lance la mise à jour, elle
+  se fait sans sudo ; le verrou 3 couches et les déploiements dans `/usr/local` sont sautés, et dits.
+  Les units systemd ne citent plus `/zfs/workspaces/…` : elles portent `@PM_ROOT@`, rendu par
+  `install.sh` et `karl-voice-setup.sh` d'après l'emplacement réel du dépôt (`PM_ROOT` pour forcer),
+  avec refus d'une unit mal rendue ; `KillMode=process` est tenu par un test. L'état et le journal
+  hors du code étaient déjà réglés (RM2992, RM3095) : L1 ne les a pas refaits.
+
 - **karl sait enfin s'il sert un développeur ou une équipe** (RM3070, lot L0). Le mode d'installation
   était un accident — chaque composant supposait l'un ou l'autre. Il se déclare désormais
   (`install.mode: mono|multi`, défaut mono ; `KARL_INSTALL_MODE` l'emporte), réglable par un admin

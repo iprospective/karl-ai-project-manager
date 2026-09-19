@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le capteur de marge NORMS ne crie plus « dépasse » à tort** (RM3255) : il comparait tous les rôles au
+  plafond par défaut (29 000), alors qu'un rôle peut avoir le sien relevé par arbitrage (worker-infra à
+  30 000, RM3238). Il signalait donc en critique un dépassement que `--check` — l'invariant qui fait foi —
+  ne voyait pas. Chaque rôle est désormais mesuré contre son propre plafond, et le pire rôle est celui qui
+  en est le plus proche, pas le plus gros. Une fausse alerte critique apprend à ignorer la vraie.
+
 - **Un projet peut enfin utiliser un autre coffre que celui par défaut** (RM2662) : le registre savait
   dire « ce client impose son KeePass » — cascade projet → client → défaut — mais personne ne le lui
   demandait. Un secret à instance implicite (`secret:<chemin>`) partait au démon, qui prenait toujours

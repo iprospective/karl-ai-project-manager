@@ -205,6 +205,7 @@ SSL_KEY="${PM_ENV_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"
 # UNIQUE du template, partagée avec le vhost de prod (apache-vhost-setup.sh) →
 # les vhosts de test cockpit ne divergent jamais de la conf déployée.
 KARL_VHOST_RENDER="${PM_KARL_VHOST_RENDER:-/usr/local/sbin/karl-vhost-render}"
+KARL_TTYD_AUTH="${PM_KARL_TTYD_AUTH:-/usr/local/sbin/karl-ttyd-auth}"   # RM2146
 
 cmd_vhost_proxy_add() {
     # Vhost reverse proxy <name>.lxc → http://127.0.0.1:<port>/ (RM2358).
@@ -277,13 +278,15 @@ cmd_vhost_karl_add() {
     # apache-vhost-setup.sh, donc jamais de divergence. HTTPS est REQUIS ici :
     # sans contexte sécurisé le micro (getUserMedia/Whisper) et le terminal (wss)
     # du cockpit sont cassés — c'est la raison d'être de ce verbe vs proxy-add.
-    # ttyd PARTAGÉ avec la prod (`/ttyd/` → 127.0.0.1:7681) : PAS de listener
-    # :7681 dédié ici (il vit dans karl.conf ; un `Listen` doublon casserait Apache).
+    # ttyd PARTAGÉ avec la prod (`/ttyd/` → 127.0.0.1:7681), gated par le cookie
+    # karl_session validé auprès du karl-agent de l'instance (RM2146).
     local name="$1" port="$2" conf
     vname_ok "$name" || die "nom de vhost invalide : $name"
     [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] \
         || die "port invalide (1024-65535 attendu) : $port"
     [ -x "$KARL_VHOST_RENDER" ] || die "renderer karl absent : $KARL_VHOST_RENDER (mmi-pm core update requis pour le co-déployer)"
+    # RM2146 : programme de la RewriteMap du terminal — absent, Apache ne redémarrerait pas.
+    [ -x "$KARL_TTYD_AUTH" ] || die "validateur terminal absent : $KARL_TTYD_AUTH (mmi-pm core update requis pour le co-déployer)"
     { [ -r "$SSL_CERT" ] && [ -r "$SSL_KEY" ]; } \
         || die "cert TLS introuvable ($SSL_CERT) — le cockpit exige HTTPS (micro/terminal)"
     conf="$SITES/$name.conf"
@@ -295,8 +298,8 @@ cmd_vhost_karl_add() {
         --managed-by "pm-env-helper (karl-style, RM2565)" \
         --host "$name.lxc" --port "$port" \
         --ssl-cert "$SSL_CERT" --ssl-key "$SSL_KEY" \
-        --log-prefix "$name" > "$conf"
-    a2enmod -q proxy proxy_http proxy_wstunnel ssl >/dev/null 2>&1 || true
+        --log-prefix "$name" --ttyd-auth "$KARL_TTYD_AUTH" > "$conf"
+    a2enmod -q proxy proxy_http proxy_wstunnel ssl rewrite >/dev/null 2>&1 || true
     a2ensite -q "$name" >/dev/null
     apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
     audit "vhost-karl-add $name port=$port"

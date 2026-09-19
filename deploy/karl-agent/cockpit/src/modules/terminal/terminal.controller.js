@@ -28,13 +28,13 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
     // RM2700 : le WebSocket (et l'iframe) ne portent pas X-Karl-Token ; le gate Apache valide un cookie même-origine posé depuis le token d'appareil
     if (c.auth_required && ctx.token && ctx.token()) { try { if (ctx.setCookie) ctx.setCookie(sessionCookie(ctx.token(), l.protocol === "https:")); } catch (e) { /* cookies bloqués : le gate refusera */ } }
     if (!termAvailable(ctx.storage, win)) {                                   // repli : iframe ttyd
-      // RM3124 : à distance ce repli ne peut PAS aboutir (port 7681 du bridge LXC).
+      // RM3124/RM2146 : derrière le vhost ce repli ne peut PAS aboutir (ttyd direct = loopback seulement).
       // On le dit, plutôt que de laisser le navigateur afficher « impossible de se
       // connecter à …:7681 », qui n'apprend rien à qui le lit.
       if (!iframeReachable(l)) {
         if (host) host.style.display = "none";
         if (frame) { frame.src = "about:blank"; frame.style.display = "none"; }
-        notify("Terminal indisponible : le client intégré ne s'est pas chargé, et le repli exige le port 7681 du conteneur, injoignable depuis l'extérieur. Recharge la page (Ctrl+Maj+R) ; si cela persiste, retire `karl_noxterm` du stockage local.", "error");
+        notify("Terminal indisponible : le client intégré ne s'est pas chargé, et le repli exige ttyd en direct (port 7681), joignable seulement depuis le conteneur lui-même. Recharge la page (Ctrl+Maj+R) ; si cela persiste, retire `karl_noxterm` du stockage local.", "error");
         composerShow(true); return "unreachable";
       }
       if (host) host.style.display = "none";

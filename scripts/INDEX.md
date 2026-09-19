@@ -174,6 +174,7 @@
 - `pm-resolver-flip` — bascule du résolveur PM vers les workspaces co-localisés.
 - `pm-site-test` — Harnais de test / non-régression d'un site
 - `pm-tags-audit` — écarts entre le CF Redmine « Tags », le registre et les usages.
+- `pm-tags-backfill` — reprise de l'existant des étiquettes : frontmatter `tags` → CF Redmine
 - `pm-test` — mmi-pm test — lance la suite de tests hors ligne du système PM
 - `pm-zfs-backup` — snapshots ZFS de la machine, au fil de l'eau
 

@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 27c8512b630fa2b7 (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0a87f2f08ec645bb (38 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -1285,7 +1285,7 @@ html[data-layout=mobile] .foot {
 }
 
 /* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
-.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact,
 .runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark {
   min-height: var(--tline);
   display: inline-flex;
@@ -1299,7 +1299,7 @@ html[data-layout=mobile] .foot {
   order: 1;
 }
 
-.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq {
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact, .runitem > .helpq {
   order: 2;
 }
 
@@ -1375,6 +1375,28 @@ html[data-layout=mobile] .foot {
 
 .tyes:hover {
   background: var(--ok-soft);
+}
+
+/* RM3249 : « compacter » — au palier critique du contexte ; éteint tant que la session n'est pas au repos */
+.tcompact {
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px;
+  padding: 2px 4px;
+  flex: none;
+}
+
+.tcompact:hover {
+  background: var(--danger-soft);
+}
+
+.tcompact.off {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tcompact.off:hover {
+  background: none;
 }
 
 /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus

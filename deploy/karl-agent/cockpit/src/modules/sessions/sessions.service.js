@@ -46,5 +46,7 @@ export class SessionsService {
   }
   async approve(rm) { const r = await this.repo.approve(rm); return approveMessage(rm, r); }
   async approveAll() { const r = await this.repo.approveAll(); return { n: ((r || {}).approved || []).length, msg: approveAllMessage(r) }; }
+  /** RM3249 : compacte la conversation de la session ; rend le message à afficher. */
+  async compact(rm) { const r = await this.repo.compact(rm); return "🗜 compaction lancée sur " + rm + " (" + ((r || {}).cmd || "?") + ") — la session reprend avec un résumé"; }
   async autoYes(rm, minutes) { const r = await this.repo.autoYes(rm, minutes); return r.auto_yes_until ? "⏱✔ auto-oui armé pour " + autoYesLeft(r.auto_yes_until) + " — la session répondra Oui seule" : "auto-oui désarmé"; }
 }

@@ -88,6 +88,7 @@ export const ROUTES = {
   "search.tickets": { current: "/tickets/search", target: "/api/search/tickets", lot: "L3", callers: 1 },
   "session.approve_all": { current: "/approve-all", target: "/api/session/approve-all", lot: "L2", callers: 1 },
   "session.cockpit_config": { current: "/cockpit-config", target: "/api/session/cockpit-config", lot: "L2", callers: 1 },
+  "session.compact": { current: "/compact", target: "/api/session/compact", lot: "L2", callers: 1 },
   "session.disposition": { current: "/disposition", target: "/api/session/disposition", lot: "L2", callers: 1 },
   "session.events": { current: "/events", target: "/api/session/events", lot: "L8", callers: 1 },
   "session.events.publish": { current: "/events/publish", target: "/api/session/events/publish", lot: "L8", callers: 1 },

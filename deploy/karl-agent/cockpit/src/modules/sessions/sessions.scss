@@ -62,11 +62,11 @@
 /* la pastille est ronde (8×8) : on la centre au margin, un `min-height` l'étirerait en ellipse */
 .runitem > .tdot { margin-top: calc((var(--tline) - 8px) / 2); }
 /* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
-.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact,
 .runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark { min-height: var(--tline); display: inline-flex; align-items: center; }
 /* la queue (boutons) est poussée à droite ; le titre passe dessous, sur toute la largeur */
 .runitem::before { content: ""; flex: 1 1 0; order: 1; }
-.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq { order: 2; }
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact, .runitem > .helpq { order: 2; }
 .runitem > .rmeta { order: 3; flex: 1 0 100%; }
 .runitem:hover { border-color: var(--accent); }
 .runitem.active { border-color: var(--accent); background: var(--bg); }
@@ -84,6 +84,11 @@
 /* RM2302 : bouton « répondre Oui » d'un item en attention */
 .tyes { font-size: 12px; line-height: 1; color: var(--ok); border-radius: 4px; padding: 2px 4px; flex: none; }
 .tyes:hover { background: var(--ok-soft); }
+/* RM3249 : « compacter » — au palier critique du contexte ; éteint tant que la session n'est pas au repos */
+.tcompact { font-size: 12px; line-height: 1; border-radius: 4px; padding: 2px 4px; flex: none; }
+.tcompact:hover { background: var(--danger-soft); }
+.tcompact.off { opacity: .4; cursor: default; }
+.tcompact.off:hover { background: none; }
 
 /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
    des onglets, donc lisible quel que soit l'onglet actif. Replié : masqué. */

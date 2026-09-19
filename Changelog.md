@@ -24,6 +24,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   les secrets de tout un poste pour une config illisible ferait pire que le trou qu'il bouche. La doc
   cesse de nommer Vaultwarden comme s'il était unique (NORMS 2.55.1).
 
+- **`pm-snapshot` : le point de restauration pré-MEP depuis le ticket** (RM2989, atlas RM3254) :
+  `pm-snapshot <RM-id> [--dry-run]` résout le service opensvc déclaré (`snapshot:` sur l'env de
+  `environments.md`, ou `meta.yml`), interroge chaque nœud candidat, exige exactement UNE
+  instance `up`, fait prendre le snapshot par atlas (`om <svc> sync update --rid sync#root_hour`)
+  et journalise son nom avec la commande de rollback. PM ne touche aucun hôte (D3, RM2421) ;
+  section `snapshot:` de `pm.config.yml` (nœuds, rid, canal atlas).
 - **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
   ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
   fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit

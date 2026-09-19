@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Worklog : les projets rangés par proximité** (RM2852). Les groupes d'un statut suivaient leur
+  ordre d'apparition : un ticket d'un autre client pouvait passer devant le projet sur lequel on
+  travaille. Le worklog sert désormais le client et le projet de la session, et le cockpit range les
+  groupes — projet de la session, puis même client, puis le reste ; l'ordre d'apparition départage à
+  rang égal (tri stable), et une session sans projet résolu retrouve l'ordre d'avant.
+
 - **Le cockpit cesse de proposer ce qui ne peut pas aboutir** (RM3070, lot L2). Deux portées se
   donnaient sans pouvoir tenir : le `.env` **global** d'un secret et l'installation d'un moteur **pour
   toute la machine**. Les deux passent par `sudo -n`, or la règle sudoers exige un mot de passe — la

@@ -281,6 +281,19 @@ def add(origine: str, niveau: str, message: str, user: str | None = None,
                 e["repeats"] = int(e.get("repeats", 1)) + 1
                 e["last"] = maintenant
                 e["level"] = n if NIVEAUX.index(n) > NIVEAUX.index(e.get("level", "info")) else e.get("level")
+                # RM3177 — la remontée RAFRAÎCHIT ce qui a été mesuré. Sans cela une alerte qui
+                # dure gardait les chiffres de son premier jour : le fil affichait 96 % quand on en
+                # était à 98 %, et jamais la tendance — une veille qui ment précisément là où elle
+                # sert. Les champs de la clé (job, rm, sid, ref, user) sont identiques par
+                # construction ; seuls les autres changent. Une valeur absente (None) ne remplace
+                # pas une valeur connue : on ne perd pas une mesure faute de l'avoir reprise.
+                for cl, v in champs.items():
+                    if v is None:
+                        continue
+                    try:
+                        json.dumps(v); e[cl] = v
+                    except TypeError:
+                        e[cl] = str(v)
                 _ecrire(_taille(entrees))
                 return e
         entree = {"id": k, "ts": maintenant, "last": maintenant, "origin": o, "level": n,

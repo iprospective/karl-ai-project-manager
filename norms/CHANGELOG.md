@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.57.0] - 2026-09-19
+
+### Ajouté
+- **Un seuil qui dérive se notifie, il ne se ticket pas** (RM3177, module `scheduler`, hors
+  précharge). Budget de contexte, invariant du doctor, test rouge durable : ce sont des ÉTATS, ils
+  vont au fil de notifications ; seule une action décidée donne lieu à un ticket. Né de trois
+  tickets ouverts pour le même seuil (RM2974, RM2756, RM3035) pendant que la précharge dérivait de
+  91,4 % à 96,7 % sans alerter personne. La section décrit une veille bien faite — job du registre,
+  paliers, message stable et chiffres en champs, tendance — avec `pm-context-budget --notify` pour
+  exemple. Placée dans `scheduler` et non au KERNEL : la précharge est à 98 % de son plafond.
+
+
 ## [2.56.0] - 2026-09-19
 
 ### Ajouté

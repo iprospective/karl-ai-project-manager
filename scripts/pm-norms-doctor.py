@@ -386,5 +386,55 @@ def _runtime_ligne() -> str:
         return f"· runtime : non vérifiable ({e})"
 
 
+# >>> rouges — pure (testée par test_pm_norms_doctor_notify.py)
+def rouges(sortie: str) -> list:
+    """Les invariants en échec, lus dans la sortie du doctor : `  ✗ <nom> : <détail>`."""
+    out = []
+    for ligne in (sortie or "").splitlines():
+        s = ligne.strip()
+        if s.startswith(FAIL):
+            out.append(s[len(FAIL):].strip().split(" :")[0].strip())
+    return out
+# <<< rouges
+
+
+def notifie() -> int:
+    """Signale au fil les invariants NORMS rouges — et n'échoue JAMAIS (RM3177).
+
+    Un invariant rouge est un ÉTAT, pas une action : il se notifie, il ne se ticket pas (acté
+    le 2026-09-15 — le budget de précharge avait produit trois tickets pour un seul seuil, sans
+    alerter personne au bon moment). Le doctor reste le gate BLOQUANT de la suite de tests ; ce
+    mode-ci ne remplace pas ce gate, il fait savoir quand il est rouge.
+
+    Le message est STABLE et la liste des invariants part en CHAMP : sinon chaque variation de
+    la liste écrirait une entrée neuve et l'anti-répétition du fil tomberait. La même panne qui
+    dure fait UNE entrée qui remonte ; une panne qui change de nature se voit dans `invariants`.
+    """
+    import contextlib
+    import io
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = main()
+    except Exception as e:  # noqa: BLE001 — une panne du doctor lui-même est aussi à dire
+        rc, sortie = 1, f"  {FAIL} doctor : exception {e}"
+    else:
+        sortie = buf.getvalue()
+    print(sortie, end="")
+    if rc == 0:
+        return 0
+    liste = rouges(sortie) or ["(invariant non identifié)"]
+    try:
+        sys.path.insert(0, str(SCRIPTS))
+        import pm_notify
+        pm_notify.add("system", "warn", "des invariants NORMS sont rouges",
+                      job="norms-doctor", invariants=liste, nb=len(liste))
+    except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas un contrôle
+        pass
+    return 0
+
+
 if __name__ == "__main__":
+    if "--notify" in sys.argv[1:]:
+        sys.exit(notifie())
     sys.exit(main())

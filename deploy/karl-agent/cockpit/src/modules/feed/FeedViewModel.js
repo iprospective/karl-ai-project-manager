@@ -25,8 +25,18 @@ export function mesure(n) {
   const v = n.tokens, max = n.budget, pct = n.pct;
   if (v == null && pct == null) return "";
   const nb = (x) => Number(x).toLocaleString("fr-FR");
-  if (v != null && max != null) return `${nb(v)} / ${nb(max)}${pct != null ? ` (${nb(pct)} %)` : ""}`;
-  return pct != null ? `${nb(pct)} %` : nb(v);
+  const base = (v != null && max != null) ? `${nb(v)} / ${nb(max)}${pct != null ? ` (${nb(pct)} %)` : ""}`
+    : (pct != null ? `${nb(pct)} %` : nb(v));
+  return base + tendance(n);
+}
+
+/** RM3177 — la TENDANCE : « 98 % » dit où l'on est, « +5,3 pts en 21 j » dit ce qu'il faut faire.
+ *  Une valeur seule ne distingue pas un plateau d'une dérive. */
+export function tendance(n) {
+  const d = n.tendance, j = n.tendance_jours;
+  if (d == null || !j) return "";
+  const signe = d > 0 ? "+" : "";
+  return `, ${signe}${Number(d).toLocaleString("fr-FR")} pts en ${j} j`;
 }
 
 /** e = { data: {feed, counts, viewer, users, origins, levels}, error, etat, user } */
@@ -65,6 +75,8 @@ export class FeedViewModel extends EntityViewModel {
       client: n.client ? String(n.client) : "",
       projet: n.projet ? String(n.projet) : "",
       mesure: mesure(n),
+      // RM3177 — les invariants rouges du doctor : la notification est stable, la LISTE dit lesquels
+      invariants: Array.isArray(n.invariants) ? n.invariants.map(String) : [],
       fenetre: fenetre(n.ts, n.last),
       traite: n.etat === "traite",
     }));

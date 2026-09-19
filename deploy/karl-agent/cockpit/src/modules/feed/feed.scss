@@ -27,3 +27,6 @@
 .feed-rep i { font-style: normal; opacity: .7; }
 .feed-ou, .feed-sid { margin-left: 5px; opacity: .7; font-size: .85em; white-space: nowrap; }
 .feed-sid { font-variant-numeric: tabular-nums; }
+
+/* RM3177 — la liste des invariants rouges du doctor : discrète, mais lisible d'un coup d'œil */
+.feed-inv { margin-left: 5px; opacity: .8; font-size: .85em; }

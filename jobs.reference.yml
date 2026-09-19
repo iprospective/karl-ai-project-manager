@@ -161,6 +161,16 @@ jobs:
       lui, reste tenu par `pm-context-budget --check` dans la suite de tests. Le
       message est stable, donc une dérive qui dure fait UNE entrée qui remonte.
 
+  norms-doctor-watch:
+    schedule: "15 8 * * *"
+    command: ["python3", "scripts/pm-norms-doctor.py", "--notify"]
+    description: >
+      Signale dans le fil quand des invariants NORMS sont rouges (RM3177). Le doctor
+      reste le gate BLOQUANT de la suite de tests ; ce job fait savoir qu'il est rouge
+      entre deux modifications, au lieu d'attendre que quelqu'un relance la suite. Un
+      invariant rouge est un ÉTAT : il se notifie, il ne produit pas de ticket. La
+      liste des invariants part en champ, donc une panne qui dure fait UNE entrée.
+
   # ── Bus d'événements : les modules réagissent (RM3145, lot 2) ───────────────
   bus-drain:
     schedule: "*/5 * * * *"

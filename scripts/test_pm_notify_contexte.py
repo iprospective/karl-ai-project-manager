@@ -102,6 +102,17 @@ with tempfile.TemporaryDirectory() as tmp:
     check("… y compris quand le chemin ne contient ni « clients » ni « projects »",
           "clients" not in str(faux) and got.get("projet") == "mon-projet")
 
+# — RM3177 : une alerte qui REMONTE rafraîchit ses mesures —
+with tempfile.TemporaryDirectory() as tmp:
+    N = fresh(tmp)
+    N.add("system", "warn", "marge", job="nb", pct=96)
+    N.add("system", "warn", "marge", job="nb", pct=98, tendance=2.0)
+    N.add("system", "warn", "marge", job="nb", pct=98, tendance=None)
+    f = [x for x in N.feed() if x["msg"] == "marge"]
+    check("la remontée reste UNE entrée (la dédup n'est pas touchée)", len(f) == 1 and f[0]["repeats"] == 3)
+    check("la remontée affiche la mesure COURANTE, pas celle du premier jour", f[0]["pct"] == 98)
+    check("une mesure omise au passage suivant ne s'efface pas", f[0].get("tendance") == 2.0)
+
 # — le rendu ne doit pas être le seul à savoir : la clé reste calculée sur l'explicite —
 src = (HERE / "pm_notify.py").read_text(encoding="utf-8")
 check("le contexte auto est appliqué par setdefault (l'explicite gagne)",

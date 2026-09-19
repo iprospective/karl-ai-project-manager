@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Bot Telegram : on sait qui parle, et le verrou vit au coffre** (RM1777). Une liste blanche vide
+  laissait n'importe quel compte Telegram interroger Redmine (« mode découverte ») : elle n'autorise
+  désormais personne, seul `/whoami` répond. Une table `telegram.users` (conf locale) dit qui est chaque
+  identifiant — liste blanche, auteur des `/note`, cible de `/today moi`. L'empreinte du mot de passe
+  peut être une URI de coffre ; coffre fermé, le bot refuse de démarrer plutôt que de tourner sans
+  verrou. Runbook : `docs/guides/bot-telegram-karl.md`.
+
 - **Le capteur de marge NORMS ne crie plus « dépasse » à tort** (RM3255) : il comparait tous les rôles au
   plafond par défaut (29 000), alors qu'un rôle peut avoir le sien relevé par arbitrage (worker-infra à
   30 000, RM3238). Il signalait donc en critique un dépassement que `--check` — l'invariant qui fait foi —

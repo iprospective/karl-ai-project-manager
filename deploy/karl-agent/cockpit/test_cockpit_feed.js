@@ -141,5 +141,19 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   const scss = fs.readFileSync(path.join(DIR, "src/modules/feed/feed.scss"), "utf8");
   assert(/\.feed-ou/.test(scss) && /\.feed-mes/.test(scss), "le contexte a ses styles — discret, il situe sans concurrencer le message");
 
-  console.log("✓ panneau Fil (RM2792/RM3206) : file, confidentialité, gestes, câblage, contexte situé");
+  // ── RM3177 : la TENDANCE et les invariants rouges ────────────────────────────────────
+  const avecPente = new FVM.FeedViewModel({ data: { feed: [{ id: "t", level: "warn", msg: "marge",
+    tokens: 29518, budget: 30000, pct: 98, tendance: 5.3, tendance_jours: 21 }] } }).rows()[0];
+  assert.strictEqual(esp(avecPente.mesure), "29 518 / 30 000 (98 %), +5,3 pts en 21 j",
+    "« 98 % » ne distingue pas un plateau d'une dérive ; la pente dit ce qu'il faut faire");
+  assert.strictEqual(esp(FVM.tendance({ tendance: -3, tendance_jours: 10 })), ", -3 pts en 10 j", "une baisse se dit négative");
+  assert.strictEqual(FVM.tendance({ tendance: null }), "", "pas de pente connue : on n'invente rien");
+  assert.strictEqual(FVM.tendance({ tendance: 2, tendance_jours: 0 }), "", "une pente sans durée ne veut rien dire");
+  const doc = new FVM.FeedViewModel({ data: { feed: [{ id: "d", level: "warn", msg: "des invariants NORMS sont rouges",
+    job: "norms-doctor", invariants: ["non-perte", "index PÉRIMÉ"] }] } }).rows()[0];
+  assert.deepStrictEqual(doc.invariants, ["non-perte", "index PÉRIMÉ"], "le message est stable, la LISTE dit lesquels");
+  assert.deepStrictEqual(nu.invariants || [], [], "une notification sans invariants n'en fabrique pas");
+  assert(/feed-inv/.test(fs.readFileSync(path.join(DIR, "src/modules/feed/Feed.view.js"), "utf8")), "les invariants sont rendus");
+
+  console.log("✓ panneau Fil (RM2792/RM3206/RM3177) : file, confidentialité, gestes, câblage, contexte, tendance, invariants");
 })().catch(e => { console.error(e); process.exit(1); });

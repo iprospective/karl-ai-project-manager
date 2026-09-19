@@ -10,7 +10,7 @@ const Ligne = (r) => html`<tr class="${r.traite ? "feed-traite" : ""}">
   <td><span class="st ${r.cls}" title="${r.niveau}">${r.icone}</span></td>
   <td class="cdc-date">${r.quand}</td>
   <td class="feed-src">${r.origine}${r.job ? html`<span class="feed-job" title="le travail qui l'a émise">${r.job}</span>` : ""}</td>
-  <td class="feed-msg">${r.msg}${r.mesure ? html` <span class="feed-mes" title="la mesure qui a déclenché l'alerte">${r.mesure}</span>` : ""}${r.repeats > 1 ? html` <span class="feed-rep" title="cette notification s'est répétée${r.fenetre ? " sur " + r.fenetre : ""}">×${String(r.repeats)}${r.fenetre ? html` <i>sur ${r.fenetre}</i>` : ""}</span>` : ""}
+  <td class="feed-msg">${r.msg}${r.mesure ? html` <span class="feed-mes" title="la mesure qui a déclenché l'alerte">${r.mesure}</span>` : ""}${r.invariants.length ? html` <span class="feed-inv" title="invariants en échec">${r.invariants.join(" · ")}</span>` : ""}${r.repeats > 1 ? html` <span class="feed-rep" title="cette notification s'est répétée${r.fenetre ? " sur " + r.fenetre : ""}">×${String(r.repeats)}${r.fenetre ? html` <i>sur ${r.fenetre}</i>` : ""}</span>` : ""}
     ${r.user ? html` <span class="feed-user${r.prive ? " prive" : ""}" title="${r.prive ? "privée — visible de cette personne seule" : "concerne cette personne"}">${r.prive ? "🔒" : "@"}${r.user}</span>` : ""}
     ${r.rm ? html` <a class="feed-rm" href="#" data-action="ticket" data-rm="${r.rm}" title="Ouvrir la fiche du ticket">RM${r.rm}</a>` : ""}
     ${r.client || r.projet ? html` <span class="feed-ou" title="le projet concerné">${r.client ? r.client : ""}${r.client && r.projet ? " · " : ""}${r.projet ? r.projet : ""}</span>` : ""}

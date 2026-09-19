@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Un projet peut enfin utiliser un autre coffre que celui par défaut** (RM2662) : le registre savait
+  dire « ce client impose son KeePass » — cascade projet → client → défaut — mais personne ne le lui
+  demandait. Un secret à instance implicite (`secret:<chemin>`) partait au démon, qui prenait toujours
+  son coffre par défaut : la surcharge déclarée n'était jamais consultée. Le démon ne pouvait pas le
+  faire lui-même — il est partagé par tous les projets et ne sait pas d'où on l'appelle. La cascade se
+  résout donc chez l'appelant (`pm-secret-instance`, branché dans `resolve-secret.sh`), qui réécrit
+  `secret:<chemin>` en `secret://<instance>/<chemin>`. `secret://` et `vaultwarden://` ne sont jamais
+  réécrits, et hors projet — ou en cas de doute — l'URI repart inchangée : un résolveur qui casserait
+  les secrets de tout un poste pour une config illisible ferait pire que le trou qu'il bouche. La doc
+  cesse de nommer Vaultwarden comme s'il était unique (NORMS 2.55.1).
+
 - **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
   ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
   fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit

@@ -1,9 +1,9 @@
 ---
-schema_version: "2.55.0"
+schema_version: "2.55.1"
 updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.55.0
+# Normes de gestion des tâches — v2.55.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1406,14 +1406,14 @@ curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE
 ### Tâches de bootstrap (`templates/bootstrap-tasks/`)
 
 À la création d'un projet PM, certaines tâches **récurrentes de setup** doivent être
-créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,
+créées pour ne pas oublier les fondations : le coffre à secrets, repos git, environnements,
 stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
 
 **Templates standards** (présents dans `templates/bootstrap-tasks/`) :
 
 | ID | Titre | Coché par défaut |
 |---|---|---|
-| `001-secrets-vaultwarden` | Setup des items de vault + remplir `secrets_source` des envs | ✅ |
+| `001-secrets-vaultwarden` | Setup des items dans le coffre du projet (Vaultwarden par défaut, ou celui qu'impose le projet ou son client) + remplir `secrets_source` des envs | ✅ |
 | `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
 | `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
 | `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |

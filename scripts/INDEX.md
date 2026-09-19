@@ -150,6 +150,7 @@
 
 - `pm-provider-secret` — pose, remplace ou efface le SECRET d'une instance de provider
 - `pm-providers` — inspecte le registre de serveurs et la résolution d'instance
+- `pm-secret-instance` — quel coffre pour CE projet ? Réécrit `secret:<chemin>` en `secret://<in…
 
 ### Ordonnancement & notifications
 

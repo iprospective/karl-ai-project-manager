@@ -28,3 +28,7 @@
 button.mini.soft { opacity: .72; }
 button.mini.soft:hover { opacity: 1; }
 .pv-merr { color: var(--bad, #d66); font-size: 12px; }
+
+// RM3096 : l'état d'une clé qui n'a PAS pu être lu — à ne jamais confondre avec « absente »
+.pv-secret .st.warn { color: var(--warn); border-color: var(--warn); }
+.pv-unknown { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--warn); font-size: 12px; }

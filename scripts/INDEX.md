@@ -179,6 +179,7 @@
 
 ### Divers
 
+- `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur

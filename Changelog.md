@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Critères d'acceptation : une seule copie, dans leur champ** (RM3241, suite de RM2882/RM3240).
+  Après la reprise, 783 tickets portaient leurs critères deux fois — CF 33 et description — et 15
+  avaient déjà divergé, la description restant non cochée (RM3173 en MEP : 4/4 dans le champ, 0/4
+  dans la description). `pm-acceptance-purge` retire la section (dry-run par défaut, dump JSONL,
+  relecture fraîche avant chaque PUT, fermés exclus sauf `--include-closed`) selon une règle
+  **orientée** : elle part si le champ la couvre ou est en avance, reste si la description est en
+  avance, si un item manque ou si elle porte de la prose. Les chemins qui recréaient le doublon
+  sont fermés : `pm-task-add` envoie les critères au champ, `pm-task-description-update` retire
+  ou refuse la section sur un ticket migré (et `--add-criterion` → `pm-task-acceptance --append`),
+  `pm-task-import` / `redmine-fetch-task` reprennent le CF et n'ajoutent plus de squelette,
+  l'email client lit les critères par `pm_acceptance`.
+
 - **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
   `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
   `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation

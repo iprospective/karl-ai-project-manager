@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
+  `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
+  `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation
+  par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
+  git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
+  jetable de RM2667 et l'édition à la main dans Roundcube.
 - **karl sait enfin s'il sert un développeur ou une équipe** (RM3070, lot L0). Le mode d'installation
   était un accident — chaque composant supposait l'un ou l'autre. Il se déclare désormais
   (`install.mode: mono|multi`, défaut mono ; `KARL_INSTALL_MODE` l'emporte), réglable par un admin

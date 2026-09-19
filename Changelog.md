@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le capteur de marge NORMS ne crie plus « dépasse » à tort** (RM3255) : il comparait tous les rôles au
+  plafond par défaut (29 000), alors qu'un rôle peut avoir le sien relevé par arbitrage (worker-infra à
+  30 000, RM3238). Il signalait donc en critique un dépassement que `--check` — l'invariant qui fait foi —
+  ne voyait pas. Chaque rôle est désormais mesuré contre son propre plafond, et le pire rôle est celui qui
+  en est le plus proche, pas le plus gros. Une fausse alerte critique apprend à ignorer la vraie.
+
 - **Un projet peut enfin utiliser un autre coffre que celui par défaut** (RM2662) : le registre savait
   dire « ce client impose son KeePass » — cascade projet → client → défaut — mais personne ne le lui
   demandait. Un secret à instance implicite (`secret:<chemin>`) partait au démon, qui prenait toujours
@@ -128,6 +134,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   deux envs sur une même branche : branche dérivée ; références (vhosts, pools PHP-FPM, scripts) réécrites au
   chemin exact avec sauvegarde, validation `apachectl configtest` et restauration en cas d'échec ; journal et
   `--undo` ; snapshot ZFS exigé ou refus assumé.
+- **Les notifications disent enfin de quoi elles parlent** (RM3206) : ticket, session, projet et
+  client, plus le travail qui les a émises et la mesure qui les a déclenchées. Le diagnostic a
+  montré que presque tout était déjà là — le champ `rm` était accepté par le modèle, rendu par le
+  ViewModel et **cliquable dans la vue**, mais *aucun* des quatre émetteurs ne le passait : un
+  paramètre optionnel qu'il faut penser à remplir ne se remplit pas. Le contexte est donc pris
+  **sur place** (`contexte_auto()` : sentinelle `CURRENT_TASK` puis branche de ticket, session,
+  `meta.yml` du workspace), et aucun émetteur n'a eu à changer. Piège évité : `cle()` — l'empreinte
+  d'anti-répétition — intègre `sid` ; enrichir la clé aurait fait de la même alerte émise depuis
+  deux sessions **deux** entrées. Le contexte auto est donc appliqué APRÈS le calcul de la clé, par
+  `setdefault` (ce que l'appelant dit explicitement gagne toujours). Côté rendu, `job` et `sid`
+  arrivaient déjà et étaient jetés ; s'y ajoutent la mesure avec son seuil (« 28 048 / 29 000
+  (97 %) » plutôt que « la précharge a entamé sa marge ») et la **fenêtre** de répétition — « ×12
+  sur 3 j » et « ×12 sur 10 min » appellent des réactions opposées.
 
 - **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
   si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —

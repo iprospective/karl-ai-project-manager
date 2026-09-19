@@ -26,6 +26,9 @@ import concurrent.futures
 import os
 import subprocess
 import sys
+import atexit
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -86,6 +89,15 @@ def main(argv=None):
         for k in INHERITED:
             env.pop(k, None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # RM3206 — PURGER N'EST PAS ISOLER. Sans `PM_NOTIFY_DIR`, `pm_notify` retombe sur sa
+    # résolution par défaut, c'est-à-dire le fil de PRODUCTION. Constaté le 2026-09-19 : à
+    # chaque passage de la suite, cinq fausses alertes y atterrissaient — dont un « secret vu
+    # dans un log » —, en `neuf`, comptées comme attendant une réponse. Le fil est désormais
+    # un répertoire jetable, pour TOUS les tests, présents et futurs : corriger chaque test
+    # un par un laisserait le prochain recommencer.
+    fil = tempfile.mkdtemp(prefix="pm-test-notify-")
+    atexit.register(shutil.rmtree, fil, True)      # jetable, y compris sur interruption
+    env["PM_NOTIFY_DIR"] = fil
 
     verts, rouges, ignores = [], [], []
     t0 = time.monotonic()

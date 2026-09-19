@@ -136,16 +136,25 @@ def notifie(ratio: float = 0.9) -> int:
     if not defaut:
         print("aucun budget par défaut déclaré (pm.config.yml :: context.budget_tokens)")
         return 0
-    mesures = {r: sum(t for _, _, t in components(r)) for r in ROLES}
-    pire_role = max(mesures, key=lambda r: mesures[r])
-    pire = mesures[pire_role]
-    seuil = int(defaut * ratio)
-    part = pire / defaut * 100
+    # RM3255 : chaque rôle se compare à SON plafond, comme `--check`. Le comparer au plafond PAR
+    # DÉFAUT faisait crier « DÉPASSE » en niveau critique pour un rôle dont le plafond propre avait
+    # été relevé par arbitrage (RM3238) — alors que l'invariant réel passait. Une alerte fausse coûte
+    # plus que son bruit : elle apprend à ignorer celle qui sera vraie.
+    parts = {}
+    for r in ROLES:
+        total = sum(t for _, _, t in components(r))
+        plafond = budgets.get(r, defaut)
+        parts[r] = (total, plafond, total / plafond)
+    pire_role = max(parts, key=lambda r: parts[r][2])
+    pire, plafond_pire, frac = parts[pire_role]
+    seuil = int(plafond_pire * ratio)
+    part = frac * 100
+    defaut = plafond_pire                    # la suite nomme le plafond DU rôle, pas le défaut
     if pire <= seuil:
-        print(f"marge saine : {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")
+        print(f"marge saine : {pire:,} / {plafond_pire:,} ({part:.0f} %), pire rôle {pire_role}")
         return 0
 
-    depasse = pire > defaut
+    depasse = pire > plafond_pire
     msg = ("la précharge NORMS DÉPASSE le plafond de contexte" if depasse
            else "la précharge NORMS a entamé sa marge de sécurité")
     print(f"{msg} — {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")

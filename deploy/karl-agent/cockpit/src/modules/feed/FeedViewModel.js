@@ -6,6 +6,29 @@ const ICONE = { info: "ℹ️", warn: "⚠️", critical: "🔴" };
 const CLS = { info: "", warn: "wait", critical: "due" };
 const MARQUE = { neuf: "●", lu: "○", traite: "✓" };
 
+/** Depuis combien de temps cette notification se répète (RM3206).
+ *  « ×12 » ne se lit pas : ×12 en dix minutes et ×12 sur trois jours appellent des réactions
+ *  opposées. On rend la FENÊTRE entre la première et la dernière, pas seulement le compte. */
+export function fenetre(ts, last) {
+  const a = Date.parse(ts || ""), b = Date.parse(last || "");
+  if (!a || !b || b <= a) return "";
+  const min = Math.round((b - a) / 60000);
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} j`;
+}
+
+/** La mesure qui a déclenché l'alerte, quand il y en a une (RM3206).
+ *  `pm-context-budget` passe déjà tokens/budget/pct et le rendu les jetait : « la précharge a
+ *  entamé sa marge » ne situe rien, « 28 048 / 29 000 (97 %) » se lit d'un coup d'œil. */
+export function mesure(n) {
+  const v = n.tokens, max = n.budget, pct = n.pct;
+  if (v == null && pct == null) return "";
+  const nb = (x) => Number(x).toLocaleString("fr-FR");
+  if (v != null && max != null) return `${nb(v)} / ${nb(max)}${pct != null ? ` (${nb(pct)} %)` : ""}`;
+  return pct != null ? `${nb(pct)} %` : nb(v);
+}
+
 /** e = { data: {feed, counts, viewer, users, origins, levels}, error, etat, user } */
 export class FeedViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); this.d = this.e.data || {}; }
@@ -35,6 +58,14 @@ export class FeedViewModel extends EntityViewModel {
       // Un privé se VOIT : sinon on ne sait pas qu'on regarde quelque chose que les autres n'ont pas.
       user: n.user || "", prive: !!n.private,
       rm: n.rm ? String(n.rm) : "", ref: n.ref ? String(n.ref) : "",
+      // RM3206 — le CONTEXTE : de quoi ça parle, et où. Ces champs arrivaient déjà pour
+      // certains (`job` de l'ordonnanceur, `sid` des sessions) et étaient jetés ici.
+      job: n.job ? String(n.job) : "",
+      sid: n.sid ? String(n.sid) : "",
+      client: n.client ? String(n.client) : "",
+      projet: n.projet ? String(n.projet) : "",
+      mesure: mesure(n),
+      fenetre: fenetre(n.ts, n.last),
       traite: n.etat === "traite",
     }));
   }

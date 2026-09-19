@@ -60,6 +60,15 @@ export class SessionTileViewModel extends EntityViewModel {
   get autoTitle() { return this.s.auto_yes_until ? "auto-oui armé — " + autoYesLeft(this.s.auto_yes_until) + " restantes" : ""; }
   /** RM3082 : jauge de contexte — null tant qu'aucun palier n'est atteint (silence sous le premier seuil). */
   get ctxGauge() { return contextGauge(this.s, this.ctx.ctxThresholds, ctxPct, modelWindow, fmtWin); }
+  /** RM3249 : bouton « compacter » — dès le palier critique de la jauge (90 % par défaut), si le moteur sait compacter.
+   *  Hors repos il reste visible mais éteint : la commande tapée pendant un tour, ou sur une question, partirait mal. */
+  get compact() {
+    const g = this.ctxGauge;
+    if (!this.s.can_compact || !g || g.level !== "crit") return null;
+    const ready = this.s.state === "idle";
+    return { ready, title: ready ? "Compacter la conversation (" + g.label + " du contexte) — envoie la commande de compaction de son moteur dans le terminal"
+      : "Contexte à " + g.label + " — compaction possible dès que la session sera au repos" };
+  }
   /** RM3082 : le palier vient de MONTER → la tuile pulse une fois, puis se tait. */
   get ctxPulse() { const p = this.ctx.ctxPulsing; return !!(p && p.has(String(this.s.rm_id))); }
   /** RM2598 : question laissée sans réponse — pas si DÉJÀ en attention/choix (même urgence, un seul signal). */

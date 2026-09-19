@@ -12,7 +12,7 @@ const writable = (sets, name, view) => !/^client:/.test(String(view || "")) && !
 /** Le faux dépôt (approve / approveAll / autoYes) : `calls` journalise ; `st.clock` est l'horloge injectée au service (gel RM2346). */
 function mkRepo(t) {
   const calls = []; const st = { clock: 1000 };
-  const repo = { async approve(rm) { calls.push(["approve", rm]); if (rm === "ko") throw new Error("plus de question"); return { sent: "y" }; }, async approveAll() { calls.push(["all"]); return { approved: [{ rm_id: "1" }, { rm_id: "2" }] }; }, async autoYes(rm, m) { calls.push(["auto", rm, m]); return m ? { auto_yes_until: t + 60 * m } : {}; } };
+  const repo = { async approve(rm) { calls.push(["approve", rm]); if (rm === "ko") throw new Error("plus de question"); return { sent: "y" }; }, async approveAll() { calls.push(["all"]); return { approved: [{ rm_id: "1" }, { rm_id: "2" }] }; }, async compact(rm) { calls.push(["compact", rm]); return { cmd: "/compact" }; }, async autoYes(rm, m) { calls.push(["auto", rm, m]); return m ? { auto_yes_until: t + 60 * m } : {}; } };
   return { repo, calls, st };
 }
 module.exports = { fakeEl, settle, now, SETS, writable, mkRepo };

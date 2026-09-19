@@ -141,6 +141,8 @@ API (JSON, localhost:9876)
                                   serveur (cockpit/models.json, RM1941)
   POST /send   {rm_id, msg, enter?=true}
                                 → {rm_id, sent:true}
+  POST /compact {rm_id}         → {rm_id, engine, cmd, sent:true} — tape la commande de
+                                  compaction du moteur (RM3249) ; 409 sans commande ou hors repos
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
   GET  /usage/<rm_id>           → {usage:{input,output,cache_read,cache_creation,
@@ -330,6 +332,8 @@ ENGINES = {
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
         "store": "claude_jsonl",
+        # RM3249 : commande de compaction du TUI, tapée dans le prompt par POST /compact.
+        "compact_cmd": "/compact",
     },
     "opencode": {
         "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
@@ -340,6 +344,7 @@ ENGINES = {
         "resume_flag": "--session",
         "sid_re": r"^ses_[A-Za-z0-9]{6,64}$",
         "store": "opencode_db",
+        "compact_cmd": "/compact",       # alias « /summarize » (vérifié dans le binaire, 2026-09-19)
     },
     "vibe": {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
@@ -360,6 +365,7 @@ ENGINES = {
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
         "store": "vibe_files",
+        "compact_cmd": "/compact",       # registre des commandes de vibe (vérifié 2026-09-19)
     },
     "shell": {
         "cmd": "bash -l",
@@ -1538,6 +1544,43 @@ def op_send(payload: dict) -> dict:
     if payload.get("enter", True):
         _tmux("send-keys", "-t", name, "Enter")
     return {"rm_id": rm_id, "sent": True}
+
+
+def _compact_cmd(engine) -> str | None:
+    """RM3249 — la commande qui compacte la conversation dans le TUI de CE moteur,
+    ou None (le shell n'en a pas). Le client n'envoie jamais la commande : il
+    demande « compacte », le serveur sait comment chaque moteur le dit."""
+    return (ENGINES.get(engine or "") or {}).get("compact_cmd")
+
+
+# États où l'on peut taper dans le prompt sans risque : au travail, la ligne
+# serait mise en file ou mêlée à la saisie ; sur une question, « /compact »
+# partirait comme RÉPONSE au menu affiché.
+_COMPACT_STATES = ("idle",)
+
+
+def op_compact(payload: dict) -> dict:
+    """RM3249 — compacte la conversation d'une session : tape la commande de
+    compaction de SON moteur dans son tmux, puis Entrée. 409 si le moteur n'en a
+    pas ou si la session n'est pas au repos."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    engine = (_key_info(rm_id) or {}).get("engine")
+    cmd = _compact_cmd(engine)
+    if not cmd:
+        raise ApiError(409, f"le moteur « {engine or '?'} » n'a pas de commande de compaction connue")
+    state = _session_state(rm_id, engine)
+    if state not in _COMPACT_STATES:
+        raise ApiError(409, f"session {state} : la compaction attend qu'elle soit au repos")
+    name = _session_name(rm_id)
+    rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", cmd)
+    if rc != 0:
+        raise ApiError(500, f"send-keys a échoué : {err.strip()}")
+    _tmux("send-keys", "-t", name, "Enter")
+    _jlog("claude", "info", "compaction demandée depuis le cockpit",
+          rm_id=rm_id, engine=engine, cmd=cmd)
+    return {"rm_id": rm_id, "engine": engine, "cmd": cmd, "sent": True}
 
 
 def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
@@ -6652,6 +6695,8 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        if _compact_cmd(s.get("engine")):
+            s["can_compact"] = True      # RM3249 : le front ne connaît pas les commandes, seulement ce droit
         # RM2793 : dernier message RÉEL, quand le transcript le dit. `activity`
         # (tmux) compte aussi ce que Claude Code écrit seul — son « ※ recap: … »
         # remettait le compteur à zéro sur une session que personne n'a touchée.
@@ -13495,6 +13540,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_scroll(payload))
             if path == "/approve-all":
                 return self._send_json(200, op_approve_all(payload))
+            if path == "/compact":         # RM3249 : compacter la conversation d'une session
+                return self._send_json(200, op_compact(payload))
             if path == "/auto-yes":
                 return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":

@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Compacter une session depuis sa tuile** (RM3249) : au palier critique de la jauge de
+  contexte (90 % par défaut, `context_thresholds.crit`), la tuile de la session offre 🗜.
+  Le clic demande au serveur de compacter ; c'est lui qui tape la commande du moteur de
+  CETTE session (`compact_cmd` de la table `ENGINES` : `/compact` pour claude, opencode et
+  vibe ; le shell n'en a pas, donc pas de bouton). Hors repos, le bouton reste visible mais
+  éteint : pendant un tour la ligne se mêlerait à la saisie, et sur une question elle
+  partirait comme réponse au menu. Route `POST /compact` (`/api/session/compact`).
 - **Préfixe de vhost par repo** (RM3247) : `runtime.vhost_prefix` au manifeste nomme le vhost
   d'un env de ticket (`client-a-erp-rm<id>.lxc` au lieu de `dolibarr-rm<id>.lxc`). Le dossier
   garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le

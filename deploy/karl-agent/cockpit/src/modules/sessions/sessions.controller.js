@@ -124,6 +124,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
     }
     else if (a === "relaunch") { if (!s) return; selection().on ? toggleSel(s) : (ctx.relaunch && ctx.relaunch(s)); }   // RM2427/RM2448
     else if (a === "approve") approve(s ? s.rm_id : attached());                              // RM2302 : « Oui » direct depuis la liste
+    else if (a === "compact") { if (s) compact(s); }                                          // RM3249
     else if (a === "kill") { if (s && ctx.kill) ctx.kill(s.rm_id); }
     else if (a === "drop") { if (s && ctx.drop) ctx.drop(s); }                                  // RM2446 : ⊖ sort du jeu sans fermer
     // RM2792 : un clic BASCULE (« à traiter » ⇄ « en pause ») — c'est le geste de tous les jours.
@@ -145,6 +146,12 @@ export function mountSessions(hosts = {}, ctx = {}) {
   async function approve(rm) {
     if (!rm) return;
     try { notify(await svc.approve(rm)); later(() => ctx.refresh && ctx.refresh(), 900); }     // laisse le TUI avancer avant de re-peindre
+    catch (e) { notify(e.message, true); }
+  }
+  /** RM3249 : hors repos, le serveur refuserait — on le dit sans aller le lui demander. */
+  async function compact(s) {
+    if (s.state !== "idle") { notify("Session " + (s.state || "?") + " : la compaction attend qu'elle soit au repos", true); return; }
+    try { notify(await svc.compact(s.rm_id)); later(() => ctx.refresh && ctx.refresh(), 900); }
     catch (e) { notify(e.message, true); }
   }
   async function approveAll(btn) {

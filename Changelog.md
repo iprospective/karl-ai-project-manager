@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Préfixe de vhost par repo** (RM3247) : `runtime.vhost_prefix` au manifeste nomme le vhost
+  d'un env de ticket (`calicote-erp-rm3040.lxc` au lieu de `dolibarr-rm3040.lxc`). Le dossier
+  garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le
+  cockpit sonde l'hôte réellement servi — celui de `test_url` — au lieu de le déduire du
+  dossier, ce qui l'aurait fait passer pour mort. Nouveau placeholder `{host}` pour `post_create`.
 - **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
   --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
   description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local

@@ -9074,15 +9074,23 @@ def _user_unix(auth_ctx) -> str:
     return pwd.getpwuid(os.getuid()).pw_name
 
 
-def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
-    """Lance pm-provider-secret, au besoin par sudo (autre dev, ou .env global). La valeur part
-    par l'ENTRÉE STANDARD : jamais un argument, donc jamais dans `ps` ni dans le journal sudo."""
+def _secret_cmd(args: list, valeur: str = None, cible: str = None, globale: bool = False) -> str:
+    """Lance pm-provider-secret, au besoin par sudo. La valeur part par l'ENTRÉE STANDARD : jamais
+    un argument, donc jamais dans `ps` ni dans le journal sudo.
+
+    RM3096 : le `.env` d'un AUTRE développeur se sert **en root avec `--user <dev>`**, jamais par
+    `sudo -u <dev>` — la règle sudoers n'autorise ce script qu'en `(root)`, si bien que l'ancienne
+    forme était refusée à tous les coups, et l'échec passait pour « clé absente »."""
     script = REPO_ROOT / "scripts" / "pm-provider-secret.py"
     if not script.is_file():
         raise ApiError(500, "script introuvable : pm-provider-secret.py")
+    moi = pwd.getpwuid(os.getuid()).pw_name
+    autre = bool(cible and cible != moi)
+    if autre:
+        args = args + ["--user", cible]
     cmd = [sys.executable, str(script)] + args
-    if as_user and as_user != pwd.getpwuid(os.getuid()).pw_name:
-        cmd = ["sudo", "-n", "-u", as_user] + cmd
+    if autre or globale:
+        cmd = ["sudo", "-n", "-u", "root"] + cmd
     p = subprocess.run(cmd, input=(valeur if valeur is not None else ""), capture_output=True, text=True, timeout=30)
     if p.returncode != 0:
         raise ApiError(400, f"secret : {(p.stderr or p.stdout or '').strip()[-200:]}")
@@ -9302,13 +9310,16 @@ def op_providers(auth_ctx=None) -> dict:
     servers = dict(prov.get("servers") or {}); servers.update(fusion.get("servers") or {})
     defauts = dict(prov.get("defaults") or {}); defauts.update(fusion.get("defaults") or {})
     user = _user_unix(auth_ctx)
-    etats = {}
+    # RM3096 : ne plus AVALER l'échec. Une lecture impossible (privilège refusé, script en erreur)
+    # rendait un état vide, donc « non renseignée » partout — on cherchait une configuration
+    # manquante là où il n'y avait qu'un refus. `etats = None` ⇒ « état inconnu », et on dit pourquoi.
+    etats, etats_err = {}, ""
     try:
-        for ligne in _secret_cmd(["--status"], as_user=user).splitlines():
+        for ligne in _secret_cmd(["--status"], cible=user).splitlines():
             nom, _, etat = ligne.partition("\t")
             etats[nom.strip()] = (etat.strip() == "posée")
-    except ApiError:
-        etats = {}
+    except ApiError as e:
+        etats, etats_err = None, e.msg
     out = []
     for nom, d in sorted(servers.items()):
         if not isinstance(d, dict):
@@ -9317,13 +9328,15 @@ def op_providers(auth_ctx=None) -> dict:
         cles = [{"key": k, "var": f"{PT.prefixe_de(typ)}__{re.sub(r'[^A-Za-z0-9]', '_', nom).upper()}__{k}",
                  "label": lb} for k, lb in PT.type_de(typ).get("secrets", [])]
         for c in cles:
-            c["set"] = bool(etats.get(c["var"]))          # l'ÉTAT, jamais la valeur
+            # None = état inconnu (lecture impossible) ; jamais confondu avec « absente »
+            c["set"] = None if etats is None else bool(etats.get(c["var"]))
         out.append({"name": nom, "axis": d.get("axis") or PT.type_de(typ).get("axis", ""), "type": typ,
                     "local": nom in (fusion.get("servers") or {}),
                     "fields": {k: v for k, v in d.items() if k not in ("axis", "type")}, "secrets": cles})
     # RM3070 L2 : `can_global` dit si cette instance PEUT écrire hors du .env personnel. Le front
     # n'affiche la case « global » que si oui — un bouton qui échoue toujours vaut moins que pas de bouton.
     return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "can_global": peut_sudo("root"),
+            "states_unknown": etats is None, "states_error": etats_err,
             "defaults": defauts,
             "instances": out, "assignments": _provider_assignments()}
 
@@ -9412,10 +9425,8 @@ def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
         valeur = str(payload.get("value") or "")
         if not valeur.strip():
             raise ApiError(400, "valeur vide (utiliser « effacer »)")
-    comme = cible_user or (_user_unix(auth_ctx) if portee == "user" else "root")
-    if portee == "global":
-        args += []                      # le script vise le .env de l'instance ; sudo -u root ci-dessous
-    _secret_cmd(args, valeur=valeur, as_user=comme)
+    _secret_cmd(args, valeur=valeur, cible=cible_user or (_user_unix(auth_ctx) if portee == "user" else None),
+                globale=(portee == "global"))
     _jlog("auth", "info", f"clé {cle} de {nom} {'effacée' if payload.get('unset') else 'enregistrée'}",
           scope=portee, by=str((auth_ctx or {}).get("user") or ""))     # le fait, jamais la matière
     return {"ok": True, "name": nom, "key": cle, "scope": portee, "set": not payload.get("unset")}

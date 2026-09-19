@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Configurer la clé d'un autre développeur marche, et une clé illisible ne passe plus pour absente**
+  (RM3096). Le démon appelait `sudo -u <dev>`, que la règle sudoers n'autorise pas (elle n'ouvre le
+  script qu'en root) et n'utilisait jamais l'option `--user` prévue pour ce cas : l'écriture échouait
+  toujours. Pire, la lecture d'état avalait l'échec et affichait **« non renseignée » partout**, ce qui
+  envoyait chercher une configuration manquante là où il n'y avait qu'un refus de privilège. Désormais :
+  root + `--user <dev>`, et une clé dont l'état n'a pas pu être lu se dit **« état inconnu »**, avec le
+  motif et sans bouton d'effacement.
+
 - **Worklog : les projets rangés par proximité** (RM2852). Les groupes d'un statut suivaient leur
   ordre d'apparition : un ticket d'un autre client pouvait passer devant le projet sur lequel on
   travaille. Le worklog sert désormais le client et le projet de la session, et le cockpit range les

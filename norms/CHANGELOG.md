@@ -1,5 +1,28 @@
 # Changelog des normes
 
+## [2.59.0] - 2026-09-19
+
+### Ajouté
+- **Un Redmine tiers en primaire est refusé, plus jamais écrit en silence** (RM2940). Tout
+  l'outillage d'écriture vise l'instance de `redmine.reference.yml`, quel que soit le
+  primaire du projet : `pm-task-status-update` refuse désormais, et `pm-doctor` le
+  signale en erreur. Les secondaires partenaires (mapping RM2746) ne sont pas concernés.
+- **Maintenance des providers depuis le cockpit** : « Vérifier la config Redmine » et
+  « Vérifier la cohérence PM », en lecture seule, dans le catalogue des commandes.
+
+## [2.58.0] - 2026-09-19
+
+### Ajouté
+- **Un module ne contourne aucun garde-fou** (RM3145, nouveau module `modules-pm`, hors
+  précharge ; une ligne-déclencheur au KERNEL). Les tripwires valent dans le code d'un module
+  exactement comme ailleurs : outillage PM pour tout changement d'état, pas de push direct sur une
+  branche protégée, aucun secret en clair (un module DÉCLARE ses secrets), aucune action de
+  production sans consentement, un abonné qui échoue ne casse pas l'émetteur. Ce qui rend un module
+  facile à ajouter est aussi ce qui permet de l'ajouter sans relire les normes : la règle le dit là
+  où l'on regarde quand on écrit un module. Le module porte aussi le contrat : natif ou tiers,
+  l'état d'activation dans la configuration de l'instance, le refus motivé, le forçage sous double
+  sécurité, et `mmi-pm module new`.
+
 ## [2.57.0] - 2026-09-19
 
 ### Ajouté

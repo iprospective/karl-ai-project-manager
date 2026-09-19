@@ -72,6 +72,34 @@ export function TicketSessionsBlock(ts) {
       ? html`<span style="color:var(--ok)">●</span> ` : "◌ "}${s.name}</span><span class="v">${s.title}</span></div>`)}</div>`;
 }
 
+/** RM3175 — les critères d'acceptation, avec ce qui est coché et OÙ cocher.
+ *  La provenance n'est pas un détail d'implémentation : sur un ticket migré, cocher la description
+ *  ne change rien pour la livraison (RM2882) — l'onglet le dit plutôt que de le laisser découvrir. */
+export function TicketCriteria(c) {
+  if (!c.total) return html`<div class="ms"><h4>Critères d'acceptation</h4><span style="${muted}">aucun critère posé sur ce ticket.</span></div>`;
+  const ou = c.source === "acceptance"
+    ? html`champ dédié (CF 33) — cocher : <code>mmi-pm task-acceptance ${c.rm} --check N</code>`
+    : html`section de la description (ticket non migré) — cocher : <code>mmi-pm task-description-update ${c.rm} --check N</code>`;
+  return html`<div class="ms"><h4>Critères d'acceptation <span style="text-transform:none;${muted}">(${String(c.done)}/${String(c.total)})</span></h4><div style="${muted};font-size:11px;margin-bottom:6px">${ou}</div><ol class="crit">${c.items.map(i =>
+    html`<li class="${i.done ? "done" : ""}"><span class="cbox">${i.done ? "☑" : "☐"}</span> ${i.label}</li>`)}</ol></div>`;
+}
+
+/** RM3175 — la proposition d'implémentation (CF 31) : le COMMENT, là où la description porte le quoi. */
+export function TicketImpl(text, { md }) {
+  if (!text) return html`<div class="ms"><h4>Implémentation</h4><span style="${muted}">aucune proposition d'implémentation — elle se rédige en fin d'étude : <code>mmi-pm task-implementation</code>.</span></div>`;
+  return html`<div class="facetfull descfull mdview">${raw(md(text))}</div>`;
+}
+
+/** RM3175 — le déploiement : les gestes de MEP dans leur ordre (CF 8), puis la recette (CF 30). */
+export function TicketDeploy(d, { md }) {
+  const gestes = d.actions.length
+    ? html`<ol class="crit">${d.actions.map(a => html`<li>${a}</li>`)}</ol>`
+    : html`<span style="${muted}">aucune action au déploiement — rien de particulier à faire à la MEP.</span>`;
+  return html`<div class="ms"><h4>Actions au déploiement <span style="text-transform:none;${muted}">(${String(d.actions.length)})</span></h4>${gestes}</div><div class="ms"><h4>Protocole de test</h4>${d.protocol
+    ? html`<div class="mdview">${raw(md(d.protocol.text))}</div>`
+    : html`<span style="${muted}">pas de protocole de test : <code>mmi-pm task-protocol</code>.</span>`}</div>`;
+}
+
 export function TicketConso(c) {
   if (!c) return html`<div class="ms" style="${muted}">Aucune consommation enregistrée pour ce ticket.</div>`;
   return html`<div class="ms"><h4>Consommation <span style="text-transform:none;${muted}">(enregistrée)</span></h4><div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">${c.total}</span></div>${c.breakdown
@@ -123,6 +151,9 @@ export function TicketsPane(vm, deps) {
     ? html`<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:4px"><button class="mini${filtre ? "" : " primary"}" data-action="tfilter" data-value="" title="Tous les projets">tous (${vm.list.length})</button>${projets.map(p => html`<button class="mini${p.key === filtre ? " primary" : ""}" data-action="tfilter" data-value="${p.key}" title="${p.key}">${p.key} (${p.n})</button>`)}</div>` : ""}<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}" title="${t.project || ""}">RM${t.rm}</button>`)}</div>${titre
     ? html`<div class="rtitle" title="${titre}">${titre}</div>` : ""}<div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
     : k === "notfound" ? html`<div class="ms"><h4>Ticket</h4>RM${sel} <span style="${muted}">non trouvé en local</span></div>`
+    : k === "criteria" ? TicketCriteria(vm.criteria())
+    : k === "impl" ? TicketImpl(vm.impl(), deps)
+    : k === "deploy" ? TicketDeploy(vm.deploy(), deps)
     : k === "desc" ? TicketDesc(vm.desc(), deps)
     : k === "log" ? html`<div class="facetfull">${TicketLog(vm.log(), deps)}</div>`
     : k === "conso" ? TicketConso(vm.conso())

@@ -63,6 +63,22 @@ for bad in ({"id": "D1", "action": "delete"}, {"id": "D001", "action": "delete"}
         ka._cdc_think_args(bad); check(f"refus {bad}", False)
     except ka.ApiError:
         check(f"refus {bad}", True)
+# RM3258 : déplacer une entrée vers un autre ticket — le cockpit dit « à qui », jamais « comment »
+rm, local, args = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "3015"})
+check("_cdc_think_args : move → --move … --to, en inter-projets assumé",
+      args == ["44", "--move", "Q002", "--to", "3015", "--cross-project"], str(args))
+check("…et « RM3015 » saisi à la main est accepté",
+      ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "RM3015"})[2][-2] == "3015")
+for bad in ({"rm": 44, "id": "Q002", "action": "move"},
+            {"rm": 44, "id": "Q002", "action": "move", "to": "zz"},
+            {"rm": 44, "id": "Q002", "action": "move", "to": "44"}):
+    try:
+        ka._cdc_think_args(bad); check(f"refus move {bad.get('to')!r}", False)
+    except ka.ApiError:
+        check(f"refus move {bad.get('to')!r}", True)
+src_ka = pathlib.Path(ka.__file__).read_text(encoding="utf-8") if getattr(ka, "__file__", None) else (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("un déplacement refond les registres des DEUX projets", "projets = [p for p in (_task_project(rm)" in src_ka)
+
 # RM3227 : le commentaire joint au geste qui tranche une question devient sa réponse (décision liée)
 A = ka._cdc_think_answer_args
 check("_cdc_think_answer_args : question validée + commentaire → décision « Qnnn : … » validée, dédupliquée",

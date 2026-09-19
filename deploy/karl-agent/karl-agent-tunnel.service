@@ -1,6 +1,6 @@
 [Unit]
 Description=karl-agent — tunnel reverse SSH vers mmi (RM1771)
-Documentation=file:///zfs/workspaces/ai/project-management/agents/karl/karl-agent.md
+Documentation=file://@PM_ROOT@/agents/karl/karl-agent.md
 After=network-online.target karl-agent.service
 Wants=network-online.target
 

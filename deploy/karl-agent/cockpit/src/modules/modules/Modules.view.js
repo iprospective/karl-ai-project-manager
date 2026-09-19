@@ -5,6 +5,20 @@ const Trigger = (t) => html`<div class="mdl-trig${t.ok ? "" : " ko"}">
   ${t.ok ? "↩" : "✗"} <b>${t.on}</b>${t.when ? html` <span class="mdl-when">si ${t.when}</span>` : ""}
   <code>${t.run}</code>${t.errors.map(e => html` <span class="mdl-motif">${e}</span>`)}</div>`;
 
+const Gestes = (m) => html`<div class="mdl-gestes">
+  ${m.canDisable ? html`<button class="mini" data-action="disable" data-name="${m.name}"
+      title="${m.breaks.length ? "Refusé tant que " + m.breaks.join(", ") + " en dépend(ent)" : "Éteindre ce module — ce qu'il a produit reste en place"}">○ éteindre</button>` : ""}
+  ${m.canEnable ? html`<button class="mini" data-action="enable" data-name="${m.name}" title="Rallumer ce module">● allumer</button>` : ""}
+  <span class="mdl-nat" title="${m.native ? "Livré avec le noyau : il s'éteint, il ne se retire pas" : "Module tiers : il se désinstalle"}">${m.native ? "natif" : "tiers"}</span>
+  ${m.refus ? html`<div class="mdl-refus">✗ ${m.refus}${m.canForce ? html` <button class="mini warn" data-action="force" data-name="${m.name}">⊘ forcer…</button>` : ""}</div>` : ""}
+  ${m.confirming ? html`<div class="mdl-confirm">
+    <b>Forcer l'extinction de ${m.name}</b> — ${m.breaks.length ? html`<b>${m.breaks.join(", ")}</b> cessera(ont) de fonctionner et sera(ont) signalé(s) tant que ${m.name} restera éteint.` : "des modules en dépendent."}
+    Ce que ces modules ont produit reste en place.
+    <div>Recopiez le nom du module pour confirmer : <input class="mdl-confirm-in" data-input="confirm" data-name="${m.name}" autocomplete="off" spellcheck="false" placeholder="${m.name}"></div>
+    <button class="mini warn" data-action="force-confirm" data-name="${m.name}"${m.confirmOk ? "" : " disabled"}>⊘ forcer l'extinction</button>
+    <button class="mini soft" data-action="force-cancel" data-name="${m.name}">annuler</button></div>` : ""}
+</div>`;
+
 const Ligne = (m) => html`<div class="mdl-row${m.open ? " on" : ""}">
   <div class="mdl-head" data-action="open" data-name="${m.name}" title="${m.description}">
     <span class="st ${m.cls}">${m.icone}</span>
@@ -16,6 +30,7 @@ const Ligne = (m) => html`<div class="mdl-row${m.open ? " on" : ""}">
     ? " (+" + String(m.motifs.length - 1) + ")" : ""}</div>` : ""}
   ${m.open ? html`<div class="mdl-detail">
     <div class="mdl-desc">${m.description}</div>
+    ${Gestes(m)}
     <div><span class="mdl-k">fournit</span> ${m.provides.length ? m.provides.join(" · ") : "rien"}</div>
     <div><span class="mdl-k">requiert</span> ${m.requires.length ? m.requires.join(", ") : "rien"}</div>
     <div><span class="mdl-k">requis par</span> ${m.requiredBy.length
@@ -53,7 +68,10 @@ export function ModulesCard(vm) {
   if (vm.error) return html`${titre}<div class="empty">registre illisible : ${vm.error}</div>`;
   return html`${titre}
     <div class="cdc-hint">Un module déclare ce qu'il fournit et ce dont il dépend, dans
-      <code>${vm.root}</code>. Rien n'est chargé ni activé ici : ce panneau LIT. Noyau ${vm.coreVersion}.</div>
+      <code>${vm.root}</code>. Éteindre un module ne supprime rien de ce qu'il a produit ; éteindre un
+      module dont d'autres dépendent est refusé. Noyau ${vm.coreVersion}.</div>
+    <label class="mdl-policy" title="Sans ce réglage, un module dont d'autres dépendent ne peut pas être éteint. Avec, chaque forçage demande encore de recopier le nom du module.">
+      <input type="checkbox" data-action="policy"${vm.allowForce ? " checked" : ""}> autoriser le forçage (confirmation forte à chaque fois)</label>
     ${vm.cycles.map(c => html`<div class="mdl-motif">⚠ dépendance circulaire : ${c.join(" → ")}</div>`)}
     ${vm.empty ? html`<div class="empty">aucun module décrit pour l'instant.</div>`
                : html`<div class="mdl-list">${vm.rows().map(Ligne)}</div>`}

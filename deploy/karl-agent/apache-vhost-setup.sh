@@ -5,11 +5,16 @@
 # Expose (HTTPS — RM2561) :
 #   https://<KARL_WEB_HOST>/         → API + cockpit karl-agent (127.0.0.1:<KARL_AGENT_PORT>)
 #   https://<KARL_WEB_HOST>/ttyd/ws  → WebSocket du terminal (wss://, 127.0.0.1:7681)
-#   https://<KARL_WEB_HOST>:7681/    → même ttyd, port dédié (repli iframe seulement)
 #   http://<KARL_WEB_HOST>/          → redirige (302) vers https://
 #     (le cockpit calcule ces URL depuis location → aucun réglage
 #      KARL_AGENT_TTYD_URL nécessaire ; ttyd et karl-agent restent en loopback,
 #      seuls les proxys Apache sont exposés)
+#
+# Invariant (RM2146) : ttyd est writable — AUCUN chemin vers lui sans auth, local
+# compris. `/ttyd` est gated par le cookie karl_session (validateur karl-ttyd-auth,
+# le même que sur mmi). L'ancien port dédié :7681 (repli iframe) relayait ttyd SANS
+# auth à tout le bridge LXC : il est supprimé, et sa suppression s'applique au
+# prochain passage de ce script (Listen retiré → rechargement Apache).
 #
 # Pourquoi HTTPS (RM2561) : le cockpit capture le micro via getUserMedia (dictée
 # Whisper, RM2533) qui n'est autorisé qu'en contexte sécurisé — sur http:// le
@@ -44,7 +49,7 @@
 # Ce qui protège l'accès : l'authentification du cockpit, OBLIGATOIRE dès cette
 # exposition — KARL_WEB_USER / KARL_WEB_PASS (Basic, RM2139), puis token d'appareil
 # (RM2334), plus le cookie de session même-origine qui porte ce token à l'upgrade
-# WebSocket de /ttyd (RM2700). karl-agent.py le dit déjà dans son en-tête : « requis
+# WebSocket de /ttyd (RM2700) — validé AUSSI sur ce vhost local depuis RM2146. karl-agent.py le dit déjà dans son en-tête : « requis
 # dès que le cockpit est exposé au-delà du bridge local ».
 # Vérifiable en deux commandes :
 #   curl -s <hôte>/cockpit-config | grep auth_required   → true
@@ -88,9 +93,7 @@ if [ -z "$HOST" ]; then
 fi
 [[ "$HOST" =~ ^[a-z0-9.-]+$ ]] || die "KARL_WEB_HOST invalide : $HOST"
 
-# IP du conteneur pour le listener 7681 (ttyd n'écoute qu'en loopback ; Apache
-# écoute sur l'IP du bridge, pas de collision). Recalculée à chaque run →
-# le script se ré-applique tout seul si l'IP du conteneur change.
+# IP du conteneur : sert seulement à vérifier que $HOST résout bien ici.
 IP="$(hostname -I | awk '{print $1}')"
 [[ "$IP" =~ ^[0-9.]+$ ]] || die "IP conteneur introuvable (hostname -I : $IP)"
 RESOLVED="$(getent hosts "$HOST" | awk '{print $1}' | head -1 || true)"
@@ -106,27 +109,35 @@ SSL_KEY="${KARL_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"
 [ -f "$SSL_CERT" ] || die "cert TLS introuvable : $SSL_CERT (installer le paquet ssl-cert ?)"
 [ -f "$SSL_KEY" ]  || die "clé TLS introuvable : $SSL_KEY"
 
+# ── Validateur du terminal (RM2146) ─────────────────────────────────────────
+# Programme de la RewriteMap qui gate /ttyd. Posé ici AVANT la conf : un
+# programme de RewriteMap absent empêche Apache de démarrer. `mmi-pm core update`
+# le tient ensuite à jour (DEPLOYS de pm-core-update).
+TTYD_AUTH="/usr/local/sbin/karl-ttyd-auth"
+if ! { [ -f "$TTYD_AUTH" ] && cmp -s "$SELF_DIR/karl-ttyd-auth.py" "$TTYD_AUTH"; }; then
+    install -o root -g root -m 755 "$SELF_DIR/karl-ttyd-auth.py" "$TTYD_AUTH"
+    echo "✓ validateur terminal installé : $TTYD_AUTH"
+fi
+
 # ── Modules requis (idempotent) ─────────────────────────────────────────────
-a2enmod -q proxy proxy_http proxy_wstunnel ssl >/dev/null
+a2enmod -q proxy proxy_http proxy_wstunnel ssl rewrite >/dev/null
 
 # ── Conf désirée ────────────────────────────────────────────────────────────
 # Template FACTORISÉ (RM2565) : le corps du vhost est rendu par
 # karl-vhost-render.sh, SOURCE UNIQUE partagée avec les vhosts d'instances de
 # test cockpit (pm-env-helper vhost-karl-add) → prod et test ne divergent plus.
-# --ttyd-listen "$IP" ajoute le listener :7681 dédié (repli iframe), propre à la
-# prod ; les instances de test l'omettent (elles partagent ce ttyd via /ttyd/).
 NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
 "$SELF_DIR/karl-vhost-render.sh" \
     --managed-by "apache-vhost-setup.sh (karl-agent, RM1873)" \
     --host "$HOST" --port "$PORT" \
     --ssl-cert "$SSL_CERT" --ssl-key "$SSL_KEY" \
-    --log-prefix karl --ttyd-listen "$IP" > "$NEW"
+    --log-prefix karl --ttyd-auth "$TTYD_AUTH" > "$NEW"
 
 # ── Application (seulement si changement) ───────────────────────────────────
 if [ -f "$CONF" ] && cmp -s "$NEW" "$CONF"; then
     a2ensite -q karl >/dev/null 2>&1 || true
     apache2ctl configtest >/dev/null 2>&1 || die "configtest KO (conf inchangée mais invalide ?)"
-    echo "· karl.conf déjà à jour (https://$HOST/ → :$PORT, ttyd wss /ttyd/ws + $IP:7681) — rien à faire"
+    echo "· karl.conf déjà à jour (https://$HOST/ → :$PORT, ttyd wss /ttyd/ws gated) — rien à faire"
     exit 0
 fi
 
@@ -141,6 +152,6 @@ if ! apache2ctl configtest >/dev/null 2>&1; then
 fi
 systemctl reload apache2
 [ -n "$OLD" ] && rm -f "$OLD"
-echo "✓ vhost $HOST actif : cockpit https://$HOST/ (→ 127.0.0.1:$PORT), terminal wss://$HOST/ttyd/ws (→ 127.0.0.1:7681), :80 → https"
+echo "✓ vhost $HOST actif : cockpit https://$HOST/ (→ 127.0.0.1:$PORT), terminal wss://$HOST/ttyd/ws (→ 127.0.0.1:7681, gated cookie), :80 → https"
 echo "  ⚠ cert auto-signé : accepter l'avertissement du navigateur une fois pour https://$HOST/ — le terminal passe par la même origine, rien de plus à accepter"
-echo "  · port :7681 conservé pour le repli iframe (cert à accepter séparément si ce repli est utilisé)"
+echo "  · port :7681 dédié supprimé (RM2146) : ttyd n'est plus joignable qu'à travers /ttyd, authentifié"

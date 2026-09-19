@@ -51,6 +51,7 @@
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
 | je crée un projet / une entité PM | `modules/project-creation.md` (+ bootstrap, memberships) | `pm-project-new`, `pm-project-bootstrap`, `pm-client-new` |
+| je crée, modifie, allume ou éteins un **module PM** (`modules/<nom>/`) — un module ne contourne AUCUN garde-fou | `modules/modules-pm.md` | `mmi-pm module` |
 | un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |

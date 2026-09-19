@@ -5488,7 +5488,7 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 client_hash = rest[0] if rest else ""
             elif name == "health":
                 data = {"status": "ok", "sessions": len(_list_sessions()),
-                        "tmux": _tmux("-V")[0] == 0}
+                        "tmux": _tmux("-V")[0] == 0, "install": _install_state()}
                 client_hash = rest[0] if rest else ""
             elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
                 data = op_pending({}, auth_ctx)
@@ -7269,6 +7269,23 @@ def _project_docs(project_dir: Path) -> list:
     return docs
 
 
+def _ticket_acceptance(fm: dict, body: str) -> dict:
+    """Critères d'acceptation d'un ticket, PAR la fonction de lecture unique (RM2882) : texte, items, provenance.
+
+    La provenance est rendue parce qu'elle change le geste : sur un ticket migré on coche avec
+    `pm-task-acceptance`, sinon dans la description. L'afficher évite de cocher dans le vide.
+    Jamais fatal : un module absent donne un onglet vide, pas une fiche en erreur.
+    """
+    try:
+        import pm_acceptance
+        text, source = pm_acceptance.criteria_text(fm, body)
+        items = [{"done": ok, "label": lab} for ok, lab in pm_acceptance.parse_items(text)]
+    except Exception as e:  # noqa: BLE001
+        _jlog("ticket", "warn", f"lecture des critères impossible : {e}")
+        return {"source": None, "items": [], "text": ""}
+    return {"source": source, "items": items[:80], "text": text[:6000]}
+
+
 def op_resolve(rm_id: str) -> dict:
     """Résout un rm_id en métadonnées riches depuis le MD local (RM1893 §1) — pour
     pré-remplir le lanceur ET alimenter le panneau de pilotage du cockpit. Pas de
@@ -7329,6 +7346,12 @@ def op_resolve(rm_id: str) -> dict:
              "text": str(pick("test_protocol"))[:4000]}
             if str(pick("test_protocol") or "").strip() not in ("", "None")
             else _test_protocol(tf, _task_body(text))),
+        # RM3175 : les trois onglets Critères · Implémentation · Déploiement de la fiche.
+        "acceptance": _ticket_acceptance(fm, _task_body(text)),
+        "implementation": str(pick("implementation") or "").strip()[:8000]
+        if str(pick("implementation") or "").strip() not in ("", "None") else "",
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()]
+        if isinstance(fm.get("deploy_actions"), list) else [],
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",
@@ -8826,7 +8849,16 @@ def _cdc_think_args(payload: dict) -> tuple:
         if state not in _THINK_STATES:
             raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
         return rm, local, [rm, "--set", local, "--state", state]
-    raise ApiError(400, "action inconnue (delete | state)")
+    if action == "move":                      # RM3258 : l'entrée part au carnet d'un autre ticket
+        to = str(payload.get("to") or "").strip().lstrip("Rr Mm#")
+        if not to.isdigit():
+            raise ApiError(400, "ticket destinataire requis (rm-id)")
+        if to == rm:
+            raise ApiError(400, "l'entrée est déjà sur ce ticket")
+        # --cross-project : le cockpit voit tous les projets, et une question mal attribuée
+        # l'est souvent D'UN projet à l'autre — c'est le cas d'usage, pas l'exception.
+        return rm, local, [rm, "--move", local, "--to", to, "--cross-project"]
+    raise ApiError(400, "action inconnue (delete | state | move)")
 
 
 _THINK_COMMENT_MAX = 1000
@@ -8856,10 +8888,13 @@ def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
     if answer:
         _pm_script("pm-task-think.py", answer)
     out = _pm_script("pm-task-think.py", args)
-    proj = _task_project(rm)
+    # RM3258 : un déplacement touche DEUX carnets — et, si les tickets ne sont pas du même projet,
+    # deux jeux de registres. Refondre le seul projet d'origine laisserait la cible périmée.
+    projets = [p for p in (_task_project(rm), _task_project(str(payload.get("to") or "").strip()) if
+                           str(payload.get("action") or "") == "move" else None) if p]
     merged = None
-    if proj:
-        merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
+    for pr in dict.fromkeys(projets):
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{pr[0]}/{pr[1]}"]).strip().splitlines()[-1:]
     return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
             "answer": bool(answer)}
 
@@ -9146,17 +9181,60 @@ def op_modules() -> dict:
         # cliquer, et elle ne se répond pas en lisant le manifeste du module lui-même.
         d["required_by"] = sorted(x.name for x in mods
                                   if any(dep == m.name for dep, _, _ in x.deps()))
-        d["state"] = ("erreur" if not m.ok else "désactivé" if not m.enabled
-                      else "bloqué" if m.name in r["bloques"] else "actif")
+        d["state"] = ("erreur" if not m.ok else ("éteint (forcé)" if m.forced else "désactivé")
+                      if not m.enabled else "bloqué" if m.name in r["bloques"] else "actif")
+        # RM3145 L1 — ceux qu'on casserait MAINTENANT (actifs), pas seulement ceux qui le déclarent
+        d["breaks"] = pm_modules.dependants_actifs(m.name, mods)
         d["triggers"] = [t for t in triggers if t["module"] == m.name]
         out.append(d)
     inv = pm_modules.inventaire(REPO_ROOT, mods)
     return {"modules": out, "order": r["ordre"], "cycles": r["cycles"],
+            # RM3145 L1 — le forçage est-il PERMIS ici ? Sans ce réglage, le panneau n'offre pas le geste.
+            "allow_force": pm_modules.forcage_autorise(REPO_ROOT),
             "inventory": inv, "core_version": pm_modules.CORE_VERSION,
             "kinds": list(pm_modules.KINDS),
             "root": str(pm_modules.racine(REPO_ROOT)),
             "routes": [rt.as_dict() for rt in pm_modules.routes(REPO_ROOT, mods)],
             "bus": _bus_sante()}
+
+
+def op_modules_state(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/state — allumer ou éteindre un module (RM3145 lot 1).
+
+    {name, enabled: bool, force?: bool, confirm?: str}. Éteindre un module dont d'autres dépendent
+    est REFUSÉ, en disant lesquels (409) ; forcer exige que le forçage soit permis sur l'instance
+    ET que `confirm` recopie le nom du module. La même règle qu'en ligne de commande : deux chemins
+    vers un même geste ne doivent pas avoir deux sévérités.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    nom = str((payload or {}).get("name") or "").strip()
+    if not nom:
+        raise ApiError(400, "name requis")
+    force = bool((payload or {}).get("force"))
+    try:
+        if (payload or {}).get("enabled"):
+            return {"ok": True, **pm_modules.activer(nom, REPO_ROOT)}
+        if force:
+            if not pm_modules.forcage_autorise(REPO_ROOT):
+                raise ApiError(403, "le forçage n'est pas permis sur cette instance "
+                                    "(réglage « autoriser le forçage » des modules)")
+            if str((payload or {}).get("confirm") or "") != nom:
+                raise ApiError(400, f"confirmation forte : recopiez le nom du module « {nom} »")
+        return {"ok": True, **pm_modules.desactiver(nom, force=force, root=REPO_ROOT)}
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+
+
+def op_modules_policy(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/policy — permettre (ou non) le forçage sur l'instance (RM3145 Q003)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    try:
+        pm_modules.autoriser_forcage(bool((payload or {}).get("allow_force")), REPO_ROOT)
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+    return {"ok": True, "allow_force": pm_modules.forcage_autorise(REPO_ROOT)}
 
 
 def _bus_sante() -> dict:
@@ -10272,6 +10350,13 @@ _PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
 _PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
                      "invalide", "doublon"]
 _PM_COMMANDS_DEFAULT = [
+    # RM2940 : la maintenance des providers, exposée au cockpit — en LECTURE SEULE. Ces deux
+    # contrôles n'existaient qu'en CLI : une dérive (id de CF renommé, primaire que l'écriture
+    # ne sert pas) restait invisible tant que personne ne pensait à les lancer.
+    {"name": "providers-check", "label": "Vérifier la config Redmine (ids live vs référence)",
+     "category": "maintenance", "script": "redmine-config-check.py", "args": []},
+    {"name": "pm-doctor", "label": "Vérifier la cohérence PM (projets, providers, liens partenaires)",
+     "category": "maintenance", "script": "pm-doctor.py", "args": []},
     {"name": "task-status", "label": "Changer le statut d'un ticket",
      "category": "ticket", "script": "pm-task-status-update.py",
      "mutate": True, "confirm": True, "args": [
@@ -12065,6 +12150,13 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM3070 L0 — le mode d'installation. Réglage d'INSTANCE : admin seul. KARL_INSTALL_MODE,
+    # posé par l'unité de service, l'emporte ; /health dit lequel fait foi et ce qu'il contredit.
+    {"key": "conf:install.mode", "label": "Mode d'installation", "group": "Installation",
+     "type": "enum", "options": ["mono", "multi"], "default": "mono", "admin": True,
+     "path": ["install", "mode"],
+     "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
+             "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
     # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
     {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
@@ -12143,6 +12235,24 @@ def _conf_merged() -> dict:
             else:
                 out[k] = v
     return out
+
+
+_INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
+
+
+def _install_state() -> dict:
+    """RM3070 L0 : le mode d'installation déclaré (mono|multi) et ses écarts constatés.
+    Recalculé au plus toutes les 60 s — /health est appelé à chaque tick du cockpit."""
+    now = time.time()
+    if _INSTALL_CACHE["etat"] is None or now - _INSTALL_CACHE["at"] > 60:
+        import pm_install_mode
+        try:
+            _INSTALL_CACHE["etat"] = pm_install_mode.etat(_conf_merged(), REPO_ROOT, USERS_FILE)
+        except Exception as e:   # jamais un /health en panne à cause du contrôle
+            _INSTALL_CACHE["etat"] = {"mode": "mono", "source": "défaut", "signals": {},
+                                      "warnings": [f"contrôle du mode impossible : {e}"]}
+        _INSTALL_CACHE["at"] = now
+    return _INSTALL_CACHE["etat"]
 
 
 def yaml_safe_load(text):
@@ -12880,6 +12990,17 @@ def _resolve_asset(rel: str):
     return target
 
 
+# ── APK de l'app Android (RM2331) ───────────────────────────────────────────
+# Publiée par deploy/karl-agent/android/build-apk.sh dans l'état de l'agent (hors
+# git). Route PUBLIQUE : on l'installe depuis le navigateur du téléphone, avant
+# d'avoir le moindre jeton ; l'APK ne contient aucun secret (code public).
+APK_NAME = "karl-cockpit.apk"
+
+
+def _apk_file():
+    return STATE_DIR / "app" / APK_NAME
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
 
@@ -12970,6 +13091,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_apk(self):
+        try:
+            body = _apk_file().read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": "APK non publiée (deploy/karl-agent/android/build-apk.sh)"})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{APK_NAME}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -13136,6 +13270,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
         if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
             return self._send_asset(path[len("/static/"):])
+        if path == "/app/" + APK_NAME:      # RM2331 : installation de l'app Android
+            return self._send_apk()
         if path == "/help":                  # RM2593 : sommaire de l'aide intégrée
             return self._send_json(200, op_help_list())
         if path.startswith("/help/"):        # RM2593 : contenu markdown d'un topic
@@ -13242,6 +13378,7 @@ class Handler(BaseHTTPRequestHandler):
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
                     "journal": jsante,
+                    "install": _install_state(),     # RM3070 L0
                 })
             if path == "/monitor/alerts":    # RM3112 : les alertes de l'observateur, situées
                 return self._send_json(200, op_monitor_alerts({k: v[0] for k, v in parse_qs(parsed.query).items()}))
@@ -13486,6 +13623,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/engines/options":  # RM3139 : cocher/décocher depuis le cockpit, plutôt qu'éditer le YAML
                 return self._send_json(200, op_engine_options_set(payload, self.auth_ctx))
+            if path == "/modules/state":    # RM3145 L1 : allumer / éteindre un module — geste d'administration
+                self._require_admin()
+                return self._send_json(200, op_modules_state(payload, self.auth_ctx))
+            if path == "/modules/policy":   # RM3145 Q003 : permettre le forçage sur l'instance
+                self._require_admin()
+                return self._send_json(200, op_modules_policy(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.
@@ -13805,6 +13948,13 @@ def main():
     purged = purge_tmux_logs()
     if purged:
         _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
+    # RM3070 L0 : le mode déclaré, et ce que l'installation réelle en contredit — dit
+    # une fois au démarrage, sans jamais refuser de démarrer.
+    _ist = _install_state()
+    _jlog("system", "warn" if _ist["warnings"] else "info",
+          f"mode {_ist['mode']} ({_ist['source']})"
+          + (f" — {len(_ist['warnings'])} écart(s) : " + " ; ".join(_ist["warnings"])
+             if _ist["warnings"] else ""))
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

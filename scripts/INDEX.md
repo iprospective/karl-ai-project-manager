@@ -185,6 +185,7 @@
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
+- `pm-sieve` — piloter les filtres Sieve d'une boîte par ManageSieve (RFC 5804) : lire…
 - `pm-snapshot` — point de restauration ZFS pré-MEP, pris sur le bon hyperviseur, depuis…
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
@@ -206,6 +207,7 @@
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
 - `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
+- `pm_install_mode` — le mode d'installation de karl, déclaré et contrôlé
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer

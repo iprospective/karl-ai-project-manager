@@ -80,6 +80,25 @@ live ; si le proxy court-circuite le `[F]`, basculer le gate sur `RewriteRule
 4. **Pas de secret loggué** : la query de `/ttyd` n'est pas journalisée (le
    cookie est en en-tête, pas en query — rien à masquer côté logs d'accès).
 
+## Chemins d'accès au terminal et invariant (RM2146)
+
+**Invariant : ttyd (lancé en `-W`, donc un shell) n'est jamais joignable sans
+authentification, par aucun chemin.** ttyd n'écoute que `127.0.0.1:7681` ; tout
+accès réseau passe par un vhost Apache qui gate `/ttyd` par le cookie
+`karl_session` (validateur `karl-ttyd-auth`, fail-closed) :
+
+| Origine | Chemin | Contrôle |
+|---|---|---|
+| Internet | `karl.iprospective.fr` (mmi) → tunnel `-R 7681` → ttyd | gate mmi (§4), valide via `127.0.0.1:9876` |
+| Bridge LXC (hôte, conteneurs) | `https://karl.lxc/ttyd/ws` → ttyd | gate du vhost `karl.conf` (rendu par `karl-vhost-render.sh`) |
+| Instance de test cockpit | `https://<nom>.lxc/ttyd/ws` → ttyd partagé | même gate, validé auprès du karl-agent de l'instance (`--verify-url`) |
+| Conteneur lui-même | `127.0.0.1:7681` | hors périmètre : déjà un shell local |
+
+Le vhost dédié `10.0.3.11:7681` (repli iframe) relayait ttyd **sans** auth à tout
+le bridge : supprimé (RM2146). Recette locale après `apache-vhost-setup.sh` :
+`/ttyd/ws` sans cookie ou cookie bidon → 403, session → 101, rien n'écoute plus
+sur `10.0.3.11:7681`.
+
 ## Réversibilité
 
 Retirer les 2 blocs `<Location "/ttyd*">` + la `RewriteMap`, `reload apache2`,

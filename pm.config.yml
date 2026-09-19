@@ -417,3 +417,12 @@ snapshot:
   rid: "sync#root_hour"
   atlas_orch_host: "atlas-orch@atlas.iprospective.net"
   atlas_orch_key: "~/.ssh/id_ed25519_karl"
+
+# Filtres Sieve par ManageSieve (RM3171) — consommé par pm-sieve. Identifiants lus
+# du vault (jamais en argv/environ/sortie). Sauvegardes : <state_dir>/sieve-backups/.
+sieve:
+  host: mail.iprospective.net
+  port: 4190
+  account: karl@iprospective.fr          # boîte par défaut
+  accounts:                              # boîte → item Vaultwarden (mêmes identifiants que l'IMAP)
+    karl@iprospective.fr: "vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net"

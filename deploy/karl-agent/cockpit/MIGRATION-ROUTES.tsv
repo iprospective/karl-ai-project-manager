@@ -129,3 +129,5 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /modules	L5	modules	/api/pm/modules	1	loadModules
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
+/modules/state	L5	pm	/api/pm/modules-state	1	modulesSetState
+/modules/policy	L5	pm	/api/pm/modules-policy	1	modulesSetPolicy

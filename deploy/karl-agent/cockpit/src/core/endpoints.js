@@ -69,6 +69,8 @@ export const ROUTES = {
   "pm.engines": { current: "/pm/engines", target: "/api/pm/engines", lot: "L5", callers: 1 },
   "pm.llm_models": { current: "/pm/llm-models", target: "/api/pm/llm-models", lot: "L5", callers: 1 },
   "pm.modules": { current: "/modules", target: "/api/pm/modules", lot: "L5", callers: 1 },
+  "pm.modules_policy": { current: "/modules/policy", target: "/api/pm/modules-policy", lot: "L5", callers: 1 },
+  "pm.modules_state": { current: "/modules/state", target: "/api/pm/modules-state", lot: "L5", callers: 1 },
   "pm.provider_assign": { current: "/pm/provider-assign", target: "/api/pm/provider-assign", lot: "L5", callers: 1 },
   "pm.provider_secret": { current: "/pm/provider-secret", target: "/api/pm/provider-secret", lot: "L5", callers: 1 },
   "pm.provider_types": { current: "/pm/provider-types", target: "/api/pm/provider-types", lot: "L5", callers: 1 },

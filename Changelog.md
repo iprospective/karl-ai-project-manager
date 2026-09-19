@@ -13,6 +13,48 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une entrée du carnet peut changer de ticket** (RM3258) : `pm-task-think <id> --move Qnnn --to <autre-id>`
+  déplace la ligne telle quelle (verbatim, date, signature) vers le carnet du ticket qu'elle concerne,
+  sous un nouvel id — les ids sont locaux au ticket et jamais réattribués. Les deux journaux tracent
+  le déplacement, les compteurs (donc la garde de clôture) sont refaits des deux côtés, et les
+  registres des DEUX projets sont refondus. Dans le cockpit, le volet « Réflexion » de la revue gagne
+  → (déplacer) et ✕ (supprimer) à côté de ✅ / ❌ : la suppression n'existait que dans la vue CDC,
+  alors que c'est dans la revue qu'on voit les entrées et que la clôture est refusée.
+- **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
+  `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
+  `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation
+  par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
+  git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
+  jetable de RM2667 et l'édition à la main dans Roundcube.
+
+- **karl s'installe et se met à jour ailleurs que sur cette machine** (RM3070, lot L1). `core-update`
+  exigeait toujours root, donc une ligne sudoers : un développeur seul, propriétaire de son checkout,
+  ne pouvait pas maintenir karl. Quand le code appartient au compte qui lance la mise à jour, elle
+  se fait sans sudo ; le verrou 3 couches et les déploiements dans `/usr/local` sont sautés, et dits.
+  Les units systemd ne citent plus `/zfs/workspaces/…` : elles portent `@PM_ROOT@`, rendu par
+  `install.sh` et `karl-voice-setup.sh` d'après l'emplacement réel du dépôt (`PM_ROOT` pour forcer),
+  avec refus d'une unit mal rendue ; `KillMode=process` est tenu par un test. L'état et le journal
+  hors du code étaient déjà réglés (RM2992, RM3095) : L1 ne les a pas refaits.
+
+- **karl sait enfin s'il sert un développeur ou une équipe** (RM3070, lot L0). Le mode d'installation
+  était un accident — chaque composant supposait l'un ou l'autre. Il se déclare désormais
+  (`install.mode: mono|multi`, défaut mono ; `KARL_INSTALL_MODE` l'emporte), réglable par un admin
+  dans le cockpit. Il n'est jamais déduit, mais il est CONTRÔLÉ : compte de service, règle sudoers,
+  code appartenant à root et nombre de comptes sont comparés au mode déclaré ; chaque écart est
+  journalisé au démarrage et exposé par `/health` (`install`), sans jamais bloquer. Sur l'instance
+  actuelle il dit d'emblée l'écart que L1 corrigera : « mono, mais le code appartient à root ».
+
+- **Les modules s'allument et s'éteignent** (RM3145, lot 1). Jusqu'ici « activable » n'était
+  qu'un mot : l'état vivait dans le manifeste, versionné avec le noyau — éteindre un module aurait
+  modifié le code livré. Il vit désormais dans la configuration de l'INSTANCE. Les trois
+  arbitrages du demandeur sont portés : un module **natif** s'éteint mais ne se retire pas ;
+  éteindre un module dont d'autres dépendent est **refusé en les nommant** ; le **forçage** reste
+  possible sous double sécurité (réglage de l'instance, PUIS recopier le nom du module), et ses
+  conséquences se signalent tant qu'elles durent. Éteindre ne supprime rien. `mmi-pm module new`
+  crée un module valide du premier coup. Au passage : `mmi-pm module list` **plantait** dès qu'un
+  module exposait une route (la variable de boucle écrasait la résolution) — la liste s'arrêtait
+  net à `release-watch`, et les modules suivants n'apparaissaient jamais.
+
 - **Bot Telegram : on sait qui parle, et le verrou vit au coffre** (RM1777). Une liste blanche vide
   laissait n'importe quel compte Telegram interroger Redmine (« mode découverte ») : elle n'autorise
   désormais personne, seul `/whoami` répond. Une table `telegram.users` (conf locale) dit qui est chaque

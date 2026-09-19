@@ -429,10 +429,8 @@ def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, 
     return [rid, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
 
 
-def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
-    """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
-    Retourne l'id attribué. Ne committe pas (l'appelant décide)."""
-    p = Path(path)
+def _section_prete(p: Path, kind: str, rm_id=None, title=""):
+    """Le fichier et la section existent (créés au besoin) ; rend (texte, parsed, sec)."""
     if not p.is_file():
         rid_ = rm_id or rm_id_of(p) or 0
         p.write_text(gabarit(rid_, title), encoding="utf-8")
@@ -443,17 +441,61 @@ def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **f
         block = ["", f"## {titre}", "", "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
         text_ = text_.rstrip("\n") + "\n" + "\n".join(block) + "\n"
         parsed = parse(text_)
-    sec = parsed[kind]
-    pfx = prefix or KINDS[kind][0]
-    rid = next_id(parsed, kind, pfx)
-    cells = row_cells(kind, rid, text, **fields)
-    # aligner sur la largeur réelle de la table du fichier (un think plus ancien peut différer)
+    return text_, parsed, parsed[kind]
+
+
+def _insere(p: Path, text_: str, sec: dict, cells: list) -> None:
+    """Écrit `cells` en fin de table, alignées sur la largeur RÉELLE du fichier
+    (un think plus ancien peut avoir une table plus étroite)."""
     width = len(sec["header"])
     cells = (cells + [""] * width)[:width]
     lines = text_.splitlines()
     lines.insert(sec["line_end"], "| " + " | ".join(cells) + " |")
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
+    """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
+    Retourne l'id attribué. Ne committe pas (l'appelant décide)."""
+    p = Path(path)
+    text_, parsed, sec = _section_prete(p, kind, rm_id, title)
+    rid = next_id(parsed, kind, prefix or KINDS[kind][0])
+    _insere(p, text_, sec, row_cells(kind, rid, text, **fields))
     return rid
+
+
+def find_row(parsed: dict, rid: str):
+    """(kind, row) de la ligne `rid`, ou (None, None). Pure."""
+    cible = str(rid or "").strip().upper()
+    for kind, sec in parsed.items():
+        for r in sec["rows"]:
+            if r["id"].upper() == cible:
+                return kind, r
+    return None, None
+
+
+def move_row(src, rid: str, dst, *, rm_id=None, title=""):
+    """RM3258 — DÉPLACE une entrée vers le carnet d'un autre ticket.
+
+    Une question consignée au mauvais ticket bloque la clôture de celui-ci et manque à
+    celui qu'elle concerne : la supprimer perdrait le verbatim, la réécrire perdrait sa
+    date, son auteur et sa session. On déplace donc les CELLULES telles quelles ; seul
+    l'id change, parce qu'il est local au ticket et jamais réattribué (RM3053).
+    Rend (kind, ancien_id, nouvel_id) ou None si la ligne est introuvable.
+    """
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        raise ValueError("source et destination identiques")
+    kind, row = find_row(load(src), rid)
+    if not kind:
+        return None
+    text_, parsed, sec = _section_prete(dst, kind, rm_id, title)
+    neuf = next_id(parsed, kind, row["prefix"] or KINDS[kind][0])
+    cells = list(row["cells"])
+    cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
+    _insere(dst, text_, sec, cells)
+    remove_rows(src, [row["id"]])
+    return kind, row["id"], neuf
 
 
 def remove_rows(path, ids) -> int:

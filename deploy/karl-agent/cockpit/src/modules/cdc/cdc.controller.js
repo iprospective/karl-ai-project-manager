@@ -20,6 +20,7 @@ export function mountCdc(el, ctx = {}) {
     ["change", "[data-action=\"think-state\"]", (ev, n) => onThinkState(n)], ["change", "[data-action=\"feature-state\"]", (ev, n) => onFeatureState(n)],
     ["change", "[data-action=\"feature-version\"]", (ev, n) => onFeatureVersion(n)]] });
   const confirm = ctx.confirm || (() => true);
+  const demande = ctx.prompt || ((m, d) => window.prompt(m, d));      // RM3258 : injectable, donc testable
   const head = (page) => new CdcHeaderViewModel({ cdcs: svc.cdcs || [], current: svc.current, page, path: state.chapter, error: svc.error });
   const sessionProjects = () => (ctx.sessionProjects ? ctx.sessionProjects() : []);
 
@@ -58,6 +59,7 @@ export function mountCdc(el, ctx = {}) {
     else if (a === "chapter") { setPage("chap:" + el.dataset.path); state.sec = null; renderChapters(); }
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
     else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }
+    else if (a === "think-move") { thinkMove(el.dataset.rm, el.dataset.id); }
     else if (a === "version-save") { versionSave(); }
     else if (a === "version-drop") { versionDrop(); }
   }
@@ -83,6 +85,15 @@ export function mountCdc(el, ctx = {}) {
     catch (e) { notify("retrait impossible : " + e.message, true); }
   }
   // RM3064 : édition d'une entrée depuis le panneau — le geste part vers le script (pm-task-think / pm-cdc-features), jamais vers le fichier
+  // RM3258 : mal attribuée plutôt qu'illégitime — elle se déplace, elle ne se perd pas.
+  async function thinkMove(rm, id) {
+    const saisie = demande("Déplacer " + id + " de RM" + rm + " vers quel ticket ?\nNuméro RM :", "");
+    if (saisie === null) return;
+    const to = String(saisie).trim().replace(/^RM/i, "");
+    if (!/^\d+$/.test(to)) { notify("numéro de ticket attendu", true); return; }
+    try { await svc.thinkEdit({ rm, id, action: "move", to }); notify(id + " déplacée vers RM" + to + ", registres régénérés"); await renderChapters(); }
+    catch (e) { notify("déplacement impossible : " + e.message, true); }
+  }
   async function thinkDelete(rm, id) {
     if (!confirm("Supprimer l'entrée " + id + " du think de RM" + rm + " ? (définitif)")) return;
     try { await svc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée, registres régénérés"); await renderChapters(); }

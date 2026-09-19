@@ -803,6 +803,9 @@ def main():
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
     pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-status-update")
+    refus = pm_scope.primary_write_refusal(md_path, cfg)          # RM2940 : jamais un no-op silencieux
+    if refus:
+        sys.exit(refus)
 
     # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
     # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les

@@ -166,6 +166,20 @@ export class TicketMetaViewModel extends EntityViewModel {
   }
   brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card, provider: r.provider }); }
   desc() { const r = this.r; return (r && r.description) || ""; }
+  /** RM3175 : les critères, lus par la fonction unique de RM2882 — avec leur PROVENANCE, qui dit
+   *  où cocher : le champ dédié (`pm-task-acceptance`) ou la description (ticket non migré). */
+  criteria() {
+    const a = (this.r && this.r.acceptance) || {};
+    const items = (a.items || []).map(i => ({ done: !!i.done, label: String(i.label || "") }));
+    return { items, source: a.source || null, done: items.filter(i => i.done).length, total: items.length,
+      rm: this.sel };
+  }
+  impl() { const r = this.r; return String((r && r.implementation) || ""); }
+  /** RM3175 : la MEP d'un ticket tient en deux choses — les gestes (CF 8) et la recette (CF 30). */
+  deploy() {
+    const r = this.r || {}, tp = r.test_protocol || null;
+    return { actions: (r.deploy_actions || []).map(String), protocol: tp && tp.text ? { text: String(tp.text), source: tp.source || "" } : null };
+  }
   log() { return logEntries(this.r && this.r.log_tail); }
   /** RM2173/2373/2519 : la conso ENREGISTRÉE par le PM (≠ conso live de l'onglet infos). */
   conso() {

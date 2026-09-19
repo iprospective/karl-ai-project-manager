@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Karl" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/karl_bg</item>
+        <item name="colorPrimaryDark">@color/karl_bg</item>
+        <item name="colorAccent">@color/karl_accent</item>
+    </style>
+</resources>

@@ -83,6 +83,10 @@ souvent avec un modèle moins capable que le tien. Détail, dispenses et conditi
 sortie : `norms/src/modules/status-workflow-pratique.md` § *La proposition
 d'implémentation*.
 
+En qualifiant, demande-toi aussi : **ce sujet mérite-t-il un aspect partagé** (CDC, ≥ 2
+tickets sur un même socle, décision durable) ? Si oui → `mmi-pm task-doc <id> --slug …` ;
+par défaut, non. Critères : `project-modeling-pratique.md` § *Aspect partagé*.
+
 **Actions au déploiement** (`pm-task-deploy <id> --add "…"`). C'est la **procédure de
 MEP de ton ticket** — une suite **ordonnée** d'étapes, pas un pense-bête : migration à
 jouer et dans quel ordre, constante à créer avant le premier passage, service à

@@ -9315,7 +9315,10 @@ def op_providers(auth_ctx=None) -> dict:
         out.append({"name": nom, "axis": d.get("axis") or PT.type_de(typ).get("axis", ""), "type": typ,
                     "local": nom in (fusion.get("servers") or {}),
                     "fields": {k: v for k, v in d.items() if k not in ("axis", "type")}, "secrets": cles})
-    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "defaults": defauts,
+    # RM3070 L2 : `can_global` dit si cette instance PEUT écrire hors du .env personnel. Le front
+    # n'affiche la case « global » que si oui — un bouton qui échoue toujours vaut moins que pas de bouton.
+    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "can_global": peut_sudo("root"),
+            "defaults": defauts,
             "instances": out, "assignments": _provider_assignments()}
 
 
@@ -9388,6 +9391,13 @@ def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
     cible_user = str(payload.get("user") or "").strip() or None
     if (portee == "global" or cible_user) and not admin:
         raise ApiError(403, "réservé aux administrateurs : le .env global et celui d'un autre développeur")
+    # RM3070 L2 : ne pas promettre ce que cette instance ne peut pas tenir. Le .env global appartient
+    # à root ; sans sudo sans mot de passe, l'écriture échouait au clic, avec un message de sudo.
+    if (portee == "global" or cible_user) and not peut_sudo("root"):
+        raise ApiError(409, "cette instance ne peut pas écrire hors de ton .env : sudo demande un "
+                            "mot de passe (barrière voulue). En terminal : "
+                            f"sudo mmi-pm provider-secret --instance {nom} --key {cle} "
+                            f"--scope {portee}" + (f" --user {cible_user}" if cible_user else ""))
     args = ["--instance", nom, "--key", cle, "--type", typ, "--scope", portee]
     if payload.get("unset"):
         args.append("--unset")
@@ -9468,6 +9478,12 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
     if action in ("install", "update") and portee == "system" and not bool((auth_ctx or {}).get("admin")):
         raise ApiError(403, "installer pour toute la machine touche le système : réservé aux "
                             "administrateurs — l'installation « pour moi » reste ouverte")
+    # RM3070 L2 : même règle que pour les secrets — une recette « système » commence par sudo.
+    if action in ("install", "update") and portee == "system" and R.demande_sudo(nom, action, portee) \
+            and not peut_sudo("root"):
+        raise ApiError(409, "installer pour toute la machine exige sudo, qui demande ici un mot de "
+                            f"passe. En terminal : mmi-pm engine-install --recipe {nom} "
+                            f"--action {action} --scope system")
     try:
         r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")),
                       portee=portee)
@@ -12238,6 +12254,27 @@ def _conf_merged() -> dict:
 
 
 _INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
+_SUDO_CACHE: dict = {"at": 0.0, "ok": {}}
+
+
+def peut_sudo(comme: str = "root") -> bool:
+    """RM3070 L2 : le démon peut-il VRAIMENT devenir `comme` sans saisie humaine ?
+
+    Le cockpit proposait des portées (« global », « pour toute la machine ») qui passent par
+    `sudo -n` : sans règle NOPASSWD — et il n'y en a pas, la barrière humaine est voulue (§13a) —
+    elles échouaient au moment du clic, avec un message de sudo. On SONDE donc la capacité, une
+    fois par 5 min, et on ne propose que ce qui peut aboutir. Sonder coûte moins qu'un bouton qui
+    ment."""
+    now = time.time()
+    if now - _SUDO_CACHE["at"] > 300:
+        _SUDO_CACHE["ok"], _SUDO_CACHE["at"] = {}, now
+    if comme not in _SUDO_CACHE["ok"]:
+        try:
+            _SUDO_CACHE["ok"][comme] = subprocess.run(
+                ["sudo", "-n", "-u", comme, "true"], capture_output=True, timeout=5).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            _SUDO_CACHE["ok"][comme] = False
+    return _SUDO_CACHE["ok"][comme]
 
 
 def _install_state() -> dict:
@@ -12248,8 +12285,11 @@ def _install_state() -> dict:
         import pm_install_mode
         try:
             _INSTALL_CACHE["etat"] = pm_install_mode.etat(_conf_merged(), REPO_ROOT, USERS_FILE)
+            # ce que cette instance peut RÉELLEMENT faire — le front n'offre que ça (L2)
+            _INSTALL_CACHE["etat"]["can"] = {"sudo_root": peut_sudo("root")}
         except Exception as e:   # jamais un /health en panne à cause du contrôle
             _INSTALL_CACHE["etat"] = {"mode": "mono", "source": "défaut", "signals": {},
+                                      "can": {"sudo_root": False},
                                       "warnings": [f"contrôle du mode impossible : {e}"]}
         _INSTALL_CACHE["at"] = now
     return _INSTALL_CACHE["etat"]

@@ -19,6 +19,8 @@ export class ProvidersViewModel extends EntityViewModel {
     return { list: m.models || [], count: (m.models || []).length, url: m.url || "" };
   }
   get admin() { return !!this.data.admin; }
+  /** RM3070 L2 : la portée « global » n'est offerte que si l'instance peut vraiment l'écrire. */
+  get canGlobal() { return !!this.data.admin && !!this.data.can_global; }
   get user() { return this.data.user || ""; }
   get empty() { return !(this.cat.types || []).length; }
   typesOf(axis) { return (this.cat.types || []).filter(t => t.axis === axis); }

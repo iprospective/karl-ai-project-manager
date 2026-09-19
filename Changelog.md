@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le cockpit cesse de proposer ce qui ne peut pas aboutir** (RM3070, lot L2). Deux portées se
+  donnaient sans pouvoir tenir : le `.env` **global** d'un secret et l'installation d'un moteur **pour
+  toute la machine**. Les deux passent par `sudo -n`, or la règle sudoers exige un mot de passe — la
+  barrière humaine est voulue. Au clic, l'utilisateur récoltait une erreur de sudo. La capacité est
+  désormais **sondée** (une fois par 5 min) : la case « global » n'apparaît plus quand elle est
+  impossible, et l'API refuse en donnant **la commande à taper en terminal** au lieu d'échouer en
+  chemin. Au passage, **les préférences du navigateur sont cloisonnées par utilisateur**
+  (`u:<user>:<clé>`) et purgées à la déconnexion : deux développeurs sur un même poste ne se
+  marchent plus dessus. Sans utilisateur connecté (mono), rien ne change et aucune préférence n'est
+  perdue ; le premier connecté adopte celles d'avant.
+
 - **Une entrée du carnet peut changer de ticket** (RM3258) : `pm-task-think <id> --move Qnnn --to <autre-id>`
   déplace la ligne telle quelle (verbatim, date, signature) vers le carnet du ticket qu'elle concerne,
   sous un nouvel id — les ids sont locaux au ticket et jamais réattribués. Les deux journaux tracent

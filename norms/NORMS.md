@@ -1,9 +1,9 @@
 ---
-schema_version: "2.54.0"
-updated: 2026-09-17
+schema_version: "2.54.1"
+updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.54.0
+# Normes de gestion des tâches — v2.54.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -4255,8 +4255,12 @@ sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
 `target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
 (sauf si `test_url` est explicitement surchargé). Pour les **envs de session par
 ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create`
-écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
-`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
+écrit `http://<préfixe>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
+`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229). Le
+**préfixe** est `runtime.vhost_prefix` au manifeste, et à défaut le nom du repo
+(RM3247) : un repo au nom générique (`dolibarr`) prend un préfixe qui dit le client
+(`calicote-erp`). Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
+`post_create` ; le dossier `envs/<repo>-rm<id>` et le canari gardent le nom du repo.
 
 > **Résolution du worktree : PAR BRANCHE, jamais par chemin deviné (RM2394).**
 > Le vhost et l'`env_name` restent l'**identité stable** du ticket

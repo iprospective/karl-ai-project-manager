@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **karl sait enfin s'il sert un développeur ou une équipe** (RM3070, lot L0). Le mode d'installation
+  était un accident — chaque composant supposait l'un ou l'autre. Il se déclare désormais
+  (`install.mode: mono|multi`, défaut mono ; `KARL_INSTALL_MODE` l'emporte), réglable par un admin
+  dans le cockpit. Il n'est jamais déduit, mais il est CONTRÔLÉ : compte de service, règle sudoers,
+  code appartenant à root et nombre de comptes sont comparés au mode déclaré ; chaque écart est
+  journalisé au démarrage et exposé par `/health` (`install`), sans jamais bloquer. Sur l'instance
+  actuelle il dit d'emblée l'écart que L1 corrigera : « mono, mais le code appartient à root ».
+
 - **Les modules s'allument et s'éteignent** (RM3145, lot 1). Jusqu'ici « activable » n'était
   qu'un mot : l'état vivait dans le manifeste, versionné avec le noyau — éteindre un module aurait
   modifié le code livré. Il vit désormais dans la configuration de l'INSTANCE. Les trois

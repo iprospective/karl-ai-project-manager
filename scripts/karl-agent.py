@@ -5488,7 +5488,7 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 client_hash = rest[0] if rest else ""
             elif name == "health":
                 data = {"status": "ok", "sessions": len(_list_sessions()),
-                        "tmux": _tmux("-V")[0] == 0}
+                        "tmux": _tmux("-V")[0] == 0, "install": _install_state()}
                 client_hash = rest[0] if rest else ""
             elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
                 data = op_pending({}, auth_ctx)
@@ -12108,6 +12108,13 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM3070 L0 — le mode d'installation. Réglage d'INSTANCE : admin seul. KARL_INSTALL_MODE,
+    # posé par l'unité de service, l'emporte ; /health dit lequel fait foi et ce qu'il contredit.
+    {"key": "conf:install.mode", "label": "Mode d'installation", "group": "Installation",
+     "type": "enum", "options": ["mono", "multi"], "default": "mono", "admin": True,
+     "path": ["install", "mode"],
+     "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
+             "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
     # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
     {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
@@ -12186,6 +12193,24 @@ def _conf_merged() -> dict:
             else:
                 out[k] = v
     return out
+
+
+_INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
+
+
+def _install_state() -> dict:
+    """RM3070 L0 : le mode d'installation déclaré (mono|multi) et ses écarts constatés.
+    Recalculé au plus toutes les 60 s — /health est appelé à chaque tick du cockpit."""
+    now = time.time()
+    if _INSTALL_CACHE["etat"] is None or now - _INSTALL_CACHE["at"] > 60:
+        import pm_install_mode
+        try:
+            _INSTALL_CACHE["etat"] = pm_install_mode.etat(_conf_merged(), REPO_ROOT, USERS_FILE)
+        except Exception as e:   # jamais un /health en panne à cause du contrôle
+            _INSTALL_CACHE["etat"] = {"mode": "mono", "source": "défaut", "signals": {},
+                                      "warnings": [f"contrôle du mode impossible : {e}"]}
+        _INSTALL_CACHE["at"] = now
+    return _INSTALL_CACHE["etat"]
 
 
 def yaml_safe_load(text):
@@ -13285,6 +13310,7 @@ class Handler(BaseHTTPRequestHandler):
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
                     "journal": jsante,
+                    "install": _install_state(),     # RM3070 L0
                 })
             if path == "/monitor/alerts":    # RM3112 : les alertes de l'observateur, situées
                 return self._send_json(200, op_monitor_alerts({k: v[0] for k, v in parse_qs(parsed.query).items()}))
@@ -13854,6 +13880,13 @@ def main():
     purged = purge_tmux_logs()
     if purged:
         _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
+    # RM3070 L0 : le mode déclaré, et ce que l'installation réelle en contredit — dit
+    # une fois au démarrage, sans jamais refuser de démarrer.
+    _ist = _install_state()
+    _jlog("system", "warn" if _ist["warnings"] else "info",
+          f"mode {_ist['mode']} ({_ist['source']})"
+          + (f" — {len(_ist['warnings'])} écart(s) : " + " ; ".join(_ist["warnings"])
+             if _ist["warnings"] else ""))
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

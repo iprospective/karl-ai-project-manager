@@ -124,6 +124,41 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   await el.click("spawn", { rm: "42" }); await settle(); assert(ev.some(x => x[0] === "attach" && x[1] === "9"), "une session travaille déjà le ticket → on la rejoint (RM2818)");
   await ctr.openStatusMenu("RM42", { getBoundingClientRect: () => ({ left: 0, bottom: 0 }) }); await settle(); assert(/data-st="a_tester_dev"/.test(el.sub.menu.innerHTML), "le menu est chargé APRÈS ouverture, depuis les transitions du serveur");
   runs.length = 0; await el.sub.menu.click("x", { st: "a_tester_dev" }); await settle(); assert(runs.some(x => x[0] === "task-status" && x[1].status === "a_tester_dev"), "choisir une transition la soumet"); assert(el.sub.menu.sub.removed, "…et referme le menu");
+  // RM3258 — une entrée mal attribuée se déplace, une fausse entrée se supprime, DEPUIS la revue :
+  // c'est là qu'on les voit, et c'est là que la clôture est refusée à cause d'elles.
+  {
+    const th = { file: "RM42_x.think.md", counts: { questions_open: 1 }, blocking: true,
+                 questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", open: true }], decisions: [], features: [], notes: [] };
+    const pane = String(V.ThinkPane(th));
+    assert(/data-action="think-move" data-id="Q001"/.test(pane), "le volet Réflexion offre le déplacement");
+    assert(/data-action="think-delete" data-id="Q001"/.test(pane), "…et la suppression");
+    assert(!/onclick=/.test(pane), "gestes délégués, aucun on*");
+    const closed = String(V.ThinkPane({ file: "f", counts: {}, questions: [{ id: "Q002", icon: "✅", text: "tranchée", closed: true }], decisions: [], features: [], notes: [] }));
+    assert(!/think-move|think-delete/.test(closed), "une entrée déjà tranchée n'offre pas ces gestes");
+  }
+  {
+    const vus = []; let reponse = "3015";
+    const ctr2 = mountReview(fakeElement(), { ticket: T, service: svc, center, notify: (m, e) => ev.push(["toast", m, !!e]),
+      confirm: () => true, prompt: () => reponse, resolve: () => resolve, cfg: () => CFG, show: () => {}, setMeta: () => {}, renderMeta: () => {},
+      noteOpened: () => {}, showRight: () => {}, refreshSessions: () => {}, tq: { entry: () => null, loaded: () => false, size: () => 0, load: () => {} },
+      launcher: () => ({ engine: "claude", model: "" }), popover: () => fakeElement(), place: () => {}, onOutsideClick: () => {},
+      cdc: { thinkEdit: async (body) => { vus.push(body); return { ok: true }; } } });
+    ctr2.open("42"); await settle();
+    ev.length = 0;
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "move", to: "3015" }, "déplacer : le front dit l'entrée et la cible, rien d'autre");
+    reponse = "RM77";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.strictEqual(vus[vus.length - 1].to, "77", "« RM77 » saisi à la main est accepté");
+    reponse = "n'importe quoi"; const n0 = vus.length;
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.strictEqual(vus.length, n0, "saisie invalide : rien ne part sur le réseau");
+    assert(ev.some(x => x[0] === "toast" && x[2]), "…et on le dit");
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-delete", id: "N003" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "N003", action: "delete" }, "supprimer depuis la revue");
+    ctr2.unmount();
+  }
+  console.log("✓ réflexion (RM3258/RM3064) : déplacer vers un autre ticket, supprimer, depuis la revue");
   ctr.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur : ouverture/fermeture/cession, consigne hors DOM, verdict, doublon rejoint, menu de statut");
   console.log("\nTous les tests de la revue passent.");

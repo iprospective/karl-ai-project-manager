@@ -44,7 +44,7 @@ const escA = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").rep
 /** La cellule de gestes d'une entrée de think : état + suppression (RM3064). Chaîne HTML sûre (ids contrôlés par regex). */
 export function thinkActions(rm, id) {
   const opts = THINK_STATES.map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("");
-  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
+  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini" data-action="think-move" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Déplacer cette entrée vers un autre ticket (RM3258)">→</button> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
 }
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {

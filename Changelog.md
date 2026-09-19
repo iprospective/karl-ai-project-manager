@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **« Installer pour moi » vise enfin VOTRE home, et « installé » dit pour qui** (RM3097). L'action
+  partait dans le home du démon, et la détection balayait tous les homes de la machine : un moteur posé
+  par un autre développeur était rapporté présent pour tout le monde, avec un chemin que votre compte ne
+  peut pas exécuter. Désormais l'état est rendu pour le développeur connecté — « installé par bob — pas
+  pour vous » est un troisième état, distinct d'« absent » — et écrire dans le home d'un autre est refusé
+  en le disant, avec la commande à lancer sous son compte. La CLI gagne `--for-user`.
+
 - **Configurer la clé d'un autre développeur marche, et une clé illisible ne passe plus pour absente**
   (RM3096). Le démon appelait `sudo -u <dev>`, que la règle sudoers n'autorise pas (elle n'ouvre le
   script qu'en root) et n'utilisait jamais l'option `--user` prévue pour ce cas : l'écriture échouait

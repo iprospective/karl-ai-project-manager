@@ -30,7 +30,7 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
         pool: matnat-84   # pool FPM partagé du workspace (RM2081)
         docroot: public   # sous-dossier servi dans l'env
         db: matnat        # BDD dev partagée (source des clones à la demande)
-        vhost_prefix: matnat   # RM3247 — nom servi `<préfixe>-rm<id>.lxc` (défaut : nom du repo)
+        vhost_prefix: client-a   # RM3247 — nom servi `<préfixe>-rm<id>.lxc` (défaut : nom du repo)
         db_clone_default: false   # défaut PROJET : cloner la BDD par ticket ?
         db_clone:                 # paramètres du clone (optionnels)
           exclude_tables: [log_%, cache%]   # motifs LIKE — données exclues,

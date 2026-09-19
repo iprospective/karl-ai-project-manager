@@ -4259,7 +4259,7 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 `teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229). Le
 **préfixe** est `runtime.vhost_prefix` au manifeste, et à défaut le nom du repo
 (RM3247) : un repo au nom générique (`dolibarr`) prend un préfixe qui dit le client
-(`calicote-erp`). Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
+(`client-a-erp`). Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
 `post_create` ; le dossier `envs/<repo>-rm<id>` et le canari gardent le nom du repo.
 
 > **Résolution du worktree : PAR BRANCHE, jamais par chemin deviné (RM2394).**

@@ -3,12 +3,11 @@
 
 Le besoin : le vhost d'un env de ticket portait toujours le nom du REPO. Pour un repo au nom
 générique (`dolibarr`, partagé par tous les clients qui en ont un), l'URL ne disait plus de
-quel client il s'agissait : l'env de RM3040 est sorti en `dolibarr-rm3040.lxc`, là où les
-envs câblés à la main s'appelaient `calicote-erp-rm2858.lxc`.
+quel client il s'agissait : `dolibarr-rm12.lxc` là où l'on attendait `client-a-erp-rm12.lxc`.
 
 Ce qui est protégé ici :
   1. SANS préfixe, rien ne change — mêmes noms qu'avant, y compris pour un nom de repo qui
-     ne serait pas un label DNS valide (`matnat_sf7`) : ce qui marchait doit marcher ;
+     ne serait pas un label DNS valide (`legacy_repo`) : ce qui marchait doit marcher ;
   2. AVEC préfixe, tout ce qui se VOIT le suit : vhost, URL, test_url, {host} ;
   3. le DOSSIER ne change pas, et le canari garde son nom — il prouve « ce vhost sert CE
      worktree », et le cockpit le compare au nom du dossier ;
@@ -94,14 +93,14 @@ def run(cmd, ws, rmid=3040):
 
 
 RUNTIME_PREFIXE = """  runtime:
-    pool: calicote-74
+    pool: pool-a
     docroot: htdocs
-    vhost_prefix: calicote-erp
+    vhost_prefix: client-a-erp
     post_create:
       - "echo url={host} dossier={env}"
 """
 RUNTIME_SANS = """  runtime:
-    pool: calicote-74
+    pool: pool-a
     docroot: htdocs
     post_create:
       - "echo url={host} dossier={env}"
@@ -116,12 +115,12 @@ def test_vhost_name():
     check("préfixe vide : nom du repo",
           pes.vhost_name({"name": "dolibarr", "runtime": {"vhost_prefix": "  "}}, 3040), "dolibarr-rm3040")
     check("préfixe posé : il gagne",
-          pes.vhost_name({"name": "dolibarr", "runtime": {"vhost_prefix": "calicote-erp"}}, 3040),
-          "calicote-erp-rm3040")
+          pes.vhost_name({"name": "dolibarr", "runtime": {"vhost_prefix": "client-a-erp"}}, 3040),
+          "client-a-erp-rm3040")
     # Le défaut n'est PAS validé : un nom de repo historique hors label DNS continue de marcher
     check("nom de repo historique non validé (rien ne casse)",
-          pes.vhost_name({"name": "matnat_sf7"}, 12), "matnat_sf7-rm12")
-    for mauvais in ("Calicote", "calicote_erp", "-calicote", "calicote-", "a b", "x" * 49, "cal.icote"):
+          pes.vhost_name({"name": "legacy_repo"}, 12), "legacy_repo-rm12")
+    for mauvais in ("ClientA", "client_a_erp", "-client-a", "client-a-", "a b", "x" * 49, "client.a"):
         try:
             pes.vhost_name({"name": "d", "runtime": {"vhost_prefix": mauvais}}, 1)
             refuse = False
@@ -136,12 +135,12 @@ def test_create_avec_prefixe():
         ws = build_ws(Path(t), RUNTIME_PREFIXE)
         out, appels, urls = run("create", ws)
         vh = [a for a in appels if a[0] == "vhost-add"]
-        check("vhost posé sous le nom préfixé", vh[0][1] if vh else None, "calicote-erp-rm3040")
-        check("test_url suit le préfixe", urls, ["http://calicote-erp-rm3040.lxc/"])
+        check("vhost posé sous le nom préfixé", vh[0][1] if vh else None, "client-a-erp-rm3040")
+        check("test_url suit le préfixe", urls, ["http://client-a-erp-rm3040.lxc/"])
         check("{host} substitué dans post_create",
-              "url=calicote-erp-rm3040.lxc dossier=dolibarr-rm3040" in out, True)
+              "url=client-a-erp-rm3040.lxc dossier=dolibarr-rm3040" in out, True)
         check("le DOSSIER garde le nom du repo", "envs/dolibarr-rm3040" in out, True)
-        check("le récapitulatif annonce l'URL servie", "http://calicote-erp-rm3040.lxc/" in out, True)
+        check("le récapitulatif annonce l'URL servie", "http://client-a-erp-rm3040.lxc/" in out, True)
 
 
 def test_create_sans_prefixe():
@@ -161,7 +160,7 @@ def test_teardown_retire_le_bon_vhost():
         ws = build_ws(Path(t), RUNTIME_PREFIXE)
         _, appels, _ = run("teardown", ws)
         rm = [a for a in appels if a[0] == "vhost-remove"]
-        check("vhost retiré sous le nom que create a posé", rm[0][1] if rm else None, "calicote-erp-rm3040")
+        check("vhost retiré sous le nom que create a posé", rm[0][1] if rm else None, "client-a-erp-rm3040")
 
 
 def test_cockpit_sonde_l_hote_servi():
@@ -175,12 +174,12 @@ def test_cockpit_sonde_l_hote_servi():
     sys.modules["karl_agent"] = ka
     spec.loader.exec_module(ka)
     check("test_url .lxc préfixé : c'est lui qu'on sonde",
-          ka._env_test_host("dolibarr-rm3040", "http://calicote-erp-rm3040.lxc/"), "calicote-erp-rm3040.lxc")
+          ka._env_test_host("dolibarr-rm3040", "http://client-a-erp-rm3040.lxc/"), "client-a-erp-rm3040.lxc")
     check("sans test_url : <dossier>.lxc (historique)",
           ka._env_test_host("dolibarr-rm3040", None), "dolibarr-rm3040.lxc")
     check("test_url hors .lxc (préprod distante) : ignoré",
-          ka._env_test_host("calicote-presta-rm2408", "https://calicote-presta-2.test.iprospective.fr/"),
-          "calicote-presta-rm2408.lxc")
+          ka._env_test_host("shop-rm12", "https://preprod.client-a.example/"),
+          "shop-rm12.lxc")
     check("pas d'env : rien à sonder", ka._env_test_host(None, "http://x.lxc/"), None)
 
 

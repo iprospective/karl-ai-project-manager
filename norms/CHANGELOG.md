@@ -6,7 +6,7 @@
 - **Préfixe de vhost des envs de ticket** (RM3247, module `environments`). Le vhost portait
   toujours le nom du repo : `<repo>-rm<id>.lxc`. Pour un repo au nom générique (`dolibarr`,
   partagé par tous les clients qui en ont un), l'URL ne disait plus de quel client il
-  s'agissait. `runtime.vhost_prefix` au manifeste le fixe par repo (`calicote-erp`) ; à
+  s'agissait. `runtime.vhost_prefix` au manifeste le fixe par repo (`client-a-erp`) ; à
   défaut, rien ne change. Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
   `post_create` — ; le dossier et le canari gardent le nom du repo.
 

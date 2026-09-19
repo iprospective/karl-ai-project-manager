@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.55.0] - 2026-09-19
+
+### Modifié
+- **Tripwire #19 : `pm-task-add` cherche l'antériorité lui-même** (RM3248). La règle et l'outil
+  existaient (RM3130) ; le lien entre les deux passait par la mémoire de l'agent — RM3247 a été
+  créé sans recherche, juste après une compaction. `pm-task-add` affiche désormais les
+  antériorités et **refuse** de créer sur une correspondance forte dans le même projet, sauf
+  `--not-duplicate "<pourquoi>"`, tracé au journal. Calibré sur les 1 578 tickets de l'arbre :
+  1,7 % de créations arrêtées, dont la moitié environ de vrais doublons (titres identiques) ;
+  une date différente fait deux occurrences, pas un doublon. La recherche par mots-clés reste
+  due : la garde ne compare que des titres.
+
 ## [2.54.1] - 2026-09-19
 
 ### Modifié

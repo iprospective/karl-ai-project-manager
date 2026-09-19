@@ -115,6 +115,52 @@ def load_project_overview(cfg, entity, project):
     return cfg.project_meta(entity, project)
 
 
+def _garde_anteriorite(cfg, titre, projet, acquittement):
+    """RM3248 — cherche l'antériorité AVANT de créer (tripwire #19), sans compter sur l'agent.
+
+    La règle existait et l'outil aussi (`pm-task-search`, RM3130) ; ce qui manquait, c'est
+    que la recherche dépendait de la mémoire de celui qui crée. RM3247 a été créé sans, juste
+    après une compaction. Le moteur est celui de pm-task-search, importé : le critère n'existe
+    qu'à un endroit.
+
+      · voisines : affichées, jamais bloquantes ;
+      · fortes (même projet, titre très voisin) : création REFUSÉE sauf `--not-duplicate`.
+        Un simple avertissement ne suffit pas : un agent lit la sortie, il ne s'y arrête pas.
+    Un moteur en panne n'empêche JAMAIS la création : il le dit, et on continue.
+    Rend la liste des correspondances fortes (acquittées), pour la trace au journal.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "pm_task_search", Path(__file__).resolve().parent / "pm-task-search.py")
+        moteur = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(moteur)
+        fortes, voisines = moteur.prior_art_cfg(cfg, titre, project=projet)
+    except Exception as e:  # la garde ne doit jamais devenir la panne
+        out.warn(f"recherche d'antériorité indisponible ({e.__class__.__name__}: {e}) — création "
+                 f"poursuivie ; vérifie à la main : pm-task-search.py {titre!r}")
+        return []
+
+    def ligne(x):
+        return (f"RM{x['rm_id']} [{x['status']}] {x['project']} — {x['title'][:90]} "
+                f"({round(100 * x['overlap'])} %)")
+
+    if voisines:
+        out.warn(f"{len(voisines)} antériorité(s) voisine(s) — vérifier avant de continuer :")
+        for v in voisines:
+            out.warn("  " + ligne(v))
+    if fortes and not acquittement:
+        sys.exit("ERREUR : antériorité FORTE dans le même projet — ce ticket existe peut-être déjà :\n"
+                 + "\n".join("  " + ligne(f) for f in fortes)
+                 + "\n→ doublon : complète ou rouvre le ticket existant plutôt que d'en créer un."
+                 + "\n→ pas un doublon : relance avec --not-duplicate \"<pourquoi>\""
+                 + " (et --relates <id> pour les lier).")
+    if fortes:
+        out.warn("antériorité forte acquittée (--not-duplicate) : "
+                 + ", ".join(f"RM{f['rm_id']}" for f in fortes))
+    return fortes
+
+
 def main():
     # Liste machine des types canoniques (consommée par karl-agent / cockpit pour
     # peupler le sélecteur sans dupliquer la taxonomie). Traité avant argparse car
@@ -193,6 +239,12 @@ def main():
                          "Incompatible avec --retro/--status.")
     ap.add_argument("--branch-repo", default=None,
                     help="Repo cible pour --start-branch (défaut : résolution pm-branch-start)")
+    ap.add_argument("--not-duplicate", dest="not_duplicate", metavar="MOTIF", default=None,
+                    help="RM3248 : passe outre une antériorité FORTE (même projet, titre très "
+                         "voisin) en disant pourquoi ce n'est pas un doublon ; le motif est "
+                         "tracé au journal du ticket créé.")
+    ap.add_argument("--relates", type=int, action="append", default=[], metavar="RM_ID",
+                    help="RM3248 : lie le ticket créé à une antériorité voisine (répétable).")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--porcelain", "--id-only", dest="porcelain", action="store_true",
                     help="Sortie machine (RM2170) : n'imprime que l'id nu du ticket créé "
@@ -274,6 +326,8 @@ def main():
 
     tracker_id = TYPE_TO_TRACKER[args.type]
     priority_id = PRIORITY_TO_ID[args.priority]
+
+    fortes = _garde_anteriorite(cfg, args.title, f"{entity}/{project}", args.not_duplicate)
 
     if args.dry_run:
         print(f"--dry-run : POST Redmine project={rm_proj_id} tracker={tracker_id} prio={priority_id}")
@@ -442,12 +496,26 @@ def main():
     # (+ le MD/log du parent si --parent les a modifiés). Placé AVANT --status /
     # --retro : les transitions déléguées à pm-task-status-update auto-committent
     # leurs propres écritures.
+    if fortes and args.not_duplicate:
+        import pm_task_log
+        pm_task_log.append(md_path, "Antériorité acquittée (pm-task-add)",
+                           "Correspondance forte avec "
+                           + ", ".join(f"RM{f['rm_id']} « {f['title']} »" for f in fortes)
+                           + f". Créé quand même — motif : {args.not_duplicate}")
     commit_paths = [md_path, log_path]
     if args.parent:
         parent_md = cfg.find_task(args.parent)
         if parent_md:
             commit_paths += [parent_md, parent_md.parent / parent_md.name.replace(".md", ".log.md")]
     pm_git.autocommit(commit_paths, f"pm(add): RM{rm_id} {slug}")
+
+    for autre in args.relates:
+        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "pm-task-link.py"),
+                            "add", str(rm_id), str(autre), "--type", "relates"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            out.warn(f"lien RM{rm_id} ↔ RM{autre} non posé — relance : "
+                     f"pm-task-link.py add {rm_id} {autre} --type relates")
 
     if args.start_branch:
         # Verbe atomique (RM2224) : l'id sort de create_redmine_issue et entre

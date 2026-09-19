@@ -145,3 +145,30 @@ def assert_task_scope(rm_id, md_path, cross_project: bool, tool: str) -> None:
             f"n'est pas un workspace PM-tracké.\n"
             f"  → Vérifie l'id (tripwire #13), ou relance avec --cross-project."
         )
+
+
+def primary_write_refusal(md_path, cfg=None):
+    """Message de refus si le projet de cette fiche a un primaire que l'écriture ne sert pas ; None sinon (RM2940).
+
+    Tolérant par construction : fiche hors projet, registre illisible, projet sans bloc
+    `providers:` → None. Une garde qui planterait sur une conf incomplète bloquerait
+    tous les tickets pour protéger un cas qui n'existe pas encore.
+    """
+    try:
+        from pm_paths import PMConfig
+        from pm_registry import Registry, resolve_instance
+        import redmine_utils
+        tp = task_project(md_path)
+        if not tp:
+            return None
+        cfg = cfg or PMConfig.load()
+        reg = Registry.from_config(cfg.providers)
+        meta = cfg.project_meta(*tp) or {}
+        why = redmine_utils.primary_write_problem(resolve_instance(meta, "task", reg).instance)
+    except Exception:  # noqa: BLE001 — cf. docstring
+        return None
+    if not why:
+        return None
+    return (f"REFUS : {tp[0]}/{tp[1]} — {why}.\n"
+            f"  Rien n'a été écrit : l'écriture aurait réussi en apparence, sans rien changer "
+            f"sur le vrai ticket.")

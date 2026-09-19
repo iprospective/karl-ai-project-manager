@@ -10315,6 +10315,13 @@ _PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
 _PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
                      "invalide", "doublon"]
 _PM_COMMANDS_DEFAULT = [
+    # RM2940 : la maintenance des providers, exposée au cockpit — en LECTURE SEULE. Ces deux
+    # contrôles n'existaient qu'en CLI : une dérive (id de CF renommé, primaire que l'écriture
+    # ne sert pas) restait invisible tant que personne ne pensait à les lancer.
+    {"name": "providers-check", "label": "Vérifier la config Redmine (ids live vs référence)",
+     "category": "maintenance", "script": "redmine-config-check.py", "args": []},
+    {"name": "pm-doctor", "label": "Vérifier la cohérence PM (projets, providers, liens partenaires)",
+     "category": "maintenance", "script": "pm-doctor.py", "args": []},
     {"name": "task-status", "label": "Changer le statut d'un ticket",
      "category": "ticket", "script": "pm-task-status-update.py",
      "mutate": True, "confirm": True, "args": [

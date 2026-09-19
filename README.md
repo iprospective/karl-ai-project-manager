@@ -70,6 +70,16 @@ client / projet / ticket, refacture le transversal aux clients du jour et
 retranche ce qui est déjà saisi. Sans appel à un modèle. Réglages :
 `timesheet.example.yml` → `timesheet.yml`.
 
+### Préparer les factures du mois
+
+```bash
+mmi-pm invoice --month 2026-08            # rapport .md + proposition .yml — rien n'est créé
+```
+
+Regroupe le temps saisi dans Redmine par client et par activité, au tarif de la dernière
+facture, avec la note publique habituelle et les mises en production du mois. L'ERP est
+le provider `erp` du registre ; réglages : `invoice.example.yml` → `~/.config/mmi-pm/invoice.yml`.
+
 ## Structure du repo
 
 ```

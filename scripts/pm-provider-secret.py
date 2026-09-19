@@ -20,7 +20,8 @@ respecte trois règles qui font toute la sécurité de la fonction :
   pm-provider-secret … --user <login>                                       le .env d'un autre dev (admin + sudo)
 
 Nom complet de la variable : `<PREFIXE>__<INSTANCE>__<CLE>`, l'instance en majuscules et non-alphanum → `_`
-(convention `pm.config.yml`). Le préfixe suit l'axe : REDMINE · GITLAB · GOGS · GITHUB · NC · SECRET · LLM.
+(convention `pm.config.yml`). Le préfixe suit l'axe : REDMINE · GITLAB · GOGS · GITHUB · NC · SECRET · LLM
+· DOLIBARR (axe erp, RM2891).
 """
 import argparse
 import os
@@ -36,11 +37,13 @@ try:
 except ImportError:                                   # journal indisponible : on n'échoue pas pour si peu
     def _jlog(*a, **k): return None
 
-PREFIXES = {"task": "REDMINE", "forge": "GITLAB", "doc": "NC", "secret": "SECRET", "llm": "LLM"}
+PREFIXES = {"task": "REDMINE", "forge": "GITLAB", "doc": "NC", "secret": "SECRET", "llm": "LLM",
+            "erp": "ERP"}
 TYPE_PREFIXES = {"redmine": "REDMINE", "redmine_wiki": "REDMINE", "gitlab": "GITLAB", "gogs": "GOGS",
                  "github": "GITHUB", "nextcloud": "NC", "vaultwarden": "SECRET", "keepass": "SECRET",
                  "age": "SECRET", "onepassword": "SECRET", "nextcloud_passwords": "SECRET",
-                 "lemonade": "LLM", "ollama": "LLM", "openai": "LLM", "anthropic": "LLM"}
+                 "lemonade": "LLM", "ollama": "LLM", "openai": "LLM", "anthropic": "LLM",
+                 "dolibarr": "DOLIBARR"}
 _CLE_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,60}$")
 _INST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,60}$")
 

@@ -1035,6 +1035,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
+  Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
+  (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en
+  déclarant une instance, sans toucher au code. Son secret suit la convention des providers
+  (`DOLIBARR__DOLIBARR_IPRO__API_KEY`, posé par `pm-provider-secret`, valeur sur l'entrée standard) ;
+  `pm_erp` en calcule le nom avec la règle du script lui-même — une seule règle de nommage.
+  `mmi-pm invoice --month AAAA-MM` lit les saisies Redmine de l'utilisateur (manuelles ou posées
+  par `mmi-pm timesheet`), les rattache au client (manifeste PM, table déclarée, ou plus long
+  préfixe d'identifiant qui nomme une entité), éclate les projets mutualisés selon leur clé (SFY
+  70/30 sans perte d'heure), regroupe par activité → service du catalogue ERP (pratique
+  historique) ou par tâche, et applique **le tarif de la dernière facture du client** — pas de
+  table de tarifs à tenir en double, un brouillon ou un avoir n'étant jamais pris pour un tarif.
+  La note publique reproduit mot pour mot le modèle des factures existantes (période, « Principalement
+  les … », lien de détail) et y ajoute les **mises en production du mois**, lues dans l'historique
+  des statuts. **Rien n'est créé** : rapport + proposition amendable. Piège noté :
+  `find_project_by_redmine_id` rend le chemin du dossier client, pas son identifiant — pris tel
+  quel, il classait tout le temps client en interne.
 - **L'annuaire de contacts devient utile aux automatismes, et visible** (RM3024, lots L4-L5
   de RM2703). Trois consommateurs le lisent désormais. **`internal` est un attribut de
   personne** : posé ligne par ligne, il ne voulait rien dire — la même personne était marquée

@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 6d04f1c705f3a4a2 (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : e20eda1043fea3b0 (38 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -758,6 +758,12 @@ details.card[open] > summary::before {
 .e-full .e-sec-body pre {
   white-space: pre-wrap;
   margin: 0;
+}
+
+.e-sec .e-src {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 
 /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */

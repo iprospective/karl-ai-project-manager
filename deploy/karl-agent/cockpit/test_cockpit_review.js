@@ -72,7 +72,13 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   const fiche = (over) => String(V.ReviewPane(new VM.ReviewViewModel(Object.assign({ r: R, q: { branch: "b", test_host: "h", env_live: true }, tqLoaded: true, tqSize: 1, mc: { verdict: { level: "ok", headline: "ok" } }, ts: tsData, cfg: Object.assign({ actions: [{ label: "→ en cours", text: "passe RM{id}", ticket_only: true }] }, CFG), pmTarget: { sid: "42", why: "session du ticket" } }, over || {}), { rm: "2726", prompt: { tpl: "traiter", text: "t" }, now: Date.parse("2026-09-05T11:00") }), { md: (s) => "<md>" + s + "</md>", titleLink: (rm, t) => "<i>" + esc(t) + "</i>", mcBanner: (mc) => '<div class="mcbanner">' + mc.verdict.headline + "</div>" }));
   const f = fiche();
   assert(/🧪 RM2726 — <i>Titre<\/i>/.test(f) && /acme\/shop/.test(f) && /version il y a 1 h/.test(f) && /data-action="reload"/.test(f) && /Redmine ↗/.test(f) && /MR ↗/.test(f) && /branche <span class="pill"/.test(f));
-  assert(/\(note de livraison\)/.test(f) && /<md># proto<\/md>/.test(f) && /📝 Description/.test(f) && /🕘 Dernière activité/.test(f) && /🔗 <a href="http:\/\/h\/"/.test(f) && /data-action="env-teardown"/.test(f) && /test_url ticket/.test(f) && /https:\/\/p ↗/.test(f) && /class="mcbanner">ok/.test(f));
+  // RM3256 : les champs du ticket viennent du registre d'entités (une seule description, deux vues) ;
+  // la fiche ne garde que ce qui lui est propre : env de test, cohérence git, verdicts.
+  assert(/data-sec="protocol"[\s\S]*\(note de livraison\)[\s\S]*<h1>proto<\/h1>/.test(f), "protocole : provenance + markdown, depuis le registre");
+  assert(/data-sec="description"[\s\S]*<p>desc<\/p>/.test(f) && /data-sec="log"[\s\S]*log/.test(f), "description (en markdown) et dernière activité aussi");
+  assert(/data-sec="environments"[\s\S]*https:\/\/p/.test(f), "environnements du projet : une seule définition");
+  assert(/🔗 <a href="http:\/\/h\/"/.test(f) && /data-action="env-teardown"/.test(f) && /class="mcbanner">ok/.test(f), "… et l'env de test du ticket reste propre à la fiche");
+  assert(!/<h4>📋 Protocole de test<\/h4>/.test(f) && !/📝 Description du ticket/.test(f), "la fiche ne redécrit plus ces champs");
   assert(/data-action="verdict" data-kind="valider"/.test(f) && /data-action="pm" data-i="0" data-rm="2726"/.test(f) && /title="passe RM2726"/.test(f) && /session du ticket/.test(f) && !/onclick=/.test(f));
   assert(/data-action="env-deploy"/.test(fiche({ q: { test_host: "h", env_reason: "down" } })) && /down/.test(fiche({ q: { test_host: "h", env_reason: "down" } })), "env présent mais indisponible → re-déployer");
   assert(/data-action="env-shared"/.test(fiche({ q: { deployable: true } })) && /hors layout/.test(fiche({ q: {} })) && /n’est plus dans la file de test/.test(fiche({ q: undefined })) && /data-action="close"/.test(fiche({ q: undefined })));

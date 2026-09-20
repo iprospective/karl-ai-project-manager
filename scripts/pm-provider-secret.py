@@ -60,6 +60,33 @@ def nom_variable(instance: str, cle: str, prefixe: str) -> str:
     return f"{prefixe}__{slug(instance)}__{cle}"
 
 
+def deduire_prefixe(prefix, type_, axis, instance, registre=None):
+    """Préfixe de la variable : ce qui est donné, sinon ce que le REGISTRE sait déjà.
+
+    L'instance est déclarée dans `pm.config.yml` avec son type et son axe : redemander
+    `--type` à l'appelant, c'est lui offrir l'occasion de se tromper — un type erroné
+    écrit la clé sous un nom que le provider ne cherchera jamais. `registre` est une
+    fonction `nom -> (type, axe)`, injectée pour les tests.
+    """
+    explicite = prefix or TYPE_PREFIXES.get((type_ or "").lower()) or PREFIXES.get((axis or "").lower())
+    if explicite or not instance:
+        return explicite
+    try:
+        itype, iaxis = (registre or _registre_instance)(instance)
+    except Exception:
+        return None
+    return TYPE_PREFIXES.get((itype or "").lower()) or PREFIXES.get((iaxis or "").lower())
+
+
+def _registre_instance(instance):
+    """(type, axe) d'une instance déclarée au registre des providers."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pm_paths import PMConfig
+    from pm_registry import Registry
+    inst = Registry.from_config(PMConfig.load().providers).get(instance)
+    return inst.type, inst.axis
+
+
 def env_path(scope: str, user: str = None) -> Path:
     """Le fichier visé : celui du dev (courant ou nommé), ou celui de l'instance."""
     if scope == "global":
@@ -127,9 +154,11 @@ def main():
 
     if not (a.instance and a.key):
         sys.exit("ERREUR : --instance et --key requis (ou --status)")
-    prefixe = a.prefix or TYPE_PREFIXES.get((a.type or "").lower()) or PREFIXES.get((a.axis or "").lower())
+    prefixe = deduire_prefixe(a.prefix, a.type, a.axis, a.instance)
     if not prefixe:
-        sys.exit("ERREUR : --prefix, --type ou --axis requis pour nommer la variable")
+        sys.exit(f"ERREUR : instance {a.instance!r} inconnue du registre (pm.config.yml → "
+                 "providers.servers) — la déclarer, ou nommer la variable avec --prefix / "
+                 "--type / --axis")
     try:
         variable = nom_variable(a.instance, a.key, prefixe)
     except ValueError as e:

@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Créer un projet sous une racine client verrouillée** (RM2947). `pm-project-new` était
+  inutilisable dans le cas devenu nominal (racine `2750 pm:pm`) : il déléguait le squelette à
+  `pm-env-helper ws-init`, qui crée `.mmi-pm/`, puis refusait sur ce même `.mmi-pm/` — « workspace
+  déjà relié à un projet PM ». Le garde-fou distingue désormais un squelette (dossiers vides) d'un
+  volet PM peuplé ; `ws-init` amorce aussi les deux entrées de racine qui manquaient (dépôt `-core`
+  vide et partagé, lien `docs`), et un `.gitignore` de whitelist n'est plus jugé à l'octet près —
+  ses règles suffisent, sinon celui de `ws-init` passait pour un fichier tiers à renommer, à la
+  racine, donc `Permission denied` de plus. Au passage, `mmi-pm test` collecte enfin les suites
+  **shell** (`test-ws-init.sh`, `test-pm-env-helper-daemon.sh`) : elles ne tournaient nulle part.
+
 - **La garde du CDC ne passe plus au rouge chez les voisins** (RM3260) : `pm-cdc-features --sync`
   (et `--add-version`, `--set-version`, `--assign-version`, `--drop-version`, `--absorb`) écrivait le
   registre sans régénérer le chapitre et la feuille de route qui en DÉRIVENT. Une session qui

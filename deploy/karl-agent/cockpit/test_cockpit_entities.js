@@ -63,7 +63,7 @@ const fs = require("fs"); const path = require("path"); const assert = require("
     assert(String(E.renderEntity(v, "card")).includes("e-sec"), t + " : la carte porte au moins une section résumée");
     const nsec = (l) => (String(E.renderEntity(v, l)).match(/data-sec=/g) || []).length; assert(nsec("row") === 0 && nsec("card") <= nsec("panel") && nsec("panel") <= nsec("full"), t + " : les niveaux s'emboîtent");
   }
-  const rv = String(E.renderEntity(FIX.review(), "full")); assert(/e-badge accent"[^>]*>a_tester_demandeur</.test(rv) && /e-badge warn"[^>]*>high</.test(rv) && /Redmine ↗/.test(rv) && /1\. ouvrir/.test(rv) && /desc/.test(rv), "revue : pastilles, liens, protocole, description");
+  const rv = String(E.renderEntity(FIX.review(), "full")); assert(/e-badge accent"[^>]*>a_tester_demandeur</.test(rv) && /e-badge warn"[^>]*>high</.test(rv) && /Redmine ↗/.test(rv) && /<li>ouvrir<\/li>/.test(rv) && /desc/.test(rv), "revue : pastilles, liens, protocole (markdown depuis RM3256), description");
   // RM3137 : la description est rendue en markdown — un « # desc » devient donc un titre, pas du texte brut.
   assert(/<h1[^>]*>desc<\/h1>/.test(rv) && !/<pre># desc/.test(rv),
     "RM3137 : la description passe par le markdown, elle n'est plus un listing repliée à 80 colonnes");

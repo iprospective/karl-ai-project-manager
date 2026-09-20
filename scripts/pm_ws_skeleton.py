@@ -44,8 +44,32 @@ def _model_dirs():
 
 def missing_pieces(ws: Path) -> list:
     """Pièces de SQUELETTE absentes — celles dont la création à la racine est réservée
-    au privilège par le mode 2750 (dossiers du modèle + whitelist du repo `-core`)."""
-    return [rel for rel in [*_model_dirs(), ".gitignore"] if not (ws / rel).exists()]
+    au privilège par le mode 2750 (dossiers du modèle + whitelist et dépôt `-core`).
+
+    `.git` en fait partie depuis RM2947 : la racine EST le worktree du repo `-core`,
+    et `git init` y est justement l'écriture que le mode 2750 réserve au privilège —
+    sans lui, `pm-project-new` échouait en `Permission denied` au moment de publier."""
+    return [rel for rel in [*_model_dirs(), ".gitignore", ".git"] if not (ws / rel).exists()]
+
+
+def deja_relie(mmi_dir: Path) -> bool:
+    """`.mmi-pm` trahit-il un workspace DÉJÀ relié à un projet PM ?
+
+    À distinguer du `.mmi-pm/` de SQUELETTE que pose `ws-init` : des dossiers vides,
+    rien d'autre. Les confondre rendait `pm-project-new` inutilisable sous une racine
+    verrouillée (RM2947) — il refusait sur le dossier qu'il venait lui-même de faire
+    créer, et l'appelant ne pouvait pas le retirer (racine `2750`, group `r-x`).
+
+    Un fichier — `meta.yml`, une tâche, un `.gitkeep` — signe un volet PM peuplé. Un
+    lien symbolique signe l'ancien modèle (volet déporté sous `projects/`, RM2228) :
+    refus sec dans les deux cas."""
+    if mmi_dir.is_symlink():
+        return True
+    if not mmi_dir.exists():
+        return False
+    if not mmi_dir.is_dir():
+        return True
+    return any(not p.is_dir() or p.is_symlink() for p in mmi_dir.rglob("*"))
 
 
 def _helper_available() -> bool:

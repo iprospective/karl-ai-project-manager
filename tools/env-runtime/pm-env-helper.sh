@@ -38,10 +38,12 @@
 #   daemon-remove <name>                arrête+désactive+supprime l'unité (si gérée par nous)
 #   ws-init <workspace>                 crée/normalise le SQUELETTE d'un workspace projet
 #                                       (racine, .mmi-pm/, repos/, envs/, tmp sessions logs
-#                                       data) + le .gitignore de whitelist du repo -core,
-#                                       sous une racine verrouillée 2750 pm:pm, puis
-#                                       applique le modèle de perms (RM2909). Comble le trou
-#                                       entre pm-project-new/pm-env-init et pm-perms.
+#                                       data) + les entrées de racine que 2750 réserve au
+#                                       privilège : .gitignore de whitelist, dépôt -core vide
+#                                       (.git partagé groupe pm) et lien docs → .mmi-pm/docs
+#                                       (RM2947), puis applique le modèle de perms (RM2909).
+#                                       Comble le trou entre pm-project-new/pm-env-init et
+#                                       pm-perms. Idempotent : n'écrase jamais l'existant.
 #   ws-perms <workspace>                (ré)applique le modèle de perms — verbe symétrique,
 #                                       à passer en fin de création. Idempotent.
 #
@@ -621,6 +623,8 @@ cmd_ws_init() {
     done <<< "$dirs"
 
     ws_seed_gitignore "$ws"
+    ws_seed_core_git "$ws"
+    ws_seed_docs_link "$ws"
     ws_apply_perms "$ws"
     audit "ws-init $ws (racine créée: $created)"
     echo "✓ squelette workspace prêt : $ws"
@@ -644,6 +648,35 @@ ws_seed_gitignore() {
     chown pm:pm -- "$gi"
     chmod 664 -- "$gi"
     echo "· créé .gitignore (whitelist .mmi-pm/)"
+}
+
+ws_seed_core_git() {
+    # Même raison que le .gitignore : la racine EST le worktree du repo `-core`, et
+    # `git init` y crée une entrée — l'écriture que le mode 2750 réserve au privilège.
+    # Sans ce dépôt amorcé, `pm-project-new` mourait en `Permission denied` au moment
+    # de publier `.mmi-pm/` (RM2947).
+    # Dépôt PARTAGÉ (`--shared=group`) : le workspace est multi-user par construction,
+    # un dépôt privé au premier committant verrouillerait les objets pour les autres.
+    # Amorcé VIDE, sans remote ni commit : `git_core_publish` reste seul à décider quoi
+    # publier et où — ici on pose le contenant, jamais le contenu.
+    local ws="$1"
+    [ ! -e "$ws/.git" ] || return 0
+    command -v git >/dev/null 2>&1 || die "git introuvable — impossible d'amorcer le repo -core"
+    git init -q -b main --shared=group -- "$ws" || die "git init a échoué sur $ws"
+    chown -R pm:pm -- "$ws/.git"
+    echo "· créé .git (repo -core vide, partagé groupe pm)"
+}
+
+ws_seed_docs_link() {
+    # Confort RM2043 : `docs/` à la racine pointe sur les aspects wiki-syncés. Encore
+    # une entrée à la racine, donc encore du privilège. Jamais d'écrasement : un vrai
+    # dossier `docs/` (workspace de code documenté) reste ce qu'il est.
+    local ws="$1"
+    local lien="$ws/docs"
+    [ ! -e "$lien" ] && [ ! -L "$lien" ] || return 0
+    ln -s -- ".mmi-pm/docs" "$lien" || die "symlink docs impossible dans $ws"
+    chown -h pm:pm -- "$lien"
+    echo "· créé docs → .mmi-pm/docs"
 }
 
 cmd_ws_perms() {

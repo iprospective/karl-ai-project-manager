@@ -41,6 +41,18 @@ PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients").reso
 GITIGNORE = "/*\n!/.gitignore\n!/{name}/\n"
 
 
+def regles_gitignore(txt: str) -> list:
+    """Les RÈGLES d'un .gitignore — commentaires et lignes vides ôtés.
+
+    Deux whitelists identiques peuvent différer d'un en-tête : `pm-env-helper ws-init`
+    pose celle de `pm-env-init` (commentée), celle-ci est nue. Comparer les octets
+    faisait passer la première pour un `.gitignore` tiers, donc à renommer en
+    `.gitignore.pre-coloc` — un `rename` à la racine, précisément ce qu'une racine
+    `2750` interdit à l'appelant (RM2947). Ce sont les règles qui font foi."""
+    return [l.strip() for l in txt.splitlines()
+            if l.strip() and not l.lstrip().startswith("#")]
+
+
 def run(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
 
@@ -199,13 +211,15 @@ def git_core_publish(folder, mmi_name, group, repo, dry, msg=None):
         return True
     gi = folder / ".gitignore"
     whitelist = GITIGNORE.format(name=mmi_name)
-    if gi.is_file() and gi.read_text(encoding="utf-8", errors="replace") != whitelist:
+    conforme = gi.is_file() and regles_gitignore(
+        gi.read_text(encoding="utf-8", errors="replace")) == regles_gitignore(whitelist)
+    if gi.is_file() and not conforme:
         # Préserver un .gitignore existant (ex. code redmine, 44 lignes) avant d'écrire la whitelist
         bak = folder / ".gitignore.pre-coloc"
         if not bak.exists():
             gi.rename(bak)
             print(f"    · .gitignore existant sauvegardé → {bak.name}")
-    if not gi.is_file() or gi.read_text(encoding="utf-8", errors="replace") != whitelist:
+    if not conforme:
         gi.write_text(whitelist, encoding="utf-8")
     if not (folder / ".git").exists():
         git(folder, "init", "-q", "-b", "main")

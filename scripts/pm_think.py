@@ -517,6 +517,26 @@ def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **f
     return rid
 
 
+def _apparie(src_header: list, dst_header: list, cells: list) -> list:
+    """RM3264 — les cellules d'une ligne, portées d'une table à l'autre PAR NOM DE COLONNE.
+
+    Deux carnets n'ont pas forcément la même grammaire : celui d'un ticket ancien n'a pas encore
+    « Date · auteur » (RM3262), celui d'un ticket neuf l'a. Recopier par position mettait alors le
+    texte de la question dans la colonne de la date. Une colonne que la cible n'a pas est perdue
+    sciemment ; une colonne qu'elle a en plus naît vide. En-têtes identiques (le cas courant) :
+    la ligne passe telle quelle."""
+    if not src_header or not dst_header or src_header == dst_header:
+        return list(cells)
+    val = {}
+    for i, nom in enumerate(src_header):
+        val[nom] = cells[i] if i < len(cells) else ""
+    out = []
+    for nom in dst_header:
+        j = col_index(list(val), nom)
+        out.append(list(val.values())[j] if j is not None else "")
+    return out
+
+
 def find_row(parsed: dict, rid: str):
     """(kind, row) de la ligne `rid`, ou (None, None). Pure."""
     cible = str(rid or "").strip().upper()
@@ -542,9 +562,10 @@ def move_row(src, rid: str, dst, *, rm_id=None, title=""):
     kind, row = find_row(load(src), rid)
     if not kind:
         return None
+    src_header = (load(src).get(kind) or {}).get("header") or []
     text_, parsed, sec = _section_prete(dst, kind, rm_id, title)
     neuf = next_id(parsed, kind, row["prefix"] or KINDS[kind][0])
-    cells = list(row["cells"])
+    cells = _apparie(src_header, sec["header"], row["cells"])
     cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
     _insere(dst, text_, sec, cells)
     remove_rows(src, [row["id"]])

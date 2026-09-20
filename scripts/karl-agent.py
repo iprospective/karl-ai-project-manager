@@ -8818,8 +8818,40 @@ _THINK_STATES = ("valide", "invalide", "propose", "attente", "reserve")
 _FEATURE_STATES = ("prévu", "en cours", "en pause", "écarté", "livré")
 
 
-def _pm_script(name: str, args: list, timeout: int = 120) -> str:
-    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon."""
+# RM3070 L3 : l'acteur de la REQUÊTE en cours. ThreadingHTTPServer sert chaque requête dans son
+# propre thread : un thread-local dit « pour qui » sans faire transiter auth_ctx à travers dix
+# fonctions — et un sous-processus lancé au fond d'une chaîne porte quand même le bon nom.
+_REQ = threading.local()
+
+
+def _acteur_courant():
+    return getattr(_REQ, "auth_ctx", None)
+
+
+def _acteur(auth_ctx=None) -> dict:
+    """QUI agit (RM3070 L3) : le développeur connecté au cockpit, résolu en nom et e-mail."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_actor
+    return pm_actor.resolve(_user_unix(auth_ctx if auth_ctx is not None else _acteur_courant()),
+                            _conf_merged())
+
+
+def _env_acteur(auth_ctx=None) -> dict:
+    """L'environnement d'un sous-processus agissant pour le développeur connecté : `PM_ACTOR_*`
+    (qui a agi, pour les journaux) et, si son adresse est connue, l'AUTEUR des commits."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_actor
+        return pm_actor.env_for(_acteur(auth_ctx))   # auth_ctx=None ⇒ celui de la requête
+    except Exception:      # noqa: BLE001 — une identité introuvable ne bloque aucune action
+        return dict(os.environ)
+
+
+def _pm_script(name: str, args: list, timeout: int = 120, auth_ctx=None) -> str:
+    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon.
+
+    RM3070 L3 : l'environnement porte l'ACTEUR — les commits PM déclenchés par le cockpit sont
+    signés du développeur connecté, et le journal sait qui a agi, pas seulement que « le service » a agi."""
     path = (REPO_ROOT / "scripts" / name).resolve()
     if not path.is_file():
         raise ApiError(500, f"script introuvable : {name}")
@@ -8827,7 +8859,7 @@ def _pm_script(name: str, args: list, timeout: int = 120) -> str:
         raise ApiError(400, "arguments : chaînes attendues")
     try:
         p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT), capture_output=True, text=True,
-                           timeout=timeout, env=os.environ)
+                           timeout=timeout, env=_env_acteur(auth_ctx))
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"{name} : timeout ({timeout}s)")
     if p.returncode != 0:
@@ -8892,15 +8924,15 @@ def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
     rm, local, args = _cdc_think_args(payload)
     answer = _cdc_think_answer_args(payload, rm, local, str((auth_ctx or {}).get("user") or "M"))
     if answer:
-        _pm_script("pm-task-think.py", answer)
-    out = _pm_script("pm-task-think.py", args)
+        _pm_script("pm-task-think.py", answer, auth_ctx=auth_ctx)
+    out = _pm_script("pm-task-think.py", args, auth_ctx=auth_ctx)
     # RM3258 : un déplacement touche DEUX carnets — et, si les tickets ne sont pas du même projet,
     # deux jeux de registres. Refondre le seul projet d'origine laisserait la cible périmée.
     projets = [p for p in (_task_project(rm), _task_project(str(payload.get("to") or "").strip()) if
                            str(payload.get("action") or "") == "move" else None) if p]
     merged = None
     for pr in dict.fromkeys(projets):
-        merged = _pm_script("pm-think-merge.py", ["--project", f"{pr[0]}/{pr[1]}"]).strip().splitlines()[-1:]
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{pr[0]}/{pr[1]}"], auth_ctx=auth_ctx).strip().splitlines()[-1:]
     return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
             "answer": bool(answer)}
 
@@ -8919,7 +8951,7 @@ def _task_project(rm: str):
     return None
 
 
-def op_cdc_feature(payload: dict) -> dict:
+def op_cdc_feature(payload: dict, auth_ctx=None) -> dict:
     """État d'une entrée du registre des fonctionnalités (figée en manuel), chapitre régénéré."""
     client, project, prefix = (str(payload.get(k) or "") for k in ("client", "project", "prefix"))
     if not (_PART_RE.match(client) and _PART_RE.match(project) and _PART_RE.match(prefix or "cdc")):
@@ -8929,7 +8961,7 @@ def op_cdc_feature(payload: dict) -> dict:
         raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
     if etat not in _FEATURE_STATES:
         raise ApiError(400, "état inconnu (" + " · ".join(_FEATURE_STATES) + ")")
-    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
+    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"], auth_ctx=auth_ctx)
     return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
 
 
@@ -8988,7 +9020,7 @@ def op_notifications_mark(payload: dict, auth_ctx=None) -> dict:
     return {"ok": True, "marked": n, "etat": etat, "counts": pm_notify.counts(viewer=qui)}
 
 
-def op_cdc_version(payload: dict) -> dict:
+def op_cdc_version(payload: dict, auth_ctx=None) -> dict:
     """Créer une version, la compléter, la retirer, ou y rattacher une fonctionnalité (RM3060).
 
     Une version est une ÉTAPE DE TRAVAIL — un rôle et un critère de passage — pas une liste de
@@ -9023,7 +9055,7 @@ def op_cdc_version(payload: dict) -> dict:
         args += ["--drop-version", vid]
     else:
         raise ApiError(400, "action inconnue (add · update · attach · drop)")
-    out = _pm_script("pm-cdc-features.py", args + ["--build"])
+    out = _pm_script("pm-cdc-features.py", args + ["--build"], auth_ctx=auth_ctx)
     return {"ok": True, "action": geste, "version": vid, "out": out.strip().splitlines()[-3:]}
 
 # ── Fournisseurs : déclaration, secrets, affectations (RM3068) ───────────────
@@ -10278,7 +10310,7 @@ def op_create_ticket(payload: dict) -> dict:
         args += ["--est-difficulty", difficulty]
     try:
         p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
-                           text=True, timeout=90, env=os.environ)
+                           text=True, timeout=90, env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, "pm-task-add : timeout")
     blob = (p.stdout or "") + "\n" + (p.stderr or "")
@@ -11728,7 +11760,7 @@ def op_vault_unlock(payload: dict, auth_ctx: dict) -> dict:
         p = subprocess.run([str(script), "-i", slug, "--stdin"],
                            input=password + "\n", cwd=str(REPO_ROOT),
                            capture_output=True, text=True, timeout=180,
-                           env=os.environ)
+                           env=_env_acteur())   # RM3070 L3 : le coffre trace QUI a déverrouillé
     except subprocess.TimeoutExpired:
         raise ApiError(504, "déverrouillage : délai dépassé")
     finally:
@@ -11896,7 +11928,7 @@ def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
     try:
         p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT),
                            capture_output=True, text=True, timeout=timeout,
-                           env=os.environ)
+                           env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"{script} : timeout ({timeout}s)")
     return {"ok": p.returncode == 0, "rc": p.returncode,
@@ -11982,7 +12014,7 @@ def _client_notify(args: list, timeout: int = 180) -> dict:
             raise ApiError(400, "arguments : chaînes attendues")
     try:
         p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
-                           capture_output=True, text=True, timeout=timeout, env=os.environ)
+                           capture_output=True, text=True, timeout=timeout, env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"pm-client-notify : timeout ({timeout}s)")
     out = (p.stdout or "").strip().splitlines()
@@ -13220,25 +13252,32 @@ class Handler(BaseHTTPRequestHandler):
         return (f"{SESSION_COOKIE}=; Max-Age=0; "
                 "Path=/; HttpOnly; Secure; SameSite=Strict")
 
+    def _pose_auth(self, ctx: dict) -> dict:
+        """Pose le contexte d'auth ET l'acteur de la requête (RM3070 L3) — d'un seul geste : deux
+        affectations séparées finissent toujours par diverger sur un des chemins."""
+        self.auth_ctx = ctx
+        _REQ.auth_ctx = ctx
+        return ctx
+
     def _check_auth(self) -> bool:
         """Vraie si le client présente le token partagé, un TOKEN D'APPAREIL
         (RM2334) ou des credentials Basic valides (RM2139). Sans aucune auth
         configurée → ouvert (usage local). Pose self.auth_ctx {mode, user,
         admin, device_id} pour les routes qui distinguent les rôles."""
-        self.auth_ctx = {"mode": "open", "user": None, "admin": True, "device_id": None}
+        self._pose_auth({"mode": "open", "user": None, "admin": True, "device_id": None})
         presented = self.headers.get("X-Karl-Token") or ""
         if AUTH_TOKEN is not None and presented:
             if hmac.compare_digest(presented, AUTH_TOKEN):
                 # secret partagé historique = accès complet (rétrocompat)
-                self.auth_ctx = {"mode": "shared-token", "user": None,
-                                 "admin": True, "device_id": None}
+                self._pose_auth({"mode": "shared-token", "user": None,
+                                 "admin": True, "device_id": None})
                 return True
         if presented:
             hit = _device_auth(presented)
             if hit:
                 did, rec = hit
-                self.auth_ctx = {"mode": "device", "user": rec.get("user"),
-                                 "admin": bool(rec.get("admin")), "device_id": did}
+                self._pose_auth({"mode": "device", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did})
                 return True
         # RM2700 : cookie de session même-origine = token d'appareil transmis par
         # cookie. Seul credential visible à l'upgrade WS de `/ttyd` (le handshake
@@ -13249,8 +13288,8 @@ class Handler(BaseHTTPRequestHandler):
             hit = _device_auth(cookie_tok)
             if hit:
                 did, rec = hit
-                self.auth_ctx = {"mode": "cookie", "user": rec.get("user"),
-                                 "admin": bool(rec.get("admin")), "device_id": did}
+                self._pose_auth({"mode": "cookie", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did})
                 return True
         if BASIC_USER is not None and BASIC_PASS is not None:
             auth = self.headers.get("Authorization") or ""
@@ -13262,8 +13301,8 @@ class Handler(BaseHTTPRequestHandler):
                     return False
                 if (hmac.compare_digest(user, BASIC_USER)
                         and hmac.compare_digest(pwd, BASIC_PASS)):
-                    self.auth_ctx = {"mode": "basic", "user": user,
-                                     "admin": True, "device_id": None}
+                    self._pose_auth({"mode": "basic", "user": user,
+                                     "admin": True, "device_id": None})
                     return True
             return False
         return AUTH_TOKEN is None
@@ -13821,9 +13860,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
                 return self._send_json(200, op_cdc_think(payload, self.auth_ctx))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
-                return self._send_json(200, op_cdc_feature(payload))
+                return self._send_json(200, op_cdc_feature(payload, self.auth_ctx))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
-                return self._send_json(200, op_cdc_version(payload))
+                return self._send_json(200, op_cdc_version(payload, self.auth_ctx))
             if path == "/monitor/assign":       # RM3112 : confirmer l'association d'un hôte
                 return self._send_json(200, op_monitor_assign(payload, self.auth_ctx))
             if path == "/monitor/ticket":       # RM3112 : ouvrir un ticket depuis une alerte

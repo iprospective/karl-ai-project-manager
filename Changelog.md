@@ -18,6 +18,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   registre sans régénérer le chapitre et la feuille de route qui en DÉRIVENT. Une session qui
   synchronisait rendait `--check` rouge pour toutes les autres, sans que rien ne soit faux. Toute
   écriture du registre régénère désormais les dérivés ; `--check` reste en lecture seule.
+
+- **Les commits PM portent enfin le nom de qui les a provoqués** (RM3070, lot L3). Le démon agissait
+  toujours sous son compte : tous les commits déclenchés depuis le cockpit avaient le même auteur, et les
+  journaux disaient « le service » là où ils devraient dire un nom. `pm_actor` résout l'acteur — table
+  `identities:` de la conf, puis son `~/.gitconfig`, puis son nom système — et le transporte par
+  l'environnement (`PM_ACTOR_*`) jusqu'aux sous-processus, y compris au fond d'une chaîne d'appels
+  (contexte de requête). L'AUTEUR du commit devient l'humain, le committer reste le compte de service :
+  « écrit par Alice, enregistré par karl », ce qui est exactement ce qui s'est passé. Sans adresse connue,
+  aucun auteur n'est posé — on ne signe pas un commit à une adresse inventée. En mono, rien ne change.
+
 - **Étiquettes : reprise de l'existant** (RM2828). Le socle RM2829 ne poussait le CF Redmine qu'à
   l'écriture : 909 fiches étiquetées côté PM, 40 tickets seulement côté Redmine. `pm-tags-backfill`
   rattrape le parc — additive (elle ne retire jamais une valeur posée dans l'UI), dry-run par défaut,

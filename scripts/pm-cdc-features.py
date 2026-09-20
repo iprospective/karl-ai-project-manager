@@ -553,8 +553,6 @@ def main():
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ {len(versees)} entrée(s) versée(s) depuis {src.name}, "
               f"{len(absorbees)} entrée(s) dérivée(s) absorbée(s) — {len(reg['entrees'])} au total")
-        if not (a.sync or a.build):
-            return
     if a.set_etat:
         fid, etat = a.set_etat
         if etat not in ETATS_MANUELS:
@@ -564,8 +562,6 @@ def main():
             sys.exit(f"entrée {fid} introuvable dans {reg_path}")
         e["etat"] = etat; e["etat_manuel"] = True
         reg_path.write_text(dump(reg), encoding="utf-8"); print(f"✓ {fid} → {etat} (état figé : etat_manuel)")
-        if not a.build:
-            return
     if a.add_version:
         try:
             neuve = ajoute_version(reg, a.add_version, a.role, a.critere, a.etat_version)
@@ -573,8 +569,6 @@ def main():
             sys.exit(f"ERREUR : {e}")
         reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ version {a.add_version} {'créée' if neuve else 'mise à jour'}")
-        if not a.build:
-            return
     if a.set_version:
         fid, vid = a.set_version
         try:
@@ -586,31 +580,33 @@ def main():
             print(f"  · version {vid} déclarée au passage")
         reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ {fid} → " + (f"version {vid}" if vid not in (None, "", "-") else "sans version"))
-        if not a.build:
-            return
     if a.drop_version:
         n = retire_version(reg, a.drop_version)
         reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ version {a.drop_version} retirée ({n} entrée(s) détachée(s))")
-        if not a.build:
-            return
     if a.assign_version:
         n = 0
         for e in reg["entrees"]:
             if not e.get("version") and e.get("jalon") is None and (not a.etat or e.get("etat") == a.etat):
                 e["version"] = a.assign_version; n += 1
         reg_path.write_text(dump(reg), encoding="utf-8"); print(f"✓ version {a.assign_version} posée sur {n} entrée(s)" + (f" ({a.etat})" if a.etat else ""))
-        if not a.build:
-            return
     if a.init or a.sync:
         ajout, modif = ([], []) if (a.init and a.no_sync) else sync(reg, lire_tickets(tasks))
         reg_path.parent.mkdir(parents=True, exist_ok=True); reg_path.write_text(dump(reg), encoding="utf-8")
         print(f"✓ registre {reg_path.relative_to(docs)} : +{len(ajout)} ajoutée(s), {len(modif)} mise(s) à jour, {len(reg['entrees'])} au total")
-    if a.build:
+    # Chapitre et feuille de route DÉRIVENT du registre : toute écriture du registre les
+    # régénère (RM3260). Les laisser en retard rendait `--check` rouge chez TOUTES les
+    # autres sessions dès qu'une seule avait fait un `--sync` — sans que rien ne soit faux.
+    ecrit = bool(a.init or a.sync or a.absorb or a.set_etat or a.add_version
+                 or a.set_version or a.drop_version or a.assign_version)
+    if a.build or ecrit:
         chap.write_text(compose(reg, chap), encoding="utf-8")
-        print(f"✓ chapitre {chap.name} régénéré ({len(reg['entrees'])} lignes)")
         road.write_text(build_roadmap(reg), encoding="utf-8")
-        print(f"✓ feuille de route {road.name} régénérée ({len(versions_de(reg))} version(s))")
+        if a.build:
+            print(f"✓ chapitre {chap.name} régénéré ({len(reg['entrees'])} lignes)")
+            print(f"✓ feuille de route {road.name} régénérée ({len(versions_de(reg))} version(s))")
+        else:
+            print(f"✓ {chap.name} et {road.name} régénérés (dérivés du registre)")
     if not (a.init or a.sync or a.build or a.absorb or a.add_version or a.set_version or a.drop_version):
         ap.print_help()
 

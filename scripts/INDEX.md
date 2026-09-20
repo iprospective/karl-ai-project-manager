@@ -197,6 +197,7 @@
 ## Bibliothèques (importées, pas lancées)
 
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
+- `pm_actor` — QUI agit, quand karl agit pour quelqu'un
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP

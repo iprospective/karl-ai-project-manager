@@ -100,7 +100,10 @@ except ka.ApiError:
     check("commentaire trop long refusé", True)
 _src = (HERE / "karl-agent.py").read_text(encoding="utf-8")
 check("op_cdc_think consigne la réponse AVANT de changer l'état (rejouable grâce à --dedupe)",
-      _src.index("_pm_script(\"pm-task-think.py\", answer)") < _src.index("out = _pm_script(\"pm-task-think.py\", args)"))
+      _src.index("_pm_script(\"pm-task-think.py\", answer") < _src.index("out = _pm_script(\"pm-task-think.py\", args"))
+# RM3070 L3 : l'acteur voyage jusqu'au script — c'est lui qui signera le commit du carnet
+check("op_cdc_think passe l'acteur au script appelé",
+      "_pm_script(\"pm-task-think.py\", args, auth_ctx=auth_ctx)" in _src)
 check("la route passe l'utilisateur authentifié (signature de la réponse)", "op_cdc_think(payload, self.auth_ctx)" in _src)
 tdir = base / "acme" / "projects" / "site" / "tasks"; tdir.mkdir(parents=True); (tdir / "RM77_x.md").write_text("---\nredmine_id: 77\n---\n"); (tdir / "RM77_x.think.md").write_text("# think\n")
 check("_task_project : (client, projet) d'un ticket, le think ignoré", ka._task_project("77") == ("acme", "site") and ka._task_project("9999") is None)

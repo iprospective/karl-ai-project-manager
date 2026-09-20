@@ -14,5 +14,8 @@
 /* RM3089 — les gestes d'une entrée de réflexion, sur la fiche d'un ticket : discrets, ils
    n'apparaissent qu'au survol et seulement sur les entrées OUVERTES (trancher une question déjà
    tranchée n'a pas de sens). */
+/* RM3262 : la signature d'une entrée — présente, lisible, mais jamais au premier plan : c'est le
+   texte de l'entrée qu'on lit, la date et l'auteur ne servent qu'à la situer. */
+.thk-sig { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .thk-acts { opacity: 0; transition: opacity .12s ease; white-space: nowrap; }
 .oline:hover .thk-acts, .thk-acts:focus-within { opacity: 1; }

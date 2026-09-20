@@ -355,6 +355,36 @@ def install_scheduler_timer(core_dir: Path, dry: bool):
         log(f"⚠ timer de l'ordonnanceur : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm scheduler install-timer")
 
 
+def migrate_think_schema(core_dir: Path, dry: bool):
+    """Étape 10 (RM3262) : porte les carnets `.think.md` à la grammaire courante.
+
+    L'ordre compte, et c'est pourquoi la migration vit ICI plutôt que dans la livraison : tant que
+    le runtime déployé est l'ancien, il écrit des lignes à l'ancienne largeur. Sur une table déjà
+    élargie, son texte irait dans la colonne voisine. La migration doit donc suivre le déploiement
+    du code, jamais le précéder — un `core update` fait les deux dans le bon ordre.
+
+    Idempotente : quand tous les carnets sont à jour, elle ne réécrit ni ne committe rien."""
+    who = instance_user(core_dir)
+    script = core_dir / "scripts" / "pm-think-schema.py"
+    if not script.is_file():
+        return
+    if not who:
+        log("⚠ grammaire des carnets ignorée — KARL_USER inconnu dans .env (à lancer : mmi-pm think-schema --all)"); return
+    ku, _uid, _gid, home = who
+    cmd = as_user(ku, [sys.executable, str(script), "--all"],
+                  [f"HOME={home}", f"PM_CORE_DIR={core_dir}", "PATH=/usr/local/bin:/usr/bin:/bin"])
+    if cmd is None:
+        log(f"⚠ grammaire des carnets ignorée — pas root ni {ku} (en tant que {ku} : mmi-pm think-schema --all)"); return
+    if dry:
+        cmd.append("--dry-run")
+    r = run(cmd)
+    for line in (r.stdout or "").splitlines():
+        if line.strip():
+            log(line.strip())
+    if r.returncode != 0:
+        log(f"⚠ grammaire des carnets : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm think-schema --all")
+
+
 def update(core_dir: Path, dry: bool) -> int:
     if not (core_dir / ".git").exists():
         die(f"{core_dir} n'est pas un dépôt git")
@@ -419,6 +449,7 @@ def update(core_dir: Path, dry: bool) -> int:
             restart_karl_agent(core_dir, motifs)
     migrate_stores(core_dir, dry)
     install_scheduler_timer(core_dir, dry)
+    migrate_think_schema(core_dir, dry)
     for src, dst, ref, todo in deploy_plan(core_dir):
         if todo and sans_root:
             log(f"⚠ {dst} n'est pas à jour ({ref}) — déploiement système, root requis : sudo install -m 755 {src} {dst}")

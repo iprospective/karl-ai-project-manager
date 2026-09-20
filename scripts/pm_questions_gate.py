@@ -102,13 +102,14 @@ def open_questions_of_sheet(sheet) -> list:
     tp = pm_think.think_path(Path(sheet))
     if not tp.is_file():
         return []
-    rows = ((pm_think.load(tp) or {}).get("question", {}) or {}).get("rows", [])
+    sec = ((pm_think.load(tp) or {}).get("question", {}) or {})
     out = []
-    for r in rows:
+    for r in sec.get("rows", []):
         if r.get("closed") or r.get("state") in _CLOSES:
             continue
-        cells = r.get("cells", [])
-        out.append((r["id"], " ".join(str(cells[1] if len(cells) > 1 else "").split())))
+        # RM3262 : le libellé par NOM de colonne — un carnet migré porte « Date · auteur » en 2ᵉ
+        # position, et la garde aurait affiché la date à la place de la question.
+        out.append((r["id"], " ".join(str(pm_think.texte(sec, r, "question")).split())))
     return out
 
 

@@ -624,6 +624,34 @@ src_cu = (SCRIPTS / "pm-core-update.py").read_text(encoding="utf-8")
 check("la migration est greffée sur le core update (APRÈS le déploiement du code)",
       "migrate_think_schema(core_dir, dry)" in src_cu and "pm-think-schema.py" in src_cu)
 
+# ── RM3264 : déplacer ENTRE DEUX GRAMMAIRES — par nom, jamais par position ────────
+# Le défaut vivait dix minutes en production : RM3258 recopiait les cellules par position,
+# RM3262 a élargi la table. Un déplacement d'un carnet non migré vers un carnet migré écrivait
+# le texte de la question dans la colonne « Date · auteur », et tout était décalé d'un cran.
+gx = Path(tempfile.mkdtemp(prefix="rm3264-"))
+ancien = gx / "RM60_a.think.md"
+ancien.write_text("# RM60\n\n## Questions ouvertes\n\n"
+                  "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n"
+                  "| Q001 | Faut-il relancer au clic ? | la suite | moyenne | 🕐 |\n", encoding="utf-8")
+neuf = gx / "RM61_b.think.md"          # créé au gabarit courant par le déplacement lui-même
+pm_think.move_row(ancien, "Q001", neuf, rm_id=61, title="B")
+pn = pm_think.load(neuf); sq = pn["question"]; rq2 = sq["rows"][0]
+check("ancien → migré : la question est dans « Question »", pm_think.texte(sq, rq2, "question") == "Faut-il relancer au clic ?",
+      str(rq2["cells"]))
+check("…« Bloque » et « Urgence » suivent", pm_think.cell(sq, rq2, "Bloque") == "la suite" and pm_think.cell(sq, rq2, "Urgence") == "moyenne")
+check("…l'état est préservé", rq2["state"] == "attente")
+check("…et la colonne neuve naît vide, sans rien inventer", pm_think.cell(sq, rq2, "Date · auteur") == "")
+retour = gx / "RM62_c.think.md"
+retour.write_text("# RM62\n\n## Questions ouvertes\n\n"
+                  "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.move_row(neuf, "Q001", retour, rm_id=62)
+pr = pm_think.load(retour); sr = pr["question"]; rr = sr["rows"][0]
+check("migré → ancien : rien n'est perdu du texte ni de l'état",
+      pm_think.texte(sr, rr, "question") == "Faut-il relancer au clic ?" and rr["state"] == "attente", str(rr["cells"]))
+check("…et la ligne garde la largeur de SA table", len(rr["cells"]) == 5, str(rr["cells"]))
+check("_apparie : en-têtes identiques → la ligne passe telle quelle",
+      pm_think._apparie(["#", "Question"], ["#", "Question"], ["Q001", "x"]) == ["Q001", "x"])
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

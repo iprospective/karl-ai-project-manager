@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **La garde du CDC ne passe plus au rouge chez les voisins** (RM3260) : `pm-cdc-features --sync`
+  (et `--add-version`, `--set-version`, `--assign-version`, `--drop-version`, `--absorb`) écrivait le
+  registre sans régénérer le chapitre et la feuille de route qui en DÉRIVENT. Une session qui
+  synchronisait rendait `--check` rouge pour toutes les autres, sans que rien ne soit faux. Toute
+  écriture du registre régénère désormais les dérivés ; `--check` reste en lecture seule.
 - **Étiquettes : reprise de l'existant** (RM2828). Le socle RM2829 ne poussait le CF Redmine qu'à
   l'écriture : 909 fiches étiquetées côté PM, 40 tickets seulement côté Redmine. `pm-tags-backfill`
   rattrape le parc — additive (elle ne retire jamais une valeur posée dans l'UI), dry-run par défaut,

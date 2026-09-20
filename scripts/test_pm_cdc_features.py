@@ -185,5 +185,38 @@ with tempfile.TemporaryDirectory() as tmp:
     check("une feuille de route éditée à la main rend --check rouge", run("--check").returncode != 0)
     check("et --build la remet d'aplomb", run("--build").returncode == 0 and run("--check").returncode == 0)
 
+# ── RM3260 : toute écriture du registre régénère les fichiers qui en DÉRIVENT ──
+# Le défaut : `--sync` seul écrivait le registre et s'arrêtait là. La garde `--check`
+# passait alors au rouge chez toutes les AUTRES sessions, sans que rien ne soit faux.
+with tempfile.TemporaryDirectory() as tmp:
+    tasks = pathlib.Path(tmp) / "tasks"; docs = pathlib.Path(tmp) / "docs"; tasks.mkdir(); docs.mkdir()
+    ticket(tasks, 20, "Première fonctionnalité", "ferme", closed_at="2026-08-01")
+    base = [sys.executable, str(HERE / "pm-cdc-features.py"), "--docs-dir", str(docs), "--tasks-dir", str(tasks), "--project", "t/p"]
+    run = lambda *a: subprocess.run(base + list(a), capture_output=True, text=True)
+    chap_file = docs / "cdc-features.md"; road_file = docs / "cdc-roadmap.md"
+    run("--init", "--build")
+    ticket(tasks, 21, "Une fonctionnalité arrivée depuis", "ferme", closed_at="2026-08-05")
+
+    r = run("--sync")                                    # SANS --build : c'est le cas du bug
+    check("sync seul : le chapitre suit le registre", "RM21" in chap_file.read_text() or "21" in chap_file.read_text(), r.stdout)
+    check("sync seul puis check : VERT (RM3260)", run("--check").returncode == 0, run("--check").stdout)
+
+    check("add-version seul : check vert", run("--add-version", "V1", "--role", "essai").returncode == 0
+          and run("--check").returncode == 0)
+    check("la version apparaît dans la feuille de route sans --build", "V1" in road_file.read_text())
+    check("assign-version seul : check vert", run("--assign-version", "V1").returncode == 0
+          and run("--check").returncode == 0)
+    check("set-version seul : check vert", run("--set-version", "F001", "-").returncode == 0
+          and run("--check").returncode == 0)
+    check("drop-version seul : check vert", run("--drop-version", "V1").returncode == 0
+          and run("--check").returncode == 0)
+
+    # --check reste en LECTURE seule, et --build seul marche toujours.
+    avant = (chap_file.read_text(), road_file.read_text())
+    check("--check ne modifie rien", run("--check").returncode == 0
+          and (chap_file.read_text(), road_file.read_text()) == avant)
+    chap_file.write_text("édité à la main\n", encoding="utf-8")
+    check("--build seul répare, inchangé", run("--build").returncode == 0 and run("--check").returncode == 0)
+
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — pm-cdc-features"))
 sys.exit(1 if fails else 0)

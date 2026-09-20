@@ -128,6 +128,25 @@ except Exception as exc:   # noqa: BLE001
     print(f"· ignoré (config PM non résoluble dans cet environnement : {type(exc).__name__}) — "
           "la garde « état inconnu ≠ absente » tourne hors purge")
 
+# ── RM3070 L3 : l'acteur de la requête voyage jusqu'aux sous-processus ──
+print("\n[L3] qui agit")
+src = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("le contexte d'auth est posé par UN seul geste (sinon un chemin d'auth l'oublie)",
+      "def _pose_auth" in src and "self.auth_ctx = {" not in src)
+restants = [l.strip() for l in src.splitlines() if "env=os.environ" in l]
+check("seules les LECTURES gardent l'environnement nu ; toute action porte l'acteur",
+      len(restants) == 2 and all("--list" in src.splitlines()[i - 1] or "--list" in src.splitlines()[i - 2]
+                                 for i, l in enumerate(src.splitlines()) if "env=os.environ" in l),
+      str(restants))
+ka._REQ.auth_ctx = {"mode": "device", "user": moi, "admin": False}
+env = ka._env_acteur()
+check("sans qu'on le lui passe, le lanceur retrouve l'acteur de la requête",
+      env.get("PM_ACTOR_USER") == moi, str({k: v for k, v in env.items() if k.startswith("PM_ACTOR")}))
+ka._REQ.auth_ctx = {"mode": "open", "user": None, "admin": True}
+env = ka._env_acteur()
+check("personne d'authentifié (mono) : l'acteur est le compte qui exécute, pas une invention",
+      env.get("PM_ACTOR_USER") in (moi, None), env.get("PM_ACTOR_USER"))
+
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails)); sys.exit(1)

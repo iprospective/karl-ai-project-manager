@@ -63,6 +63,22 @@ for bad in ({"id": "D1", "action": "delete"}, {"id": "D001", "action": "delete"}
         ka._cdc_think_args(bad); check(f"refus {bad}", False)
     except ka.ApiError:
         check(f"refus {bad}", True)
+# RM3262 : le panneau lit les textes par NOM de colonne — un carnet migré porte la signature en 2ᵉ
+# position, et l'ancien lecteur positionnel aurait affiché « 2026-09-01 · Mathieu » comme question.
+import tempfile as _tf
+_d = pathlib.Path(_tf.mkdtemp(prefix="rm3262-ka-"))
+_fiche = _d / "RM77_x.md"; _fiche.write_text("---\nredmine_id: 77\n---\n", encoding="utf-8")
+sys.path.insert(0, str(HERE))
+import pm_think as _pt
+_th = _pt.think_path(_fiche)
+_pt.append(_th, "question", "Faut-il trancher ceci ?", by="M", when="2026-09-01", urgence="haute")
+_pt.append(_th, "note", "Une note du carnet", by="A", when="2026-09-02")
+_vue = ka._ticket_think(_fiche)
+check("le panneau rend le texte de la question, pas sa date",
+      _vue["questions"][0]["text"] == "Faut-il trancher ceci ?", str(_vue["questions"][0]))
+check("…et sa signature à part", "2026-09-01" in _vue["questions"][0]["signature"])
+check("les notes aussi", _vue["notes"][0]["text"] == "Une note du carnet" and "2026-09-02" in _vue["notes"][0]["signature"])
+
 # RM3258 : déplacer une entrée vers un autre ticket — le cockpit dit « à qui », jamais « comment »
 rm, local, args = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "3015"})
 check("_cdc_think_args : move → --move … --to, en inter-projets assumé",

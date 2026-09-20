@@ -174,7 +174,8 @@ for name in pm_think.PROJECT_FILES:
 dec = (docs / "cdc-decisions.md").read_text(encoding="utf-8")
 check("hors marqueurs conservé", "décision projet historique" in dec)
 check("ids préfixés RM43-", "| RM43-D001 | RM43 |" in dec and "| RM43-C001 |" in dec)
-check("questions fusionnées", "| RM43-Q001 | RM43 | Pourquoi ?" in (docs / "cdc-questions.md").read_text())
+check("questions fusionnées", "| RM43-Q001 | RM43 |" in (docs / "cdc-questions.md").read_text()
+      and "Pourquoi ?" in (docs / "cdc-questions.md").read_text())
 check("features par domaine × version", "### consignation" in (docs / "cdc-features.md").read_text() and "**V1**" in (docs / "cdc-features.md").read_text())
 check("INDEX complété", "cdc-questions.md" in (docs / "INDEX.md").read_text())
 check("--check vert après fusion", run(SCRIPTS / "pm-think-merge.py", "--docs-dir", docs, "--tasks-dir", tasks, "--project", "t/p", "--check").returncode == 0)
@@ -406,8 +407,10 @@ with tempfile.TemporaryDirectory() as td:
     check("une décision s'amende", ok and "d'origine" in ancien)
     ligne = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)][0]
     check("le nouveau texte est là", "trois mots plus juste" in ligne)
+    # RM3262 : la signature n'est plus collée au libellé, elle a sa colonne — l'amendement ne
+    # doit donc pas la toucher non plus, mais on la cherche là où elle vit désormais.
     check("la SIGNATURE survit — l'amendement corrige les mots, pas la paternité",
-          "· Mathieu)" in ligne, ligne)
+          "· Mathieu" in ligne and "trois mots plus juste |" in ligne, ligne)
     check("l'état n'est pas touché par un amendement seul", "🟡" in ligne, ligne)
 
     ok, _ = pm_think.set_text(f, nid, "Note corrigée")
@@ -425,7 +428,7 @@ with tempfile.TemporaryDirectory() as td:
     pm_think.set_text(f, did, "Texte | avec | des | barres")
     lignes = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)]
     check("un texte qui contient des barres ne casse pas la ligne du tableau",
-          len(lignes) == 1 and lignes[0].count("|") == 4, str(lignes))
+          len(lignes) == 1 and lignes[0].count("|") == len(pm_think.KINDS["decision"][2]) + 1, str(lignes))
 
     pm_think.set_state(f, did, "valide")
     ok, _ = pm_think.set_text(f, did, "Amendée après validation")
@@ -563,6 +566,63 @@ check("CLI : le déplacement est tracé dans les DEUX journaux",
 check("CLI : les compteurs sont refaits des deux côtés", "for feuille, chemin in ((sheet, think), (cible, think_cible))" in src_cli)
 check("CLI : la garde de périmètre RM2274 couvre le ticket destinataire",
       "pm_scope.assert_task_scope(a.to, cible, a.cross_project" in src_cli)
+
+# ── RM3262 : colonnes qualifiantes, lecture par NOM, migration des carnets ────────
+# Ce qui casserait en silence : un lecteur qui dit `cells[1]` lit la DATE au lieu de la question
+# dès qu'un carnet est migré — la garde de clôture afficherait « 2026-09-01 · Mathieu » comme
+# libellé, et la moisson ne reconnaîtrait plus ses doublons.
+import importlib.util as _ilu
+_sp = _ilu.spec_from_file_location("pm_think_schema", SCRIPTS / "pm-think-schema.py")
+SCH = _ilu.module_from_spec(_sp); _sp.loader.exec_module(SCH)
+
+col = Path(tempfile.mkdtemp(prefix="rm3262-")) / "RM50_x.think.md"
+qid = pm_think.append(col, "question", "Faut-il un index ?", by="M", when="2026-09-01", urgence="haute")
+did = pm_think.append(col, "decision", "Q001 : oui, un index partiel", by="M", when="2026-09-02", state="valide")
+parsed = pm_think.load(col)
+secq, secd = parsed["question"], parsed["decision"]
+rq = secq["rows"][0]; rd = secd["rows"][0]
+check("une question porte sa date et son auteur", "2026-09-01" in pm_think.cell(secq, rq, "Date · auteur")
+      and "Mathieu" in pm_think.cell(secq, rq, "Date · auteur"))
+check("une décision aussi…", "2026-09-02" in pm_think.cell(secd, rd, "Date · auteur"))
+check("…et ne les a plus collées dans son libellé", "(2026-09-02" not in pm_think.cell(secd, rd, "Objet"))
+check("« Tranchée par » est rempli par la décision qui cite la question",
+      pm_think.cell(secq, rq, "Tranchée par") == did, pm_think.cell(secq, rq, "Tranchée par"))
+check("le texte se lit par son nom, quelle que soit la rubrique",
+      pm_think.texte(secq, rq, "question").startswith("Faut-il")
+      and pm_think.texte(secd, rd, "decision").startswith("Q001"))
+check("questions_citees rend les ids cités, sans doublon", pm_think.questions_citees("Q001 et Q001 puis Q007") == ["Q001", "Q007"])
+check("col_index ignore la casse et les accents (carnet écrit à la main)",
+      pm_think.col_index(["#", "Etat"], "État") == 1)
+check("une colonne absente rend le défaut, jamais la voisine",
+      pm_think.cell(secq, rq, "Colonne qui n'existe pas", "—") == "—")
+
+# migration d'un carnet d'AVANT : la signature d'une décision quitte le libellé
+vieux = ("# RM9 — Réflexion\n\n## Questions ouvertes\n\n"
+         "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n"
+         "| Q001 | Pourquoi ? | la suite | haute | 🕐 |\n| ~~Q002~~ | Déjà tranchée | — | basse | ✅ |\n\n"
+         "## Décisions\n\n| # | Objet | État |\n|---|---|---|\n"
+         "| D001 | On part sur PostgreSQL (2026-09-14 · Mathieu) | ✅ |\n\n"
+         "## Notes — vrac\n\n| # | Date · auteur | Verbatim | État | Traitée par |\n|---|---|---|---|---|\n"
+         "| N001 | 2026-09-01 · Mathieu | Une note | 🕐 | D001 |\n")
+mig = SCH.migrer_texte(vieux)
+check("migration : l'en-tête des questions passe à la grammaire courante",
+      "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |" in mig)
+check("migration : le contenu est reporté dans les BONNES colonnes",
+      "| Q001 |  | Pourquoi ? | la suite | haute | 🕐 |" in mig, mig)
+check("migration : une ligne barrée le reste", "| ~~Q002~~ |" in mig)
+check("migration : la signature d'une décision passe dans sa colonne",
+      "| D001 | 2026-09-14 · Mathieu | On part sur PostgreSQL | ✅ |" in mig, mig)
+check("migration : les notes, déjà à la grammaire, ne bougent pas",
+      "| N001 | 2026-09-01 · Mathieu | Une note | 🕐 | D001 |" in mig)
+check("migration idempotente : deux passes donnent le même texte", SCH.migrer_texte(mig) == mig)
+p_mig = pm_think.parse(mig)
+check("après migration, le texte se lit toujours par son nom",
+      pm_think.texte(p_mig["question"], p_mig["question"]["rows"][0], "question") == "Pourquoi ?")
+check("…et la garde de clôture lirait la question, pas la date",
+      "2026" not in pm_think.texte(p_mig["question"], p_mig["question"]["rows"][0], "question"))
+src_cu = (SCRIPTS / "pm-core-update.py").read_text(encoding="utf-8")
+check("la migration est greffée sur le core update (APRÈS le déploiement du code)",
+      "migrate_think_schema(core_dir, dry)" in src_cu and "pm-think-schema.py" in src_cu)
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

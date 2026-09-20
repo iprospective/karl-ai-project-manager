@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Créer un projet sous une racine client verrouillée** (RM2947). `pm-project-new` était
+  inutilisable dans le cas devenu nominal (racine `2750 pm:pm`) : il déléguait le squelette à
+  `pm-env-helper ws-init`, qui crée `.mmi-pm/`, puis refusait sur ce même `.mmi-pm/` — « workspace
+  déjà relié à un projet PM ». Le garde-fou distingue désormais un squelette (dossiers vides) d'un
+  volet PM peuplé ; `ws-init` amorce aussi les deux entrées de racine qui manquaient (dépôt `-core`
+  vide et partagé, lien `docs`), et un `.gitignore` de whitelist n'est plus jugé à l'octet près —
+  ses règles suffisent, sinon celui de `ws-init` passait pour un fichier tiers à renommer, à la
+  racine, donc `Permission denied` de plus. Au passage, `mmi-pm test` collecte enfin les suites
+  **shell** (`test-ws-init.sh`, `test-pm-env-helper-daemon.sh`) : elles ne tournaient nulle part.
+
 - **Étiquettes : reprise de l'existant** (RM2828). Le socle RM2829 ne poussait le CF Redmine qu'à
   l'écriture : 909 fiches étiquetées côté PM, 40 tickets seulement côté Redmine. `pm-tags-backfill`
   rattrape le parc — additive (elle ne retire jamais une valeur posée dans l'UI), dry-run par défaut,

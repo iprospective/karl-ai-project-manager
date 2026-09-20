@@ -139,6 +139,13 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     assert(/data-action="think-move" data-id="Q001"/.test(pane), "le volet Réflexion offre le déplacement");
     assert(/data-action="think-delete" data-id="Q001"/.test(pane), "…et la suppression");
     assert(!/onclick=/.test(pane), "gestes délégués, aucun on*");
+    // RM3262 : la signature accompagne l'entrée, sans voler la vedette à son texte
+    const signe = String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
+      questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", signature: "2026-09-01 · Mathieu", open: true }] }));
+    assert(/class="thk-sig"[^>]*>2026-09-01 · Mathieu</.test(signe), "la question dit qui l'a posée, et quand");
+    assert(signe.indexOf("vraie question ?") > signe.indexOf("thk-sig"), "…après l'id et la signature, le texte");
+    assert(!/thk-sig/.test(String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
+      questions: [{ id: "Q001", icon: "❓", text: "carnet pas encore migré", open: true }] }))), "sans signature connue : rien d'inventé");
     const closed = String(V.ThinkPane({ file: "f", counts: {}, questions: [{ id: "Q002", icon: "✅", text: "tranchée", closed: true }], decisions: [], features: [], notes: [] }));
     assert(!/think-move|think-delete/.test(closed), "une entrée déjà tranchée n'offre pas ces gestes");
   }

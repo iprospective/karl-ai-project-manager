@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Le carnet qualifie ses entrées** (RM3262) : questions, décisions et fonctionnalités portent
+  « Date · auteur » comme les notes, et une question porte « Tranchée par » — rempli tout seul par
+  la décision qui la cite. La signature d'une décision quitte son libellé, où elle était collée.
+  Toutes les lectures de colonnes passent désormais par le NOM de la colonne : une dizaine de sites
+  lisaient `cells[1]`, qui serait devenu la date. `pm-think-schema --all` porte les carnets existants
+  à la grammaire courante (idempotent, `--check` pour la CI) ; il est appelé par `core update`, APRÈS
+  le déploiement du code — l'inverse ferait écrire l'ancien runtime dans la mauvaise colonne.
 - **Créer un projet sous une racine client verrouillée** (RM2947). `pm-project-new` était
   inutilisable dans le cas devenu nominal (racine `2750 pm:pm`) : il déléguait le squelette à
   `pm-env-helper ws-init`, qui crée `.mmi-pm/`, puis refusait sur ce même `.mmi-pm/` — « workspace

@@ -128,7 +128,9 @@ export class ReviewViewModel extends EntityViewModel {
     if (!th || !th.file) return null;
     const ICON = { valide: "✅", invalide: "❌", propose: "🟡", attente: "🕐", reserve: "⏸" };
     const rub = (rows, titre) => (rows || []).map(r => ({
-      id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·",
+      // RM3262 : la signature (« 2026-09-01 · Mathieu ») accompagne chaque entrée — une question
+      // sans date ni auteur ne se relit pas. Vide sur un carnet pas encore migré : on n'invente rien.
+      id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·", signature: String(r.signature || ""),
       state: String(r.state || ""), closed: !!r.closed, prefix: String(r.prefix || ""),
       open: !r.closed && r.state !== "valide" && r.state !== "invalide", rubrique: titre }));
     const c = th.counts || {};

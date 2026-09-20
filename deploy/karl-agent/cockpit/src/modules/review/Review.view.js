@@ -30,7 +30,8 @@ const muted = "color:var(--muted)";
  *  que le refus ne tombe. L'écriture passe par la route de RM3064 (D022), pas par une seconde. */
 export function ThinkPane(th) {
   if (!th) return "";
-  const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${e.closed
+  const sign = (e) => (e.signature ? html`<span class="thk-sig" title="qui a écrit cette entrée, et quand">${e.signature}</span>` : "");
+  const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${sign(e)} ${e.closed
     ? html`<span style="opacity:.6;text-decoration:line-through">${e.text}</span>` : e.text}${e.open
     ? html` <span class="thk-acts"><button class="mini" title="Trancher : validé (réponse facultative pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="valide">✅</button><button class="mini" title="Écarter : invalidé (le motif reste au carnet ; motif facultatif pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="invalide">❌</button><button class="mini" title="Déplacer cette entrée vers le carnet d'un autre ticket (RM3258)" data-action="think-move" data-id="${e.id}" data-rub="${rub}">→</button><button class="mini" title="Supprimer cette entrée pour de bon — elle n'était pas une vraie entrée (RM3064)" data-action="think-delete" data-id="${e.id}" data-rub="${rub}">✕</button></span>` : ""}</div>`;
   const bloc = (titre, rows, rub) => (rows.length

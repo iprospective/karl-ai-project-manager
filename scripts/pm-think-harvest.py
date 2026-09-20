@@ -154,9 +154,10 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
         if kind == "decision":
             rid = pm_think.append(think, "decision", text, rm_id=rm_id, title=title, by="M", state="valide", sid=sid)
             # la question homonyme laissée ouverte par une moisson précédente est tranchée
-            for r in parsed.get("question", {}).get("rows", []):
-                if not r["closed"] and r["state"] not in ("valide", "invalide") and len(r["cells"]) > 1 \
-                        and pm_think._norm(r["cells"][1]) == pm_think._norm(extra.get("question")):
+            sec_q = parsed.get("question", {})
+            for r in sec_q.get("rows", []):
+                if not r["closed"] and r["state"] not in ("valide", "invalide") \
+                        and pm_think._norm(pm_think.texte(sec_q, r, "question")) == pm_think._norm(extra.get("question")):
                     pm_think.set_state(think, r["id"], "valide", dest=rid)
         elif kind == "question":
             # RM3090 : l'auteur suit la provenance — une question posée PAR l'agent (AskUserQuestion)
@@ -191,17 +192,18 @@ def prune(think: Path, dry=False, delete=False) -> list:
     parsed = pm_think.load(think)
     livre = ticket_livre(pm_think.sheet_of(think))
     out = []
-    for r in parsed.get("note", {}).get("rows", []):
+    sec_n = parsed.get("note", {})
+    for r in sec_n.get("rows", []):
         if len(r["cells"]) < 3:
             continue
         if livre and not (r["closed"] or r["state"] in ("valide", "invalide")):
             out.append(r["id"]); continue      # ticket livré : la note n'a plus d'objet
-        deja = "élaguée (RM3062)" in (r["cells"][4] if len(r["cells"]) > 4 else "")
+        deja = "élaguée (RM3062)" in pm_think.cell(sec_n, r, "Traitée par")
         if deja and delete:
             out.append(r["id"]); continue
         if r["closed"] or r["state"] in ("valide", "invalide"):
             continue
-        ok, motif = pm_think.note_pertinente(r["cells"][2])
+        ok, motif = pm_think.note_pertinente(pm_think.texte(sec_n, r, "note"))
         if ok:
             continue
         out.append(r["id"])

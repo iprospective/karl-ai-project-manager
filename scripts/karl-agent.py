@@ -7278,17 +7278,21 @@ def _ticket_think(task_file, limite: int = 40) -> dict:
     except Exception:      # noqa: BLE001
         return {}
 
-    def _rows(kind, col):
+    def _rows(kind):
+        # RM3262 : le texte par NOM de colonne (« Question », « Objet », « Verbatim »…). En
+        # positions, le panneau aurait affiché « 2026-09-01 · Mathieu » à la place de la question
+        # dès qu'un carnet passe à la grammaire élargie. `signature` vient avec : qui, et quand.
+        sec = parsed.get(kind, {})
         out = []
-        for r in (parsed.get(kind, {}).get("rows") or [])[:limite]:
-            cells = r.get("cells") or []
-            out.append({"id": r.get("id"), "text": cells[col] if col < len(cells) else "",
+        for r in (sec.get("rows") or [])[:limite]:
+            out.append({"id": r.get("id"), "text": pm_think.texte(sec, r, kind),
+                        "signature": pm_think.cell(sec, r, pm_think.SIGNATURE_COL),
                         "state": r.get("state") or "", "closed": bool(r.get("closed")),
                         "prefix": r.get("prefix") or ""})
         return out
 
-    return {"questions": _rows("question", 1), "decisions": _rows("decision", 1),
-            "notes": _rows("note", 2), "features": _rows("feature", 1),
+    return {"questions": _rows("question"), "decisions": _rows("decision"),
+            "notes": _rows("note"), "features": _rows("feature"),
             "counts": pm_think.counters(parsed), "file": th.name}
 
 

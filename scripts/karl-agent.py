@@ -1179,6 +1179,12 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     engine = payload.get("engine", DEFAULT_ENGINE)
     if engine not in ENGINES:
         raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
+    # RM3070 L4 (décision D006) : `shell` est un shell de connexion sous le compte de service —
+    # l'ouvrir à tout compte authentifié lui donne les droits UNIX complets de ce compte.
+    if engine == "shell" and _install_state().get("mode") == "multi" \
+            and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "le moteur « shell » donne les droits du compte de service : en mode "
+                            "multi-utilisateur, il est réservé aux administrateurs")
     problems = validate_engine_options(engine)          # RM3108 : jamais de session morte-née
     if problems:
         raise ApiError(400, f"options du moteur {engine} invalides : " + " ; ".join(problems))
@@ -1237,7 +1243,11 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     if session_id:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
-        _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
+        # le propriétaire est l'identité COCKPIT (pas le compte UNIX : un login cockpit peut
+        # n'avoir aucun compte système, et `_user_unix` retomberait alors sur celui du démon —
+        # toutes les sessions appartiendraient au service)
+        _record_key(rm_id, engine, session_id, str(cwd), model=model_value,
+                    owner=str((auth_ctx or {}).get("user") or "") or None)
         joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
@@ -2077,7 +2087,7 @@ def _record_run(rm_id: str, engine: str, session_id: str, cwd: str) -> dict:
 
 
 def _record_key(sid: str, engine: str, session_id: str, cwd: str,
-                model: str | None = None) -> None:
+                model: str | None = None, owner: str | None = None) -> None:
     """Index clé-tmux → (engine, session_id, cwd) — RM2144. Couvre AUSSI les
     sessions slug (sans jonction ticket) : sert à l'enrichissement /sessions
     (moteur, projet via cwd) et à la reprise. Touche l'entité session au passage.
@@ -2093,6 +2103,12 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
         model = prev.get("model")
     rec = {"sid": sid, "engine": engine, "session_id": session_id,
            "cwd": cwd, "last_seen": now}
+    # RM3070 L4 : à QUI est cette session. Inscrit dans la fiche, pas dans le nom tmux : renommer
+    # les sessions casserait celles qui tournent, et l'attache, et la résolution du worklog. Une
+    # session d'avant n'a pas de propriétaire — c'est un état connu, pas une erreur.
+    proprio = owner or prev.get("owner")
+    if proprio:
+        rec["owner"] = proprio
     if model:
         rec["model"] = model
     if prev.get("disposition"):  # RM2515 : préserver la disposition manuelle (idem model)
@@ -6666,7 +6682,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     `autostart` qui ne tournent pas (aucun processus). `ghosts=0` les exclut."""
     sessions = _list_sessions()
     if not sessions:
-        return _keep_sessions(_ghosts_for(qs, auth_ctx), qs)
+        return _keep_sessions(_mes_sessions(_ghosts_for(qs, auth_ctx), auth_ctx), qs)
     latest = {}
     for runs in _runs_by_session().values():
         for r in runs:
@@ -6686,6 +6702,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if k:
             s["engine"] = k.get("engine")
             s["session_id"] = k.get("session_id")
+            s["owner"] = k.get("owner") or ""         # RM3070 L4 : à qui elle est ("" = d'avant)
             s["disposition"] = k.get("disposition")   # RM2515 : marque manuelle (idle uniquement, côté UI)
         tc = _session_ticket_counts(s["rm_id"])
         if tc:
@@ -6798,12 +6815,27 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             s["in_current"] = s.get("client") == _mv.group(1)
         else:
             s["in_current"] = True if _view != "set" else (_cur in names)
-    return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
+    return _keep_sessions(_mes_sessions(sessions + _ghosts_for(qs, auth_ctx), auth_ctx), qs)
 
 
 def _ghosts_for(qs: dict, auth_ctx: dict | None) -> list:
     """RM2427 — fantômes à joindre à la vue, sauf opt-out explicite `ghosts=0`."""
     return [] if str(qs.get("ghosts", "")) == "0" else _ghost_sessions(auth_ctx)
+
+
+def _mes_sessions(sessions: list, auth_ctx: dict | None) -> list:
+    """RM3070 L4 : en MULTI, chacun ne voit que ses sessions.
+
+    Une session porte son propriétaire depuis son premier lancement (fiche `keys/`). Celles d'AVANT
+    n'en ont pas : elles restent visibles des administrateurs — les cacher à tout le monde ferait
+    disparaître du travail en cours le jour de la bascule — et un administrateur voit tout, sans quoi
+    personne ne pourrait reprendre la session d'un absent. En mono, rien n'est filtré."""
+    if _install_state().get("mode") != "multi":
+        return sessions
+    if (auth_ctx or {}).get("admin"):
+        return sessions
+    moi = str((auth_ctx or {}).get("user") or "")
+    return [s for s in sessions if s.get("owner") and s.get("owner") == moi]
 
 
 def _keep_sessions(sessions: list, qs: dict) -> list:
@@ -11730,6 +11762,12 @@ def _guard_secret_route(auth_ctx: dict) -> None:
         return
     if not (auth_ctx or {}).get("mode"):
         raise ApiError(401, "authentification requise")
+    # RM3070 L4 (décision D006) : le coffre et l'agent SSH sont PARTAGÉS par le processus — les
+    # déverrouiller, c'est les déverrouiller pour tout le monde. En multi, ce geste appartient à
+    # l'administrateur ; en mono, le seul développeur est administrateur de fait, rien ne change.
+    if _install_state().get("mode") == "multi" and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "coffre et agent SSH sont partagés par l'instance : en mode "
+                            "multi-utilisateur, leur déverrouillage est réservé aux administrateurs")
 
 
 def _secret_field(payload: dict, name: str) -> str:

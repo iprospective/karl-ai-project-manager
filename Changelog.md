@@ -23,6 +23,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   racine, donc `Permission denied` de plus. Au passage, `mmi-pm test` collecte enfin les suites
   **shell** (`test-ws-init.sh`, `test-pm-env-helper-daemon.sh`) : elles ne tournaient nulle part.
 
+- **Une session appartient à quelqu'un, et les gestes partagés se réservent** (RM3070, lot L4, 1ʳᵉ partie).
+  « Authentifié » ne voulait pas dire « isolé » : tout compte du cockpit pouvait ouvrir le moteur `shell`
+  — un shell de connexion sous le compte de service, donc ses droits UNIX complets —, déverrouiller le
+  coffre et l'agent SSH pour **tout le monde**, et voir les sessions des autres. En mode multi, les deux
+  premiers gestes sont désormais réservés aux administrateurs, et chacun ne voit que ses sessions ;
+  l'administrateur voit tout, sans quoi personne ne pourrait reprendre la session d'un absent. Le
+  propriétaire est inscrit dans la fiche de session, **pas dans le nom tmux** : renommer les sessions
+  casserait celles qui tournent. En mono, rien ne change — et rien ne disparaît à la mise à jour.
+
 - **La garde du CDC ne passe plus au rouge chez les voisins** (RM3260) : `pm-cdc-features --sync`
   (et `--add-version`, `--set-version`, `--assign-version`, `--drop-version`, `--absorb`) écrivait le
   registre sans régénérer le chapitre et la feuille de route qui en DÉRIVENT. Une session qui

@@ -10765,6 +10765,18 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "validate_empty", "label": "Valider sans rien ajouter", "type": "bool",
           "flag": "--validate-empty"},
      ]},
+    # Le seul geste destructif de l'écran, et il est volontairement étroit : une journée,
+    # les seules saisies portant la marque de l'outil, sauvegarde JSONL avant suppression.
+    # Rien ne l'appelle automatiquement — il se demande, après avoir vu une incohérence.
+    {"name": "timesheet-day-revoke",
+     "label": "Reprendre la journée (retire les saisies posées par l'outil)",
+     "category": "facturation", "script": "pm-timesheet.py",
+     "mutate": True, "confirm": True, "timeout": 600, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "revoke", "const": True, "flag": "--revoke"},
+         {"name": "dry_run", "label": "Simulation (ne supprime rien)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
     {"name": "timesheet-day-apply", "label": "Valider la journée (crée les saisies Redmine)",
      "category": "facturation", "script": "pm-timesheet.py",
      "mutate": True, "confirm": True, "timeout": 600, "args": [

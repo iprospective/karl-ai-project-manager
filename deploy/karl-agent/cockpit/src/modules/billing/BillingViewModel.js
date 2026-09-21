@@ -1,6 +1,7 @@
 // modules/billing/BillingViewModel — ce que l'écran « Facturation » présente d'une journée. Inerte. RM3229, L3.
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
-         ETAT_LABEL, heuresTravaillees, isWeekend } from "./billing.js";
+         ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
+         poseParOutil } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty }) {
@@ -58,9 +59,22 @@ export class BillingViewModel {
   get dejaSaisi() {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({
       minutes: fmtMin(s.minutes), ticket: s.ticket ? `RM${s.ticket}` : "", rm: s.ticket || null,
-      libelle: s.libelle || "",
+      libelle: libelleLisible(s), auto: estAutomatique(s),
     }));
   }
+
+  /**
+   * Ce que l'OUTIL a posé sur cette journée — ce qui peut donc être repris.
+   *
+   * La distinction est le cœur du geste : les saisies notées à la main sont hors d'atteinte,
+   * et l'écran le dit avant qu'on clique, pas après.
+   */
+  get auto() {
+    const a = poseParOutil(this.j);
+    return { ...a, label: `${a.count} saisie${a.count > 1 ? "s" : ""} (${fmtMin(a.minutes)})` };
+  }
+  get reprenable() { return this.auto.count > 0 && this.busy !== "revoke"; }
+  get manuelles() { return this.dejaSaisi.filter(s => !s.auto).length; }
 
   get regie() {
     return ((this.j && this.j.regie) || []).map(r => ({
@@ -84,11 +98,21 @@ export class BillingViewModel {
     };
   }
 
-  /** Le bouton principal : ce qu'il propose dépend de l'état, jamais d'un réglage caché. */
+  /**
+   * Le bouton principal : ce qu'il propose dépend de l'état, jamais d'un réglage caché.
+   *
+   * Une journée DÉJÀ validée reste complétable (décision du 2026-09-21 : juin à août se
+   * repassent journée par journée). Corriger les heures d'une journée ancienne peut faire
+   * apparaître un complément ; le bouton le propose alors, et dit qu'il complète — il
+   * n'écrit jamais deux fois le même temps, le déjà-saisi étant déduit en amont.
+   */
   get action() {
     if (this.busy === "apply") return { label: "validation en cours…", disabled: true, geste: "" };
+    if (this.t.propose > 0) {
+      return { label: `${this.validee ? "Compléter" : "Valider"} — écrire ${fmtMin(this.t.propose)} dans Redmine`,
+               disabled: false, geste: "apply" };
+    }
     if (this.validee) return { label: "journée validée", disabled: true, geste: "" };
-    if (this.t.propose > 0) return { label: `Valider — écrire ${fmtMin(this.t.propose)} dans Redmine`, disabled: false, geste: "apply" };
     if (this.t.deja > 0) return { label: "Valider sans rien ajouter", disabled: false, geste: "validate-empty" };
     return { label: "rien à valider", disabled: true, geste: "" };
   }

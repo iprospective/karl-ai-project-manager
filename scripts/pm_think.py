@@ -320,13 +320,27 @@ _COLLAGE = re.compile(r"(^|\s)(?:[\w.-]+@[\w.-]+:[~/][^\s]*[$#]|root@|Traceback 
                       r"|This session is being continued|^\s*https?://\S+\s*$", re.I | re.M)
 #: une réponse à une question outillée (« Q42 : … », « D114 : … », « q20 : oui ») est une DÉCISION, pas une note
 _REPONSE_Q = re.compile(r"^\W*[QDCF]\s?0?\d{2,3}\s*[:.)]", re.I)
-#: un ordre adressé à l'agent — même long, même s'il contient « il faudra »
+#: un ordre adressé à l'agent — même long, même s'il contient « il faudra ».
+#: RM3281 : les formes qui passaient encore — « go faire 3108 », « ok, continuer sur … », et l'ordre
+#: posé en FIN de note (« … . Consigne tout ça dans le ticket maintenant »), qui pilote le tour en
+#: cours et ne dit rien de réutilisable. L'infinitif compte autant que l'impératif.
+_VERBES_ORDRE = (r"fais|faire|fait|refais|refaire|prends|prendre|prend|étudie|etudie|étudier|etudier|chiffre|chiffrer|"
+                 r"lance|lancer|relance|relancer|merge|merger|mergez|ferme|fermer|passe|passer|continue|continuer|"
+                 r"reprends|reprendre|reprend|corrige|corriger|teste|tester|test|regarde|regarder|montre|montrer|"
+                 r"liste|lister|crée|cree|créer|creer|ajoute|ajouter|mets|mettre|met|pousse|pousser|push|commit|"
+                 r"committe|déploie|deploie|déployer|deployer|supprime|supprimer|vire|virer|consigne|consigner|"
+                 r"consignes|note|noter|notes|traite|traiter|livre|livrer|réponds|reponds|répondre|repondre|donne|"
+                 r"donner|envoie|envoyer|applique|appliquer|renomme|renommer|migre|migrer|analyse|analyser|documente|"
+                 r"documenter|génère|genere|générer|generer|core update|attends|attendre|stoppe|stopper|arrête|arrete|arrêter|arreter")
 _ORDRE = re.compile(r"^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go\b|vas-y|nickel|parfait|merci|super|top|c'est bon|bien reçu|bien recu)?\s*"
                     r"(?:peux-tu|pourrais-tu|je veux que tu|il faut que tu|merci de)\b"
-                    r"|^\W*(?:fais|fait|refais|prends|prend|étudie|etudie|chiffre|lance|relance|merge|mergez|ferme|passe|continue|reprends|reprend|"
-                    r"corrige|teste|test|regarde|montre|liste|crée|cree|ajoute|mets|met|pousse|push|commit|committe|déploie|deploie|supprime|vire|"
-                    r"consigne|consignes|note|notes|traite|livre|réponds|reponds|donne|envoie|applique|renomme|migre|analyse|documente|génère|genere|"
-                    r"core update|attends|stoppe|arrête|arrete)\b", re.I)
+                    r"|^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go|vas-y|nickel|parfait|merci|super|top)?[,.\s]*"
+                    rf"(?:{_VERBES_ORDRE})\b", re.I)
+#: le même ordre, mais en dernière phrase : « tout ça », « maintenant », « et enchaîne » — il pilote
+#: le tour, il ne se relira pas. On ne regarde QUE la fin : au milieu d'un raisonnement, un impératif
+#: peut appartenir à l'explication.
+_ORDRE_FINAL = re.compile(rf"(?:^|[.!?;]\s+)(?:et\s+)?(?:{_VERBES_ORDRE})\b[^.!?]*"
+                          r"(?:maintenant|tout (?:ç|c)a|tout cela|d'abord|stp|s'il te pla[îi]t)[^.!?]*[.!?]?\s*$", re.I)
 #: le RESTE À FAIRE — report, manque, intention différée. PAS les contraintes (« doit », « devra ») : ce sont des décisions.
 _DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a terme|en attendant|provisoire|temporaire|"
                     r"(?:un|second|deuxième|deuxieme) (?:premier )?temps|dans un premier temps|il faudra(?:it)?|"
@@ -335,6 +349,25 @@ _DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a t
                     r"faute de mieux|en dur pour|quick ?fix|bricol|rustine|dette technique|plus propre|un jour|"
                     r"on pourrait|on devrait|ce serait (?:bien|mieux)|il serait (?:bon|utile)|serait (?:bien|utile) de)", re.I)
 _MOT = re.compile(r"[^\W\d_]{2,}", re.U)
+#: RM3281 — le RÉFÉRENT. Une note doit dire DE QUOI elle parle : hors de sa conversation, « on verra
+#: plus tard pour la suite, il faudra trancher » ne se rattache à rien et ne peut que faire du bruit.
+#: Deux formes d'ancrage, l'une suffit : un identifiant qu'on peut chercher (ticket, chemin, terme
+#: entre accents graves, nom composé, mot à majuscule interne), ou assez de mots PORTEURS.
+_ANCRE = re.compile(r"\bRM\s?\d{3,5}\b|`[^`]+`|[\w.-]+\.(?:py|js|md|yml|yaml|json|sh|css|scss|service)\b"
+                    r"|(?:^|\s)/[\w./-]{3,}|\b\w+[_-]\w+\b|\b\w+[a-zà-ÿ][A-ZÀ-Þ]\w*\b|\b[A-ZÀ-Þ][\w-]{2,}\b"
+                    r"|(?:^|\s)-{1,2}[A-Za-z][\w-]*\b", re.U)   # une option de commande (« ssh -A », « --dry-run ») désigne quelque chose
+_PORTEUR = re.compile(r"\b[^\W\d_]{6,}\b", re.U)
+#: mots longs mais vides de référent : ils ne désignent rien qu'on puisse retrouver
+_CREUX = {"faudrait", "pourrait", "devrait", "vraiment", "beaucoup", "toujours", "jamais", "quelque",
+          "quelques", "certains", "certaines", "plusieurs", "pendant", "ensuite", "maintenant",
+          "trancher", "vérifier", "verifier", "regarder", "attendre", "continuer", "terminer",
+          "faudra", "instant", "reprendre", "laisser", "laisse", "commencer", "essayer", "penser"}
+
+
+def _ancrage(s: str) -> bool:
+    if _ANCRE.search(s):
+        return True
+    return len({m.group(0).lower() for m in _PORTEUR.finditer(s)} - _CREUX) >= 3
 
 
 def note_pertinente(text: str):
@@ -351,10 +384,14 @@ def note_pertinente(text: str):
         return True, "explicite"
     if _ORDRE.search(s):
         return False, "ordre à l'agent"
+    if _ORDRE_FINAL.search(s):
+        return False, "ordre à l'agent (en fin de note) — pilote le tour, ne se relira pas"
     if not _DETTE.search(s):
         return False, "rien à faire plus tard (constat, contrainte, opinion)"
     if len(s) < 45 or len(_MOT.findall(s)) < 7:
         return False, "trop courte pour être auto-suffisante"
+    if not _ancrage(s):
+        return False, "aucun référent — rien à quoi la rattacher hors de sa conversation"
     return True, "dette"
 
 

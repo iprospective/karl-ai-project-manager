@@ -95,6 +95,11 @@ html[data-layout="mobile"] {
 html[data-layout="mobile"][data-mfull="1"] {
   header { display: none; }
   main[data-mpage="center"] .left, main[data-mpage="center"] .rpanel { display: none; }
+  /* … et tout ce qui entoure le terminal : les onglets et la barre d'options du haut
+     (.tabbar contient les deux), les réponses possibles du bas (commit+push…). On vient
+     ici pour LE TERMINAL ; le reste se retrouve d'un appui sur ↙. */
+  .tabbar { display: none; }
+  #chipsrow { display: none !important; }   /* son display est posé EN LIGNE par le JS : sans !important, la règle perd */
   .mnav { padding-top: 2px; padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px)); }
   .mnav-btn .mnav-lbl { display: none; }          /* en plein écran, la barre du bas se fait discrète */
   .mnav-btn .mnav-ico { font-size: 15px; }

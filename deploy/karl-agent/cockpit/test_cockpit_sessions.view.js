@@ -29,6 +29,18 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert.strictEqual(live.dropTitle, "Retirer du jeu « Défaut » — la session continue de tourner");
   let t = String(V.Tile(live, lend));
   assert(/class="runitem active" data-action="attach" data-k="s:42"/.test(t) && /data-action="disp" data-k="s:42"/.test(t) && /class="tid">RM42</.test(t) && /<span class="pin">session:42<\/span>/.test(t) && /class="tlink">Sujet</.test(t) && / · 2min</.test(t) && /class="tquiet" title="Dernier message il y a 1min/.test(t) && /class="tbadge">⚠</.test(t) && /⏱✔/.test(t) && /class="tyes" data-action="approve" data-k="s:42"/.test(t) && /class="tkill tdrop" data-action="drop"/.test(t) && /class="tkill" data-action="kill" data-k="s:42"/.test(t) && !/onclick=/.test(t), "tuile : marque RM2795, lien de titre, silence, pastilles, gestes en data-action");
+  // RM3070 L4 : en multi, un administrateur voit TOUTES les sessions — sans le nom de leur
+  // propriétaire, il les verrait sans savoir à qui elles sont. La sienne n'est pas étiquetée.
+  const mien = new VM.SessionTileViewModel({ rm_id: "43", state: "idle", owner: "mathieu" },
+    Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(mien.owner, "", "ma propre session n'est pas étiquetée : l'évidence ne se dit pas");
+  const autrui = new VM.SessionTileViewModel({ rm_id: "44", state: "idle", owner: "alice" },
+    Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(autrui.owner, "alice", "la session d'un autre porte son nom");
+  assert(autrui.badges.some(b => /alice/.test(b.text)), "…jusque sur la tuile : " + JSON.stringify(autrui.badges));
+  const legacy = new VM.SessionTileViewModel({ rm_id: "45", state: "idle" }, Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(legacy.owner, "", "une session d'avant (sans propriétaire) n'est attribuée à personne");
+
   const idle = new VM.SessionTileViewModel({ rm_id: "7", state: "idle", disposition: "termine", in_current: false, set_labels: ["Chantier long"], sets: ["pm"] }, Object.assign({}, base, { set: { sets: SETS, current: "pm", view: "set" } }));
   assert(idle.badge.text === "✅" && /disp-termine/.test(idle.dotClass) && idle.stale && idle.setTag.text === "Chantier l" && !idle.canDrop, "RM2515 terminé · RM2598 question sans réponse · RM2446 jeu affiché · RM2673 : ⊖ masqué sur un jeu dérivé");
   t = String(V.Tile(idle, lend)); assert(/🕓/.test(t) && !/tdrop/.test(t) && /title="appartient au jeu « Chantier long »">Chantier l</.test(t) && /disp-termine/.test(t));

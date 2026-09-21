@@ -44,16 +44,22 @@ LEGEND = {
     "feature":  "F fonctionnalité — une feature atomique qui donne lieu à un ticket, le complète, ou reste à faire.",
 }
 #: kind → (préfixe d'id, titre de section, en-tête de table)
+#: RM3262 — chaque rubrique porte « Date · auteur » comme les notes : une question sans date ni
+#: signataire ne se relit pas, et une décision portait les siennes COLLÉES dans son libellé.
+#: La colonne TEXTE change de nom selon la rubrique (c'est elle qu'on lit partout) : `TEXTE_COL`.
 KINDS = {
     "note":     ("N", "Notes — vrac verbatim, jamais reformulé",
                  ["#", "Date · auteur", "Verbatim", "État", "Traitée par"]),
     "question": ("Q", "Questions ouvertes",
-                 ["#", "Question", "Bloque", "Urgence", "État"]),
+                 ["#", "Date · auteur", "Question", "Bloque", "Urgence", "État", "Tranchée par"]),
     "decision": ("D", "Décisions",
-                 ["#", "Objet", "État"]),
+                 ["#", "Date · auteur", "Objet", "État"]),
     "feature":  ("F", "Fonctionnalités à implémenter",
-                 ["#", "Fonctionnalité", "Domaine", "Version", "Origine", "État", "Lot"]),
+                 ["#", "Date · auteur", "Fonctionnalité", "Domaine", "Version", "Origine", "État", "Lot"]),
 }
+#: le nom de la colonne qui porte le texte de l'entrée, par rubrique
+TEXTE_COL = {"note": "Verbatim", "question": "Question", "decision": "Objet", "feature": "Fonctionnalité"}
+SIGNATURE_COL = "Date · auteur"
 #: Un conseil de l'agent est une ligne de la section Décisions, préfixée C.
 PREFIX_KIND = {"N": "note", "Q": "question", "D": "decision", "C": "decision", "F": "feature"}
 SECTION_RE = {
@@ -366,16 +372,54 @@ def _norm(s: str) -> str:
     return s.strip(" «»\"'“”‘’").strip()[:200]
 
 
+def col_index(header, nom: str):
+    """Index de la colonne `nom` dans cet en-tête, ou None. Insensible à la casse et aux accents
+    d'usage : un `.think.md` ancien peut écrire « Etat » là où la grammaire dit « État »."""
+    def norm(s):
+        s = " ".join(str(s or "").split()).lower()
+        for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("à", "a"), ("ç", "c")):
+            s = s.replace(a, b)
+        return s
+    cible = norm(nom)
+    for i, h in enumerate(header or []):
+        if norm(h) == cible:
+            return i
+    return None
+
+
+def cell(sec: dict, row: dict, nom: str, defaut: str = "") -> str:
+    """RM3262 — la cellule `nom` d'une ligne, LUE PAR LE NOM DE SA COLONNE.
+
+    Les lecteurs disaient `cells[1]`, `c[3]`… : ajouter une colonne les cassait tous en silence,
+    et un carnet non encore migré n'a pas la même largeur que la grammaire courante. Le nom, lui,
+    ne bouge pas. Colonne absente ⇒ `defaut` : un vieux carnet rend une chaîne vide, jamais la
+    valeur d'une colonne voisine."""
+    i = col_index((sec or {}).get("header"), nom)
+    cells = (row or {}).get("cells") or []
+    return cells[i] if i is not None and i < len(cells) else defaut
+
+
+def texte(sec: dict, row: dict, kind: str) -> str:
+    """Le texte d'une entrée, quelle que soit la rubrique (et quelle que soit la largeur du carnet)."""
+    val = cell(sec, row, TEXTE_COL[kind])
+    if val:
+        return val
+    # carnet d'avant RM3262 (pas de colonne « Date · auteur ») : le texte est en 2ᵉ position
+    cells = (row or {}).get("cells") or []
+    return cells[1] if len(cells) > 1 else ""
+
+
 def has_text(parsed: dict, kind: str, text: str) -> bool:
     """Déjà consigné ? (dédoublonnage des moissons automatiques)."""
     key = _norm(text)[:120]
     if not key:
         return False
-    col = {"note": 2, "question": 1, "decision": 1, "feature": 1}[kind]
-    for r in parsed.get(kind, {}).get("rows", []):
-        if col >= len(r["cells"]):
+    sec = parsed.get(kind, {})
+    for r in sec.get("rows", []):
+        cell_ = _norm(texte(sec, r, kind))
+        if not cell_:
             continue
-        cell = _norm(r["cells"][col])
+        cell = cell_
         # sous-chaîne (un verbatim consigné à la main porte ses guillemets, une moisson non) ;
         # un texte court doit matcher exactement pour ne pas absorber ses voisins
         if (key in cell) if len(key) >= 12 else (cell == key):
@@ -423,10 +467,14 @@ def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, 
     if kind == "note":
         return [rid, who, _clean(text), icon, _clean(dest)]
     if kind == "question":
-        return [rid, _clean(text), _clean(bloque), _clean(urgence), icon]
+        # RM3262 : « Tranchée par » est le miroir du « Traitée par » des notes — l'id de la
+        # décision qui y répond, écrit quand elle arrive (`--dest`), sinon vide.
+        return [rid, who, _clean(text), _clean(bloque), _clean(urgence), icon, _clean(dest)]
     if kind == "decision":
-        return [rid, _clean(text) + (f" ({when} · {by})" if by else ""), icon]
-    return [rid, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
+        # RM3262 : la signature était COLLÉE au libellé (« … (2026-09-01 · Mathieu) ») — donc
+        # recopiée dans chaque registre fusionné, et intriable. Elle a sa colonne.
+        return [rid, who, _clean(text), icon]
+    return [rid, who, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
 
 
 def _section_prete(p: Path, kind: str, rm_id=None, title=""):
@@ -461,7 +509,32 @@ def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **f
     text_, parsed, sec = _section_prete(p, kind, rm_id, title)
     rid = next_id(parsed, kind, prefix or KINDS[kind][0])
     _insere(p, text_, sec, row_cells(kind, rid, text, **fields))
+    # RM3262 : une décision qui cite Qnnn REND cette question tranchée — on l'inscrit dans sa
+    # colonne « Tranchée par ». Ici plutôt que dans le CLI : la moisson écrit aussi des décisions.
+    if kind == "decision":
+        for qid in questions_citees(text):
+            set_dest(p, qid, rid)
     return rid
+
+
+def _apparie(src_header: list, dst_header: list, cells: list) -> list:
+    """RM3264 — les cellules d'une ligne, portées d'une table à l'autre PAR NOM DE COLONNE.
+
+    Deux carnets n'ont pas forcément la même grammaire : celui d'un ticket ancien n'a pas encore
+    « Date · auteur » (RM3262), celui d'un ticket neuf l'a. Recopier par position mettait alors le
+    texte de la question dans la colonne de la date. Une colonne que la cible n'a pas est perdue
+    sciemment ; une colonne qu'elle a en plus naît vide. En-têtes identiques (le cas courant) :
+    la ligne passe telle quelle."""
+    if not src_header or not dst_header or src_header == dst_header:
+        return list(cells)
+    val = {}
+    for i, nom in enumerate(src_header):
+        val[nom] = cells[i] if i < len(cells) else ""
+    out = []
+    for nom in dst_header:
+        j = col_index(list(val), nom)
+        out.append(list(val.values())[j] if j is not None else "")
+    return out
 
 
 def find_row(parsed: dict, rid: str):
@@ -489,9 +562,10 @@ def move_row(src, rid: str, dst, *, rm_id=None, title=""):
     kind, row = find_row(load(src), rid)
     if not kind:
         return None
+    src_header = (load(src).get(kind) or {}).get("header") or []
     text_, parsed, sec = _section_prete(dst, kind, rm_id, title)
     neuf = next_id(parsed, kind, row["prefix"] or KINDS[kind][0])
-    cells = list(row["cells"])
+    cells = _apparie(src_header, sec["header"], row["cells"])
     cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
     _insere(dst, text_, sec, cells)
     remove_rows(src, [row["id"]])
@@ -526,8 +600,14 @@ def set_state(path, rid: str, state: str, dest: str = "") -> bool:
                 old = cells[st_col]
                 cells[st_col] = icon + (old[1:] if old and old[0] in STATES else "")
                 cells[st_col] = cells[st_col].strip() or icon
-            if dest and kind == "note" and len(cells) >= 5:
-                cells[4] = _clean(dest)
+            # RM3262 : « Traitée par » (note) et « Tranchée par » (question) — par nom, et pour
+            # les deux rubriques : trancher une question disait où, sans jamais l'écrire.
+            if dest:
+                dc = col_index(sec["header"], "Traitée par")
+                if dc is None:
+                    dc = col_index(sec["header"], "Tranchée par")
+                if dc is not None and dc < len(cells):
+                    cells[dc] = _clean(dest)
             lines[r["line"]] = "| " + " | ".join(cells) + " |"
             p.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return True
@@ -552,16 +632,20 @@ def set_text(path, rid: str, texte: str) -> tuple:
             if r["id"] != rid:
                 continue
             cells = list(r["cells"])
-            # La colonne du texte est la deuxième pour toutes les rubriques sauf les notes, où la
-            # première porte la date et l'auteur. `_clean` échappe les barres verticales : un texte
-            # qui en contiendrait casserait la ligne du tableau, et donc la lecture de tout le carnet.
-            col = 2 if kind == "note" and len(cells) > 2 else 1
+            # RM3262 : la colonne du texte se trouve PAR SON NOM (« Verbatim », « Question »,
+            # « Objet », « Fonctionnalité »), pas par une position qui dépend de la rubrique et de
+            # l'ancienneté du carnet. `_clean` échappe les barres verticales : un texte qui en
+            # contiendrait casserait la ligne du tableau, et donc la lecture de tout le carnet.
+            col = col_index(sec["header"], TEXTE_COL[kind])
+            if col is None:
+                col = 2 if kind == "note" and len(cells) > 2 else 1
             if col >= len(cells):
                 return False, ""
             ancien = cells[col]
-            # Une DÉCISION porte sa signature à la fin de son texte — « … (2026-09-14 · Mathieu) ».
-            # L'amendement corrige les mots, pas la paternité : effacer la signature ferait perdre
-            # QUI a décidé, ce qui est justement ce qu'on veut savoir d'une décision.
+            # Une décision d'AVANT RM3262 porte sa signature à la fin de son texte — « … (2026-09-14
+            # · Mathieu) ». L'amendement corrige les mots, pas la paternité : effacer la signature
+            # ferait perdre QUI a décidé. Depuis RM3262, elle est dans sa colonne et ce cas ne se
+            # présente plus que sur les carnets pas encore migrés.
             m = re.search(r"\s*\((\d{4}-\d{2}-\d{2} · [^()]+)\)\s*$", ancien)
             cells[col] = _clean(texte) + (f" ({m.group(1)})" if m else "")
             lines[r["line"]] = "| " + " | ".join(cells) + " |"
@@ -668,11 +752,11 @@ def questions_text(parsed: dict) -> str:
     L = [f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
          "en attente. Vue régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : "
          "trancher se fait là, pas ici.", ""]
+    sec_q = parsed.get("question", {}) or {}
     for r in rows:
-        cells = r.get("cells", [])
-        texte = " ".join(str(cells[1] if len(cells) > 1 else "").split())
+        libelle = " ".join(str(texte(sec_q, r, "question")).split())
         tranchee = r["closed"] or r["state"] in _Q_CLOSES
-        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {texte}"
+        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {libelle}"
         if tranchee:
             rep = _decision_liee(parsed, r["id"])
             ligne += f"  \n  → {rep}" if rep else "  \n  → *(tranchée ; la décision n'est pas reliée)*"
@@ -712,6 +796,37 @@ def cite_question(texte: str) -> bool:
     return bool(re.search(r"\bQ\d{3}[a-z]?\b", texte or ""))
 
 
+def questions_citees(texte: str) -> list:
+    """Les ids de questions cités par une décision, dans l'ordre. Pure."""
+    return list(dict.fromkeys(re.findall(r"\bQ\d{3}[a-z]?\b", texte or "")))
+
+
+def set_dest(path, rid: str, dest: str) -> bool:
+    """RM3262 — renseigne « Traitée par » / « Tranchée par » SANS toucher à l'état.
+
+    Le lien décision → question existait déjà, mais calculé à la lecture (`_decision_liee`) : la
+    table, elle, restait muette. L'écrire quand la décision arrive rend le carnet lisible sans
+    outil, et c'est le pendant du « Traitée par » des notes."""
+    p = Path(path)
+    parsed = load(p)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    for sec in parsed.values():
+        for r in sec["rows"]:
+            if r["id"] != rid:
+                continue
+            col = col_index(sec["header"], "Tranchée par")
+            if col is None:
+                col = col_index(sec["header"], "Traitée par")
+            if col is None:
+                return False               # carnet pas encore migré : rien à écrire
+            cells = (list(r["cells"]) + [""] * (col + 1))[:max(len(r["cells"]), col + 1)]
+            cells[col] = _clean(dest)
+            lines[r["line"]] = "| " + " | ".join(cells) + " |"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return True
+    return False
+
+
 def render_merged(kind: str, thinks: dict) -> str:
     """Le bloc fusionné d'une rubrique : une table, ids `RM<id>-Xnnn`, colonne Ticket."""
     _, _, hdr = KINDS[kind]
@@ -742,9 +857,13 @@ def render_features_by_version(thinks: dict) -> str:
     jamais une copie dans la roadmap)."""
     groups = {}
     for rid, parsed in thinks.items():
-        for r in parsed.get("feature", {}).get("rows", []):
-            c = (r["cells"] + [""] * 7)[:7]
-            dom = c[2] or "Autre"; ver = c[3] or "—"
+        sec = parsed.get("feature", {})
+        for r in sec.get("rows", []):
+            # RM3262 : par NOM — un carnet migré a une colonne de plus que l'ancien, et la version
+            # se serait lue dans la case du domaine.
+            c = {k: cell(sec, r, k) for k in ("Domaine", "Version", "Origine", "État", "Lot")}
+            c["texte"] = texte(sec, r, "feature")
+            dom = c["Domaine"] or "Autre"; ver = c["Version"] or "—"
             groups.setdefault(dom, {}).setdefault(ver, []).append((rid, r, c))
     L = [MERGE_BEGIN, ""]
     if not groups:
@@ -754,8 +873,8 @@ def render_features_by_version(thinks: dict) -> str:
         for ver in sorted(groups[dom], key=lambda v: (v == "—", v)):
             L += [f"**{ver}**", "", "| # | Ticket | Fonctionnalité | Origine | État | Lot |", "|---|---|---|---|---|---|"]
             for rid, r, c in groups[dom][ver]:
-                idc = f"~~RM{rid}-{c[0]}~~" if r["closed"] else f"RM{rid}-{c[0]}"
-                L.append(f"| {idc} | RM{rid} | {c[1]} | {c[4]} | {c[5]} | {c[6]} |")
+                idc = f"~~RM{rid}-{r['id']}~~" if r["closed"] else f"RM{rid}-{r['id']}"
+                L.append(f"| {idc} | RM{rid} | {c['texte']} | {c['Origine']} | {c['État']} | {c['Lot']} |")
             L.append("")
     L += [f"*régénéré le {datetime.now().strftime('%Y-%m-%d %H:%M')} par `pm-think-merge`.*", "", MERGE_END]
     return "\n".join(L)

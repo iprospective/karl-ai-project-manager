@@ -279,13 +279,20 @@ context:
 # primaire en tête. resolve_instance(…) = le primaire seul.
 providers:
   # axes: [monitoring]        # exemple : activer un axe supplémentaire
+  # erp (RM2891) : la facturation. Dolibarr y est un provider comme Redmine pour les
+  # tickets : un client qui a le sien pourra un jour le désigner, sans toucher au code.
+  axes: [erp]
   defaults:
     task:   redmine-ipro
     forge:  gitlab-ipro
     doc:    redmine-wiki
     secret: vw-ipro
     llm:    lemonade-strix        # RM3067 : le modèle de travail de karl — local d'abord
+    erp:    dolibarr-ipro         # RM2891 : factures, tiers, tarifs
   servers:
+    # — axe erp (RM2891). Secret : DOLIBARR__DOLIBARR_IPRO__API_KEY, posé par
+    #   `pm-provider-secret --instance dolibarr-ipro --key API_KEY` (valeur sur stdin).
+    dolibarr-ipro:  { axis: erp, type: dolibarr, url: "${DOLIBARR_URL:-https://erp.iprospective.fr}" }
     # — axe llm (RM3067) : les modèles que karl appelle pour un travail MACHINE (tri des tours d'un
     #   transcript, classification, résumé) — à ne pas confondre avec le modèle qui tient la session.
     #   Local d'abord : les transcripts portent le travail des clients, ils n'ont pas à sortir de la

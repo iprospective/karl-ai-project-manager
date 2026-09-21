@@ -44,6 +44,7 @@
 - `pm-think-classify` — classe les tours d'une conversation par un LLM LÉGER, au lieu d'une heu…
 - `pm-think-harvest` — moisson automatique du transcript vers le `.think.md` du ticket courant…
 - `pm-think-merge` — fusionne les `.think.md` des tickets vers les fichiers du projet. RM301…
+- `pm-think-schema` — met les `.think.md` existants à la grammaire courante
 - `pm-tick-backfill` — reconstitue les ticks de conso manqués depuis les transcripts
 
 ### Projets, clients & contacts
@@ -183,6 +184,8 @@
 - `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
+- `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
+- `pm-karl-service` — une instance de karl-agent par développeur
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
@@ -205,12 +208,14 @@
 - `pm_contacts` — l'annuaire de contacts, cœur partagé
 - `pm_doc` — interface DocProvider (gestionnaire de docs agnostique) + backend wiki…
 - `pm_engine_recipes` — le CATALOGUE des moteurs et des serveurs de modèles installables
+- `pm_erp` — interface ErpProvider (facturation) + backend Dolibarr
 - `pm_events` — prévenir le cockpit qu'une donnée a changé
 - `pm_forge` — abstraction de forge git (GitLab / Gogs / GitHub) — RM2498 (T2).
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
 - `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
 - `pm_install_mode` — le mode d'installation de karl, déclaré et contrôlé
+- `pm_invoice` — proposer les factures d'un mois depuis les saisies de temps Redmine
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer

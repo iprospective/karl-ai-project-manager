@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
-<meta name="karl-cockpit-version" content="3.20.0">
+<meta name="karl-cockpit-version" content="3.22.0">
 <!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
      cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
      terminal doit être prêt avant le premier attach. -->
@@ -159,6 +159,9 @@ if (window.matchMedia) {
   <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
        (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
   <button class="mini" id="lockbtn" style="display:none" data-cmd="env-vault"></button>
+  <!-- RM3270 : le débordement de la barre du haut, MOBILE seulement (masqué au bureau par le CSS) —
+       les boutons secondaires passent dessous au clic, la ligne ne garde que l'essentiel. -->
+  <button class="mini" id="hdrmore" title="Les autres boutons de la barre">…</button>
   <!-- RM2571 : une MAJ du core est disponible. Purement INFORMATIF — l'application
        reste un geste humain au terminal (mot de passe sudo), et ce qui atteint
        `main` est lui-même une décision humaine.

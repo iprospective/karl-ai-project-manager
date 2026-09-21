@@ -10490,6 +10490,22 @@ _PM_COMMANDS_DEFAULT = [
           "choices": ["create", "teardown"]},
          {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
      ]},
+    # RM3293 : un ticket créé dans le mauvais projet ne se réparait qu'en CLI, alors que
+    # c'est en regardant sa FICHE qu'on s'en aperçoit (cas vécu : RM3292). `pm-task-move`
+    # fait déjà tout — fiche, fichiers frères, projet Redmine, journal —, il n'y avait qu'à
+    # l'exposer. `confirm` parce que l'opération touche Redmine ; `--force` reste décoché :
+    # un ticket qui porte une branche de code ne se déplace pas d'un haussement d'épaules.
+    {"name": "task-move", "label": "Déplacer un ticket vers un autre projet",
+     "category": "ticket", "script": "pm-task-move.py",
+     "mutate": True, "confirm": True, "args": [
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         # Liste et non saisie libre : un slug nu est refusé par l'outil (tripwire #14), et
+         # une frappe approximative ferait un aller-retour d'erreur pour rien.
+         {"name": "to", "label": "Projet cible", "type": "enum", "required": True,
+          "flag": "--to", "choices": [], "choices_from": "projects"},
+         {"name": "force", "label": "Forcer malgré une branche de code", "type": "bool",
+          "flag": "--force"},
+     ]},
     {"name": "task-comment", "label": "Commenter un ticket",
      "category": "ticket", "script": "pm-task-comment.py",
      "mutate": True, "args": [
@@ -12613,6 +12629,40 @@ def _journal_setting(key, val):
         pass
 
 
+def _pm_project_refs() -> list:
+    """`client/projet` de tous les projets PM (RM3293) — les cibles d'un déplacement.
+
+    Jamais par slug nu : plusieurs clients partagent un même slug (tripwire #14).
+    """
+    try:
+        from pm_paths import PMConfig
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        return sorted(f"{ent}/{proj}" for ent, proj, _ in cfg.iter_projects())
+    except Exception:
+        return []
+
+
+def _pm_fill_dynamic_choices(cmds: list) -> list:
+    """Remplit les `choices` qui dépendent de l'ÉTAT du PM, pas du registre (RM3293).
+
+    La liste des projets ne peut pas vivre dans une constante : elle change à chaque
+    projet créé. On ne mute jamais le registre d'origine — la copie ne touche que les
+    commandes concernées, et la liste n'est calculée que si l'une le demande.
+    """
+    refs = None
+    out = []
+    for c in cmds:
+        args = c.get("args") or []
+        if not any(a.get("choices_from") == "projects" for a in args):
+            out.append(c)
+            continue
+        if refs is None:
+            refs = _pm_project_refs()
+        out.append(dict(c, args=[dict(a, choices=refs) if a.get("choices_from") == "projects"
+                                 else a for a in args]))
+    return out
+
+
 def _pm_commands() -> list:
     f = COCKPIT_DIR / "pm-commands.json"
     if f.is_file():
@@ -12621,10 +12671,10 @@ def _pm_commands() -> list:
             if isinstance(data, list) and all(
                     isinstance(c, dict) and c.get("name") and c.get("script")
                     for c in data):
-                return data
+                return _pm_fill_dynamic_choices(data)
         except (ValueError, OSError):
             pass
-    return _PM_COMMANDS_DEFAULT
+    return _pm_fill_dynamic_choices(_PM_COMMANDS_DEFAULT)
 
 
 def _pm_validate_arg(spec: dict, value) -> str:

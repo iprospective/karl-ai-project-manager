@@ -34,7 +34,7 @@ export function mountReview(el, ctx = {}) {
     const rm = state.current; if (!rm) return;
     const c = stores(); const mcE = c.mc.get(rm);
     const vm = new ReviewViewModel({ r: resolved(rm), q: ctx.tq ? ctx.tq.entry(rm) : undefined, tqLoaded: ctx.tq ? ctx.tq.loaded() : false, tqSize: ctx.tq ? ctx.tq.size() : 0,
-      mc: mcE && mcE.mc, ts: c.ts.get(rm), cfg: ctx.cfg ? ctx.cfg() : {}, pmTarget: ctx.pmTarget ? ctx.pmTarget(rm) : null }, { rm, prompt: promptSync(rm) });
+      mc: mcE && mcE.mc, ts: c.ts.get(rm), cfg: ctx.cfg ? ctx.cfg() : {}, pmTarget: ctx.pmTarget ? ctx.pmTarget(rm) : null, projects: ctx.projects ? ctx.projects() : [] }, { rm, prompt: promptSync(rm) });
     handle.update(ReviewPane(vm, { md: ctx.md || (s => s), titleLink: ctx.titleLink || ((r, t) => String(t || "")), mcBanner: T.mcBanner }));
   }
   const refreshAll = () => { render(); if (ctx.renderMeta) ctx.renderMeta(); if (ctx.center) ctx.center.title(); };
@@ -207,8 +207,31 @@ export function mountReview(el, ctx = {}) {
     catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }
 
+  /** RM3293 : le ticket est dans le mauvais projet. Le geste manquait précisément là où on
+   *  s'en aperçoit — en lisant la fiche. `pm-task-move` fait le reste, Redmine compris ; on
+   *  confirme parce que c'est une écriture distante, et on recharge pour que la fiche dise
+   *  la vérité tout de suite (le sous-titre porte le projet). */
+  async function ticketMove(n) {
+    const rm = String((n.dataset && n.dataset.rm) || state.current || "");
+    const sel = el && el.querySelector ? el.querySelector('[data-role="move-to"]') : null;
+    const to = String((n.dataset && n.dataset.to) || (sel && sel.value) || "").trim();
+    if (!rm || !to) { notify("projet cible attendu", true); return; }
+    if (!ask("Déplacer RM" + rm + " vers " + to + " ?\nLa fiche, ses fichiers frères et le projet Redmine suivent.")) return;
+    n.disabled = true;
+    try {
+      const r = await (ctx.run ? ctx.run("task-move", { rm_id: rm, to }, { confirm: true }) : Promise.resolve({ ok: false, stderr: "runner absent" }));
+      if (!r || r.ok === false) {
+        notify("déplacement refusé : " + (String((r && (r.stderr || r.stdout)) || "").trim().split("\n").pop() || "rc=" + ((r && r.rc) || "?")), true);
+        return;
+      }
+      notify("RM" + rm + " déplacé vers " + to);
+      T.reload(rm); refreshAll();
+    } catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+
   const gestures = {
     reload: () => T.reload(state.current), "think-state": (n) => thinkState(n),
+    "ticket-move": (n) => ticketMove(n),
     "think-move": (n) => thinkMove(n), "think-delete": (n) => thinkDelete(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
     verdict: (n) => verdict(n.dataset.rm, n.dataset.kind, n), pm: (n) => ctx.sendPmAction && ctx.sendPmAction(Number(n.dataset.i), n.dataset.rm, n),
     "open-contact": (n) => ctx.openContact && ctx.openContact(n.dataset.value),   // RM3149

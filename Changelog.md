@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Déplacer un ticket depuis sa fiche (RM3293).** Un ticket créé dans le mauvais projet ne se
+  réparait qu'en CLI, alors que c'est en lisant sa fiche qu'on s'en aperçoit. La fiche porte
+  désormais **→ changer de projet** : cible choisie dans la liste des projets (jamais un slug nu,
+  ambigu — tripwire #14), confirmation, puis `pm-task-move` fait le travail (fiche, fichiers frères,
+  projet Redmine, journal) et la fiche est rechargée. La commande `task-move` rejoint le registre
+  exposé au cockpit, à côté de `task-status`, `task-comment` et `task-link` ; ses choix de projet
+  sont calculés à chaque appel plutôt que figés dans le registre. `--force` (ticket portant une
+  branche de code) reste en CLI.
+
 - **Critères d'acceptation : la section se replie dans le champ** (RM3285, suite de RM3241). La purge
   avait laissé 87 tickets intacts, faute de pouvoir décider : prose dans la section, sous-titres
   d'étapes, critères écrits en puces sans cases. Le CF 33 étant un champ **texte**, tout cela peut y

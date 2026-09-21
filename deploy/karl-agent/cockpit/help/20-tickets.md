@@ -162,7 +162,15 @@ Un seul bloc **Actions**, filtré par le statut du ticket :
   est déjà demandée ;
 - les **actions PM** (passer en cours, commenter, mettre à jour la description…)
   s'adressent à une session : elles restent grisées tant qu'aucune ne peut les
-  recevoir, et la ligne du dessous dit laquelle serait visée.
+  recevoir, et la ligne du dessous dit laquelle serait visée ;
+- **→ changer de projet** déplace le ticket : on choisit la cible dans la liste des
+  projets, on confirme, et sa fiche, ses fichiers frères et son projet **Redmine**
+  suivent. C'est en lisant une fiche qu'on s'aperçoit qu'un ticket a été créé au
+  mauvais endroit — le geste est donc là, plutôt qu'en ligne de commande. Le projet
+  se choisit dans une liste et non à la main : un slug seul (`infra`) est ambigu, il
+  existe chez plusieurs clients. Un ticket qui porte déjà une branche de code n'est
+  pas déplacé sans le dire : passer par `mmi-pm task-move … --force`, volontairement
+  absent du bouton.
 
 ## Cycle de vie (statuts NORMS)
 

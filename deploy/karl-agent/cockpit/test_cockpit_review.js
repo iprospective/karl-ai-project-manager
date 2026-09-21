@@ -172,6 +172,47 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     ctr2.unmount();
   }
   console.log("✓ réflexion (RM3258/RM3064) : déplacer vers un autre ticket, supprimer, depuis la revue");
+  // — RM3293 : changer de projet depuis la fiche, là où on s'aperçoit de l'erreur —
+  {
+    const PROJETS = [{ value: "clientb/infra" }, { value: "acme/shop" }, { value: "clienta/site" }, { value: "clienta/site" }];
+    const vue = fiche({ projects: PROJETS });
+    assert(/data-role="move-to"/.test(vue) && /data-action="ticket-move"/.test(vue), "le geste est offert depuis la fiche");
+    const bloc = (vue.split('data-role="move-to"')[1] || "").split("</select>")[0];
+    const options = [...bloc.matchAll(/<option value="([^"]+)"/g)].map(m => m[1]);
+    assert.deepStrictEqual(options, ["clienta/site", "clientb/infra"], "trié, dédoublonné, et sans le projet du ticket");
+    assert(!/data-role="move-to"/.test(fiche({ projects: [{ value: "acme/shop" }] })), "aucune autre cible : pas de geste vide");
+
+    const runs3 = []; const ev3 = []; let accord = true; let issue = { ok: true };
+    const T3 = Object.assign({}, T, { reload: async (rm) => ev3.push(["reload", rm]) });
+    const el3 = fakeElement();
+    el3.sub['[data-role="move-to"]'] = { value: "clienta/site" };
+    const ctr3 = mountReview(el3, { ticket: T3, service: svc, center, resolve: () => resolve, cfg: () => CFG,
+      notify: (m, e) => ev3.push(["toast", m, !!e]), confirm: (m) => { ev3.push(["ask", m]); return accord; }, prompt: () => "",
+      projects: () => PROJETS, run: async (n, a, o) => { runs3.push([n, a, o]); return issue; },
+      show: () => {}, setMeta: () => {}, renderMeta: () => {}, noteOpened: () => {}, showRight: () => {}, refreshSessions: () => {},
+      tq: { entry: () => null, loaded: () => false, size: () => 0, load: () => {} },
+      launcher: () => ({ engine: "claude", model: "" }), popover: () => fakeElement(), place: () => {}, onOutsideClick: () => {} });
+    ctr3.open("42"); await settle();
+
+    await el3.click("ticket-move", { rm: "42" }); await settle();
+    assert(ev3.some(x => x[0] === "ask" && /clienta\/site/.test(x[1])), "on confirme AVANT d'écrire dans Redmine");
+    assert.deepStrictEqual(runs3[0], ["task-move", { rm_id: "42", to: "clienta/site" }, { confirm: true }], "l'outil est appelé, le cockpit ne déplace rien lui-même");
+    assert(ev3.some(x => x[0] === "reload" && x[1] === "42"), "la fiche est rechargée : son sous-titre porte le projet");
+
+    runs3.length = 0; accord = false;
+    await el3.click("ticket-move", { rm: "42" }); await settle();
+    assert.strictEqual(runs3.length, 0, "confirmation refusée : rien ne part");
+
+    accord = true; issue = { ok: false, rc: 1, stderr: "ERREUR : slug ambigu" };
+    await el3.click("ticket-move", { rm: "42" }); await settle();
+    assert(ev3.some(x => x[0] === "toast" && x[2] && /slug ambigu/.test(x[1])), "le refus de l'outil est rendu tel quel, pas avalé");
+
+    runs3.length = 0;
+    await el3.click("ticket-move", { rm: "42", to: "" }); await settle();
+    assert(runs3.length === 1, "sans data-to, la cible vient du sélecteur de la fiche");
+    ctr3.unmount();
+  }
+  console.log("✓ changer de projet (RM3293) : geste offert, cible choisie dans la liste, confirmation, refus rendu");
   ctr.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur : ouverture/fermeture/cession, consigne hors DOM, verdict, doublon rejoint, menu de statut");
   console.log("\nTous les tests de la revue passent.");

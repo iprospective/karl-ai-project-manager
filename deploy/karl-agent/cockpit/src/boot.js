@@ -519,6 +519,7 @@ review = mountReview(byId("reviewpane"), {
   // une seule route d'écriture, une seule refusion du projet.
   cdc: { thinkEdit: (body) => cdc.thinkEdit(body) },
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
+  projects: () => launcher.projects(),                      // RM3293 : cibles du « changer de projet »
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
   resolve: () => stores.resolve, cfg: () => CFG,
   show: (on) => layout.showCenter(on),   // RM3051 : c'est la disposition qui décide — à la place de la session, ou sous elle

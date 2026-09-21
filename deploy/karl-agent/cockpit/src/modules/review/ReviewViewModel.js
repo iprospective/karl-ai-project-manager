@@ -145,6 +145,9 @@ export class ReviewViewModel extends EntityViewModel {
   get environments() { const r = this.r || {}; return this.found ? { test_url: r.test_url || "", list: (r.environments || []).filter(e => e.url) } : null; }
   get verdicts() { return ticketVerdicts(String((this.found && this.r.status) || "").toLowerCase(), this.e.cfg); }
   get pmActions() { return ((this.e.cfg || {}).actions || []).filter(a => a.ticket_only).map((a, i) => ({ i, label: a.label, title: String(a.text || "").replaceAll("{id}", this.rm) })); }
+  /** RM3293 : les projets où ce ticket peut aller — le sien excepté, il n'irait nulle part. */
+  get moveTargets() { const cur = this.subtitle;
+    return [...new Set((this.e.projects || []).map(p => String((p && p.value) || p || "")))].filter(v => v && v !== cur).sort(); }
   get pmTarget() { return this.e.pmTarget || { sid: null, why: "" }; }
   get status() { return String((this.found && this.r.status) || "").toLowerCase(); }
   sessions() { return new TicketSessionsViewModel(this.e.ts, { prompt: this.ctx.prompt }); }

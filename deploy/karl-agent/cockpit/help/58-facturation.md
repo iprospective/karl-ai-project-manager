@@ -46,6 +46,24 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
+## Reprendre une journée
+
+Chaque saisie déjà notée porte son origine : **outil** ou **à la main**. Si tu repères une
+incohérence — un volume qui ne colle pas au temps mesuré, un client qui n'a rien à faire là —
+le bouton **↺ reprendre** retire les saisies que l'outil a posées ce jour-là, et rien d'autre.
+
+- **Tes saisies à la main ne sont jamais touchées.** La frontière est la marque technique que
+  l'outil pose dans ses commentaires ; ce qu'il n'a pas écrit, il ne peut pas l'effacer.
+- **Une sauvegarde JSONL est écrite avant la suppression**, dans
+  `~/.local/state/mmi-pm/timesheet/reprises/`. Rien n'est perdu.
+- La journée est **réanalysée** dans la foulée : les traces sont rejouées, une nouvelle
+  proposition apparaît, tu l'ajustes et tu la valides.
+
+Ce geste ne part **jamais tout seul** : ni l'ouverture d'une journée, ni ⟳, ni la validation
+ne suppriment quoi que ce soit. Il faut le demander, journée par journée.
+
+En CLI : `mmi-pm timesheet --day <jour> --revoke` (ajouter `--dry-run` pour voir sans supprimer).
+
 ## Valider
 
 Le bouton du bas **annonce ce qu'il va écrire** : les clients et le total. La confirmation

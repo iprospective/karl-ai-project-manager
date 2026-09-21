@@ -66,7 +66,7 @@ export function Proposition(vm) {
 /** Ce qui est DÉJÀ dans Redmine ce jour-là : la garantie qu'on ne compte pas deux fois. */
 export function DejaSaisi(vm) {
   if (!vm.dejaSaisi.length) return "";
-  return html`<details class="bl-deja" open><summary>déjà noté dans Redmine — ${vm.chiffres[1].valeur} (déduit de la proposition)</summary>${vm.dejaSaisi.map(s => html`<div class="bl-line"><span class="bl-min">${s.minutes}</span>${s.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(s.rm)}" href="#">${s.ticket}</a>` : ""}<span class="bl-lib">${s.libelle}</span></div>`)}</details>`;
+  return html`<details class="bl-deja" open><summary>déjà noté dans Redmine — ${vm.chiffres[1].valeur} (déduit de la proposition)</summary>${vm.dejaSaisi.map(s => html`<div class="bl-line"><span class="bl-min">${s.minutes}</span>${s.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(s.rm)}" href="#">${s.ticket}</a>` : html`<span class="bl-rm"></span>`}<span class="bl-lib">${s.libelle}</span><span class="bl-orig ${s.auto ? "bl-o-auto" : "bl-o-main"}" title="${s.auto ? "posée par l'outil — reprenable" : "notée à la main — jamais touchée par une reprise"}">${s.auto ? "outil" : "à la main"}</span></div>`)}</details>`;
 }
 
 /** Comment le temps transversal a été traité, et le complément de régie éventuel. */
@@ -83,6 +83,7 @@ export function Actions(vm) {
   return html`<div class="bl-actions">
     <button class="btn bl-apply" data-action="${a.geste}" ${a.disabled ? raw("disabled") : raw("")}>${a.label}</button>
     ${!vm.validee && vm.t.propose > 0 ? html`<button class="mini" data-action="dry" title="Voir ce qui serait écrit, sans rien écrire">simuler</button>` : ""}
+    ${vm.reprenable ? html`<button class="mini bl-revoke" data-action="revoke" title="Retirer les saisies que l'outil a posées ce jour-là, pour réanalyser la journée. Les saisies notées à la main ne sont pas touchées. Une sauvegarde est écrite avant.">↺ reprendre — retirer ${vm.auto.label}</button>` : ""}
     <span class="bl-hint">la validation écrit les saisies de CETTE journée dans Redmine, au nom de Mathieu</span>
   </div>`;
 }

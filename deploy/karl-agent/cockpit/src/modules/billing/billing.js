@@ -176,6 +176,32 @@ export function totaux(jour) {
   };
 }
 
+/** La marque que l'outil pose dans le commentaire d'une saisie qu'il a créée. */
+export const MARQUE = "[timesheet:";
+
+/** Une saisie déjà notée vient-elle de l'outil, ou de la main de Mathieu ? */
+export function estAutomatique(saisie) {
+  return String((saisie && saisie.libelle) || "").includes(MARQUE);
+}
+
+/** Le commentaire sans sa marque technique — ce qu'on montre à l'écran. */
+export function libelleLisible(saisie) {
+  const s = String((saisie && saisie.libelle) || "");
+  const i = s.indexOf(MARQUE);
+  return (i < 0 ? s : s.slice(0, i)).trim() || "—";
+}
+
+/**
+ * Ce que l'outil a posé sur cette journée, et qui peut donc être repris.
+ *
+ * Les saisies notées à la main n'en font jamais partie : c'est la frontière qui rend le
+ * geste « Reprendre » sûr — il ne peut pas emporter le travail de quelqu'un.
+ */
+export function poseParOutil(jour) {
+  const auto = ((jour && jour.deja_saisi) || []).filter(estAutomatique);
+  return { count: auto.length, minutes: Math.round(auto.reduce((n, s) => n + (Number(s.minutes) || 0), 0)) };
+}
+
 /** Les lignes de la proposition, groupées par client puis projet — l'ordre dans lequel on les relit. */
 export function parClient(jour) {
   const groupes = new Map();

@@ -92,6 +92,23 @@ export class BillingService {
     } finally { this.busy = null; }
   }
 
+  /**
+   * REPREND la journée : retire les saisies que l'outil y a posées, pour la refaire.
+   *
+   * Geste à la demande, jamais automatique : rien d'autre dans ce service ne l'appelle.
+   * La relecture qui suit est forcée (`refresh`) — après un retrait, la journée doit être
+   * réanalysée depuis les traces, pas relue depuis un cache qui décrirait l'état d'avant.
+   */
+  async revoke() {
+    this._need();
+    this.busy = "revoke";
+    try {
+      const res = await this.run("timesheet-day-revoke", { day: this.day }, { confirm: true });
+      await this.load(true);
+      return res;
+    } finally { this.busy = null; }
+  }
+
   /** Journée sans rien à ajouter (tout est déjà noté à la main) : la marquer validée sans créer de saisie. */
   async validateEmpty() {
     this._need();

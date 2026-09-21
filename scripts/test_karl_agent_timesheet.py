@@ -139,6 +139,36 @@ check("type time accepte HH:MM",
 refuse("type time refuse 61 minutes",
        lambda: ka._pm_validate_arg({"name": "t", "type": "time"}, "08:61"))
 
+# — la reprise d'une journée : le seul geste destructif, et il est étroit —
+rev = cmds.get("timesheet-day-revoke", {})
+check("commande de reprise au catalogue", bool(rev))
+check("la reprise exige une confirmation", rev.get("confirm") is True and rev.get("mutate") is True)
+check("--revoke est imposé par le catalogue",
+      any(a.get("const") and a["flag"] == "--revoke" for a in rev.get("args") or []))
+check("la reprise ne porte qu'une journée",
+      [a["name"] for a in rev.get("args") or [] if a.get("required")] == ["day"])
+check("aucune reprise en lot : ni --month, ni --from/--to",
+      all(str(a.get("flag")) not in ("--month", "--from", "--to") for a in rev.get("args") or []))
+
+refuse("reprise sans confirmation → refusée",
+       lambda: ka.op_pm_run({"name": "timesheet-day-revoke", "args": {"day": "2026-08-26"}}))
+ka.op_pm_run({"name": "timesheet-day-revoke", "args": {"day": "2026-08-26"}, "confirm": True})
+check("argv de reprise : la journée et --revoke",
+      "--day" in argv and "2026-08-26" in argv and "--revoke" in argv)
+check("la reprise n'emporte ni --apply ni une autre journée",
+      "--apply" not in argv and sum(1 for a in argv if a.startswith("2026-")) == 1)
+ka.op_pm_run({"name": "timesheet-day-revoke",
+              "args": {"day": "2026-08-26", "dry_run": True}, "confirm": True})
+check("simulation possible avant de supprimer", "--dry-run" in argv)
+
+# — la LECTURE ne peut jamais déclencher une reprise (garde-fou du 2026-09-21) —
+ka.op_timesheet_day({"day": "2026-08-26"})
+check("lire une journée ne supprime rien", "--revoke" not in argv and "--apply" not in argv)
+ka.op_timesheet_day({"day": "2026-08-26", "refresh": "1"})
+check("rafraîchir une journée ne supprime rien", "--revoke" not in argv)
+ka.op_pm_run({"name": "timesheet-day-apply", "args": {"day": "2026-08-26"}, "confirm": True})
+check("valider une journée ne supprime rien", "--revoke" not in argv)
+
 print()
 if fails:
     print(f"✗ {len(fails)} test(s) en échec : {', '.join(fails)}")

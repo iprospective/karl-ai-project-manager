@@ -74,6 +74,19 @@ export function mountBilling({ card } = {}, ctx = {}) {
         notify("simulation : " + String((r && r.stdout) || "").trim().split("\n").slice(-1)[0]);
       }, "simulation faite — rien n'a été écrit");
     }
+    if (a === "revoke") {
+      const v = vm();
+      // Geste destructif : la confirmation dit ce qui PART, ce qui RESTE, et qu'une sauvegarde
+      // est écrite. Une reprise ne se déclenche jamais seule — seulement ici, sur ce clic.
+      const reste = v.manuelles
+        ? `\n${v.manuelles} saisie(s) notée(s) à la main ne sont PAS touchées.` : "";
+      if (!confirm(`Reprendre le ${v.titre} ?\n\nRetirer ${v.auto.label} posée(s) par l'outil.${reste}`
+                   + "\n\nUne sauvegarde est écrite avant suppression, et la journée est réanalysée ensuite.")) return;
+      return garde(async () => {
+        const r = await svc.revoke();
+        if (r && r.ok === false) throw new Error(String(r.stderr || r.stdout || "échec").trim().slice(-300));
+      }, "journée reprise — saisies retirées, journée réanalysée");
+    }
     if (a === "validate-empty") {
       const v = vm();
       if (!confirm(`Marquer le ${v.titre} comme validée sans créer de saisie ?`)) return;

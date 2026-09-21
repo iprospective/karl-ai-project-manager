@@ -41,7 +41,8 @@ const JOUR = {
     { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6 },
     { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8 },
   ],
-  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration" }],
+  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration" },
+               { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]" }],
   regie: [{ client: "matnat", motif: "presence", minutes: 90 }],
   ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5 },
        { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3 },
@@ -109,7 +110,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
   // — totaux et état —
   const t = M.totaux(JOUR);
-  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 90, 60, 90, 150]);
+  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 90, 105, 90, 195]);
   assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain");
   assert.strictEqual(M.etat(JOUR), "a_valider");
   assert.strictEqual(M.etat(Object.assign(clone(JOUR), { valide: true })), "validee");
@@ -120,6 +121,17 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(grp.map(g => [g.client, g.minutes]), [["pisceen", 60], ["calicote", 30]], "groupé par client, le plus gros d'abord");
   assert.strictEqual(M.fmtTokens(2400000), "2,4 M"); assert.strictEqual(M.fmtTokens(43000), "43 k");
   console.log("✓ totaux, état, groupement par client");
+
+  // — la frontière outil / main : c'est elle qui rend la reprise sûre —
+  assert.strictEqual(M.estAutomatique({ libelle: "infra [timesheet:2026-09-18#pisceen/-@9]" }), true);
+  assert.strictEqual(M.estAutomatique({ libelle: "brevo calicote dutiko" }), false, "une saisie notée à la main n'est jamais « automatique »");
+  assert.strictEqual(M.estAutomatique({}), false);
+  assert.strictEqual(M.libelleLisible({ libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]" }), "infra, dont 12 min d'outillage", "la marque technique ne s'affiche pas");
+  assert.strictEqual(M.libelleLisible({ libelle: "[timesheet:x]" }), "—");
+  assert.deepStrictEqual(M.poseParOutil(JOUR), { count: 1, minutes: 45 }, "seules les saisies de l'outil sont reprenables");
+  assert.deepStrictEqual(M.poseParOutil({ deja_saisi: [{ minutes: 60, libelle: "à la main" }] }), { count: 0, minutes: 0 }, "une journée toute manuelle n'a rien à reprendre");
+  assert.deepStrictEqual(M.poseParOutil(null), { count: 0, minutes: 0 });
+  console.log("✓ frontière outil / main : ce qui est reprenable, ce qui est intouchable");
 
   // — service : charger, ajuster, valider —
   const appels = []; let charge = clone(JOUR);
@@ -172,11 +184,21 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.titre, "vendredi 18 septembre 2026");
   assert.strictEqual(vm.prev, "2026-09-17"); assert.strictEqual(vm.next, "2026-09-19");
   assert.strictEqual(vm.etatLabel, "à valider");
-  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h", "1 h 30", "3 tours · 10 min"]);
+  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 30", "3 tours · 10 min"]);
+  assert.deepStrictEqual([vm.auto.count, vm.auto.minutes], [1, 45], "l'écran sait ce que l'outil a posé ici");
+  assert.strictEqual(vm.manuelles, 1, "…et combien de saisies sont à la main, donc protégées");
+  assert.strictEqual(vm.reprenable, true);
+  assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: { deja_saisi: [{ minutes: 60, libelle: "à la main" }] } }).reprenable, false, "rien posé par l'outil : pas de bouton de reprise");
   assert(/20:17/.test(vm.hors), "l'écran dit ce que le bornage a laissé dehors");
   assert.strictEqual(vm.action.geste, "apply");
   assert(/1 h 30/.test(vm.action.label), "le bouton annonce ce qu'il va écrire");
-  assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { valide: true }) }).action.disabled, true, "une journée validée ne se revalide pas");
+  assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { valide: true, proposition: [] }) }).action.disabled, true, "une journée validée sans reste ne se revalide pas");
+  // Décision du 2026-09-21 : juin à août se repassent journée par journée. Corriger les heures
+  // d'une journée déjà validée peut faire apparaître un complément — le bouton doit le proposer,
+  // et dire qu'il COMPLÈTE (le déjà-saisi étant déduit, rien n'est écrit deux fois).
+  { const rouvert = new BillingViewModel({ day: "2026-06-12", jour: Object.assign(clone(JOUR), { valide: true }) });
+    assert.strictEqual(rouvert.action.geste, "apply", "une journée validée reste complétable");
+    assert(/^Compléter/.test(rouvert.action.label), "…et le bouton dit qu'il complète, pas qu'il valide"); }
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: { proposition: [], deja_saisi: [{ minutes: 60 }] } }).action.geste, "validate-empty", "rien à ajouter, mais du temps noté : on valide sans ajout");
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: { proposition: [], deja_saisi: [] } }).action.disabled, true, "journée vide : rien à valider");
   assert.strictEqual(vm.transversal.destin, "réparti sur les clients travaillés");
@@ -193,6 +215,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/bl-seg[^>]*left:/.test(frag) && /bl-ia[^>]*left:/.test(frag), "la frise est positionnée en dur par le ViewModel");
   assert(/RM3217/.test(frag) && /sans ticket/.test(frag), "chaque ligne dit son ticket, ou dit qu'elle n'en a pas");
   assert(/déjà noté dans Redmine/.test(frag), "ce qui est déjà saisi reste sous les yeux (non-double-comptage)");
+  assert(/data-action="revoke"/.test(frag) && /retirer 1 saisie \(45 min\)/.test(frag), "le bouton de reprise annonce ce qu'il retire");
+  assert(/bl-o-auto[^>]*>outil</.test(frag) && /bl-o-main[^>]*>à la main</.test(frag), "chaque saisie déjà notée dit d'où elle vient");
+  assert(!/\[timesheet:/.test(frag), "la marque technique ne fuit jamais à l'écran");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");
@@ -238,7 +263,31 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   await card.click("apply");
   assert.deepStrictEqual(runs2[0], ["timesheet-day-apply", { day: "2026-08-26" }, { confirm: true }], "la validation ne porte que la journée affichée");
   assert(toasts.some(([m]) => /saisies créées/.test(m)));
-  assert(/journée validée/.test(card.innerHTML), "l'écran montre l'état relu, pas l'état espéré");
+  assert(/bl-state bl-validee/.test(card.innerHTML), "l'écran montre l'état relu, pas l'état espéré");
+
+  // — la reprise : à la demande, jamais toute seule —
+  runs2.length = 0; demandes.length = 0; vus.length = 0;
+  jour2 = clone(JOUR);                       // journée de nouveau « à valider », 1 saisie de l'outil
+  await ctl.load(false);
+  runs2.length = 0; vus.length = 0;
+  repond = false;
+  await card.click("revoke");
+  assert.strictEqual(runs2.length, 0, "un refus de confirmation ne supprime RIEN");
+  const q = demandes[demandes.length - 1];
+  assert(/Retirer 1 saisie \(45 min\)/.test(q), "la confirmation dit ce qui part");
+  assert(/1 saisie\(s\) notée\(s\) à la main ne sont PAS touchées/.test(q), "…et ce qui est protégé");
+  assert(/sauvegarde/.test(q), "…et qu'une sauvegarde est écrite avant");
+  repond = true;
+  await card.click("revoke");
+  assert.deepStrictEqual(runs2[0], ["timesheet-day-revoke", { day: ctl.day() }, { confirm: true }], "la reprise ne porte que la journée affichée");
+  assert.deepStrictEqual(vus[vus.length - 1], [ctl.day(), true], "après une reprise, la journée est RÉANALYSÉE, pas relue du cache");
+
+  // le cœur du garde-fou : aucun autre geste de l'écran ne déclenche une reprise
+  runs2.length = 0;
+  await card.click("reload"); await card.click("next"); await card.click("prev");
+  await card.change("field", { field: "debut" }, "09:00"); await card.click("save");
+  await card.click("apply");
+  assert(!runs2.some(([n]) => n === "timesheet-day-revoke"), "naviguer, relire, ajuster ou valider ne supprime jamais rien");
 
   runs2.length = 0; toasts.length = 0;
   const ko = mountBilling({ card: fakeEl("c2") }, {

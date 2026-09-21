@@ -8,6 +8,8 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
   pm-task-think <id> --advise "…"                            → C  (conseil de l'agent, 🟡)
   pm-task-think <id> --feature "…" [--domaine D] [--version V1] [--origine N003] [--lot L1]  → F
   pm-task-think <id> --set N003 --state valide [--dest "D002"]   change l'état d'une ligne
+  pm-task-think <id> --set Qnnn --state valide --decide-with "…"  RM3269 : POSE la décision ET tranche, en un appel
+  pm-task-think <id> --orphans                     RM3269 : questions tranchées que rien ne relie à une décision
   pm-task-think <id> --show                                  résumé : Q ouvertes, D récentes, F
   pm-task-think <id> --counters                              compteurs → frontmatter de la fiche (D007)
 
@@ -15,6 +17,13 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
   pm-task-think <id> --move Qnnn --to <autre-id>   déplace l'entrée vers le carnet d'un autre ticket (RM3258)
 Options communes : --by M|A|<nom> (défaut : A = agent), --sid <session> (défaut : $CLAUDE_CODE_SESSION_ID),
 --when AAAA-MM-JJ, --dedupe (ne rien écrire si le texte est déjà consigné), --no-commit, --dry-run.
+
+TRANCHER UNE QUESTION APPELLE SA DÉCISION (RM3269) : `--set Qnnn --state valide` est REFUSÉ si rien
+ne tranche la question — ni `--dest Dnnn`, ni une colonne « Tranchée par » déjà remplie, ni une décision
+qui cite `Qnnn`. Trois sorties : `--decide-with "…"` (pose la décision et relie, en un appel), `--dest Dnnn`
+(relier une décision qui existe), ou `--state invalide` si ce n'était pas une question (capture du harvest,
+RM3141) — écarter n'est pas trancher, et n'exige donc rien. `--orphans` liste les questions déjà tranchées
+sans décision, héritées d'avant le garde-fou.
 
 Le think est la matière de travail du ticket (hors wiki) ; `pm-think-merge` la fusionne vers les fichiers
 du projet (`docs/cdc-*.md`). Les scripts et hooks appellent cet outil AVANT l'agent (D005) : l'agent
@@ -122,7 +131,11 @@ def main():
     ap.add_argument("--text", metavar="TEXTE",
                     help="RM3161 : AMENDER le texte de la ligne --set, sans toucher à son état")
     ap.add_argument("--state", choices=sorted(pm_think.STATES.values()))
-    ap.add_argument("--dest", default="", help="« traitée par » d'une note (avec --set), ou renseigné à l'ajout")
+    ap.add_argument("--dest", default="", help="ce qui TRAITE une note / TRANCHE une question (avec --set), ou renseigné à l'ajout")
+    ap.add_argument("--decide-with", dest="decide_with", metavar="TEXTE",
+                    help="RM3269 : avec --set Qnnn --state valide, POSE la décision et l'y relie, en un seul appel")
+    ap.add_argument("--orphans", action="store_true",
+                    help="RM3269 : liste les questions tranchées (✅) que rien ne relie à une décision")
     ap.add_argument("--by", default="A"); ap.add_argument("--sid", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
     ap.add_argument("--when"); ap.add_argument("--bloque", default=""); ap.add_argument("--urgence", default="")
     ap.add_argument("--domaine", default=""); ap.add_argument("--version", default=""); ap.add_argument("--origine", default="")
@@ -187,6 +200,16 @@ def main():
             pm_git.autocommit([think, sheet, _log_path(sheet), think_cible, cible, _log_path(cible)],
                               f"pm(think): RM{a.rm_id} {ancien} déplacée vers RM{a.to} {neuf}")
         return
+    if a.orphans:
+        trous = pm_think.questions_orphelines(parsed)
+        if not trous:
+            pmout.info(f"RM{a.rm_id} : aucune question tranchée sans décision")
+            return
+        print(f"RM{a.rm_id} — {len(trous)} question(s) tranchée(s) SANS décision :")
+        for qid, libelle in trous:
+            print(f"  {qid}  {libelle[:110]}")
+        print("  → relier : pm-task-think " + str(a.rm_id) + " --set <Qnnn> --state valide --dest <Dnnn>")
+        return
     if a.delete:
         if a.dry_run:
             print(f"{think.name} : {a.delete} supprimée"); return
@@ -199,11 +222,39 @@ def main():
             pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.delete} supprimée")
         return
     if a.set:
-        if not a.state and a.text is None:
+        if not a.state and a.text is None and not a.decide_with:
             sys.exit("ERREUR : --set exige --state ou --text")
+        # RM3269 — TRANCHER UNE QUESTION APPELLE SA DÉCISION.
+        # Poser la question, la trancher et écrire la décision étaient trois actes indépendants :
+        # on pouvait donc clore une question ✅ sans écrire nulle part POURQUOI. C'est arrivé
+        # (RM2316-Q004) et le raisonnement a été perdu. Le garde-fou ne vaut que pour « valide » :
+        # `invalide` ÉCARTE une entrée (une consigne captée par erreur par le harvest, cas courant
+        # — RM3141) et écarter n'est pas trancher, donc n'exige aucune décision.
+        est_question = str(a.set)[:1].upper() == "Q"
+        if est_question and a.state == "valide" and not a.decide_with:
+            lien = pm_think.decision_liante(parsed, a.set, a.dest)
+            if not lien:
+                sys.exit(
+                    f"ERREUR : RM{a.rm_id} {a.set} — trancher une question exige la décision qui la tranche.\n"
+                    f"  → la poser en un appel  : --set {a.set} --state valide --decide-with \"ce qui est décidé\"\n"
+                    f"  → relier une décision   : --set {a.set} --state valide --dest Dnnn\n"
+                    f"  → ce n'est pas une question (capture du harvest) : --set {a.set} --state invalide")
         if a.dry_run:
             print(f"{think.name} : {a.set}" + (f" → {a.state}" if a.state else "")
+                  + (f" + décision « {a.decide_with[:60]} »" if a.decide_with else "")
                   + (" (texte amendé)" if a.text is not None else "")); return
+        # RM3269 — le chemin en UN appel : poser la décision, PUIS trancher la question en la
+        # pointant. L'ordre compte — la décision doit exister pour que « Tranchée par » la désigne.
+        # Elle cite la question dans son texte : le lien tient donc des deux côtés (colonne ET
+        # convention `_decision_liee`), et survit à un carnet non encore migré.
+        if a.decide_with:
+            texte_d = a.decide_with if a.decide_with != "-" else sys.stdin.read().strip()
+            if not str(a.set).upper() in texte_d.upper():
+                texte_d = f"{str(a.set).upper()} : {texte_d}"
+            did = pm_think.append(think, "decision", texte_d, rm_id=a.rm_id, title=_titre(sheet),
+                                  by=a.by, state="valide", when=a.when, sid=a.sid)
+            a.dest = did
+            pmout.info(f"RM{a.rm_id} +{did} [decision] {texte_d[:70]}")
         # RM3161 : AMENDER d'abord, changer l'état ensuite — les deux se combinent, et l'amendement
         # seul ne touche pas l'état : corriger le texte d'une décision validée la laisse validée.
         ancien = None
@@ -215,6 +266,8 @@ def main():
             # .log.md est ce qu'on relit — y retrouver « elle disait ceci, elle dit cela » évite
             # d'aller fouiller un diff.
             _log_amendement(a.rm_id, sheet, a.set, ancien, a.text, a.by)
+        if a.decide_with and not a.state:
+            a.state = "valide"           # poser la décision, c'est trancher : l'état suit
         ok = pm_think.set_state(think, a.set, a.state, dest=a.dest) if a.state else True
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")

@@ -25,9 +25,16 @@ export class SessionTileViewModel extends EntityViewModel {
     const t = this.s.tickets;
     return (t && t.total) ? { open: t.open || 0, total: t.total } : null;
   }
-  get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); return out; }
+  /** RM3070 L4 : la session de QUELQU'UN D'AUTRE. En multi, un administrateur voit toutes les
+   *  sessions — sans le nom de leur propriétaire, il les verrait sans savoir à qui elles sont.
+   *  La sienne n'est pas étiquetée : l'évidence n'a pas besoin d'être dite. */
+  get owner() {
+    const o = this.s.owner || "";
+    return (o && o !== (this.ctx.user || "")) ? o : "";
+  }
+  get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); if (this.owner) out.push({ text: "👤 " + this.owner, cls: "" }); return out; }
   sections() {
-    return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["depuis", this.age]].filter(([, v]) => v) },
+    return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["à", this.owner], ["depuis", this.age]].filter(([, v]) => v) },
             { id: "ticket", title: "ticket", body: () => (this.r && this.r.found ? [["statut", this.r.status || ""], ["client", this.r.client || ""], ["projet", this.r.project || ""]].filter(([, v]) => v) : null), empty: "pas de fiche de ticket" }];
   }
   get r() { return this.ctx.resolved; }

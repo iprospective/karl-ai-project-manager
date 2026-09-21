@@ -184,6 +184,7 @@
 - `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
+- `pm-karl-service` — une instance de karl-agent par développeur
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend

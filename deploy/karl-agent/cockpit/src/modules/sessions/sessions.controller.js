@@ -53,7 +53,9 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const ctxSeen = new Map(), ctxPulsing = new Set();
   const ctxTh = () => ((ctx.cfg ? ctx.cfg() : {}) || {}).context_thresholds || { warn: 50, high: 75, crit: 90 };
   const gaugeOf = (s) => contextGauge(s, ctxTh(), ctxPct, modelWindow, fmtWin);
-  const tileCtx = (s) => { const sel = selection(); return { unseen: svc.unseen, resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
+  // `user` (RM3070 L4) : pour n'étiqueter QUE les sessions des autres — la sienne n'a pas à l'être.
+  const tileCtx = (s) => { const sel = selection(); return { unseen: svc.unseen, resolved: resolve().get(s.rm_id), attached: attached(),
+    user: ctx.user ? ctx.user() : "", stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
   const toggleSel = (s) => { const set = selection().set; set.has(s.rm_id) ? set.delete(s.rm_id) : set.add(s.rm_id); if (ctx.refresh) ctx.refresh(); };
 
   /** Peint la liste depuis le bloc /sessions ; rend les compteurs (la pile /refresh y lit sa cadence — RM2613). */

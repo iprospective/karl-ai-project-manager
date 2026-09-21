@@ -573,6 +573,7 @@ sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), nav
   storage: PREFS, notify: notify.toast, ticket,
   cfg: () => CFG,                                                                          // RM3082 : paliers de la jauge de contexte (context_thresholds)
   sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
+  user: () => (auth ? auth.user() : ""),      // RM3070 L4 : les sessions des AUTRES portent leur nom
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),
   clientContext: () => launcher.clientContext(), setClientContext: (c) => launcher.setClientContext(c),

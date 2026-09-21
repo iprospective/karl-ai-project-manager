@@ -154,13 +154,17 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
 // domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
 // les contrôleurs à l'appel, jamais au montage).
-const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
+const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"),
+  // RM3270 : la barre du haut (condensée au doigt) et son bouton de débordement
+  header: document.querySelector("header"), hdrmore: byId("hdrmore"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
   // RM3051 : les surfaces de la zone centrale — la disposition les montre ou les masque selon l'option de split
   reviewpane: byId("reviewpane"), viewpane: byId("viewpane"), panelpane: byId("panelpane"),
   centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
   storage: PREFS, root: document,
   // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
-  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
+  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null,
+  // RM3270 : le clavier logiciel ne rétrécit QUE le viewport visible — c'est lui qui déclenche le plein écran
+  viewport: (typeof window !== "undefined" && window.visualViewport) ? window.visualViewport : null, search: (typeof location !== "undefined" ? location.search : ""),
   attention: () => stores.sess.values().filter(s => s && !s.ghost && (s.state === "attention" || s.state === "choice")).length, attached: () => (attachCtl ? attachCtl.current() : null),
   onApply: (r, visible) => {
     const att = attachCtl.current();
@@ -257,6 +261,8 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
   // RM3094 : les commandes de panes tmux, montrées ou masquées d'un bloc — les gestes restent câblés
   applyMonitor: (on) => { const el = document.getElementById("monbox"); if (el) el.style.display = on ? "" : "none"; },
+  // RM3270 : le second formulaire sous le terminal — masqué par défaut en mobile (la disposition porte la règle CSS)
+  applyComposer: (on) => { if (layout && layout.applyComposer) layout.applyComposer(on); },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
   // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)

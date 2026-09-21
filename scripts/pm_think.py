@@ -47,13 +47,17 @@ LEGEND = {
 #: RM3262 — chaque rubrique porte « Date · auteur » comme les notes : une question sans date ni
 #: signataire ne se relit pas, et une décision portait les siennes COLLÉES dans son libellé.
 #: La colonne TEXTE change de nom selon la rubrique (c'est elle qu'on lit partout) : `TEXTE_COL`.
+#: RM3290 — « Origine » est généralisée aux quatre rubriques (elle n'existait que sur les
+#: fonctionnalités). Elle porte d'où vient l'entrée : `ex-Q004` après une REQUALIFICATION, ou
+#: `RM2881-Q004` après un déplacement (RM3258). Sans elle, requalifier revenait à supprimer puis
+#: réécrire — on perdait l'id, la date et l'auteur, et la piste de ce qui avait été requalifié.
 KINDS = {
     "note":     ("N", "Notes — vrac verbatim, jamais reformulé",
-                 ["#", "Date · auteur", "Verbatim", "État", "Traitée par"]),
+                 ["#", "Date · auteur", "Verbatim", "État", "Traitée par", "Origine"]),
     "question": ("Q", "Questions ouvertes",
-                 ["#", "Date · auteur", "Question", "Bloque", "Urgence", "État", "Tranchée par"]),
+                 ["#", "Date · auteur", "Question", "Bloque", "Urgence", "État", "Tranchée par", "Origine"]),
     "decision": ("D", "Décisions",
-                 ["#", "Date · auteur", "Objet", "État"]),
+                 ["#", "Date · auteur", "Objet", "État", "Origine"]),
     "feature":  ("F", "Fonctionnalités à implémenter",
                  ["#", "Date · auteur", "Fonctionnalité", "Domaine", "Version", "Origine", "État", "Lot"]),
 }
@@ -502,15 +506,15 @@ def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, 
     by = signature(by, sid)                       # RM3062 : auteur nommé, jamais un code
     who = f"{when} · {by}" + (f" · s:{str(sid)[:8]}" if sid else "")
     if kind == "note":
-        return [rid, who, _clean(text), icon, _clean(dest)]
+        return [rid, who, _clean(text), icon, _clean(dest), _clean(origine)]
     if kind == "question":
         # RM3262 : « Tranchée par » est le miroir du « Traitée par » des notes — l'id de la
         # décision qui y répond, écrit quand elle arrive (`--dest`), sinon vide.
-        return [rid, who, _clean(text), _clean(bloque), _clean(urgence), icon, _clean(dest)]
+        return [rid, who, _clean(text), _clean(bloque), _clean(urgence), icon, _clean(dest), _clean(origine)]
     if kind == "decision":
         # RM3262 : la signature était COLLÉE au libellé (« … (2026-09-01 · Mathieu) ») — donc
         # recopiée dans chaque registre fusionné, et intriable. Elle a sa colonne.
-        return [rid, who, _clean(text), icon]
+        return [rid, who, _clean(text), icon, _clean(origine)]
     return [rid, who, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
 
 
@@ -604,9 +608,87 @@ def move_row(src, rid: str, dst, *, rm_id=None, title=""):
     neuf = next_id(parsed, kind, row["prefix"] or KINDS[kind][0])
     cells = _apparie(src_header, sec["header"], row["cells"])
     cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
+    # RM3290 — une question TRANCHÉE qui déménage laisse sa décision derrière elle : la décision
+    # appartient au ticket où l'arbitrage a eu lieu. Le lien devient donc inter-tickets
+    # (« RM2316-D004 ») au lieu de pointer un « D004 » qui, dans le carnet d'arrivée, désigne
+    # une autre décision — ou aucune.
+    src_rm = rm_id_of(src)
+    j = col_index(sec["header"], "Tranchée par")
+    if kind == "question" and j is not None and j < len(cells):
+        lien = str(cells[j] or "").strip()
+        if lien and src_rm and not lien.upper().startswith("RM"):
+            cells[j] = f"RM{src_rm}-{lien}"
+    # l'origine dit d'où l'entrée vient, sans écraser une piste déjà présente (requalif + déplacement)
+    o = col_index(sec["header"], "Origine")
+    if o is not None:
+        cells = (cells + [""] * (o + 1))[:max(len(cells), o + 1)]
+        piste = f"RM{src_rm}-{row['id']}" if src_rm else str(row["id"])
+        cells[o] = _clean((cells[o] + " " if cells[o] else "") + piste)
     _insere(dst, text_, sec, cells)
     remove_rows(src, [row["id"]])
     return kind, row["id"], neuf
+
+
+def requalify_row(path, rid: str, new_kind: str, *, prefix=None, rm_id=None, title=""):
+    """RM3290 — CHANGE UNE ENTRÉE DE RUBRIQUE, dans le même carnet.
+
+    `move_row` change de TICKET, `requalify_row` change de RUBRIQUE : c'est le même geste dans
+    l'autre dimension, et il repose sur le même appariement par nom de colonne.
+
+    Pourquoi il manquait : une capture du harvest rangée en QUESTION bloque la clôture du ticket
+    (`pm_questions_gate` refuse tant qu'une question est ouverte). Les deux seules sorties étaient
+    mauvaises — `--delete` (on perd le verbatim, la date, l'auteur, et l'id, que la règle du carnet
+    dit « jamais réattribué ») ou trancher une non-question (on écrit un arbitrage qui n'a jamais
+    eu lieu). On requalifie donc, sans rien détruire.
+
+    Ce qui est préservé : « Date · auteur » (même nom dans les quatre rubriques, donc reporté par
+    `_apparie`), l'état, et le TEXTE — dont la colonne, elle, CHANGE de nom selon la rubrique
+    (« Verbatim », « Question », « Objet », « Fonctionnalité ») : `_apparie` ne peut pas l'apparier,
+    on le repose donc explicitement. L'origine (`ex-Q004`) part dans la colonne « Origine ».
+
+    Rend (ancien_kind, ancien_id, nouveau_kind, nouveau_id), ou None si la ligne est introuvable.
+    Lève ValueError si la rubrique d'arrivée est celle de départ (rien à faire, et le dire).
+    """
+    p = Path(path)
+    if new_kind not in KINDS:
+        raise ValueError(f"rubrique inconnue : {new_kind} (attendu : {', '.join(KINDS)})")
+    parsed = load(p)
+    kind, row = find_row(parsed, rid)
+    if not kind:
+        return None
+    # le préfixe VISÉ, défaut de la rubrique compris : sans ça, D→C (même rubrique « decision »,
+    # préfixe différent) serait refusé à tort, et Q→Q accepté à tort.
+    vise = (prefix or KINDS[new_kind][0]).upper()
+    actuel = (row["prefix"] or KINDS[kind][0]).upper()
+    if kind == new_kind and vise == actuel:
+        raise ValueError(f"{rid} est déjà une entrée de la rubrique « {new_kind} »")
+
+    src_header = (parsed.get(kind) or {}).get("header") or []
+    texte_ = texte(parsed[kind], row, kind)          # lu par le nom de SA colonne
+    text_, parsed2, sec = _section_prete(p, new_kind, rm_id, title)
+    neuf = next_id(parsed2, new_kind, vise)
+    cells = _apparie(src_header, sec["header"], row["cells"])
+    cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
+
+    col_txt = col_index(sec["header"], TEXTE_COL[new_kind])
+    if col_txt is not None:
+        cells = (cells + [""] * (col_txt + 1))[:max(len(cells), col_txt + 1)]
+        cells[col_txt] = _clean(texte_)
+    col_org = col_index(sec["header"], "Origine")
+    if col_org is not None:
+        cells = (cells + [""] * (col_org + 1))[:max(len(cells), col_org + 1)]
+        # on n'écrase pas une origine déjà là : une entrée déplacée PUIS requalifiée garde sa piste
+        cells[col_org] = _clean((cells[col_org] + " " if cells[col_org] else "") + f"ex-{row['id']}")
+    # « Tranchée par » n'a de sens que pour une question : une question requalifiée en note
+    # emporterait sinon un lien vers une décision dans une colonne qui ne veut plus dire ça.
+    if kind == "question" and new_kind != "question":
+        for mort in ("Tranchée par",):
+            j = col_index(sec["header"], mort)
+            if j is not None and j < len(cells):
+                cells[j] = ""
+    _insere(p, text_, sec, cells)
+    remove_rows(p, [row["id"]])
+    return kind, row["id"], new_kind, neuf
 
 
 def remove_rows(path, ids) -> int:

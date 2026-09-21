@@ -67,6 +67,19 @@ export function mountResume(card, ctx = {}) {
       if (ctx.attach) setTimeout(() => ctx.attach(res.r.rm_id), 400);
     } catch (e) { notify(e.message, true); }
   }
+  /** RM3265 — reprendre la conversation d'un TICKET, sans rien demander : l'ancrage est le ticket
+   *  lui-même. Appelé quand on clique une session épinglée dont le tmux n'existe plus. */
+  async function resumeTicket(rm) {
+    try {
+      const res = await svc.resumeTicket(rm);
+      notify(res.message, !res.ok);
+      if (!res.ok) return false;
+      if (ctx.afterResume) await ctx.afterResume(res.r);
+      load();
+      if (ctx.attach) setTimeout(() => ctx.attach(res.r.rm_id), 400);
+      return true;
+    } catch (e) { notify(e.message, true); return false; }
+  }
   async function move(s) {
     if (!s) return;
     if (s.live) { notify("Session à tmux vivant : ferme-la d'abord", true); return; }
@@ -86,6 +99,6 @@ export function mountResume(card, ctx = {}) {
   listen(card, "input", (e) => { const t = e.target; if (t && t.id === "rs-q") queryChanged(); });
   listen(card, "change", (e) => { const t = e.target, id = (t && t.id) || ""; if (id === "rs-client") { fillProjects(); load(); } else if (/^(rs-deep|rs-project|rs-status|rs-engine)$/.test(id)) load(); });
   listen(card, "click", (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (!n || (listEl && listEl.contains && listEl.contains(n) && n !== listEl)) return; if (n.dataset.action === "clear") { e.preventDefault(); clearSearch(); } else if (n.dataset.action === "reload") { e.preventDefault(); load(); } });
-  return { load, queryChanged, clearSearch, fillProjects, setProjects, applyClientContext, setEngines, resume, move, filters, state, last: () => svc.last,
+  return { load, queryChanged, clearSearch, fillProjects, setProjects, applyClientContext, setEngines, resume, resumeTicket, move, filters, state, last: () => svc.last,
     unmount() { clearTimeout(state.timer); if (listH) listH.unmount(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

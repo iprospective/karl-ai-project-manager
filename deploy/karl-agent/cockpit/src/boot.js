@@ -353,7 +353,10 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   scope: () => ({ filesData: files.data(), attached: attachCtl.current(), projectKey: project ? project.current() : null }),
   surfaces: {
     session:   { sessions: () => stores.sess.view, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
-                 open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
+                 open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s),
+                 // RM3265 : dernier recours du clic sur une session éteinte — reprendre sa conversation.
+                 // `resume` est monté plus bas : la référence n'est lue qu'au clic, jamais au chargement.
+                 resume: (rm) => resume.resumeTicket(rm), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },

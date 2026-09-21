@@ -93,7 +93,11 @@ defineEntity("dash",      { icon: "📊", label: "tableau de bord", fixed: true,
 defineEntity("session",   { icon: "▶", label: "session", surface: true, restorable: false,
   tooltip: (key, p, lbl, resolu) => avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key, resolu(key)),
   hoverFields: [{ key: "state" }, { key: "engine" },
-                { key: "alive", value: (d) => (d.alive ? "vivante" : "éteinte") }],
+                { key: "alive", value: (d) => (d.alive ? "vivante" : "éteinte") },
+                // RM3265 : ce que le clic fera, dit AVANT le clic. Une session éteinte se relance
+                // (si elle est dans un jeu) ou se reprend depuis son transcript : dans les deux
+                // cas quelque chose se passe, et l'utilisateur doit le savoir avant d'y aller.
+                { key: "alive", label: "clic :", value: (d) => (d.alive ? "attacher" : "relancer ou reprendre la conversation") }],
   hoverWhere: (d) => (d.client && d.project) ? d.client + "/" + d.project : "",
   open: (api, t) => api.openSessionTab(t.key) });
 defineEntity("review",    { icon: "🧪", label: "ticket", surface: true, idPrefix: "RM",

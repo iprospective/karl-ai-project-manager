@@ -681,6 +681,37 @@ check("…et la ligne garde la largeur de SA table", len(rr["cells"]) == 5, str(
 check("_apparie : en-têtes identiques → la ligne passe telle quelle",
       pm_think._apparie(["#", "Question"], ["#", "Question"], ["Q001", "x"]) == ["Q001", "x"])
 
+# ── 9. RM3269 : trancher une question appelle sa décision ────────────────────
+print("· RM3269 trancher = décider")
+_d3269 = Path(tempfile.mkdtemp(prefix="pm-think-3269-"))
+_c3269 = _d3269 / "RM3269t_x.think.md"
+_c3269.write_text(
+    "# RM3269t — Réflexion\n\n## Questions ouvertes\n\n"
+    "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n"
+    "|---|---|---|---|---|---|---|\n"
+    "| Q001 | 2026-09-21 · M | orpheline |  | moyenne | ✅ |  |\n"
+    "| Q002 | 2026-09-21 · M | reliée colonne |  | moyenne | ✅ | D001 |\n"
+    "| Q003 | 2026-09-21 · M | reliée citation |  | moyenne | ✅ |  |\n"
+    "| Q004 | 2026-09-21 · M | ouverte |  | moyenne | 🕐 |  |\n"
+    "| Q005 | 2026-09-21 · M | écartée |  | moyenne | ❌ |  |\n"
+    "\n## Décisions\n\n| # | Date · auteur | Objet | État |\n|---|---|---|---|\n"
+    "| D001 | 2026-09-21 · M | tranche un truc | ✅ |\n"
+    "| D002 | 2026-09-21 · M | Q003 : on fait comme ça | ✅ |\n", encoding="utf-8")
+_p3269 = pm_think.load(_c3269)
+check("decision_liante : orpheline → rien", pm_think.decision_liante(_p3269, "Q001") == "")
+check("decision_liante : colonne « Tranchée par »", pm_think.decision_liante(_p3269, "Q002") == "D001")
+check("decision_liante : décision qui CITE la question", "Q003" in pm_think.decision_liante(_p3269, "Q003"))
+check("decision_liante : --dest l'emporte sur tout", pm_think.decision_liante(_p3269, "Q001", "D002") == "D002")
+_orph = [q for q, _ in pm_think.questions_orphelines(_p3269)]
+check("questions_orphelines : seule la tranchée sans lien", _orph == ["Q001"], str(_orph))
+check("…une question OUVERTE n'est pas orpheline", "Q004" not in _orph)
+check("…une question ÉCARTÉE (❌) n'est pas tranchée", "Q005" not in _orph)
+_src3269 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --decide-with pose la décision et tranche en un appel", "--decide-with" in _src3269)
+check("CLI : --orphans liste les tranchées sans décision", "--orphans" in _src3269)
+check("CLI : le garde-fou ne vise QUE valide (écarter n'est pas trancher)",
+      'a.state == "valide"' in _src3269 and "decision_liante" in _src3269)
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

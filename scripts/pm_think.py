@@ -779,6 +779,47 @@ def _decision_liee(parsed: dict, qid: str) -> str:
     return trouvee
 
 
+def decision_liante(parsed: dict, qid: str, dest: str = "") -> str:
+    """RM3269 — CE QUI TRANCHE la question `qid`, ou "" si rien ne la tranche.
+
+    Trois sources, de la plus explicite à la plus implicite :
+      1. `dest` — la décision que l'appelant désigne à l'instant (`--dest D004`) ;
+      2. la colonne « Tranchée par » de la question, si elle est déjà renseignée (RM3262) ;
+      3. une décision NON invalidée qui cite `Qnnn` dans son texte (`_decision_liee`).
+
+    Sert au garde-fou : trancher une question sans qu'aucune des trois n'existe, c'est clore le
+    sujet en perdant le pourquoi — le défaut vécu sur RM2316-Q004, marquée ✅ sans aucune décision,
+    dont il a fallu rouvrir l'antériorité trois jours plus tard pour reconstituer l'arbitrage.
+    """
+    if str(dest or "").strip():
+        return str(dest).strip()
+    sec = parsed.get("question", {}) or {}
+    _, row = find_row(parsed, qid)
+    if row is not None:
+        deja = cell(sec, row, "Tranchée par").strip()
+        if deja:
+            return deja
+    return _decision_liee(parsed, qid)
+
+
+def questions_orphelines(parsed: dict) -> list:
+    """RM3269 — les questions TRANCHÉES (✅) que rien ne relie à une décision.
+
+    Le garde-fou n'agit qu'au moment de trancher : les carnets d'avant lui en portent déjà.
+    Les rendre listables est ce qui permet de les reprendre au lieu de les découvrir par hasard.
+    Rend [(qid, libellé), …]. Pure.
+    """
+    sec = parsed.get("question", {}) or {}
+    out = []
+    for r in sec.get("rows", []):
+        if r.get("state") != "valide":
+            continue                      # seul « tranchée » est concerné : écartée ≠ tranchée
+        if decision_liante(parsed, r["id"]):
+            continue
+        out.append((r["id"], " ".join(str(texte(sec, r, "question")).split())))
+    return out
+
+
 def questions_text(parsed: dict) -> str:
     """Le contenu du CF 36 : une case par question, cochée si elle est tranchée. Jamais vide — un PUT
     de CF à vide EFFACE le champ, et « aucune question » est une information."""

@@ -13,6 +13,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **karl s'installe en service d'équipe : une instance par développeur** (RM3070, lots L4 et L5).
+  Côté cockpit, la session d'un autre porte désormais son nom — un administrateur voit toutes les
+  sessions, il lui fallait savoir à qui elles sont ; la sienne n'est pas étiquetée. Côté installation,
+  le gabarit `karl-agent@<login>.service` fait tourner une instance **sous le compte de chaque
+  développeur**, derrière un front unique : tout ce qui est déjà par utilisateur le reste (sessions
+  tmux, coffre, agent SSH, transcripts), et le multi devient un problème de routage plutôt qu'une
+  réécriture du superviseur. `mmi-pm karl-service --user alice --port 9881` rédige les trois pièces
+  (environnement du développeur, unité, fragment de reverse-proxy avec `upgrade=websocket`) et
+  **n'écrit rien dans `/etc`** : la pose reste un geste root. Un port déjà attribué est refusé
+  d'avance, en nommant l'autre développeur — sinon le conflit ne se verrait qu'au démarrage de la
+  seconde instance. Runbook : `docs/guides/karl-multi-utilisateur.md`, avec ce qui n'est pas encore
+  fait (transcripts et mail restent servis par l'identité de l'instance).
+
 - **Le carnet qualifie ses entrées** (RM3262) : questions, décisions et fonctionnalités portent
   « Date · auteur » comme les notes, et une question porte « Tranchée par » — rempli tout seul par
   la décision qui la cite. La signature d'une décision quitte son libellé, où elle était collée.
@@ -1157,6 +1170,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
+  Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
+  (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en
+  déclarant une instance, sans toucher au code. Son secret suit la convention des providers
+  (`DOLIBARR__DOLIBARR_IPRO__API_KEY`, posé par `pm-provider-secret`, valeur sur l'entrée standard) ;
+  `pm_erp` en calcule le nom avec la règle du script lui-même — une seule règle de nommage.
+  `mmi-pm invoice --month AAAA-MM` lit les saisies Redmine de l'utilisateur (manuelles ou posées
+  par `mmi-pm timesheet`), les rattache au client (manifeste PM, table déclarée, ou plus long
+  préfixe d'identifiant qui nomme une entité), éclate les projets mutualisés selon leur clé (SFY
+  70/30 sans perte d'heure), regroupe par activité → service du catalogue ERP (pratique
+  historique) ou par tâche, et applique **le tarif de la dernière facture du client** — pas de
+  table de tarifs à tenir en double, un brouillon ou un avoir n'étant jamais pris pour un tarif.
+  La note publique reproduit mot pour mot le modèle des factures existantes (période, « Principalement
+  les … », lien de détail) et y ajoute les **mises en production du mois**, lues dans l'historique
+  des statuts. **Rien n'est créé** : rapport + proposition amendable. Piège noté :
+  `find_project_by_redmine_id` rend le chemin du dossier client, pas son identifiant — pris tel
+  quel, il classait tout le temps client en interne.
 - **Secrets de provider : saisie interactive et masquée** (RM3277). Le terminal était REFUSÉ
   (« la valeur se lit sur l'entrée standard ») : l'intention était juste — jamais en argument,
   `ps` est lisible de tous — mais elle poussait au `echo 'secret' | …`, qui dépose le secret dans

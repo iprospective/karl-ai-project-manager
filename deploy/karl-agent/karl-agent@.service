@@ -1,0 +1,44 @@
+[Unit]
+# RM3070 lot L5 — UNE instance de karl-agent PAR DÉVELOPPEUR (`karl-agent@alice.service`).
+#
+# Pourquoi un gabarit système plutôt qu'un démon unique qui agirait « pour le compte de » :
+# tout ce qui est déjà par utilisateur le reste (sessions tmux, socket du coffre, agent SSH,
+# transcripts dans le home). Le multi-utilisateur devient un problème de ROUTAGE — un front
+# unique devant N instances — au lieu d'une réécriture du superviseur.
+#
+# Chaque instance lit son port dans /etc/karl-agent/<user>.env (généré par
+# `mmi-pm karl-service --user <login> --port <n>`). Deux instances sur le même port
+# refuseraient de démarrer, sans dire pourquoi : le fichier d'environnement est donc
+# OBLIGATOIRE, et le générateur refuse un port déjà attribué.
+Description=karl-agent (%i) — superviseur de sessions tmux d'agents karl-pm
+Documentation=file://@PM_ROOT@/agents/karl/karl-agent.md
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=@PM_ROOT@
+# Le PATH d'un service système n'inclut pas le ~/.local/bin du développeur, or les moteurs
+# (claude, opencode) y sont souvent installés — sans ça, le tmux spawné lance une commande
+# introuvable et la session meurt aussitôt.
+Environment=PATH=/home/%i/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=KARL_INSTALL_MODE=multi
+# Port, jeton et tout ce qui est propre à CE développeur. Jamais de secret dans cette unit
+# (versionnée) ; le fichier, lui, est en 0640 root:<user>.
+EnvironmentFile=/etc/karl-agent/%i.env
+# Journaux par développeur — sans quoi deux instances écrivent dans le même fichier et
+# « qui a fait quoi » redevient illisible. L'ÉTAT (keys/, sessions/) reste commun : c'est
+# l'instance qui le partage (RM2992), et le propriétaire est porté par chaque fiche (L4).
+StateDirectory=karl-agent/%i
+Environment=KARL_AGENT_LOG_DIR=/var/lib/karl-agent/%i
+ExecStart=/usr/bin/python3 @PM_ROOT@/scripts/karl-agent.py
+Restart=on-failure
+RestartSec=2
+# CRITIQUE (RM1873) : le serveur tmux spawné hérite du cgroup du service. Avec le
+# KillMode=control-group par défaut, tout stop/restart tuerait TOUTES les sessions de ce
+# développeur — ce que la persistance tmux existe précisément pour éviter.
+KillMode=process
+# Le démon bind 127.0.0.1 EN DUR (invariant sécu) : le front est seul exposé.
+
+[Install]
+WantedBy=multi-user.target

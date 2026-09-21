@@ -12,6 +12,7 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
   pm-task-think <id> --counters                              compteurs → frontmatter de la fiche (D007)
 
   pm-task-think <id> --delete Dnnn                 supprime une ligne incohérente (RM3064)
+  pm-task-think <id> --move Qnnn --to <autre-id>   déplace l'entrée vers le carnet d'un autre ticket (RM3258)
 Options communes : --by M|A|<nom> (défaut : A = agent), --sid <session> (défaut : $CLAUDE_CODE_SESSION_ID),
 --when AAAA-MM-JJ, --dedupe (ne rien écrire si le texte est déjà consigné), --no-commit, --dry-run.
 
@@ -59,6 +60,16 @@ def _resync_questions(rm_id, sheet, kind=None):
         pass                    # une vue des questions ne doit jamais casser une consignation
 
 
+def _titre(sheet) -> str:
+    """Le titre du ticket, pour le gabarit d'un carnet créé à l'arrivée d'une entrée déplacée."""
+    import re
+    try:
+        m = re.search(r"^title:\s*(.+)$", Path(sheet).read_text(encoding="utf-8"), re.M)
+        return m.group(1).strip().strip("'\"") if m else ""
+    except OSError:
+        return ""
+
+
 def _log_path(sheet):
     """Le journal du ticket, à côté de sa fiche."""
     return Path(str(sheet).replace(".md", ".log.md"))
@@ -81,6 +92,22 @@ def _log_amendement(rm_id, sheet, rid, ancien, nouveau, par=None):
         pass                      # un journal non écrivable ne doit pas empêcher l'amendement
 
 
+def _log_deplacement(sheet, rid, sens, autre_rm, autre_id, par=None):
+    """Trace le déplacement dans le journal du ticket — des DEUX côtés. Le carnet ne garde
+    que la ligne ; c'est le journal qu'on relit pour savoir d'où elle vient, ou où elle est partie."""
+    from datetime import datetime
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    fleche = (f"{rid} → RM{autre_rm}-{autre_id}" if sens == "sortie"
+              else f"RM{autre_rm}-{autre_id} → {rid}")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Entrée du carnet déplacée ({fleche})\n"
+            f"Tokens : 0 | Durée : 0 min\n\nPar {qui}.\n")
+    try:
+        with open(_log_path(sheet), "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass                      # un journal non écrivable n'empêche pas le déplacement
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__)
@@ -90,6 +117,8 @@ def main():
         ap.add_argument(f"--{flag}", metavar="TEXTE")
     ap.add_argument("--set", metavar="ID", help="ligne dont on change l'état (avec --state)")
     ap.add_argument("--delete", metavar="ID", help="supprime la ligne pour de bon (entrée incohérente, RM3064)")
+    ap.add_argument("--move", metavar="ID", help="RM3258 : déplace la ligne vers le ticket --to")
+    ap.add_argument("--to", metavar="RM-ID", type=int, help="ticket destinataire du --move")
     ap.add_argument("--text", metavar="TEXTE",
                     help="RM3161 : AMENDER le texte de la ligne --set, sans toucher à son état")
     ap.add_argument("--state", choices=sorted(pm_think.STATES.values()))
@@ -124,6 +153,39 @@ def main():
         pmout.op("think", extra=f"RM{a.rm_id} compteurs {'posés' if changed else 'inchangés'}")
         if changed and not a.no_commit:
             pm_git.autocommit([sheet], f"pm(think): RM{a.rm_id} compteurs")
+        return
+    if a.move:
+        if not a.to:
+            sys.exit("ERREUR : --move exige --to <rm-id> (le ticket destinataire)")
+        if a.to == a.rm_id:
+            sys.exit(f"ERREUR : RM{a.rm_id} est déjà le ticket de cette entrée")
+        cible = cfg.find_task(a.to)
+        if not cible:
+            sys.exit(f"ERREUR : ticket RM{a.to} introuvable dans l'arbo PM.")
+        # RM2274 : écrire dans le carnet d'un AUTRE projet se dit — `--cross-project`. Le drapeau
+        # était déclaré ici sans garde derrière ; le déplacement est la première écriture qui vise
+        # une fiche que l'appelant n'a pas nommée en argument principal.
+        import pm_scope
+        pm_scope.assert_task_scope(a.to, cible, a.cross_project, "pm-task-think --move")
+        think_cible = pm_think.think_path(cible)
+        kind, row = pm_think.find_row(parsed, a.move)
+        if not kind:
+            sys.exit(f"ERREUR : ligne {a.move} introuvable dans {think.name}")
+        if a.dry_run:
+            print(f"{think.name} : {a.move} [{kind}] → {think_cible.name}"); return
+        res = pm_think.move_row(think, a.move, think_cible, rm_id=a.to, title=_titre(cible))
+        kind, ancien, neuf = res
+        for feuille, chemin in ((sheet, think), (cible, think_cible)):
+            pm_think.set_counters(feuille, pm_think.counters(pm_think.load(chemin)))
+        _log_deplacement(sheet, ancien, "sortie", a.to, neuf, a.by)
+        _log_deplacement(cible, neuf, "entrée", a.rm_id, ancien, a.by)
+        if kind in ("question", "decision"):     # la vue Redmine des questions change des deux côtés
+            _resync_questions(a.rm_id, sheet)
+            _resync_questions(a.to, cible)
+        pmout.op("think", extra=f"RM{a.rm_id} {ancien} [{kind}] → RM{a.to} {neuf}")
+        if not a.no_commit:
+            pm_git.autocommit([think, sheet, _log_path(sheet), think_cible, cible, _log_path(cible)],
+                              f"pm(think): RM{a.rm_id} {ancien} déplacée vers RM{a.to} {neuf}")
         return
     if a.delete:
         if a.dry_run:
@@ -184,13 +246,7 @@ def main():
     if a.dry_run:
         rid = pm_think.next_id(parsed, kind, prefix or pm_think.KINDS[kind][0])
         print(f"{think.name} +{rid} [{kind}] {text[:100]}"); return
-    title = ""
-    try:
-        import re
-        m = re.search(r"^title:\s*(.+)$", sheet.read_text(encoding="utf-8"), re.M)
-        title = m.group(1).strip().strip("'\"") if m else ""
-    except OSError:
-        pass
+    title = _titre(sheet)
     rid = pm_think.append(think, kind, text, prefix=prefix, rm_id=a.rm_id, title=title, by=a.by, state=a.state,
                           when=a.when, sid=a.sid, bloque=a.bloque, urgence=a.urgence, domaine=a.domaine,
                           version=a.version, origine=a.origine, lot=a.lot, dest=a.dest)

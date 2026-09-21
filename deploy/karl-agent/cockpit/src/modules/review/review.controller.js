@@ -184,8 +184,32 @@ export function mountReview(el, ctx = {}) {
     } catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }
 
+  /** RM3258 — une entrée consignée au mauvais ticket : elle part telle quelle (verbatim, date, auteur),
+   *  sous un nouvel id chez la cible. Le serveur refond les registres des DEUX projets. */
+  async function thinkMove(n) {
+    const rm = String(state.current || ""), id = n.dataset.id;
+    if (!rm || !id) return;
+    const saisie = prompt("Déplacer " + id + " de RM" + rm + " vers quel ticket ?\nNuméro RM :", "");
+    if (saisie === null) return;
+    const to = String(saisie).trim().replace(/^RM/i, "");
+    if (!/^\d+$/.test(to)) { notify("numéro de ticket attendu", true); return; }
+    n.disabled = true;
+    try { await ctx.cdc.thinkEdit({ rm, id, action: "move", to }); notify(id + " déplacée vers RM" + to); T.reload(rm); }
+    catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+  /** RM3064 : la suppression existait dans la vue CDC ; elle manquait ICI, là où la clôture est refusée. */
+  async function thinkDelete(n) {
+    const rm = String(state.current || ""), id = n.dataset.id;
+    if (!rm || !id) return;
+    if (!ask("Supprimer " + id + " du carnet de RM" + rm + " ? (définitif — préférer → pour la déplacer)")) return;
+    n.disabled = true;
+    try { await ctx.cdc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée"); T.reload(rm); }
+    catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+
   const gestures = {
-    reload: () => T.reload(state.current), "think-state": (n) => thinkState(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
+    reload: () => T.reload(state.current), "think-state": (n) => thinkState(n),
+    "think-move": (n) => thinkMove(n), "think-delete": (n) => thinkDelete(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
     verdict: (n) => verdict(n.dataset.rm, n.dataset.kind, n), pm: (n) => ctx.sendPmAction && ctx.sendPmAction(Number(n.dataset.i), n.dataset.rm, n),
     "open-contact": (n) => ctx.openContact && ctx.openContact(n.dataset.value),   // RM3149
     attach: (n) => ctx.attach && ctx.attach(n.dataset.sid), spawn: (n) => spawnTicket(n.dataset.rm, n), send: (n) => sendToSession(n.dataset.rm, n),

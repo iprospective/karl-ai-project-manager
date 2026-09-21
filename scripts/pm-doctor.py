@@ -94,7 +94,8 @@ def check_partner_links(cfg, ovs, errors, warns):
     """
     try:
         import pm_partner
-        from pm_registry import Registry, RegistryError
+        import redmine_utils
+        from pm_registry import Registry, RegistryError, resolve_instance
     except ImportError:
         return
     try:
@@ -109,9 +110,15 @@ def check_partner_links(cfg, ovs, errors, warns):
         me = f"{ent}/{proj}"
         try:
             required = pm_partner.required_secondaries(fm, reg)
+            primary = resolve_instance(fm, "task", reg).instance
         except RegistryError as e:
             errors.append(f"{me} : providers.task invalide — {e}")
             continue
+        # RM2940 : un primaire que l'outillage d'écriture ne sert pas n'est pas une conf
+        # « à améliorer » — chaque changement de statut y serait perdu sans message.
+        why = redmine_utils.primary_write_problem(primary)
+        if why:
+            errors.append(f"{me} : {why}")
         if not required:
             continue
         tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)

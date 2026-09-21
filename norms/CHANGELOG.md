@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [2.59.0] - 2026-09-19
+
+### Ajouté
+- **Un Redmine tiers en primaire est refusé, plus jamais écrit en silence** (RM2940). Tout
+  l'outillage d'écriture vise l'instance de `redmine.reference.yml`, quel que soit le
+  primaire du projet : `pm-task-status-update` refuse désormais, et `pm-doctor` le
+  signale en erreur. Les secondaires partenaires (mapping RM2746) ne sont pas concernés.
+- **Maintenance des providers depuis le cockpit** : « Vérifier la config Redmine » et
+  « Vérifier la cohérence PM », en lecture seule, dans le catalogue des commandes.
+
 ## [2.58.0] - 2026-09-19
 
 ### Ajouté

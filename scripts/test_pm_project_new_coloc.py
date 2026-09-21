@@ -123,11 +123,16 @@ def test_abort_if_workspace_root_is_git_repo():
 
 
 def test_abort_if_mmipm_already_exists():
-    """Garde-fou : .mmi-pm déjà présent dans le workspace → abort (pas d'écrasement)."""
+    """Garde-fou : volet PM déjà présent dans le workspace → abort (pas d'écrasement).
+
+    « Présent » = PEUPLÉ depuis RM2947 : un `.mmi-pm/` de dossiers vides est le
+    squelette que `ws-init` vient de poser, pas un projet (cf.
+    test_pm_project_new_ws_locked)."""
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         ws = setup_env(tmp)
         (ws / ".mmi-pm").mkdir()
+        (ws / ".mmi-pm" / "meta.yml").write_text("slug: deja-la\n", encoding="utf-8")
         out, code = run_main(BASE_ARGS + ["--workspace", str(ws), "--dry-run"], tmp)
         assert code not in (None, 0), f"doit refuser un .mmi-pm préexistant\n{out}"
 

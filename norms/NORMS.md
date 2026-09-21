@@ -1,9 +1,9 @@
 ---
-schema_version: "2.58.0"
+schema_version: "2.59.0"
 updated: 2026-09-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.58.0
+# Normes de gestion des tâches — v2.59.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -930,6 +930,8 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | Session | **archiver les transcripts** (+ `history.jsonl`, worklogs) et surveiller que ça tourne | `pm-sessions-archive.py` (`--check`, `--install-timer`) (RM2997) |
 | Machine | **sauvegarde ZFS** — snapshots au fil de l'eau, purge bornée, surveillance | `pm-zfs-backup.py` (`--status`, `--check`) (RM3023) · `knowledge/zfs/sauvegarde.md` |
+| Courrier | **filtres Sieve d'une boîte** — lire, comparer, écrire (boîte vérifiée, validation serveur avant écriture, sauvegarde octet pour octet), activer, supprimer (jamais l'actif) | `pm-sieve.py list|get|diff|put|activate|delete|backups` (RM3171) · `knowledge/dovecot/sieve-karl.md` |
+| MEP | **point de restauration ZFS pré-MEP** (tripwire #10) sur le bon hyperviseur, via atlas | `pm-snapshot.py <id> [--dry-run]` (RM2989) |
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
@@ -2570,6 +2572,18 @@ porte ses critères en section `## Critères d'acceptation` du corps, se reprend
 `--from-description` (en masse : `pm-cf-mirror-backfill --field acceptance
 --adopt-sections` — le corps est **conservé**, rien n'est effacé).
 
+**Une seule copie (RM3241).** Une fois repris dans le champ, les critères **sortent** de la
+description : deux copies divergent, et la périmée est celle que lit l'humain dans Redmine
+(RM3173 : 4/4 cochés dans le champ, 0/4 dans la description, ticket en MEP). À la
+création, `pm-task-add` envoie la section de critères de `--description` au champ, pas
+à la description. Sur un ticket migré, `pm-task-description-update` retire la section
+d'un `--set-from-file` que le champ couvre déjà, et **refuse** celle qui en diffère
+(critère ou coche en plus) ainsi que `--add-criterion` : on passe par `pm-task-acceptance`.
+L'existant se purge par `pm-acceptance-purge` (dry-run par défaut, dump JSONL avant
+écriture), selon une règle **orientée** : la section part si le champ la couvre ou est
+**en avance** ; elle reste si la description est en avance, si un item manque au champ,
+ou si elle porte de la prose — rien ne se perd, le reste se tranche à la main.
+
 **Lecture à double source, et sans bascule.** Champ non vide ⇒ il fait foi ; vide ⇒ la
 section de la description, exactement comme avant. Tous les lecteurs partagent la même
 fonction (`pm_acceptance.criteria_text`) : le garde-fou de statut, la livraison, le
@@ -2947,6 +2961,21 @@ de tâche, sync de statut, push de métriques, bootstrap), et **a minima
 périodiquement** (ou en cas de comportement inattendu), **revérifier que la
 config locale colle à l'instance live**. En cas de drift → corriger `.env` /
 `knowledge/redmine/api.md` / les constantes des scripts, puis committer.
+
+**Depuis le cockpit** (v2.59.0, RM2940) : catégorie « maintenance » du catalogue des
+commandes — « Vérifier la config Redmine » (`redmine-config-check`) et « Vérifier la
+cohérence PM » (`pm-doctor`), toutes deux en lecture seule. Premier passage : le CF 9,
+renommé côté Redmine, portait encore son ancien nom dans la référence.
+
+**Une seule instance servie en écriture.** `redmine.reference.yml` est bindé sur une
+instance ; tout l'outillage qui ÉCRIT l'état d'un ticket (statut, création, temps) vise
+celle-là, quel que soit le primaire déclaré par le projet. Un Redmine tiers en
+**primaire** n'est donc pas servi : `pm-task-status-update` le **refuse** et `pm-doctor`
+le signale en erreur, au lieu d'un PUT accepté sans effet. Les instances partenaires en
+**secondaire** ne sont pas concernées — leurs statuts passent par la table
+`sync.mirror.map` du projet (RM2746), qui porte ses propres ids. Le mapping complet par
+instance attend un projet qui en a réellement besoin (décision du 2026-09-19 : aucun
+des 66 projets n'est dans ce cas).
 
 **Quoi resynchroniser, et endpoints de référence** (lecture, clé API) :
 

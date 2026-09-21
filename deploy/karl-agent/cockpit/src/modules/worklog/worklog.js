@@ -81,16 +81,30 @@ export function pendingDecor(entry) {
   if (entry && entry.kind === "live") return { icon: entry.state === "choice" ? "❓" : "⚠", tag: "bloquée", cls: "oq ounres", title: "La session attend une réponse MAINTENANT — elle ne peut pas avancer" };
   return { icon: "🕓", tag: "sans réponse", cls: "oq", title: "Question posée puis laissée sans réponse — la session, elle, a continué" };
 }
-/** RM2798 : groupes par client / projet dans l'ordre d'apparition, « hors projet » en dernier — un RENDU, pas un tri. */
-export function groupWorklogItems(items) {
-  const HORS = "hors projet", ordre = [], par = new Map();
+/** RM2798 : groupes par client / projet dans l'ordre d'apparition, « hors projet » en dernier — un RENDU, pas un tri.
+ *  RM2852 : `session` = { client, project } de la session courante. Les groupes sont alors
+ *  rangés par PROXIMITÉ — le projet de la session, puis les projets du même client, puis le
+ *  reste — l'ordre d'apparition restant le départage à l'intérieur de chaque rang. Sans
+ *  session résolue, l'ordre est exactement celui d'avant. */
+export function groupWorklogItems(items, session) {
+  const HORS = "hors projet", ordre = [], par = new Map(), rang = new Map();
+  const sCl = (session && session.client) || "", sPr = (session && session.project) || "";
   for (const it of (items || [])) {
     const cl = (it && it.client) || "", pr = (it && it.project) || "";
     const key = (cl && pr) ? cl + " / " + pr : (pr || cl || HORS);
-    if (!par.has(key)) { par.set(key, []); ordre.push(key); }
+    if (!par.has(key)) {
+      par.set(key, []); ordre.push(key);
+      // 0 = le projet de la session · 1 = un autre projet du même client · 2 = le reste.
+      // « hors projet » garde son rang de queue, qui prime (il n'a ni client ni projet).
+      rang.set(key, key === HORS ? 3
+        : (sPr && pr === sPr && (!sCl || cl === sCl)) ? 0
+          : (sCl && cl === sCl) ? 1 : 2);
+    }
     par.get(key).push(it);
   }
-  return ordre.filter(k => k !== HORS).concat(ordre.includes(HORS) ? [HORS] : []).map(k => ({ key: k, items: par.get(k) }));
+  const rangDe = k => (sPr || sCl) ? rang.get(k) : (k === HORS ? 3 : 0);
+  // Tri STABLE (spec ES2019) : à rang égal, l'ordre d'apparition est conservé.
+  return ordre.slice().sort((a, b) => rangDe(a) - rangDe(b)).map(k => ({ key: k, items: par.get(k) }));
 }
 /** RM2801 : où en est la MR du ticket ; null sans MR (l'absence n'est pas un état à afficher). */
 export function mrStage(st) {

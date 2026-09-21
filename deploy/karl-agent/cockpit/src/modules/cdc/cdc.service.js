@@ -29,7 +29,14 @@ export class CdcService {
     return this._feat[c.key];
   }
   /** RM3064 : édition d'une entrée de think ; invalide les chapitres en cache (les registres sont régénérés). */
-  async thinkEdit({ rm, id, action, state, comment }) { const r = await this.repo.thinkEdit(comment ? { rm, id, action, state, comment } : { rm, id, action, state }); this._chap = {}; return r; }
+  /** RM3258 : `to` porte le ticket destinataire d'un déplacement ; les champs vides ne partent pas. */
+  async thinkEdit({ rm, id, action, state, comment, to }) {
+    const body = { rm, id, action };
+    if (state) body.state = state;
+    if (comment) body.comment = comment;
+    if (to) body.to = to;
+    const r = await this.repo.thinkEdit(body); this._chap = {}; return r;
+  }
   async featureEdit({ id, etat }) { const c = this.current; if (!c) return null; const r = await this.repo.featureEdit({ client: c.client, project: c.project, prefix: c.prefix, id, etat }); delete this._feat[c.key]; this._chap = {}; return r; }
   /** RM3060 : versions de la feuille de route. Le registre ET les chapitres changent : on vide les deux. */
   async versionEdit(body) {

@@ -1,6 +1,7 @@
 // views/tickets/Meta — l'encart ℹ : onglet « infos » (session) et onglet « tickets » (facettes). Balisage repris ; gestes en data-*. RM2889.
 import { html, raw } from "../../core/html.js";
 import { pillClass } from "../../core/status.js";
+import { renderEntity } from "../../core/entities.js";   // RM3256
 const muted = "color:var(--muted)";
 const kv = (k, v, kStyle) => html`<div class="kv"><span class="k"${kStyle ? html` style="${kStyle}"` : ""}>${k}</span><span class="v">${v}</span></div>`;
 
@@ -35,12 +36,7 @@ export function TicketDetail(vm, { tip }) {
   const d = vm.detail(), rm = d.rm;
   return html`<div class="ms"><h4>Ticket</h4><div class="kv"><span class="k">id</span><span class="v">${d.redmineUrl ? html`<a href="${d.redmineUrl}" target="_blank">RM${rm} ↗</a>` : "RM" + rm} <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" data-action="launcher" data-rm="${rm}">→ lanceur</span> <span class="pill" style="cursor:pointer" title="(Re)chiffrer : prépare le lanceur avec ce ticket et la consigne « étudie et chiffre » — rien ne part avant ▶ Lancer" data-action="estimate" data-rm="${rm}">💰 chiffrer</span> <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" data-action="review" data-rm="${rm}">🗂 fiche</span> <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque (description, statut, chiffrage)" data-action="reload" data-rm="${rm}">↻</span></span></div>${d.freshness
     ? html`<div class="kv"><span class="k" style="${muted}">version</span><span class="v" style="${muted}" title="dernière écriture du ticket : ${d.freshness.stamp}">${d.freshness.stamp}${d.freshness.since ? html` <span style="opacity:.75">(${d.freshness.since})</span>` : ""}</span></div>` : ""}<div style="margin:4px 0">${d.title}</div>${kv("type", d.type)}<div class="kv"><span class="k">phase</span><span class="v"><span class="${pillClass(d.status)}" style="cursor:pointer" title="Changer le statut — transitions du workflow depuis « ${d.status || "?"} »" data-action="status" data-rm="${rm}">${d.status || "—"} ⇄</span>${d.closed
-    ? html` <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" data-action="reopen" data-rm="${rm}">↻ rouvrir</span>` : ""}</span></div>${kv("priorité", d.priority)}${kv("avancement", d.pct)}</div>${ProjectBrief(vm.brief())}${d.envs.length
-    ? html`<div class="ms"><h4>Environnement (selon phase)</h4>${d.envs.map(e => e.kind === "active"
-        ? html`<div class="kv"><span class="k"><span class="pill ok">${e.name}</span></span><span class="v">${e.url ? html`<a href="${e.url}" target="_blank">ouvrir ↗</a>` : "—"}</span></div>`
-        : html`<div class="kv"><span class="k"${e.kind === "other" ? html` style="${muted}"` : ""}>${e.name}</span><span class="v"><a href="${e.url}" target="_blank">↗</a></span></div>`)}</div>` : ""}${d.git
-    ? html`<div class="ms"><h4>Git ticket</h4>${d.git.branch ? kv("branche", d.git.branch) : ""}${d.git.mrUrl ? kv("MR", html`<a href="${d.git.mrUrl}" target="_blank">↗</a>`) : ""}</div>` : ""}${d.rels.length
-    ? html`<div class="ms"><h4>Relations</h4>${d.rels.map(p => html`<div style="margin-bottom:4px"><span style="${muted}">${p.label} :</span> <span class="rels">${p.ids.map((id, i) => html`${i ? " " : ""}${rmLink(id, tip)}`)}</span></div>`)}</div>` : ""}<div class="ms"><h4>Contenu</h4><div class="rels"><button class="chip" data-action="facet" data-facet="desc">${d.hasDesc ? "📄 description" : "📄 description (vide)"}</button><button class="chip" data-action="facet" data-facet="log">${d.hasLog ? "🕘 historique" : "🕘 historique (vide)"}</button></div></div>`;
+    ? html` <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" data-action="reopen" data-rm="${rm}">↻ rouvrir</span>` : ""}</span></div>${kv("priorité", d.priority)}${kv("avancement", d.pct)}</div>${ProjectBrief(vm.brief())}${renderEntity(vm.entityVm(), "panel")}${d.rels.length ? html`<div class="ms"><h4>Relations</h4>${d.rels.map(p => html`<div style="margin-bottom:4px"><span style="${muted}">${p.label} :</span> <span class="rels">${p.ids.map((id, i) => html`${i ? " " : ""}${rmLink(id, tip)}`)}</span></div>`)}</div>` : ""}<div class="ms"><h4>Contenu</h4><div class="rels"><button class="chip" data-action="facet" data-facet="desc">${d.hasDesc ? "📄 description" : "📄 description (vide)"}</button><button class="chip" data-action="facet" data-facet="log">${d.hasLog ? "🕘 historique" : "🕘 historique (vide)"}</button></div></div>`;
 }
 
 /** RM2797/RM2806 : la description occupe la zone — ni cadre ni bride, c'est la colonne qui défile. */
@@ -70,6 +66,34 @@ export function TicketSessionsBlock(ts) {
   return html`<div class="ms"><h4>Sessions (${ts.rows.length})</h4>${ts.rows.map(s =>
     html`<div class="kv" style="cursor:pointer" data-action="attach-session" data-sid="${s.sid}" title="Attacher la session ${s.name}"><span class="k">${s.alive
       ? html`<span style="color:var(--ok)">●</span> ` : "◌ "}${s.name}</span><span class="v">${s.title}</span></div>`)}</div>`;
+}
+
+/** RM3175 — les critères d'acceptation, avec ce qui est coché et OÙ cocher.
+ *  La provenance n'est pas un détail d'implémentation : sur un ticket migré, cocher la description
+ *  ne change rien pour la livraison (RM2882) — l'onglet le dit plutôt que de le laisser découvrir. */
+export function TicketCriteria(c) {
+  if (!c.total) return html`<div class="ms"><h4>Critères d'acceptation</h4><span style="${muted}">aucun critère posé sur ce ticket.</span></div>`;
+  const ou = c.source === "acceptance"
+    ? html`champ dédié (CF 33) — cocher : <code>mmi-pm task-acceptance ${c.rm} --check N</code>`
+    : html`section de la description (ticket non migré) — cocher : <code>mmi-pm task-description-update ${c.rm} --check N</code>`;
+  return html`<div class="ms"><h4>Critères d'acceptation <span style="text-transform:none;${muted}">(${String(c.done)}/${String(c.total)})</span></h4><div style="${muted};font-size:11px;margin-bottom:6px">${ou}</div><ol class="crit">${c.items.map(i =>
+    html`<li class="${i.done ? "done" : ""}"><span class="cbox">${i.done ? "☑" : "☐"}</span> ${i.label}</li>`)}</ol></div>`;
+}
+
+/** RM3175 — la proposition d'implémentation (CF 31) : le COMMENT, là où la description porte le quoi. */
+export function TicketImpl(text, { md }) {
+  if (!text) return html`<div class="ms"><h4>Implémentation</h4><span style="${muted}">aucune proposition d'implémentation — elle se rédige en fin d'étude : <code>mmi-pm task-implementation</code>.</span></div>`;
+  return html`<div class="facetfull descfull mdview">${raw(md(text))}</div>`;
+}
+
+/** RM3175 — le déploiement : les gestes de MEP dans leur ordre (CF 8), puis la recette (CF 30). */
+export function TicketDeploy(d, { md }) {
+  const gestes = d.actions.length
+    ? html`<ol class="crit">${d.actions.map(a => html`<li>${a}</li>`)}</ol>`
+    : html`<span style="${muted}">aucune action au déploiement — rien de particulier à faire à la MEP.</span>`;
+  return html`<div class="ms"><h4>Actions au déploiement <span style="text-transform:none;${muted}">(${String(d.actions.length)})</span></h4>${gestes}</div><div class="ms"><h4>Protocole de test</h4>${d.protocol
+    ? html`<div class="mdview">${raw(md(d.protocol.text))}</div>`
+    : html`<span style="${muted}">pas de protocole de test : <code>mmi-pm task-protocol</code>.</span>`}</div>`;
 }
 
 export function TicketConso(c) {
@@ -123,6 +147,9 @@ export function TicketsPane(vm, deps) {
     ? html`<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:4px"><button class="mini${filtre ? "" : " primary"}" data-action="tfilter" data-value="" title="Tous les projets">tous (${vm.list.length})</button>${projets.map(p => html`<button class="mini${p.key === filtre ? " primary" : ""}" data-action="tfilter" data-value="${p.key}" title="${p.key}">${p.key} (${p.n})</button>`)}</div>` : ""}<div class="rsub">${vm.tabs.map(t => html`<button class="${t.active ? "active" : ""}" data-action="tab" data-rm="${t.rm}" title="${t.project || ""}">RM${t.rm}</button>`)}</div>${titre
     ? html`<div class="rtitle" title="${titre}">${titre}</div>` : ""}<div class="rsub facets">${vm.facets.map(f => html`<button class="${f.active ? "active" : ""}" data-action="facet" data-facet="${f.key}">${f.label}</button>`)}</div>${k === "loading" ? html`<div class="ms">chargement…</div>`
     : k === "notfound" ? html`<div class="ms"><h4>Ticket</h4>RM${sel} <span style="${muted}">non trouvé en local</span></div>`
+    : k === "criteria" ? TicketCriteria(vm.criteria())
+    : k === "impl" ? TicketImpl(vm.impl(), deps)
+    : k === "deploy" ? TicketDeploy(vm.deploy(), deps)
     : k === "desc" ? TicketDesc(vm.desc(), deps)
     : k === "log" ? html`<div class="facetfull">${TicketLog(vm.log(), deps)}</div>`
     : k === "conso" ? TicketConso(vm.conso())

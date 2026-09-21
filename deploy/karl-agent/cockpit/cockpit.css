@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5616f317d28cd5da (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : f1bda22c44cf6011 (38 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -760,6 +760,12 @@ details.card[open] > summary::before {
   margin: 0;
 }
 
+.e-sec .e-src {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
 /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
 .lbody {
   flex: 1;
@@ -1064,7 +1070,55 @@ html[data-layout=mobile] .mnav-btn .nbadge {
 html[data-layout=mobile] .foot {
   display: none;
 }
+html[data-layout=mobile] {
+  /* RM3270 — la barre du haut au doigt : icônes seules, les secondaires sous « … » (révélées en
+     seconde ligne), le nom affiché au premier appui (le bouton reprend alors sa largeur). */
+}
+html[data-layout=mobile] #hdrmore {
+  display: inline-flex;
+}
+html[data-layout=mobile] header button.hdr-extra {
+  display: none;
+}
+html[data-layout=mobile] header.hdr-more {
+  flex-wrap: wrap;
+}
+html[data-layout=mobile] header.hdr-more button.hdr-extra {
+  display: inline-flex;
+}
+html[data-layout=mobile] header button {
+  max-width: none;
+}
+html[data-layout=mobile] {
+  /* RM3270 — le second formulaire sous le terminal : masqué par défaut en mobile (option). */
+}
+html[data-layout=mobile][data-mcomposer="0"] #composer {
+  display: none !important;
+}
 
+/* RM3270 — PLEIN ÉCRAN (mobile) : le clavier mange déjà la moitié de l'écran, on rend le reste au
+   centre. La barre du bas RESTE : c'est elle qui porte la bascule pour en sortir. */
+html[data-layout=mobile][data-mfull="1"] header {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] main[data-mpage=center] .left, html[data-layout=mobile][data-mfull="1"] main[data-mpage=center] .rpanel {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] .mnav {
+  padding-top: 2px;
+  padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+}
+html[data-layout=mobile][data-mfull="1"] .mnav-btn .mnav-lbl {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] { /* en plein écran, la barre du bas se fait discrète */ }
+html[data-layout=mobile][data-mfull="1"] .mnav-btn .mnav-ico {
+  font-size: 15px;
+}
+
+#hdrmore {
+  display: none;
+} /* au bureau, tout tient déjà sur la ligne */
 #reviewpane.split {
   flex: 0 0 var(--reviewpane-h, 300px);
 }
@@ -2765,6 +2819,24 @@ iframe {
   overflow: hidden;
 }
 
+ol.crit {
+  margin: 0;
+  padding-left: 22px;
+}
+
+ol.crit li {
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+ol.crit li.done {
+  color: var(--muted);
+}
+
+ol.crit .cbox {
+  font-family: var(--mono);
+}
+
 /* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable
    (l'épingle se retire depuis l'onglet, seul endroit où le geste existe) */
 .pinmark {
@@ -3561,6 +3633,14 @@ iframe {
 /* RM3089 — les gestes d'une entrée de réflexion, sur la fiche d'un ticket : discrets, ils
    n'apparaissent qu'au survol et seulement sur les entrées OUVERTES (trancher une question déjà
    tranchée n'a pas de sens). */
+/* RM3262 : la signature d'une entrée — présente, lisible, mais jamais au premier plan : c'est le
+   texte de l'entrée qu'on lit, la date et l'auteur ne servent qu'à la situer. */
+.thk-sig {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .thk-acts {
   opacity: 0;
   transition: opacity 0.12s ease;
@@ -4644,6 +4724,18 @@ button.mini.soft:hover {
 
 .pv-merr {
   color: var(--bad, #d66);
+  font-size: 12px;
+}
+
+.pv-secret .st.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.pv-unknown {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--warn);
   font-size: 12px;
 }
 

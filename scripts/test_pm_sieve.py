@@ -249,6 +249,69 @@ class Ecriture(unittest.TestCase):
         self.assertIn("vieux", srv.scripts)
 
 
+class Restauration(unittest.TestCase):
+    """RM3171 : sauvegarder sans savoir restaurer ne livre que la moitié du chemin."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp()) / "karl"
+        self.msgs = []
+
+    def put(self, srv, text):
+        return ps.put(client(srv), "roundcube", text, account=KARL, authenticated=KARL,
+                      backup_dir=self.dir, dry_run=False, log=self.msgs.append)
+
+    def test_choisit_la_plus_recente(self):
+        self.dir.mkdir(parents=True)
+        for n in ("roundcube.20260901-100000.sieve", "roundcube.20260919-235959.sieve",
+                  "roundcube.20260905-000000.sieve", "autre.20260920-000000.sieve"):
+            (self.dir / n).write_text("x")
+        self.assertEqual(ps.pick_backup(self.dir, "roundcube").name, "roundcube.20260919-235959.sieve")
+
+    def test_sauvegarde_precise(self):
+        self.dir.mkdir(parents=True)
+        f = self.dir / "roundcube.20260901-100000.sieve"; f.write_text("x")
+        self.assertEqual(ps.pick_backup(self.dir, "roundcube", str(f)), f)
+
+    def test_sauvegarde_demandee_absente(self):
+        with self.assertRaisesRegex(ps.SieveError, "introuvable"):
+            ps.pick_backup(self.dir, "roundcube", "/tmp/nexistepas.sieve")
+
+    def test_aucune_sauvegarde(self):
+        with self.assertRaisesRegex(ps.SieveError, "aucune sauvegarde"):
+            ps.pick_backup(self.dir, "roundcube")
+
+    def test_deux_sauvegardes_dans_la_meme_seconde_ne_s_ecrasent_pas(self):
+        srv = FakeServer({"roundcube": ORIG}, "roundcube")
+        self.put(srv, NEW)                       # sauvegarde ORIG
+        self.put(srv, ORIG)                      # sauvegarde NEW, même seconde
+        gardes = sorted(ps.lire(f) for f in ps.backups_of(self.dir, "roundcube"))
+        self.assertEqual(len(gardes), 2)
+        self.assertEqual(gardes, sorted([ORIG, NEW]))
+
+    def test_restaurer_remet_le_contenu_et_sauvegarde_l_etat_courant(self):
+        srv = FakeServer({"roundcube": ORIG}, "roundcube")
+        self.put(srv, NEW)                       # ORIG part en sauvegarde, NEW est en place
+        src = ps.pick_backup(self.dir, "roundcube")
+        self.put(srv, ps.lire(src))              # ce que fait `restore`
+        self.assertEqual(srv.scripts["roundcube"], ORIG)
+        self.assertIn(NEW, [ps.lire(f) for f in ps.backups_of(self.dir, "roundcube")])
+
+    def test_lire_preserve_les_crlf(self):
+        self.dir.mkdir(parents=True)
+        f = self.dir / "x.sieve"; f.write_bytes(b'require ["fileinto"];\r\n')
+        self.assertEqual(ps.lire(f), 'require ["fileinto"];\r\n')
+
+    def test_backups_of_trie_du_plus_ancien_au_plus_recent(self):
+        self.dir.mkdir(parents=True)
+        for n in ("roundcube.20260919-000000.sieve", "roundcube.20260901-000000.sieve"):
+            (self.dir / n).write_text("x")
+        self.assertEqual([f.name for f in ps.backups_of(self.dir, "roundcube")],
+                         ["roundcube.20260901-000000.sieve", "roundcube.20260919-000000.sieve"])
+
+    def test_dossier_absent(self):
+        self.assertEqual(ps.backups_of(self.dir, "roundcube"), [])
+
+
 class Secrets(unittest.TestCase):
     def test_aucun_secret_dans_les_messages_d_erreur(self):
         class Srv(FakeServer):

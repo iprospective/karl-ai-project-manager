@@ -137,12 +137,67 @@ def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref
     return "\n".join(L)
 
 
+def appliquer(prop, erp, catalogue, factures, conf, args):
+    """Crée les brouillons depuis la proposition AMENDÉE. Ne valide jamais, ne double jamais.
+
+    On relit le fichier tel qu'il a été corrigé — aucun recalcul : ce que l'humain a
+    relu est ce qui part. Une facture déjà posée pour ce client et ce mois est
+    reconnue à sa marque et laissée intacte.
+    """
+    import pm_erp
+    ref_vers_id = {v["ref"]: k for k, v in catalogue.items()}
+    projet_du_tiers = {}
+    for f in factures:
+        projet_du_tiers.setdefault(f.tiers_id, f.projet_id)
+    quand = date.fromisoformat(args.date) if args.date else date.today()
+    cree, ignore, refus = [], [], []
+    for f in prop.get("factures", []):
+        client = f.get("client")
+        if args.client and client != args.client:
+            continue
+        if not f.get("valide"):
+            refus.append((client, ", ".join(f.get("alertes") or ["marquée non valide"])))
+            continue
+        m = I.marque(client, prop.get("periode", args.month))
+        existante = I.deja_facture(m, erp.factures_du_tiers(f["tiers"]))
+        if existante:
+            ignore.append((client, existante["ref"] or existante["id"]))
+            continue
+        lignes = [pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
+                               service_id=ref_vers_id.get(l.get("service")),
+                               libelle="" if l.get("service") else l.get("libelle", ""))
+                  for l in f.get("lignes", []) if l.get("heures")]
+        if args.dry_run:
+            print(f"  [dry-run] {client:12} {f['heures']:6.2f} h × {f['tarif']} = "
+                  f"{f['total_ht']:9.2f} € HT · {len(lignes)} ligne(s) · brouillon")
+            cree.append((client, "—"))
+            continue
+        fid = erp.creer_brouillon(f["tiers"], lignes, note_publique=f.get("note_publique", ""),
+                                  note_privee=m, quand=quand,
+                                  projet_id=projet_du_tiers.get(f["tiers"]))
+        cree.append((client, fid))
+        print(f"  ✓ {client:12} brouillon #{fid} · {f['total_ht']:.2f} € HT")
+    verbe = "à créer" if args.dry_run else "créés"
+    print(f"✓ factures {prop.get('periode')} : {len(cree)} brouillon(s) {verbe}"
+          + (f", {len(ignore)} déjà facturé(s)" if ignore else "")
+          + (f", {len(refus)} écarté(s)" if refus else ""))
+    for client, ref in ignore:
+        print(f"  = {client} : déjà facturé ({ref}) — rien de créé")
+    for client, raison in refus:
+        print(f"  ⚠ {client} : {raison}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--month", required=True, help="mois facturé (AAAA-MM)")
     ap.add_argument("--client", help="un seul client PM")
     ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/invoice.yml)")
     ap.add_argument("--out", help="dossier de sortie (défaut : ~/.local/state/mmi-pm/invoice)")
+    ap.add_argument("--apply", action="store_true",
+                    help="crée les BROUILLONS dans l'ERP depuis la proposition amendée")
+    ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
+    ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
 
     an, mois = (int(x) for x in args.month.split("-"))
@@ -172,6 +227,13 @@ def main():
 
     erp = pm_erp.get_erp_provider(registry=Registry.from_config(cfg.providers))
     tiers, factures, catalogue = erp.tiers(), erp.factures(), erp.services()
+    if args.apply:
+        chemin = (Path(args.out).expanduser() if args.out
+                  else Path.home() / ".local/state/mmi-pm/invoice") / f"{args.month}.yml"
+        if not chemin.is_file():
+            sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm invoice --month {args.month}`.")
+        prop = yaml.safe_load(chemin.read_text(encoding="utf-8")) or {}
+        return appliquer(prop, erp, catalogue, factures, conf, args)
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)
     tarifs = {c: erp.dernier_tarif(tiers_c[c], factures) for c in clients if c in tiers_c}

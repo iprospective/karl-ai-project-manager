@@ -190,6 +190,24 @@ def mises_en_production(cfg, client, debut, fin):
     return sorted(sortie, key=lambda m: m["jour"])
 
 
+def marque(client, periode):
+    """Clé de déduplication d'une facture : un client, un mois, une facture.
+
+    Portée par la note PRIVÉE du brouillon : Dolibarr n'a aucun lien natif vers les
+    saisies Redmine, et refacturer un mois déjà facturé est la faute qu'on ne peut
+    pas rattraper après envoi.
+    """
+    return f"[invoice:{client}#{periode}]"
+
+
+def deja_facture(marque_attendue, factures_du_tiers):
+    """La facture existante qui porte cette marque, ou None."""
+    for f in factures_du_tiers:
+        if marque_attendue in (f.get("note_privee") or ""):
+            return f
+    return None
+
+
 # ── Assemblage ───────────────────────────────────────────────────────────────
 
 def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_activite,

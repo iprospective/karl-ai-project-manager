@@ -1170,6 +1170,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : création des brouillons** (RM2891, lot 2). `mmi-pm invoice --month AAAA-MM --apply`
+  relit la proposition **amendée** — aucun recalcul, ce que l'humain a relu est ce qui part — et crée
+  une facture **brouillon** par client dans l'ERP : lignes de service (jamais de marchandise), tarif
+  de la dernière facture, note publique au modèle. **Jamais de validation** : une facture émise ne se
+  rattrape pas, la validation reste un geste humain dans Dolibarr. Idempotence par marque
+  `[invoice:<client>#<mois>]` en note privée — Dolibarr n'ayant aucun lien natif vers les saisies
+  Redmine, c'est elle qui empêche de facturer deux fois le même mois.
 - **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
   Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
   (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en

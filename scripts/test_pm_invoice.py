@@ -129,5 +129,32 @@ verifie(cli.normaliser_entite("/zfs/x/projects/clients/matnat") == "matnat",
         "un chemin de dossier client redevient son identifiant (piège du résolveur)")
 verifie(cli.normaliser_entite("pisceen") == "pisceen", "un identifiant reste tel quel")
 
+print("\n7. Brouillons : marque et idempotence")
+m = I.marque("pisceen", "2026-08")
+verifie(m == "[invoice:pisceen#2026-08]", "marque d'une facture : client et mois")
+verifie(I.deja_facture(m, [{"ref": "FA1", "note_privee": "rien"},
+                           {"ref": "FA2", "note_privee": f"posée {m}"}])["ref"] == "FA2",
+        "une facture déjà posée est reconnue à sa marque")
+verifie(I.deja_facture(m, [{"ref": "FA1", "note_privee": "[invoice:pisceen#2026-07]"}]) is None,
+        "un autre mois n'est pas confondu")
+appels = []
+class FauxErp(pm_erp.DolibarrErpProvider):
+    def api(self, methode, chemin, charge=None):
+        appels.append((methode, chemin, charge))
+        return {"id": 4242} if chemin == "invoices" else None
+faux = FauxErp(inst)
+fid = faux.creer_brouillon(7, [pm_erp.Ligne(8.5, 43.0, service_id=3),
+                               pm_erp.Ligne(2.0, 43.0, libelle="Divers les 07, 13 août")],
+                           note_publique="note", note_privee=m, quand=date(2026, 9, 21), projet_id=7)
+verifie(fid == 4242 and appels[0][0] == "POST" and appels[0][1] == "invoices", "entête créé")
+verifie(appels[0][2]["type"] == 0 and appels[0][2]["note_private"] == m,
+        "type facture (0) et marque en note privée")
+verifie(len(appels) == 3 and all(a[1] == "invoices/4242/lines" for a in appels[1:]),
+        "une requête par ligne")
+verifie(all(a[2]["product_type"] == 1 for a in appels[1:]), "lignes de SERVICE (product_type 1)")
+verifie(appels[1][2]["fk_product"] == 3 and "fk_product" not in appels[2][2],
+        "service du catalogue, ou ligne libre")
+verifie(not any("validate" in a[1] for a in appels), "aucune validation : le brouillon reste brouillon")
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

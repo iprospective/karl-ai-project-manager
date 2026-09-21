@@ -87,6 +87,11 @@ class ErpProvider:
         """{id: {"ref", "libelle"}} — le catalogue des prestations."""
         raise NotImplementedError
 
+    def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
+                        quand=None, projet_id=None):
+        """Crée une facture BROUILLON. Ne valide jamais : la validation reste humaine."""
+        raise NotImplementedError
+
     def dernier_tarif(self, tiers_id, factures=None):
         """Prix horaire de la DERNIÈRE facture de ce tiers, ou None s'il n'en a pas.
 
@@ -180,6 +185,40 @@ class DolibarrErpProvider(ErpProvider):
                 lignes=lignes, note_publique=(f.get("note_public") or "").strip(),
                 projet_id=int(f["fk_project"]) if f.get("fk_project") else None))
         return sortie
+
+
+    def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
+                        quand=None, projet_id=None):
+        """Facture brouillon Dolibarr : l'entête, puis ses lignes. Jamais `validate`.
+
+        Une facture émise ne se rattrape pas : l'outil s'arrête au brouillon, que
+        l'humain relit dans Dolibarr avant de valider. Le `product_type` 1 (service)
+        est imposé — une prestation de temps n'est pas une marchandise.
+        """
+        entete = {"socid": int(tiers_id), "type": 0,
+                  "note_public": note_publique, "note_private": note_privee}
+        if quand:
+            entete["date"] = quand.isoformat() if hasattr(quand, "isoformat") else quand
+        if projet_id:
+            entete["fk_project"] = int(projet_id)
+        fid = self.api("POST", "invoices", entete)
+        if isinstance(fid, dict):
+            fid = fid.get("id") or fid.get("rowid")
+        if not fid:
+            raise ErpProviderError(f"Dolibarr n'a pas rendu d'identifiant de facture (tiers {tiers_id})")
+        for l in lignes:
+            ligne = {"qty": round(float(l.quantite), 2), "subprice": float(l.prix_unitaire),
+                     "product_type": 1, "desc": l.libelle or ""}
+            if l.service_id:
+                ligne["fk_product"] = int(l.service_id)
+            self.api("POST", f"invoices/{fid}/lines", ligne)
+        return int(fid)
+
+    def factures_du_tiers(self, tiers_id, limite=100):
+        brut = self.api("GET", f"invoices?thirdparty_ids={int(tiers_id)}&limit={limite}"
+                               f"&sortfield=t.rowid&sortorder=DESC") or []
+        return [{"id": int(f["id"]), "ref": f.get("ref") or "",
+                 "note_privee": (f.get("note_private") or "")} for f in brut]
 
 
 _BACKENDS = {"dolibarr": DolibarrErpProvider}

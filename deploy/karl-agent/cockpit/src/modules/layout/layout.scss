@@ -78,7 +78,28 @@ html[data-layout="mobile"] {
   .mnav-btn.active { color: var(--accent); background: var(--bg); border-color: var(--line); font-weight: 600; }
   .mnav-btn .nbadge { position: absolute; top: 2px; right: 10px; }
   .foot { display: none; }
+
+  /* RM3270 — la barre du haut au doigt : icônes seules, les secondaires sous « … » (révélées en
+     seconde ligne), le nom affiché au premier appui (le bouton reprend alors sa largeur). */
+  #hdrmore { display: inline-flex; }
+  header button.hdr-extra { display: none; }
+  header.hdr-more { flex-wrap: wrap; }
+  header.hdr-more button.hdr-extra { display: inline-flex; }
+  header button { max-width: none; }
+
+  /* RM3270 — le second formulaire sous le terminal : masqué par défaut en mobile (option). */
+  &[data-mcomposer="0"] #composer { display: none !important; }
 }
+/* RM3270 — PLEIN ÉCRAN (mobile) : le clavier mange déjà la moitié de l'écran, on rend le reste au
+   centre. La barre du bas RESTE : c'est elle qui porte la bascule pour en sortir. */
+html[data-layout="mobile"][data-mfull="1"] {
+  header { display: none; }
+  main[data-mpage="center"] .left, main[data-mpage="center"] .rpanel { display: none; }
+  .mnav { padding-top: 2px; padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px)); }
+  .mnav-btn .mnav-lbl { display: none; }          /* en plein écran, la barre du bas se fait discrète */
+  .mnav-btn .mnav-ico { font-size: 15px; }
+}
+#hdrmore { display: none; }                        /* au bureau, tout tient déjà sur la ligne */
 
 // RM3051 — split de la zone centrale (option) : le ticket/document occupe une hauteur
 // réglée à la poignée, la session garde le reste. Sans split, `#reviewpane` reste en

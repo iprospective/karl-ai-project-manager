@@ -104,15 +104,25 @@ function fakeElement() {
   const applied = [];
   const memStore = { m: {}, getItem(k) { return k in this.m ? this.m[k] : null; }, setItem(k, v) { this.m[k] = String(v); } };
   const { mountSettings: MS } = await import(path.join(DIR, "src/modules/settings/settings.controller.js"));
-  const s3 = MS(fakeElement(), fakeElement(), { storage: memStore, applyMonitor: (on) => applied.push(on), repo: { list: async () => [] } });
-  assert.strictEqual(s3.showMonitor(), true, "affichées par défaut : masquer d'office changerait le comportement sans le dire");
-  assert.deepStrictEqual(applied, [true], "l'état initial est appliqué au montage");
-  s3.setShowMonitor(false);
-  assert.strictEqual(s3.showMonitor(), false, "la décoche est retenue");
-  assert.deepStrictEqual(applied, [true, false], "…et appliquée tout de suite, sans rechargement");
-  assert.strictEqual(memStore.getItem("karlShowMonitor"), "0", "la préférence est écrite pour ce navigateur");
+  const composed = [];
+  const s3 = MS(fakeElement(), fakeElement(), { storage: memStore, applyMonitor: (on) => applied.push(on), applyComposer: (on) => composed.push(on), repo: { list: async () => [] } });
+  // RM3270 : défaut INVERSÉ — sur un téléphone, ces commandes prennent la place du travail
+  assert.strictEqual(s3.showMonitor(), false, "masquées par défaut (RM3270)");
+  assert.deepStrictEqual(applied, [false], "l'état initial est appliqué au montage");
+  s3.setShowMonitor(true);
+  assert.strictEqual(s3.showMonitor(), true, "la coche est retenue");
+  assert.deepStrictEqual(applied, [false, true], "…et appliquée tout de suite, sans rechargement");
+  assert.strictEqual(memStore.getItem("karlShowMonitor"), "1", "la préférence est écrite pour ce navigateur");
+  // RM3270 : le second formulaire sous le terminal, en mobile — masqué par défaut, option qui s'applique à chaud
+  assert.strictEqual(s3.mobileComposer(), false, "composer masqué par défaut en mobile");
+  assert.deepStrictEqual(composed, [false], "état initial appliqué au montage");
+  s3.setMobileComposer(true);
+  assert.strictEqual(s3.mobileComposer(), true); assert.deepStrictEqual(composed, [false, true]);
+  assert.strictEqual(memStore.getItem("karlMobileComposer"), "1", "préférence de CE navigateur");
+  const themeC = String(ThemeCard({ local: "auto", hint: "", mobileComposer: true }));
+  assert(/data-mobile-composer checked/.test(themeC) && /second formulaire sous le terminal/.test(themeC), "la case est dans la carte Thème & affichage");
   s3.unmountAll();
-  console.log("✓ commandes de panes tmux (RM3094) : bloc unique, gestes intacts, préférence appliquée à chaud");
+  console.log("✓ commandes de panes tmux (RM3094, défaut masqué RM3270) + second formulaire mobile (RM3270) : préférences appliquées à chaud");
 
   console.log("✓ réglages et thème (RM2213/RM2386) : groupes, figés, sauvegarde confirmée, thème immédiat");
   console.log("\nTous les tests réglages / commandes PM passent.");

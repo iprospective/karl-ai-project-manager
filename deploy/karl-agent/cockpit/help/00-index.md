@@ -55,6 +55,18 @@ ouvrir un onglet de droite bascule sur la colonne de droite. Rien n'est différe
 panneaux au bureau : c'est la même page, disposée autrement. `?layout=mobile` dans l'adresse
 force cette disposition sur un grand écran, `?layout=desktop` l'inverse.
 
+Au doigt, l'écran utile passe avant le décor :
+
+- **⛶ plein écran** (barre du bas) ne laisse que le panneau central. Il s'enclenche
+  **tout seul quand le clavier monte** — et se retire quand il redescend, sauf si on
+  l'a demandé à la main ; **↙** revient à la vue normale.
+- La **barre du haut se réduit aux icônes**, les moins courantes passant sous **…**.
+  Un **premier appui affiche le nom** du bouton, le **second déclenche** son action :
+  au doigt, on ne lance rien à l'aveugle.
+- Deux affichages sont **masqués par défaut** et se rendent dans les réglages
+  (Thème & affichage) : les **commandes de moniteur tmux** et le **second formulaire
+  sous le terminal**.
+
 ## Les boutons d'aide
 
 - **🔓 déverrouiller** (en-tête) n'apparaît que si le coffre de secrets ou l'agent

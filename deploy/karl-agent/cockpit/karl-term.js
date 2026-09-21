@@ -158,17 +158,20 @@
   }
   // <<< shouldTakeOverInput
 
-  // RM3286 : DÉFILEMENT TACTILE. xterm.js ne gère pas le toucher — son viewport ne
-  // reçoit aucun geste — et sur un téléphone il n'y a ni molette ni Maj+PgUp :
-  // l'historique était tout simplement hors d'atteinte. On convertit donc le
-  // glissement vertical en lignes de défilement, avec un reliquat (`acc`) pour que
-  // le texte suive le doigt au lieu d'avancer par à-coups.
+  // RM3286 : DÉFILEMENT TACTILE. xterm.js ne défile au toucher QUE si l'application
+  // n'a pas activé le suivi de souris — or tmux + Claude Code l'activent, et tournent
+  // dans l'écran alternatif où il n'y a AUCUN historique local à faire défiler
+  // (`scrollLines` n'y fait rien : c'est ce qui manquait au premier correctif).
+  // Le geste est donc traduit en ÉVÉNEMENT DE MOLETTE, exactement ce que fait une
+  // souris : xterm l'envoie à l'application quand elle suit la souris (tmux défile
+  // alors son historique à lui), et fait défiler son propre tampon sinon. Un seul
+  // chemin, le même qu'au bureau.
   // >>> touchScrollLines
   function touchScrollLines(dy, rowHeight, acc) {
     var h = rowHeight > 0 ? rowHeight : 17;          // hauteur de ligne inconnue : la valeur par défaut d'xterm
     var total = (acc || 0) + (dy || 0);
     var lines = total > 0 ? Math.floor(total / h) : Math.ceil(total / h);   // vers zéro, dans les deux sens
-    return { lines: lines, rest: total - lines * h };
+    return { lines: lines, rest: total - lines * h, pixels: lines * h };
   }
   // <<< touchScrollLines
 
@@ -260,14 +263,28 @@
       if (!ev.touches || ev.touches.length !== 1) { lastY = null; return; }
       lastY = ev.touches[0].clientY; acc = 0; moved = false;
     }
+    /** L'élément qui porte les écouteurs d'xterm (molette comprise). */
+    function screenEl() {
+      var el = container && container.querySelector ? container.querySelector(".xterm-screen") : null;
+      return el || container;
+    }
     function onMove(ev) {
       if (lastY === null || !ev.touches || ev.touches.length !== 1) return;
-      var y = ev.touches[0].clientY;
+      var t = ev.touches[0], y = t.clientY;
       var r = touchScrollLines(lastY - y, rowHeight(), acc);   // doigt qui monte = on descend dans l'historique
       lastY = y; acc = r.rest;
       if (!r.lines) return;
       moved = true;
-      try { term.scrollLines(r.lines); } catch (e) { /* terminal déjà libéré */ }
+      // une molette, pas un appel interne : xterm décide seul s'il l'envoie à
+      // l'application (tmux) ou s'il défile son tampon — comme au bureau.
+      try {
+        screenEl().dispatchEvent(new WheelEvent("wheel", {
+          deltaY: r.pixels, deltaMode: 0, clientX: t.clientX, clientY: t.clientY,
+          bubbles: true, cancelable: true,
+        }));
+      } catch (e) { /* WheelEvent indisponible : repli sur le tampon local */
+        try { term.scrollLines(r.lines); } catch (e2) { /* terminal déjà libéré */ }
+      }
       // seulement quand on défile VRAIMENT : sinon on confisquerait l'appui simple
       if (ev.cancelable) ev.preventDefault();
     }

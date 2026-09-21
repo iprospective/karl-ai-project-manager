@@ -476,12 +476,21 @@ for texte, attendu in [
 check("un tour de l'AGENT n'est jamais une question du demandeur",
       C.type_heuristique("A", "et si on faisait autrement ?") == "dette")
 
-lignes = [json.dumps({"type": "user", "message": {"content": "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"}}),
+Q_OUVERTE = "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"
+# RM3259 : la MÊME question, selon ce que le demandeur en fait ensuite.
+# Suivie d'une approbation, elle est tranchée — la consigner « ouverte » bloquerait la clôture
+# d'un ticket sur un point que le demandeur considère réglé (mesuré sur RM2881 : 20 sur 21).
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
           json.dumps({"type": "user", "message": {"content": "ok super"}}),
           json.dumps({"type": "user", "message": {"content": "fais la MR et merge"}})]
+check("question approuvée par le demandeur (« ok ») → PAS de question ouverte",
+      [k for k, _t, _e in harv.harvest_items(lignes)] == [], str(harv.harvest_items(lignes)))
+# Restée sans suite du demandeur, elle reste ouverte — c'est ce qui la distingue.
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
+          json.dumps({"type": "assistant", "message": {"content": "Voici ce que je vois : les deux vues lisent le même carnet."}})]
 items = harv.harvest_items(lignes)
 check("la moisson en fait une QUESTION, signée du demandeur",
-      [(k, e.get("by")) for k, _t, e in items] == [("question", "M")], str(items))
+      [(k, e.get("by")) for k, _t, e in items if k == "question"] == [("question", "M")], str(items))
 
 # elle ne passe PAS par le critère de la note : une question ne porte pas de dette
 check("le critère de la note l'aurait écartée — c'est bien pour ça qu'on la teste avant",

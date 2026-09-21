@@ -119,6 +119,76 @@ _INTERRO = re.compile(r"(?:^|[\s(])(est-ce que|pourquoi|comment|combien|qui |quo
                       r"reste[- ]t[- ]il|tenable\b|à trancher|à arbitrer)", re.I)
 
 
+# ── RM3259 : ce qui mérite de rester une QUESTION OUVERTE ────────────────────────
+# Mesure du 2026-09-19 sur RM2881 : 21 questions ouvertes, 20 n'en étaient pas — « quel est le mdp
+# de test ? », « on en est où de la v0 ? », « on enchaîne avec quoi ? ». Elles bloquaient la clôture
+# du ticket. Une question de CONDUITE DE SÉANCE se répond dans la minute et ne change rien plus
+# tard ; une question d'ARBITRAGE attend une décision, et c'est elle qu'on veut retrouver.
+_CONDUITE = re.compile(r"(o[uù] (?:en )?(?:est-on|en sommes-nous|en es-tu)|on en est o[uù]|"
+                       r"(?:c'est|ca|ça) (?:fait|bon|pr[êe]t|fini)\s*\?|tu as fini|as-tu fini|"
+                       r"encha[îi]ne(?:r|s)? avec quoi|on fait quoi (?:maintenant|apr[èe]s)|"
+                       r"(?:quelle|la) suite\b|on continue\s*\?|"
+                       r"mot de passe|mdp\b|identifiants?\b|quelle url|quel (?:lien|port|chemin)\b|"
+                       r"je ne (?:vois|comprends) pas|c'est o[uù]\s*\?|"
+                       r"quelles? questions? bloque|[çc]a (?:marche|fonctionne)\s*\?)", re.I)
+#: marques d'un ARBITRAGE en attente — elles priment sur la conduite de séance : « on enchaîne
+#: avec quoi, ou faut-il d'abord trancher X ? » est une question, malgré sa première moitié.
+_ARBITRAGE = re.compile(r"(faut-il|doit-on|vaut-il mieux|ou bien\b|plut[ôo]t que|"
+                        r"est-ce (?:pertinent|souhaitable|raisonnable)|"
+                        r"quelle (?:strat[ée]gie|architecture|convention|politique|r[èe]gle)|"
+                        r"[àa] terme\b|[àa] trancher|[àa] arbitrer|on part sur)", re.I)
+#: une question d'arbitrage tient rarement en six mots ; en dessous, c'est de la conduite de séance
+_MIN_MOTS_QUESTION = 7
+#: un « mot » au sens du critère : les nombres et la ponctuation ne comptent pas (même règle que
+#: `pm_think.note_pertinente`, qui mesure la même chose — la matière du texte)
+_MOT = re.compile(r"[^\W\d_]{2,}", re.U)
+
+
+#: « Q29 : pour les ACL je dirais oui » — le demandeur RÉPOND à une question numérotée du carnet.
+#: C'est une décision, et surtout pas une nouvelle question ouverte.
+_REPONSE_A_Q = re.compile(r"^\s*(?:[-*•]\s*)?Q\s*\d{1,3}\s*[:.\)]", re.I)
+
+
+def question_pertinente(texte: str):
+    """(pertinente, motif) — cette question mérite-t-elle de rester OUVERTE sur un ticket ?
+
+    Pendant de `pm_think.note_pertinente` pour les questions. RM3090 les en avait dispensées à
+    dessein (« une question ne porte pas de dette, elle porte un arbitrage en attente ») : c'est
+    vrai d'un arbitrage, faux d'une question d'exploitation, et c'est cette nuance qui manquait.
+    En cas de doute : PERTINENTE — une question perdue ne se retrouve pas, une question de trop
+    se trie (et, depuis RM3258, se déplace). Pure, testée sur les 21 entrées réelles de RM2881."""
+    s = " ".join(str(texte or "").split())
+    if not s:
+        return False, "vide"
+    if _REPONSE_A_Q.match(s):
+        return False, "réponse à une question du carnet — c'est une décision"
+    if _ARBITRAGE.search(s):
+        return True, "arbitrage"
+    if _CONDUITE.search(s):
+        return False, "conduite de séance (se répond dans la minute, ne change rien plus tard)"
+    if len(_MOT.findall(s)) < _MIN_MOTS_QUESTION:
+        return False, "trop courte pour porter un arbitrage"
+    return True, "question"
+
+
+def deja_tranchee(suite: list) -> bool:
+    """La question a-t-elle été RÉGLÉE dans la suite du fil ? Pure.
+
+    `suite` = les tours qui suivent, du plus proche au plus lointain, sous forme (role, texte).
+    Le signal n'est pas que l'agent ait répondu — il répond toujours — mais que le DEMANDEUR ait
+    PRIS la réponse : son tour suivant approuve (« ok »), ou donne la consigne d'après. S'il
+    réinterroge, ou si la séance s'arrête sans qu'il dise rien, la question reste ouverte.
+    Un seul tour décide : celui d'après. Plus loin dans le fil, on parle d'autre chose."""
+    for role, texte in suite:
+        if role != "M":
+            continue
+        s = " ".join(str(texte or "").split())
+        if not s:
+            continue
+        return type_heuristique("M", s) != "question"
+    return False
+
+
 def type_heuristique(role: str, texte: str) -> str:
     """`question` ou `dette` (→ note) pour un tour, SANS modèle. Pure, testée.
 

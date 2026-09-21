@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une session épinglée éteinte se reprend d'un clic** (RM3265) : RM2819 relançait celles qui
+  appartiennent à un jeu ; les autres n'avaient droit qu'à « introuvable, fermer l'onglet ». Le clic
+  cherche désormais leur conversation par le ticket, prend la session éteinte (jamais celle qui
+  tourne) et la reprend, ancrée sur ce même ticket. Le survol annonce le geste : « clic : attacher »
+  ou « clic : relancer ou reprendre la conversation ».
 - **karl s'installe en service d'équipe : une instance par développeur** (RM3070, lots L4 et L5).
   Côté cockpit, la session d'un autre porte désormais son nom — un administrateur voit toutes les
   sessions, il lui fallait savoir à qui elles sont ; la sienne n'est pas étiquetée. Côté installation,

@@ -770,6 +770,25 @@ check("CLI : rouvrir retire le lien et dit ce que devient la décision",
 check("grammaire : « Origine » est généralisée aux quatre rubriques",
       all("Origine" in pm_think.KINDS[k][2] for k in ("note", "question", "decision", "feature")))
 
+# ── 11. RM3269 (correction) : le garde-fou est un filet, pas un mur ──────────
+print("· RM3269 échappatoire")
+_s69 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("--force existe : trancher sans décision reste POSSIBLE", '"--force"' in _s69)
+check("…le refus PROPOSE l'échappatoire (sinon on la cherche)", "--force " in _s69 and "orphans" in _s69)
+check("…et le forçage est TRACÉ au journal", "_log_force" in _s69 and "SANS décision" in _s69)
+check("écarter (invalide) n'a jamais eu besoin de --force",
+      'a.state == "valide"' in _s69)
+_srv = (SCRIPTS / "karl-agent.py").read_text(encoding="utf-8")
+check("serveur : le cockpit peut relayer force sur une question validée",
+      'payload.get("force")' in _srv and '"--force"' in _srv)
+_ui = (SCRIPTS.parent / "deploy" / "karl-agent" / "cockpit" / "src" / "modules" / "cdc" / "cdc.controller.js").read_text(encoding="utf-8")
+check("cockpit : la décision est RÉCLAMÉE à la validation (plus « facultatif »)",
+      "La DÉCISION qui tranche" in _ui)
+check("cockpit : commentaire vide → confirmation explicite, puis force",
+      "SANS consigner de décision" in _ui and "body.force = true" in _ui)
+check("cockpit : écarter garde son motif facultatif",
+      "Motif de l'écartement (facultatif)" in _ui)
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

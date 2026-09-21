@@ -1195,6 +1195,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   confirmée par une seconde frappe** — un secret mal tapé se pose sans bruit et ne se relit
   jamais. L'usage scripté (tube, redirection) est inchangé, et les trois règles du script
   tiennent : jamais en argument, jamais relu, jamais journalisé.
+- **Feuille de temps : valider journée par journée** (RM3229, lots L0–L1). Premier pas vers le
+  menu Facturation du cockpit : `mmi-pm timesheet --day AAAA-MM-JJ` calcule, ajuste et applique
+  UNE journée — l'unité de validation. `--start`/`--end`/`--client` posent les horaires normaux et
+  le client principal du jour (ils remplacent la présence régulière de ce jour-là, jamais deux
+  planchers empilés) ; `--validate-empty` valide une journée saisie entièrement à la main ;
+  `--json` sert la matière de l'écran de validation. Chaque journée TERMINÉE est mise en cache
+  (`~/.local/state/mmi-pm/timesheet/cache/`) : 21 s au premier calcul, **1 s** ensuite — c'est ce
+  qui rendra la vue interactive, et c'est une archive si les transcripts disparaissent. Les
+  réglages passent dans `~/.config/mmi-pm/timesheet.yml` : posés jusqu'ici dans un fichier de
+  travail de session, ils avaient disparu avec lui. Défaut corrigé au passage, antérieur au
+  chantier : le complément d'une journée de régie ignorait le temps DÉJÀ saisi ; une journée
+  validée se voyait re-proposer son complément à chaque recalcul — un doublon de facturation.
 - **L'annuaire de contacts devient utile aux automatismes, et visible** (RM3024, lots L4-L5
   de RM2703). Trois consommateurs le lisent désormais. **`internal` est un attribut de
   personne** : posé ligne par ligne, il ne voulait rien dire — la même personne était marquée

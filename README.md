@@ -64,6 +64,9 @@ $EDITOR var/timesheet/2026-08.yml         # on relit, on corrige
 mmi-pm timesheet --month 2026-08 --apply  # crée les saisies dans Redmine (idempotent)
 ```
 
+Une journée à la fois : `mmi-pm timesheet --day 2026-08-26 [--start 09:30 --end 18:30
+--client matnat]`, puis `--apply`. Réglages dans `~/.config/mmi-pm/timesheet.yml`.
+
 Reconstitue le temps de travail **humain** à partir des traces des agents
 (transcripts, journaux de tickets, bases opencode), le répartit par
 client / projet / ticket, refacture le transversal aux clients du jour et

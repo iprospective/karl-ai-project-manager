@@ -98,6 +98,23 @@ except ValueError as e:
     check("deux saisies différentes : refus", "diffèrent" in str(e))
 check("hors terminal : l'entrée standard, inchangée",
       P.lire_valeur(False, flux=io.StringIO(" valeur-pipee \n")) == "valeur-pipee")
+# ── Préfixe déduit du registre (RM3263) ─────────────────────────────────────
+print("\nPréfixe déduit du registre")
+# registre simulé : ne dépend d'aucun type ni axe ajouté par un autre ticket
+faux = {"nc-ipro": ("nextcloud", "doc"), "vault-maison": ("type-maison", "secret"),
+        "mystere": ("inconnu", "inconnu")}.get
+check("instance déclarée : préfixe déduit du type",
+      P.deduire_prefixe(None, None, None, "nc-ipro", faux) == "NC")
+check("axe en repli quand le type est inconnu",
+      P.deduire_prefixe(None, None, None, "vault-maison", faux) == "SECRET")
+check("--type explicite garde la priorité",
+      P.deduire_prefixe(None, "vaultwarden", None, "nc-ipro", faux) == "SECRET")
+check("--prefix garde la priorité",
+      P.deduire_prefixe("XYZ", "nextcloud", None, "nc-ipro", faux) == "XYZ")
+check("instance inconnue et aucun indice : rien à déduire",
+      P.deduire_prefixe(None, None, None, "mystere", faux) is None)
+check("registre injoignable : pas d'exception, juste None",
+      P.deduire_prefixe(None, None, None, "x", lambda n: (_ for _ in ()).throw(RuntimeError())) is None)
 
 print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm-provider-secret"))
 sys.exit(1 if FAIL else 0)

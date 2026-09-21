@@ -96,6 +96,31 @@ def lire_valeur(interactif, lecteur_masque=None, flux=None):
     if premiere != seconde:
         raise ValueError("les deux saisies diffèrent — rien n'a été écrit")
     return (premiere or "").strip()
+def deduire_prefixe(prefix, type_, axis, instance, registre=None):
+    """Préfixe de la variable : ce qui est donné, sinon ce que le REGISTRE sait déjà.
+
+    L'instance est déclarée dans `pm.config.yml` avec son type et son axe : redemander
+    `--type` à l'appelant, c'est lui offrir l'occasion de se tromper — un type erroné
+    écrit la clé sous un nom que le provider ne cherchera jamais. `registre` est une
+    fonction `nom -> (type, axe)`, injectée pour les tests.
+    """
+    explicite = prefix or TYPE_PREFIXES.get((type_ or "").lower()) or PREFIXES.get((axis or "").lower())
+    if explicite or not instance:
+        return explicite
+    try:
+        itype, iaxis = (registre or _registre_instance)(instance)
+    except Exception:
+        return None
+    return TYPE_PREFIXES.get((itype or "").lower()) or PREFIXES.get((iaxis or "").lower())
+
+
+def _registre_instance(instance):
+    """(type, axe) d'une instance déclarée au registre des providers."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pm_paths import PMConfig
+    from pm_registry import Registry
+    inst = Registry.from_config(PMConfig.load().providers).get(instance)
+    return inst.type, inst.axis
 
 
 def env_path(scope: str, user: str = None) -> Path:
@@ -166,17 +191,19 @@ def main():
     interactif = sys.stdin.isatty()
     if not a.instance:
         sys.exit("ERREUR : --instance requis (ou --status)")
+    # Le préfixe d'abord : c'est lui qui dit quelles clés ce provider attend.
+    prefixe = deduire_prefixe(a.prefix, a.type, a.axis, a.instance)
+    if not prefixe:
+        sys.exit(f"ERREUR : instance {a.instance!r} inconnue du registre (pm.config.yml → "
+                 "providers.servers) — la déclarer, ou nommer la variable avec --prefix / "
+                 "--type / --axis")
     if not a.key:
         if not interactif:
             sys.exit("ERREUR : --key requis (hors terminal, rien ne peut être demandé)")
         try:
-            a.key = demander_nom_cle(a.prefix or TYPE_PREFIXES.get((a.type or "").lower())
-                                     or PREFIXES.get((a.axis or "").lower()))
+            a.key = demander_nom_cle(prefixe)
         except (ValueError, EOFError, KeyboardInterrupt) as e:
             sys.exit(f"ERREUR : {e or 'saisie interrompue'}")
-    prefixe = a.prefix or TYPE_PREFIXES.get((a.type or "").lower()) or PREFIXES.get((a.axis or "").lower())
-    if not prefixe:
-        sys.exit("ERREUR : --prefix, --type ou --axis requis pour nommer la variable")
     try:
         variable = nom_variable(a.instance, a.key, prefixe)
     except ValueError as e:

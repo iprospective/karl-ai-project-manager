@@ -367,7 +367,7 @@ def calculer(args, cfg, conf):
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
-    return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+    return {"resolver": resolver, "items": items, "ajouts": ajouts, "transferts": transferts,
             "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
@@ -787,10 +787,42 @@ def ajuster_journee(args):
         print(f"✓ journée {args.day} : validée sans ajout")
 
 
-def vue_json(res, prop):
+def _cible_lisible(event):
+    """La cible la mieux notée d'une trace : (client, projet, ticket). Inerte."""
+    if not getattr(event, "scores", None):
+        return {"client": None, "projet": None, "ticket": None}
+    (ent, pr, rm), _poids = max(event.scores.items(), key=lambda kv: kv[1])
+    return {"client": ent, "projet": pr, "ticket": rm}
+
+
+def _extrait(texte, n=140):
+    """Une ligne lisible d'une trace : ce que Mathieu a écrit, sans les retours."""
+    return " ".join(str(texte or "").split())[:n]
+
+
+def traces_du_jour(res, jour):
+    """Toutes les traces horodatées d'une journée, humaines ET d'agent.
+
+    C'est la pièce à conviction de la journée : chaque minute proposée vient de là.
+    Les traces d'AGENT (`extends: false`) sont marquées — elles ne créent pas de
+    temps, elles servent seulement à savoir sur quoi le temps créé portait.
+    """
+    sortie = []
+    for event, _rm in res.get("items") or []:
+        if event.ts.date().isoformat() != jour:
+            continue
+        sortie.append({"heure": event.ts.strftime("%H:%M"), "source": event.source,
+                       "humain": bool(event.extends), "chars": event.chars,
+                       "extrait": _extrait(event.text), **_cible_lisible(event)})
+    return sorted(sortie, key=lambda t: t["heure"])
+
+
+def vue_json(res, prop, commits=True):
     """La matière de l'écran de validation (cockpit) : une entrée par journée.
 
     Le temps IA y figure en face du temps humain : c'est lui qui justifie une plage.
+    Les traces et les commits sont la pièce à conviction — sans eux, l'écran demande
+    de croire un chiffre ; avec eux, il le donne à vérifier.
     """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
@@ -813,6 +845,9 @@ def vue_json(res, prop):
                     "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
                     "minutes": k["minutes"]}
                    for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
+            "traces": traces_du_jour(res, j),
+            "commits": (W.commits_du_jour(j, auteur=(res.get("params") or {}).get("git_author")
+                                          or "Mathieu Moulin") if commits else []),
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

@@ -19,6 +19,21 @@ export class BillingService {
     this.error = null;
     this.busy = null;                    // geste en cours : "adjust" | "apply"
     this.edit = null;                    // { debut, fin, client, projet, pause } en cours de saisie
+    this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
+  }
+
+  /**
+   * La liste des clients et projets PM. Chargée UNE fois : elle ne change pas d'une
+   * journée à l'autre, et l'écran en a besoin dès le premier rendu du formulaire.
+   * Un échec est sans gravité — les menus retombent sur une saisie libre.
+   */
+  async chargerProjets() {
+    if (this.projets.length) return this.projets;
+    try {
+      const r = await this.repo.projects();
+      this.projets = (r && r.projects) || [];
+    } catch (e) { this.projets = []; }
+    return this.projets;
   }
 
   /** Change de journée : l'édition en cours ne suit pas — elle appartenait à l'autre jour. */

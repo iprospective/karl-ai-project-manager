@@ -48,8 +48,8 @@ export function Ajustement(vm) {
     <label>fin <input class="bl-h" type="time" data-action="field" data-field="fin" value="${h.fin}"></label>
     <label title="Vide : 1 h au-delà de 6 h travaillées">pause <input class="bl-p" data-action="field" data-field="pause" value="${String(h.pause)}" placeholder="auto"></label>
     <span class="bl-worked" title="Heures travaillées, pause déduite">= ${h.label}</span>
-    <label title="Client pour qui la journée a majoritairement été faite">client <input class="bl-c" data-action="field" data-field="client" value="${vm.f.client || ""}" placeholder="—"></label>
-    <label>projet <input class="bl-c" data-action="field" data-field="projet" value="${vm.f.projet || ""}" placeholder="—"></label>
+    <label title="Client pour qui la journée a majoritairement été faite">client <select class="bl-c" data-action="field" data-field="client"><option value="">—</option>${vm.clients.map(c => html`<option value="${c.value}"${c.selected ? raw(" selected") : ""}>${c.value}</option>`)}</select></label>
+    <label>projet <select class="bl-c" data-action="field" data-field="projet"><option value="">—</option>${vm.projetsDuClient.map(x => html`<option value="${x.value}"${x.selected ? raw(" selected") : ""}>${x.value}</option>`)}</select></label>
     <button class="mini${vm.dirty ? " active" : ""}" data-action="save" ${vm.dirty && !vm.busy ? raw("") : raw("disabled")}>Enregistrer</button>
     ${vm.ajuste ? html`<button class="mini" data-action="clear" title="Revenir à ce que les traces disent">↺ ajustement</button>` : ""}
     <span class="bl-src">${vm.ajuste ? "heures ajustées à la main" : h.debut ? "heures déduites des traces" : ""}</span>
@@ -88,10 +88,36 @@ export function Actions(vm) {
   </div>`;
 }
 
+/**
+ * Les traces horodatées de la journée : ce sur quoi le calcul s'appuie, à la minute.
+ *
+ * Un chiffre sans ses preuves demande qu'on le croie. Cette liste le donne à vérifier.
+ */
+export function Traces(vm) {
+  const t = vm.traces;
+  if (!t.length) return "";
+  return html`<details class="bl-ev"><summary>traces de la journée — ${String(t.length)} (${String(vm.tracesHumaines)} humaines)</summary><div class="bl-evl">${t.map(x => html`<div class="bl-evr${x.humain ? "" : " bl-ag"}"><span class="bl-eh">${x.heure}</span><span class="bl-es" title="${x.humain ? "trace humaine : elle crée du temps" : "trace d'agent : elle attribue le temps, elle n'en crée pas"}">${x.source}</span><span class="bl-ec">${x.cible}${x.rm ? html` <a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">RM${String(x.rm)}</a>` : ""}</span><span class="bl-ex">${x.extrait}</span></div>`)}</div></details>`;
+}
+
+/** Les commits de la journée : la trace la plus dure de ce qui a été produit. */
+export function Commits(vm) {
+  const c = vm.commits;
+  if (!c.total) return "";
+  const ligne = (x) => html`<div class="bl-evr"><span class="bl-eh">${x.heure}</span><span class="bl-ed" title="${x.client}">${x.depot}</span><span class="bl-ex">${x.sujet}</span><span class="bl-sha">${x.sha}</span></div>`;
+  return html`<details class="bl-ev" open><summary>commits — ${String(c.travail.length)} de travail${c.plomberie.length ? html` <span class="bl-dim">· ${String(c.plomberie.length)} de plomberie PM</span>` : ""}</summary><div class="bl-evl">${c.travail.map(ligne)}</div>${c.plomberie.length ? html`<details class="bl-sub2"><summary>plomberie PM (${String(c.plomberie.length)}) — ticks, moissons, rapports</summary><div class="bl-evl">${c.plomberie.map(ligne)}</div></details>` : ""}</details>`;
+}
+
+/** Le temps de l'IA, groupé par ticket — en face du temps humain, jamais mélangé avec lui. */
+export function TempsIA(vm) {
+  const g = vm.ia;
+  if (!g.length) return "";
+  return html`<details class="bl-ev"><summary>temps IA — ${vm.chiffres[3].valeur} sur ${String(g.length)} cible(s)</summary><div class="bl-evl">${g.map(x => html`<div class="bl-evr"><span class="bl-eh">${x.plage}</span><span class="bl-ec">${x.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">${x.cle}</a>` : x.cle}</span><span class="bl-ex">${x.cible} <span class="bl-dim">${x.modeles}</span></span><span class="bl-min">${x.duree}</span><span class="bl-tool">${String(x.tours)} tours · ${x.jetons}</span></div>`)}</div></details>`;
+}
+
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}`;
+  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Commits(vm)}${TempsIA(vm)}${Traces(vm)}`;
 }
 
 export function Card(vm) {

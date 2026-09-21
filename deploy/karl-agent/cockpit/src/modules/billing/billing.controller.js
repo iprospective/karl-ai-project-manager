@@ -26,7 +26,7 @@ export function mountBilling({ card } = {}, ctx = {}) {
 
   const vm = () => new BillingViewModel({
     day: svc.day, jour: svc.jour, form: svc.form(), loading: svc.loading,
-    error: svc.error, busy: svc.busy, dirty: svc.dirty,
+    error: svc.error, busy: svc.busy, dirty: svc.dirty, projets: svc.projets,
   });
   const h = card ? mount(card, "", { events: [
     ["click", "[data-action]", (ev, el) => onClick(ev, el)],
@@ -40,7 +40,11 @@ export function mountBilling({ card } = {}, ctx = {}) {
 
   /** Ouverture du menu : la première fois charge, ensuite réaffiche (et relit si la journée est celle du jour). */
   async function open() {
-    if (!opened) { opened = true; return load(false); }
+    if (!opened) {
+      opened = true;
+      svc.chargerProjets().then(render);   // les menus se peuplent dès qu'ils arrivent
+      return load(false);
+    }
     render();
     return svc.jour;
   }
@@ -50,7 +54,13 @@ export function mountBilling({ card } = {}, ctx = {}) {
     svc.setDay(jour); retiens(svc.day); return load(false);
   }
 
-  function onField(el) { svc.setField(el.dataset.field, el.value); render(); }
+  function onField(el) {
+    svc.setField(el.dataset.field, el.value);
+    // Changer de client invalide le projet : un projet appartient à UN client, et
+    // laisser l'ancien afficherait une paire qui n'existe pas.
+    if (el.dataset.field === "client") svc.setField("projet", "");
+    render();
+  }
 
   async function garde(fn, succes) {
     try { await fn(); notify(succes); }

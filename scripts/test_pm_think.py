@@ -681,6 +681,95 @@ check("…et la ligne garde la largeur de SA table", len(rr["cells"]) == 5, str(
 check("_apparie : en-têtes identiques → la ligne passe telle quelle",
       pm_think._apparie(["#", "Question"], ["#", "Question"], ["Q001", "x"]) == ["Q001", "x"])
 
+# ── 9. RM3269 : trancher une question appelle sa décision ────────────────────
+print("· RM3269 trancher = décider")
+_d3269 = Path(tempfile.mkdtemp(prefix="pm-think-3269-"))
+_c3269 = _d3269 / "RM3269t_x.think.md"
+_c3269.write_text(
+    "# RM3269t — Réflexion\n\n## Questions ouvertes\n\n"
+    "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n"
+    "|---|---|---|---|---|---|---|\n"
+    "| Q001 | 2026-09-21 · M | orpheline |  | moyenne | ✅ |  |\n"
+    "| Q002 | 2026-09-21 · M | reliée colonne |  | moyenne | ✅ | D001 |\n"
+    "| Q003 | 2026-09-21 · M | reliée citation |  | moyenne | ✅ |  |\n"
+    "| Q004 | 2026-09-21 · M | ouverte |  | moyenne | 🕐 |  |\n"
+    "| Q005 | 2026-09-21 · M | écartée |  | moyenne | ❌ |  |\n"
+    "\n## Décisions\n\n| # | Date · auteur | Objet | État |\n|---|---|---|---|\n"
+    "| D001 | 2026-09-21 · M | tranche un truc | ✅ |\n"
+    "| D002 | 2026-09-21 · M | Q003 : on fait comme ça | ✅ |\n", encoding="utf-8")
+_p3269 = pm_think.load(_c3269)
+check("decision_liante : orpheline → rien", pm_think.decision_liante(_p3269, "Q001") == "")
+check("decision_liante : colonne « Tranchée par »", pm_think.decision_liante(_p3269, "Q002") == "D001")
+check("decision_liante : décision qui CITE la question", "Q003" in pm_think.decision_liante(_p3269, "Q003"))
+check("decision_liante : --dest l'emporte sur tout", pm_think.decision_liante(_p3269, "Q001", "D002") == "D002")
+_orph = [q for q, _ in pm_think.questions_orphelines(_p3269)]
+check("questions_orphelines : seule la tranchée sans lien", _orph == ["Q001"], str(_orph))
+check("…une question OUVERTE n'est pas orpheline", "Q004" not in _orph)
+check("…une question ÉCARTÉE (❌) n'est pas tranchée", "Q005" not in _orph)
+_src3269 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --decide-with pose la décision et tranche en un appel", "--decide-with" in _src3269)
+check("CLI : --orphans liste les tranchées sans décision", "--orphans" in _src3269)
+check("CLI : le garde-fou ne vise QUE valide (écarter n'est pas trancher)",
+      'a.state == "valide"' in _src3269 and "decision_liante" in _src3269)
+
+# ── 10. RM3290 : requalifier, rouvrir, déplacer une question tranchée ────────
+print("· RM3290 requalification")
+_d90 = Path(tempfile.mkdtemp(prefix="pm-think-3290-"))
+def _carnet90():
+    f = _d90 / "RM90_x.think.md"
+    f.write_text("# RM90\n\n## Notes — vrac verbatim, jamais reformulé\n\n"
+        "| # | Date · auteur | Verbatim | État | Traitée par | Origine |\n|---|---|---|---|---|---|\n"
+        "\n## Questions ouvertes\n\n"
+        "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par | Origine |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| Q001 | 2026-08-01 · Mathieu | This session is being continued from a previous | X | haute | ✅ | D007 |  |\n"
+        "\n## Décisions\n\n| # | Date · auteur | Objet | État | Origine |\n|---|---|---|---|---|\n"
+        "| D001 | 2026-08-01 · Mathieu | un arbitrage | ✅ |  |\n", encoding="utf-8")
+    return f
+_f90 = _carnet90()
+_r90 = pm_think.requalify_row(_f90, "Q001", "note", rm_id=90)
+check("requalifier : Q001 → N001", _r90 == ("question", "Q001", "note", "N001"), str(_r90))
+_p90 = pm_think.load(_f90)
+check("…la question quitte sa table (ne bloque plus la clôture)", not _p90["question"]["rows"])
+_n90 = _p90["note"]["rows"][0]
+check("…le texte suit, malgré le changement de NOM de colonne",
+      pm_think.texte(_p90["note"], _n90, "note").startswith("This session"))
+check("…« Date · auteur » d'origine préservés",
+      pm_think.cell(_p90["note"], _n90, "Date · auteur") == "2026-08-01 · Mathieu")
+check("…l'état est préservé", _n90["state"] == "valide")
+check("…la piste « ex-Q001 » est écrite en Origine",
+      pm_think.cell(_p90["note"], _n90, "Origine") == "ex-Q001")
+check("…et le lien « Tranchée par » ne suit PAS (il ne veut plus rien dire hors question)",
+      "D007" not in " ".join(_n90["cells"]))
+pm_think.requalify_row(_f90, "N001", "question", rm_id=90)
+_q90 = pm_think.load(_f90)["question"]
+check("aller-retour : les pistes s'EMPILENT, rien n'est écrasé",
+      pm_think.cell(_q90, _q90["rows"][0], "Origine") == "ex-Q001 ex-N001")
+try:
+    pm_think.requalify_row(_f90, "Q001", "question", rm_id=90); check("même rubrique refusée", False)
+except ValueError as _e: check("requalifier vers sa PROPRE rubrique est refusé", "déjà" in str(_e))
+_f90b = _carnet90()
+_rc = pm_think.requalify_row(_f90b, "D001", "decision", prefix="C", rm_id=90)
+check("une décision peut être ravalée en conseil (même rubrique, préfixe différent)",
+      _rc == ("decision", "D001", "decision", "C001"), str(_rc))
+# déplacement d'une question tranchée : le lien devient inter-tickets
+_f90c = _carnet90(); _dst90 = _d90 / "RM91_y.think.md"
+_dst90.write_text("# RM91\n\n## Questions ouvertes\n\n"
+    "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par | Origine |\n"
+    "|---|---|---|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.move_row(_f90c, "Q001", _dst90, rm_id=91)
+_qd = pm_think.load(_dst90)["question"]; _rd = _qd["rows"][0]
+check("déplacer une question TRANCHÉE : le lien devient inter-tickets",
+      pm_think.cell(_qd, _rd, "Tranchée par") == "RM90-D007",
+      pm_think.cell(_qd, _rd, "Tranchée par"))
+check("…et l'origine dit d'où elle vient", "RM90-Q001" in pm_think.cell(_qd, _rd, "Origine"))
+_src90 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --requalify / --as existent", "--requalify" in _src90 and '"--as"' in _src90)
+check("CLI : rouvrir retire le lien et dit ce que devient la décision",
+      "rouverte" in _src90 and "set_dest" in _src90)
+check("grammaire : « Origine » est généralisée aux quatre rubriques",
+      all("Origine" in pm_think.KINDS[k][2] for k in ("note", "question", "decision", "feature")))
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

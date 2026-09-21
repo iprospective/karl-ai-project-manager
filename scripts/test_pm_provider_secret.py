@@ -74,5 +74,23 @@ os.environ["PM_CORE_DIR"] = "/tmp/faux-core"
 check("scope global = le .env de l'instance", str(P.env_path("global")) == "/tmp/faux-core/.env")
 del os.environ["PM_CORE_DIR"]
 
+# ── Préfixe déduit du registre (RM3263) ─────────────────────────────────────
+print("\nPréfixe déduit du registre")
+# registre simulé : ne dépend d'aucun type ni axe ajouté par un autre ticket
+faux = {"nc-ipro": ("nextcloud", "doc"), "vault-maison": ("type-maison", "secret"),
+        "mystere": ("inconnu", "inconnu")}.get
+check("instance déclarée : préfixe déduit du type",
+      P.deduire_prefixe(None, None, None, "nc-ipro", faux) == "NC")
+check("axe en repli quand le type est inconnu",
+      P.deduire_prefixe(None, None, None, "vault-maison", faux) == "SECRET")
+check("--type explicite garde la priorité",
+      P.deduire_prefixe(None, "vaultwarden", None, "nc-ipro", faux) == "SECRET")
+check("--prefix garde la priorité",
+      P.deduire_prefixe("XYZ", "nextcloud", None, "nc-ipro", faux) == "XYZ")
+check("instance inconnue et aucun indice : rien à déduire",
+      P.deduire_prefixe(None, None, None, "mystere", faux) is None)
+check("registre injoignable : pas d'exception, juste None",
+      P.deduire_prefixe(None, None, None, "x", lambda n: (_ for _ in ()).throw(RuntimeError())) is None)
+
 print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm-provider-secret"))
 sys.exit(1 if FAIL else 0)

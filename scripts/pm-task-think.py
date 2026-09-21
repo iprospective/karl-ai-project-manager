@@ -38,7 +38,9 @@ ne tranche la question — ni `--dest Dnnn`, ni une colonne « Tranchée par » 
 qui cite `Qnnn`. Trois sorties : `--decide-with "…"` (pose la décision et relie, en un appel), `--dest Dnnn`
 (relier une décision qui existe), ou `--state invalide` si ce n'était pas une question (capture du harvest,
 RM3141) — écarter n'est pas trancher, et n'exige donc rien. `--orphans` liste les questions déjà tranchées
-sans décision, héritées d'avant le garde-fou.
+sans décision, héritées d'avant le garde-fou. `--force` TRANCHE QUAND MÊME (la décision viendra plus tard) :
+l'échappatoire est explicite, tracée au journal, et le manque reste retrouvable par `--orphans` — un garde-fou
+sans échappatoire rendait la transition impossible depuis le cockpit, dont le commentaire est facultatif (RM3227).
 
 Le think est la matière de travail du ticket (hors wiki) ; `pm-think-merge` la fusionne vers les fichiers
 du projet (`docs/cdc-*.md`). Les scripts et hooks appellent cet outil AVANT l'agent (D005) : l'agent
@@ -132,6 +134,21 @@ def _log_deplacement(sheet, rid, sens, autre_rm, autre_id, par=None):
         pass                      # un journal non écrivable n'empêche pas le déplacement
 
 
+def _log_force(sheet, rid, par=None):
+    """RM3269 — trace un forçage. Trancher sans décision reste POSSIBLE (sinon l'UI est bloquée),
+    mais jamais silencieux : le journal dit qu'une question a été close sans son pourquoi, et
+    `--orphans` permet d'y revenir."""
+    from datetime import datetime
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Question tranchée SANS décision ({rid}, --force)\n"
+            f"Tokens : 0 | Durée : 0 min\n\nPar {qui}. À reprendre : `mmi-pm task-think <id> --orphans`.\n")
+    try:
+        with open(_log_path(sheet), "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass
+
+
 def _log_requalif(sheet, ancien, ancien_kind, neuf, neuf_kind, par=None):
     """RM3290 — trace la requalification au journal. Le carnet ne montre que l'état d'arrivée
     (plus la colonne « Origine ») ; c'est le journal qui dit ce que l'entrée était, et quand."""
@@ -168,6 +185,8 @@ def main():
                     help="RM3290 : change une entrée de RUBRIQUE (avec --as), sans la détruire")
     ap.add_argument("--as", dest="as_kind", choices=["note", "question", "decision", "conseil", "feature"],
                     help="RM3290 : rubrique d'arrivée du --requalify")
+    ap.add_argument("--force", action="store_true",
+                    help="RM3269 : trancher une question SANS décision — échappatoire explicite, tracée au journal")
     ap.add_argument("--orphans", action="store_true",
                     help="RM3269 : liste les questions tranchées (✅) que rien ne relie à une décision")
     ap.add_argument("--by", default="A"); ap.add_argument("--sid", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
@@ -288,15 +307,24 @@ def main():
         # (RM2316-Q004) et le raisonnement a été perdu. Le garde-fou ne vaut que pour « valide » :
         # `invalide` ÉCARTE une entrée (une consigne captée par erreur par le harvest, cas courant
         # — RM3141) et écarter n'est pas trancher, donc n'exige aucune décision.
+        # RM3269 (correction) : le garde-fou est un FILET, pas un mur. Sans échappatoire il rendait
+        # la transition impossible depuis le cockpit, dont le commentaire — donc la décision — est
+        # facultatif (RM3227) : on ne pouvait plus trancher depuis l'UI. `--force` tranche quand même,
+        # et le dit au journal : ce qui manque doit rester RETROUVABLE (`--orphans`), pas interdit.
         est_question = str(a.set)[:1].upper() == "Q"
+        force_sans_decision = False
         if est_question and a.state == "valide" and not a.decide_with:
             lien = pm_think.decision_liante(parsed, a.set, a.dest)
-            if not lien:
+            if not lien and a.force:
+                force_sans_decision = True
+            elif not lien:
                 sys.exit(
                     f"ERREUR : RM{a.rm_id} {a.set} — trancher une question exige la décision qui la tranche.\n"
                     f"  → la poser en un appel  : --set {a.set} --state valide --decide-with \"ce qui est décidé\"\n"
                     f"  → relier une décision   : --set {a.set} --state valide --dest Dnnn\n"
-                    f"  → ce n'est pas une question (capture du harvest) : --set {a.set} --state invalide")
+                    f"  → ce n'est pas une question (capture du harvest) : --set {a.set} --state invalide\n"
+                    f"  → trancher quand même, la décision viendra plus tard : --force "
+                    f"(retrouvable ensuite par --orphans)")
         if a.dry_run:
             print(f"{think.name} : {a.set}" + (f" → {a.state}" if a.state else "")
                   + (f" + décision « {a.decide_with[:60]} »" if a.decide_with else "")
@@ -343,6 +371,10 @@ def main():
                        f"si elle ne fait plus foi, ou --set {ancien_lien} --text \"…\" pour l'amender.")
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
+        if force_sans_decision:
+            _log_force(sheet, a.set, a.by)
+            pmout.info(f"RM{a.rm_id} {a.set} tranchée SANS décision (--force) — "
+                       f"à reprendre : --orphans")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
         if a.set[:1].upper() in ("Q", "D"):          # une question, ou une décision qui peut y répondre
             _resync_questions(a.rm_id, sheet)

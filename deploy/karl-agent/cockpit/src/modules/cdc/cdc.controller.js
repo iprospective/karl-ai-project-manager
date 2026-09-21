@@ -101,17 +101,41 @@ export function mountCdc(el, ctx = {}) {
   }
   // RM3227 : trancher une QUESTION (valide / invalide) propose un commentaire facultatif — sa réponse,
   // consignée en décision « Qnnn : … » par le serveur. Annuler n'écrit rien (et remet le sélecteur).
+  // RM3269 : TRANCHER une question appelle sa décision — l'outil la réclame désormais. Le cockpit
+  // doit donc pouvoir la POSER (le commentaire devient la décision « Qnnn : … ») et, quand elle
+  // n'est pas encore mûre, FORCER en connaissance de cause plutôt que de laisser l'UI bloquée :
+  // une transition qu'on ne peut pas faire depuis l'écran n'est pas livrée. Écarter (invalide)
+  // n'exige rien — écarter n'est pas trancher.
   async function onThinkState(n) {
     const state = n.value; if (!state) return;
-    let comment = "";
-    if (/(^|-)Q\d/.test(n.dataset.id || "") && (state === "valide" || state === "invalide")) {
-      const saisie = window.prompt(n.dataset.id + " → " + state + "\nRéponse / commentaire (facultatif) :", "");
+    const estQuestion = /(^|-)Q\d/.test(n.dataset.id || "");
+    let comment = "", force = false;
+    if (estQuestion && (state === "valide" || state === "invalide")) {
+      const tranche = state === "valide";
+      const saisie = window.prompt(
+        n.dataset.id + " → " + state + "\n"
+        + (tranche ? "La DÉCISION qui tranche cette question (elle sera consignée « "
+                     + n.dataset.id + " : … ») :"
+                   : "Motif de l'écartement (facultatif) :"), "");
       if (saisie === null) { n.value = ""; return; }
       comment = saisie.trim();
+      if (tranche && !comment) {
+        if (!confirm(n.dataset.id + " : trancher SANS consigner de décision ?\n\n"
+                     + "Le pourquoi restera manquant. La question sera retrouvable dans "
+                     + "« ce qui manque » (questions tranchées sans décision).")) { n.value = ""; return; }
+        force = true;
+      }
     }
     const body = { rm: n.dataset.rm, id: n.dataset.id, action: "state", state };
     if (comment) body.comment = comment;
-    try { await svc.thinkEdit(body); notify(n.dataset.id + " → " + state + (comment ? " · réponse consignée" : "")); await renderChapters(); }
+    if (force) body.force = true;
+    try {
+      await svc.thinkEdit(body);
+      notify(n.dataset.id + " → " + state
+             + (comment ? " · décision consignée" : force ? " · SANS décision (à reprendre)" : ""),
+             force);
+      await renderChapters();
+    }
     catch (e) { notify("changement d'état impossible : " + e.message, true); }
   }
   async function onFeatureState(n) {

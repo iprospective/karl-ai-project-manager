@@ -8922,7 +8922,12 @@ def _cdc_think_args(payload: dict) -> tuple:
         state = str(payload.get("state") or "").strip()
         if state not in _THINK_STATES:
             raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
-        return rm, local, [rm, "--set", local, "--state", state]
+        # RM3269 : trancher une question SANS décision reste possible depuis l'UI — mais seulement
+        # sur demande EXPLICITE (le cockpit confirme), et c'est tracé au journal côté outil.
+        args = [rm, "--set", local, "--state", state]
+        if payload.get("force") and local.startswith("Q") and state == "valide":
+            args.append("--force")
+        return rm, local, args
     if action == "move":                      # RM3258 : l'entrée part au carnet d'un autre ticket
         to = str(payload.get("to") or "").strip().lstrip("Rr Mm#")
         if not to.isdigit():

@@ -151,7 +151,62 @@ chk("description-update : --set-from-file passe par purge_decision", "purge_deci
 notify = (HERE / "pm-client-notify.py").read_text(encoding="utf-8")
 chk("email client : critères par la lecture unique", "pm_acceptance.criteria_text(fm, body)" in notify)
 
+# ── RM3285 : replier la section dans le champ ────────────────────────────────
+chk("convert : une puce devient une case cochée",
+    A.convert_bullets("- le service répond", True) == "- [x] le service répond")
+chk("convert : une liste numérotée aussi",
+    A.convert_bullets("1. la base migre", False) == "- [ ] la base migre")
+chk("convert : une case existante n'est pas retouchée",
+    A.convert_bullets("- [ ] déjà une case", True) == "- [ ] déjà une case")
+chk("convert : une phrase de contexte reste de la prose (on ne fabrique pas un critère)",
+    A.convert_bullets("Lié à RM2028.", True) == "Lié à RM2028.")
+chk("convert : rien dans un bloc de code",
+    A.convert_bullets("```\n- exemple\n```", True) == "```\n- exemple\n```")
+
+SEC = "### Étape 1\n- [x] un\n- [ ] deux\n\n### Étape 2\n- [ ] trois"
+CF = "- [x] deux\n- [x] quatre"
+fold = A.fold_into_field(CF, SEC)
+chk("fold : les sous-titres de la section sont conservés", "### Étape 1" in fold and "### Étape 2" in fold)
+chk("fold : une coche du champ gagne sur la section (le champ est en avance)", "- [x] deux" in fold)
+chk("fold : un critère que seul le champ portait est conservé", "- [x] quatre" in fold)
+chk("fold : l'ordre de la section est préservé", fold.index("un") < fold.index("trois"))
+chk("fold : idempotent — replier deux fois ne duplique rien",
+    A.fold_into_field(fold, SEC) == fold or A.parse_items(A.fold_into_field(fold, SEC)) == A.parse_items(fold))
+chk("fold : section vide → None (jamais de valeur vide poussée)", A.fold_into_field(CF, "   ") is None)
+chk("fold : conversion appliquée seulement si la section n'a AUCUNE case",
+    "- [x] un" in A.fold_into_field("", "- un", convert=True)
+    and A.fold_into_field("", SEC, convert=True).count("- [x] un") == 1)
+
+BODY_PROSE = "## Critères d'acceptation\n\n### Étape 1\n- [x] un\n\nDépend de la sous-tâche 1.\n"
+chk("purge : la prose que le champ porte AUSSI ne bloque plus le retrait",
+    A.purge_decision("### Étape 1\n- [x] un\n\nDépend de la sous-tâche 1.", BODY_PROSE)[0] == "retire")
+chk("purge : la prose absente du champ bloque toujours",
+    A.purge_decision("- [x] un", BODY_PROSE)[0] == "garde")
+chk("purge : une puce convertie en case est reconnue comme la même ligne",
+    A.purge_decision("- [x] le service répond", "## Critères d'acceptation\n- le service répond\n")[0] == "retire")
+
+ISSUE_F = {"description": BODY_PROSE, "custom_fields": [{"id": 33, "value": "- [x] un"}]}
+val, motif = P.fold_plan(ISSUE_F, {}, BODY_PROSE)
+chk("fold_plan : rend la valeur à écrire", val and "Dépend de la sous-tâche 1." in val)
+CROISE_MD = "## Critères d'acceptation\n- [ ] seulement local\n"
+ISSUE_X = {"description": "## Critères d'acceptation\n- [ ] seulement redmine\n", "custom_fields": []}
+val, motif = P.fold_plan(ISSUE_X, {}, CROISE_MD)
+chk("fold_plan : divergence croisée NON repliée", val is None and "croisée" in motif)
+ISSUE_C = {"description": "## Critères d'acceptation\n- [x] un\n", "custom_fields": [{"id": 33, "value": "- [ ] un"}]}
+val, motif = P.fold_plan(ISSUE_C, {}, "## Critères d'acceptation\n- [x] un\n")
+chk("fold_plan : coche présente dans la section mais pas dans le champ → arbitrage",
+    val is None and "arbitrage" in motif)
+val, motif = P.fold_plan({"description": "## Critères d'acceptation\nUn paragraphe sans puce.\n",
+                          "custom_fields": []}, {}, "")
+chk("fold_plan : des critères en paragraphes ne se replient pas (le champ resterait sans critère)",
+    val is None)
+src = (HERE / "pm-acceptance-purge.py").read_text(encoding="utf-8")
+chk("purge : le champ est poussé AVANT le retrait de la section",
+    src.index("Le champ d'abord") < src.index("frais = redmine_utils.fetch_issue"))
+chk("purge : --fold et --convert-bullets existent, dry-run toujours par défaut",
+    '"--fold"' in src and '"--convert-bullets"' in src and "if not args.go:" in src)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — retrait de la section de critères, reprise dans le CF 33 (RM3241)")
+print("OK — retrait de la section de critères (RM3241) et repliement dans le champ (RM3285)")

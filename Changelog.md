@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Critères d'acceptation : la section se replie dans le champ** (RM3285, suite de RM3241). La purge
+  avait laissé 87 tickets intacts, faute de pouvoir décider : prose dans la section, sous-titres
+  d'étapes, critères écrits en puces sans cases. Le CF 33 étant un champ **texte**, tout cela peut y
+  vivre — `acceptance-purge --fold` replie la section entière (texte, sous-titres, ordre), fusionne
+  les coches (coché d'un côté reste coché), conserve les critères que seul le champ portait, puis
+  retire la section. `--convert-bullets coché|décoché` transforme en cases les critères écrits en
+  puces. Restent exclus, parce qu'ils demandent un arbitrage : divergence croisée entre la fiche et
+  Redmine, coche contradictoire, et critères rédigés en paragraphes (aucune case à replier).
+
 - **La moisson garde moins, et mieux** (RM3281). Deux familles passaient encore le critère de la note
   et rendaient les carnets illisibles : l'**ordre d'exécution** — « go faire 3108… », et celui posé en
   FIN de note (« … Consigne tout ça dans le ticket maintenant »), qui pilote le tour en cours et ne se

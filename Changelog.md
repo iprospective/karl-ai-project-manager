@@ -1187,6 +1187,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   des statuts. **Rien n'est créé** : rapport + proposition amendable. Piège noté :
   `find_project_by_redmine_id` rend le chemin du dossier client, pas son identifiant — pris tel
   quel, il classait tout le temps client en interne.
+- **Secrets de provider : saisie interactive et masquée** (RM3277). Le terminal était REFUSÉ
+  (« la valeur se lit sur l'entrée standard ») : l'intention était juste — jamais en argument,
+  `ps` est lisible de tous — mais elle poussait au `echo 'secret' | …`, qui dépose le secret dans
+  l'historique du shell. `mmi-pm provider-secret --instance <x>` demande désormais le **nom** de
+  la clé (avec les clés usuelles du provider en exemple), puis sa **valeur en saisie masquée,
+  confirmée par une seconde frappe** — un secret mal tapé se pose sans bruit et ne se relit
+  jamais. L'usage scripté (tube, redirection) est inchangé, et les trois règles du script
+  tiennent : jamais en argument, jamais relu, jamais journalisé.
 - **Feuille de temps : valider journée par journée** (RM3229, lots L0–L1). Premier pas vers le
   menu Facturation du cockpit : `mmi-pm timesheet --day AAAA-MM-JJ` calcule, ajuste et applique
   UNE journée — l'unité de validation. `--start`/`--end`/`--client` posent les horaires normaux et

@@ -74,6 +74,30 @@ os.environ["PM_CORE_DIR"] = "/tmp/faux-core"
 check("scope global = le .env de l'instance", str(P.env_path("global")) == "/tmp/faux-core/.env")
 del os.environ["PM_CORE_DIR"]
 
+
+# ── Saisie interactive (RM3277) ─────────────────────────────────────────────
+print("\nSaisie interactive")
+import io
+check("nom de clé demandé et normalisé", P.demander_nom_cle("NC", lambda _p: " user ") == "USER")
+try:
+    P.demander_nom_cle("NC", lambda _p: "clé-invalide")
+    check("nom de clé invalide refusé", False)
+except ValueError:
+    check("nom de clé invalide refusé", True)
+check("les exemples suivent le provider",
+      "USER" in P.CLES_USUELLES["NC"] and "API_KEY" in P.CLES_USUELLES["REDMINE"])
+
+saisies = iter(["s3cret", "s3cret"])
+check("valeur masquée, confirmée, rendue",
+      P.lire_valeur(True, lecteur_masque=lambda _p: next(saisies)) == "s3cret")
+divergentes = iter(["s3cret", "s3crat"])
+try:
+    P.lire_valeur(True, lecteur_masque=lambda _p: next(divergentes))
+    check("deux saisies différentes : refus", False)
+except ValueError as e:
+    check("deux saisies différentes : refus", "diffèrent" in str(e))
+check("hors terminal : l'entrée standard, inchangée",
+      P.lire_valeur(False, flux=io.StringIO(" valeur-pipee \n")) == "valeur-pipee")
 # ── Préfixe déduit du registre (RM3263) ─────────────────────────────────────
 print("\nPréfixe déduit du registre")
 # registre simulé : ne dépend d'aucun type ni axe ajouté par un autre ticket

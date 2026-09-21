@@ -153,6 +153,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
   git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
   jetable de RM2667 et l'édition à la main dans Roundcube.
+  `restore` remet une sauvegarde en place (la dernière par défaut) en repassant par les mêmes
+  gardes, après avoir sauvegardé l'état courant.
 
 - **karl s'installe et se met à jour ailleurs que sur cette machine** (RM3070, lot L1). `core-update`
   exigeait toujours root, donc une ligne sudoers : un développeur seul, propriétaire de son checkout,

@@ -38,3 +38,4 @@
 @use "../modules/feed/feed";
 @use "../modules/modules/modules";
 @use "../modules/clientnotify/clientnotify";   // RM3052 : compte-rendu client
+@use "../modules/billing/billing";        // RM3229 : validation du temps par journée

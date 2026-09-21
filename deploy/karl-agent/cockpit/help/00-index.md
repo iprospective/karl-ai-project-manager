@@ -28,6 +28,7 @@ centre, en [onglet](onglets) :
 | 📜 **journal** | ce que le serveur et le navigateur ont consigné (sévérité, catégorie) | [Journal](journal) |
 | 🔔 **fil** | ce qui demande ton attention, toutes sources confondues — une file qui se vide | [Fil de notifications](fil) |
 | 📋 **CDC** | le cahier des charges vivant du projet en contexte : onglets fonctionnalités · CDC · feuille de route (modèle POC AtomBox) | [CDC vivant](cdc) |
+| 💶 **facturation** | valider son temps de travail, une journée à la fois : plages mesurées, travail de l'IA en face, écriture des saisies Redmine | [Facturation](facturation) |
 | ✉ **compte-rendu** | ce qui est parti en production et n'a pas encore été annoncé au client : cocher, relire l'email, envoyer | [Compte-rendu client](compte-rendu) |
 
 Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte est un

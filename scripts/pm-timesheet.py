@@ -494,6 +494,82 @@ def appliquer(chemin_yml, cfg, conf, args):
     return 0 if not (echecs or sans_cible) else 1
 
 
+def reprendre_journee(cfg, conf, args):
+    """Retire de Redmine les saisies POSÉES PAR CET OUTIL sur une journée, pour la refaire.
+
+    Geste À LA DEMANDE, jamais automatique (arbitrage du 2026-09-21) : ni l'ouverture d'une
+    journée, ni son rafraîchissement, ni sa validation n'appellent cette fonction. Elle ne
+    s'exécute que si l'humain l'a explicitement demandée, sur une journée précise, après
+    avoir constaté une incohérence.
+
+    Deux garde-fous, non négociables :
+      — seules les saisies portant la marque `[timesheet:<jour>#…]` sont touchées ; une
+        saisie notée à la main par un humain n'est JAMAIS supprimée ;
+      — tout est sauvegardé en JSONL avant la première suppression (incident RM2409 :
+        334 notes supprimées sans sauvegarde). La sauvegarde s'écrit aussi en simulation.
+    """
+    from redmine_utils import redmine_creds, http_json
+    url, key = redmine_creds()
+    uid = args.user_id or conf.get("user_id")
+    if not uid:
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis.")
+    jour = args.day
+
+    saisies, offset = [], 0
+    while True:
+        code, body = http_json("GET", f"{url}/time_entries.json?user_id={uid}"
+                                      f"&from={jour}&to={jour}&limit=100&offset={offset}", key)
+        if code != 200:
+            sys.exit(f"Redmine a refusé la lecture des saisies du {jour} (HTTP {code}).")
+        saisies += body.get("time_entries", [])
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+
+    marque = f"[timesheet:{jour}#"
+    a_retirer = [t for t in saisies if marque in (t.get("comments") or "")]
+    gardees = len(saisies) - len(a_retirer)
+    if not a_retirer:
+        print(f"✓ journée {jour} : aucune saisie posée automatiquement à retirer"
+              + (f" ({gardees} saisie(s) notée(s) à la main, intactes)" if gardees else ""))
+        return 0
+
+    dossier = W.ETAT / "reprises"
+    dossier.mkdir(parents=True, exist_ok=True)
+    sauvegarde = dossier / f"{jour}-{datetime.now():%Y%m%dT%H%M%S}.jsonl"
+    with sauvegarde.open("w", encoding="utf-8") as f:
+        for t in a_retirer:
+            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+    heures = sum(float(t.get("hours") or 0) for t in a_retirer)
+
+    if args.dry_run:
+        print(f"  [simulation] {len(a_retirer)} saisie(s) seraient retirée(s) "
+              f"({heures:.2f} h) — sauvegarde {sauvegarde}")
+        return 0
+
+    retires, echecs = 0, []
+    for t in a_retirer:
+        code, corps = http_json("DELETE", f"{url}/time_entries/{t['id']}.json", key)
+        if code in (200, 204):
+            retires += 1
+        else:
+            echecs.append((t["id"], code, str(corps)[:120]))
+
+    # La journée redevient à valider : la marque « validée sans ajout » tombe avec elle.
+    donnees = W.surcharges_charger(jour[:7])
+    if (donnees.get(jour) or {}).pop("valide_sans_ajout", None) is not None:
+        W.surcharges_ecrire(jour[:7], donnees)
+
+    for tid, code, detail in echecs[:6]:
+        print(f"  ⚠ saisie {tid} non retirée : HTTP {code} {detail}", file=sys.stderr)
+    print(f"✓ journée {jour} reprise : {retires} saisie(s) retirée(s) ({heures:.2f} h)"
+          + (f", {len(echecs)} en échec" if echecs else "")
+          + (f" — {gardees} saisie(s) notée(s) à la main conservée(s)" if gardees else "")
+          + f"\n  sauvegarde : {sauvegarde}"
+          + f"\n  puis : mmi-pm timesheet --day {jour} --refresh")
+    return 0 if not echecs else 1
+
+
 def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
     """Réaligne l'activité des saisies déjà posées. Ne crée ni ne supprime rien.
 
@@ -613,6 +689,10 @@ def main():
     ap.add_argument("--activity", type=int, help="activité Redmine forcée")
     ap.add_argument("--follow-cap", type=float, help="plafond du temps de suivi (min)")
     ap.add_argument("--quantum", type=int, help="tranche d'arrondi (min)")
+    ap.add_argument("--revoke", action="store_true",
+                    help="avec --day : RETIRE les saisies que cet outil a posées ce jour-là "
+                         "(jamais celles notées à la main), après sauvegarde, pour refaire "
+                         "la journée. Geste à la demande — rien ne l'appelle tout seul.")
     ap.add_argument("--fix-activities", "--fix", dest="fix_activities",
                     action="store_true",
                     help="réaligne activité ET commentaire des saisies DÉJÀ posées ; "
@@ -636,12 +716,24 @@ def main():
     if ajuste:
         ajuster_journee(args)
 
+    if args.revoke:
+        if not args.day:
+            ap.error("--revoke s'utilise avec --day : on ne reprend qu'une journée à la fois")
+        return reprendre_journee(cfg, conf, args)
+
     if args.fix_activities:
         return corriger_activites(cfg, conf, args, libelle)
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"
-        if not chemin.is_file():
+        # Une JOURNÉE se valide depuis l'écran : sa proposition se recalcule ici même,
+        # juste avant d'écrire. Sans cela on appliquerait la proposition d'avant le
+        # dernier ajustement (début/fin, client principal) — l'écran montrerait une
+        # chose, Redmine en recevrait une autre. Un MOIS garde son yml amendable à la
+        # main : c'est le geste prévu pour lui.
+        if args.day:
+            ecrire_sorties(calculer(args, cfg, conf), dossier, libelle)
+        elif not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
         return appliquer(chemin, cfg, conf, args)
 
@@ -696,7 +788,10 @@ def ajuster_journee(args):
 
 
 def vue_json(res, prop):
-    """La matière de l'écran de validation (cockpit) : une entrée par journée."""
+    """La matière de l'écran de validation (cockpit) : une entrée par journée.
+
+    Le temps IA y figure en face du temps humain : c'est lui qui justifie une plage.
+    """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
     sortie = []
@@ -714,6 +809,10 @@ def vue_json(res, prop):
                             "libelle": s.get("libelle", "")} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
+            "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
+                    "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
+                    "minutes": k["minutes"]}
+                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

@@ -130,6 +130,8 @@ TARGET_TO_CURRENT = {
     "/api/ticket/triage": "/triage",
     "/api/ticket/usage": "/usage",
     "/api/ticket/workspace-status": "/workspace-status",
+    "/api/timesheet/day": "/timesheet/day",
+    "/api/timesheet/month": "/timesheet/month",
     "/api/voice/caps": "/voice/caps",
     "/api/voice/question": "/question",
     "/api/voice/stt": "/stt",

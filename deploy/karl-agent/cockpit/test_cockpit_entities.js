@@ -16,9 +16,9 @@ const fs = require("fs"); const path = require("path"); const assert = require("
 
   // — registre —
   const types = E.entityTypes();
-  assert.deepStrictEqual(types, ["dash", "session", "review", "project", "newticket", "client", "contacts", "contact", "conf", "file", "dir", "commit", "mail", "pm", "settings", "journal", "memory", "cdc"], "les types du cockpit, dans l'ordre de déclaration");
+  assert.deepStrictEqual(types, ["dash", "session", "review", "project", "newticket", "client", "contacts", "contact", "conf", "file", "dir", "commit", "mail", "pm", "settings", "journal", "memory", "billing", "cdc"], "les types du cockpit, dans l'ordre de déclaration");
   assert(E.entity("review").icon === "🧪" && E.iconOf("memory") === "🧠" && E.iconOf("inconnu") === "•" && !E.isEntity("inconnu") && E.entity("inconnu").type === "inconnu");
-  assert.deepStrictEqual(E.surfaceTypes(), ["session", "review", "project", "newticket"]); assert.deepStrictEqual(E.panelTypes(), ["pm", "settings", "journal", "memory", "cdc"]);
+  assert.deepStrictEqual(E.surfaceTypes(), ["session", "review", "project", "newticket"]); assert.deepStrictEqual(E.panelTypes(), ["pm", "settings", "journal", "memory", "billing", "cdc"]);
   assert(E.entity("dash").fixed && !E.entity("session").restorable && E.entity("review").restorable && E.entity("newticket").closeLast && !E.entity("session").closeLast);
   assert.strictEqual(E.entity("commit").errorTitle, "Commit indisponible"); assert.strictEqual(E.entity("file").errorTitle, "Contenu indisponible");
   const RC = { 42: { found: true, title: "Sujet" } }, parse = K.parseViewKey;

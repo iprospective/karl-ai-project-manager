@@ -123,11 +123,17 @@ def cf_vide_vers_push(action, value, motifs, local, remote, source, remote_de_la
         "CF vide : critères repris de la section de la description Redmine"]
 
 
-def decide_acceptance(local, remote, body):
+def decide_acceptance(local, remote, body, remote_from_cf=False):
     """Que faire des critères d'un ticket ? Fonction PURE — (action, valeur, motifs).
 
     `action` ∈ {"sync", "push", "pull", "union", "conflit"} ; `motifs` explique un
     conflit, ou ce que l'union a ajouté. `body` sert au seul verrou des cases errantes.
+
+    `remote_from_cf` dit que la valeur distante vient du CHAMP dédié, pas de la description :
+    le ticket est alors DÉJÀ migré. Le verrou des cases errantes protège contre une bascule
+    de lecture qu'on n'a pas voulue — quand elle a eu lieu et que les deux côtés s'accordent,
+    il n'y a plus rien à protéger, et signaler un conflit ferait du bruit à chaque passage
+    (RM3261 : 16 tickets arbitrés restaient signalés après coup).
 
     On n'écrit une union que lorsqu'une source est incluse dans l'autre : c'est alors
     un complément, pas un arbitrage. Dès qu'il y a de l'exclusif des deux côtés — ou
@@ -137,8 +143,16 @@ def decide_acceptance(local, remote, body):
     errantes = pm_acceptance.stray_checkboxes(body or "")
     if local is None and remote is None:
         return "vide", None, []
+    md_items = pm_acceptance.parse_items(local or "")
+    rm_items = pm_acceptance.parse_items(remote or "")
+    empreinte = lambda its: [(ok, pm_acceptance.norm_label(l)) for ok, l in its]  # noqa: E731
+    deja = (local is not None and remote is not None
+            and empreinte(md_items) == empreinte(rm_items))
+    if deja and remote_from_cf:
+        return "sync", None, []        # migré et d'accord : le verrou n'a plus d'objet
+
     if errantes:
-        # AVANT tout le reste, y compris avant « déjà synchrone » : même quand les deux
+        # AVANT le reste (sauf le cas ci-dessus), y compris avant « déjà synchrone » : même quand les deux
         # côtés portent exactement les mêmes critères, matérialiser le champ ferait
         # basculer la LECTURE dessus alors que `pm-task-description-update --check N`
         # continue d'écrire dans la description — où le Nᵉ item n'est pas le Nᵉ critère.
@@ -147,13 +161,10 @@ def decide_acceptance(local, remote, body):
             "{} case(s) à cocher hors de la section de critères — `--check N` ne "
             "désignerait plus les mêmes lignes (§ 4.2) : migrer à la main".format(len(errantes))]
 
-    md_items = pm_acceptance.parse_items(local or "")
-    rm_items = pm_acceptance.parse_items(remote or "")
-    # Comparaison sur la forme NORMALISÉE des libellés : l'outillage enveloppe à ~95
-    # colonnes et Redmine ré-enveloppe à sa façon. Comparer le texte brut ferait passer
-    # deux versions identiques pour divergentes — donc une réécriture à chaque passage.
-    empreinte = lambda its: [(ok, pm_acceptance.norm_label(l)) for ok, l in its]  # noqa: E731
-    if local is not None and remote is not None and empreinte(md_items) == empreinte(rm_items):
+    # Comparaison sur la forme NORMALISÉE des libellés (RM2882) : l'outillage enveloppe à ~95
+    # colonnes et Redmine ré-enveloppe à sa façon. Comparer le texte brut ferait passer deux
+    # versions identiques pour divergentes — donc une réécriture à chaque passage.
+    if deja:
         return "sync", None, []
 
     if local is None:
@@ -285,7 +296,8 @@ def main():
                 remote_de_la_description = remote is not None
 
             if key == "acceptance":
-                action, value, motifs = decide_acceptance(local, remote, m.group(4))
+                action, value, motifs = decide_acceptance(local, remote, m.group(4),
+                                                          remote_from_cf=bool(norm(raw, is_list)))
                 action, value, source, motifs = cf_vide_vers_push(
                     action, value, motifs, local, remote, source, remote_de_la_description)
                 if action == "sync" and source != "frontmatter":

@@ -31,3 +31,7 @@
 .e-line { padding: 1px 0; overflow-wrap: anywhere; }
 .e-empty { color: var(--muted); font-style: italic; }
 .e-full .e-sec-body pre { white-space: pre-wrap; margin: 0; }
+
+// RM3256 — la provenance d'un contenu (protocole venu du champ dédié, d'une note, de la description).
+// Petite et grise : elle qualifie ce qui suit sans lui voler la vedette.
+.e-sec .e-src { color: var(--muted); font-size: 11px; margin-bottom: 4px; }

@@ -110,6 +110,28 @@ def protect_project_repos(workspace: Path, dry: bool) -> None:
                 print("    " + r.stderr.strip().splitlines()[-1], file=sys.stderr)
 
 
+def _racine_porte_du_code(workspace: Path) -> bool:
+    """La racine est-elle un repo de CODE — celui qu'il faut migrer avant de créer ?
+
+    Un `.git` à la racine ne suffit plus à conclure (RM2947) : sous une racine
+    verrouillée `2750`, c'est `ws-init` qui amorce le dépôt `-core`, puisque la
+    création de `.git` y est une écriture réservée au privilège. Un dépôt VALIDE et
+    SANS aucun commit est donc ce `-core` vierge, que `git_core_publish` va remplir —
+    pas un clone de code pré-norme. Le premier commit fait la différence.
+
+    Tout le reste se refuse, y compris un `.git` qui n'est pas un dépôt : on ne
+    devine pas ce qu'un état cassé cache, et créer par-dessus l'effacerait."""
+    g = workspace / ".git"
+    if not (g.exists() or g.is_symlink()):
+        return False
+
+    def _git(*args):
+        return subprocess.run(["git", "-C", str(workspace), *args],
+                              capture_output=True, text=True).returncode == 0
+
+    return not _git("rev-parse", "--git-dir") or _git("rev-parse", "--verify", "-q", "HEAD")
+
+
 def _has_gitlab_remote(repo: Path) -> bool:
     """Le dépôt a-t-il un remote qui pointe vers la forge ? Sans remote, il n'y a
     rien à protéger — et pm-protect échouerait à résoudre le projet."""
@@ -175,9 +197,9 @@ def main():
     # Le volet PM vit CO-LOCALISÉ dans le workspace (.mmi-pm réel, repo <dossier>-core,
     # projects/ = symlink d'index) — modèle RM1942/RM1949.
     mmi_dir = workspace / ".mmi-pm"
-    if mmi_dir.exists() or mmi_dir.is_symlink():
+    if pm_ws_skeleton.deja_relie(mmi_dir):
         sys.exit(f"ERREUR : {mmi_dir} existe déjà — workspace déjà relié à un projet PM ?")
-    if (workspace / ".git").exists():
+    if _racine_porte_du_code(workspace):
         sys.exit(f"ERREUR : la racine du workspace est déjà un repo git ({workspace}/.git) — "
                  f"le repo -core doit vivre à la racine (layout RM1993). Normaliser d'abord "
                  f"avec pm-env-migrate (code → repos/ + envs/), puis relancer.")

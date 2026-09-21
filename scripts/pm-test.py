@@ -42,8 +42,16 @@ INHERITED = ("PM_CORE_DIR", "PM_DEV_DIR", "PM_CONFIG", "PM_DIR", "PROJECTS_PATH"
 
 
 def discover(motifs):
-    """Fichiers de test du dépôt, filtrés par sous-chaîne (motifs = OU)."""
-    files = sorted(set(SCRIPTS.glob("test_*.py")) | set(SCRIPTS.glob("test-*.py")))
+    """Fichiers de test du dépôt, filtrés par sous-chaîne (motifs = OU).
+
+    Python ET shell (RM2947) : les garde-fous du helper privilégié s'écrivent en
+    bash — ils extraient ses fonctions du fichier de PRODUCTION, faute de quoi ils
+    testeraient une réécriture du helper au lieu du helper. Trois suites vivaient
+    ainsi hors de toute collecte, donc hors de `mmi-pm test` : un test que personne
+    ne lance est un décor. Elles sont ici, avec le reste."""
+    files = sorted(set(SCRIPTS.glob("test_*.py")) | set(SCRIPTS.glob("test-*.py"))
+                   | set(SCRIPTS.glob("test_*.sh")) | set(SCRIPTS.glob("test-*.sh"))
+                   | set((SCRIPTS.parent / "tools" / "env-runtime").glob("test-*.sh")))
     files = [f for f in files if f.name != "test_support.py"]
     if motifs:
         files = [f for f in files if any(m in f.name for m in motifs)]
@@ -53,7 +61,8 @@ def discover(motifs):
 def run_one(path, env, timeout):
     t0 = time.monotonic()
     try:
-        r = subprocess.run([sys.executable, str(path)], env=env, cwd=str(SCRIPTS),
+        argv = ["bash", str(path)] if path.suffix == ".sh" else [sys.executable, str(path)]
+        r = subprocess.run(argv, env=env, cwd=str(SCRIPTS),
                            capture_output=True, text=True, timeout=timeout)
         rc, out = r.returncode, (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:

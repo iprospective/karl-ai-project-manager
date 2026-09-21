@@ -80,5 +80,27 @@ exploitable. La condition anti-usurpation est réalisable telle quelle.
 - IMAP : `mail.iprospective.net:993`, identifiants Vaultwarden
   `iprospective/iprospective-agents/karl@mail.iprospective.net`.
 - ManageSieve : **même hôte, port 4190**, mêmes identifiants, `STARTTLS`.
-  Aucun outil PM ne le pilote encore — l'édition passe aujourd'hui par
-  l'interface Roundcube.
+  Outil : **`pm-sieve`** (RM3171) — `list`, `get`, `diff --from-file`,
+  `put --from-file [--dry-run]`, `activate`, `delete`, `backups`.
+
+## Modifier un filtre — le geste outillé
+
+```bash
+pm-sieve get roundcube > /tmp/r.sieve        # partir de ce qui est EN PLACE
+$EDITOR /tmp/r.sieve
+pm-sieve diff roundcube --from-file /tmp/r.sieve
+pm-sieve put  roundcube --from-file /tmp/r.sieve --dry-run   # validation serveur, rien écrit
+pm-sieve put  roundcube --from-file /tmp/r.sieve             # écriture gardée
+```
+
+`put` refuse si la boîte authentifiée n'est pas celle demandée, fait valider le
+script par Pigeonhole (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde
+l'ancien octet pour octet sous `<state_dir>/sieve-backups/<boîte>/` (hors git :
+un filtre porte des adresses de clients), puis relit ce qu'il a écrit. `delete`
+refuse le script actif.
+
+**Roundcube réécrit le script `roundcube`** quand on passe par son interface de
+filtres : une règle qu'elle ne sait pas représenter (l'`allof` imbriqué de RM2667)
+peut y disparaître. Avant toute retouche par l'UI, `pm-sieve get` pour comparer
+après ; la question d'un script séparé inclus par `include` reste ouverte
+(RM3171, § À trancher).

@@ -279,13 +279,20 @@ context:
 # primaire en tête. resolve_instance(…) = le primaire seul.
 providers:
   # axes: [monitoring]        # exemple : activer un axe supplémentaire
+  # erp (RM2891) : la facturation. Dolibarr y est un provider comme Redmine pour les
+  # tickets : un client qui a le sien pourra un jour le désigner, sans toucher au code.
+  axes: [erp]
   defaults:
     task:   redmine-ipro
     forge:  gitlab-ipro
     doc:    redmine-wiki
     secret: vw-ipro
     llm:    lemonade-strix        # RM3067 : le modèle de travail de karl — local d'abord
+    erp:    dolibarr-ipro         # RM2891 : factures, tiers, tarifs
   servers:
+    # — axe erp (RM2891). Secret : DOLIBARR__DOLIBARR_IPRO__API_KEY, posé par
+    #   `pm-provider-secret --instance dolibarr-ipro --key API_KEY` (valeur sur stdin).
+    dolibarr-ipro:  { axis: erp, type: dolibarr, url: "${DOLIBARR_URL:-https://erp.iprospective.fr}" }
     # — axe llm (RM3067) : les modèles que karl appelle pour un travail MACHINE (tri des tours d'un
     #   transcript, classification, résumé) — à ne pas confondre avec le modèle qui tient la session.
     #   Local d'abord : les transcripts portent le travail des clients, ils n'ont pas à sortir de la
@@ -417,3 +424,12 @@ snapshot:
   rid: "sync#root_hour"
   atlas_orch_host: "atlas-orch@atlas.iprospective.net"
   atlas_orch_key: "~/.ssh/id_ed25519_karl"
+
+# Filtres Sieve par ManageSieve (RM3171) — consommé par pm-sieve. Identifiants lus
+# du vault (jamais en argv/environ/sortie). Sauvegardes : <state_dir>/sieve-backups/.
+sieve:
+  host: mail.iprospective.net
+  port: 4190
+  account: karl@iprospective.fr          # boîte par défaut
+  accounts:                              # boîte → item Vaultwarden (mêmes identifiants que l'IMAP)
+    karl@iprospective.fr: "vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net"

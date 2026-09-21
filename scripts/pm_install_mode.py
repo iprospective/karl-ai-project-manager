@@ -102,8 +102,8 @@ def ecarts(mode: str, sig: dict) -> list[str]:
         if sig.get("sudoers"):
             out.append("mono déclaré, mais une règle sudoers karl est posée")
         if sig.get("code_root"):
-            out.append("mono déclaré, mais le code appartient à root : la mise à jour "
-                       "exigera sudo (lot L1)")
+            out.append("mono déclaré, mais le code appartient à root : la mise à jour exige "
+                       "sudo — un checkout à l'utilisateur s'en passe (RM3070 L1)")
         if (sig.get("comptes") or 0) > 1:
             out.append(f"mono déclaré, mais {sig['comptes']} comptes cockpit existent")
     else:

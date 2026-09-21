@@ -65,7 +65,8 @@ PY
 if [ -f "$REPO/deploy/karl-agent/karl-whisper.service" ]; then
   echo "==> STT : unité systemd user karl-whisper"
   mkdir -p "$UNIT_DST"
-  cp "$REPO/deploy/karl-agent/karl-whisper.service" "$UNIT_DST/"
+  # RM3070 L1 : l'unit versionnée porte @PM_ROOT@, rendu ici
+  sed "s#@PM_ROOT@#$REPO#g" "$REPO/deploy/karl-agent/karl-whisper.service" > "$UNIT_DST/karl-whisper.service"
   systemctl --user daemon-reload
   systemctl --user enable --now karl-whisper.service || true
 fi

@@ -14,15 +14,17 @@ Contrat RewriteMap prg (mod_rewrite) :
   - stdout DOIT être flushé à chaque ligne ; le process reste vivant en boucle ;
   - fail-closed : toute anomalie (parse, réseau, timeout) → « DENY ».
 
-Conf Apache (vhost public mmi) :
+Conf Apache (vhost public mmi, et vhosts locaux rendus par karl-vhost-render.sh — RM2146) :
   RewriteEngine On
-  RewriteMap  karlauth "prg:/usr/local/sbin/karl-ttyd-auth"
+  RewriteMap  karlauth "prg:/usr/local/sbin/karl-ttyd-auth [--verify-url URL]"
   RewriteCond "${karlauth:%{HTTP:Cookie}}" "!=OK"
   RewriteRule "^/ttyd"  "-"  [F]
 
 Test hors Apache :
   karl-ttyd-auth --check 'karl_session=<token>'      # → OK / DENY
   KARL_VERIFY_URL=http://127.0.0.1:9876/api/auth/whoami   (défaut ; RM3004 : cible /api)
+  --verify-url URL (RM2146) prime sur KARL_VERIFY_URL : chaque vhost local valide le
+  cookie auprès du karl-agent de SON instance (les instances de test ont leur port).
 """
 import os
 import sys
@@ -48,12 +50,12 @@ def _has_session(cookie_header: str) -> bool:
     return bool(m and m.value)
 
 
-def verify(cookie_header: str) -> bool:
+def verify(cookie_header: str, url: str = None) -> bool:
     """True si le cookie présenté ouvre une session karl valide. Fail-closed :
     toute erreur (réseau, timeout, non-200) → False."""
     if not _has_session(cookie_header):
         return False
-    req = urllib.request.Request(VERIFY_URL, method="GET")
+    req = urllib.request.Request(url or VERIFY_URL, method="GET")
     req.add_header("Cookie", cookie_header)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
@@ -64,19 +66,22 @@ def verify(cookie_header: str) -> bool:
         return False
 
 
-def _answer(cookie_header: str) -> str:
-    return "OK" if verify(cookie_header) else "DENY"
+def _answer(cookie_header: str, url: str = None) -> str:
+    return "OK" if verify(cookie_header, url) else "DENY"
 
 
 def main() -> int:
-    if len(sys.argv) >= 3 and sys.argv[1] == "--check":
-        print(_answer(sys.argv[2]))
+    args, url = sys.argv[1:], None
+    if len(args) >= 2 and args[0] == "--verify-url":
+        url, args = args[1], args[2:]
+    if len(args) >= 2 and args[0] == "--check":
+        print(_answer(args[1], url))
         return 0
     # Mode RewriteMap : boucle ligne à ligne, stdout flushé, jamais fatal.
     for line in sys.stdin:
         cookie_header = line.rstrip("\n")
         try:
-            out = _answer(cookie_header)
+            out = _answer(cookie_header, url)
         except Exception:  # noqa: BLE001 — ne jamais tuer le map
             out = "DENY"
         sys.stdout.write(out + "\n")

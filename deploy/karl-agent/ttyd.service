@@ -1,13 +1,13 @@
 [Unit]
 Description=ttyd — terminal web du cockpit karl-agent (RM1873)
-Documentation=file:///zfs/workspaces/ai/project-management/agents/karl/karl-agent.md
+Documentation=file://@PM_ROOT@/agents/karl/karl-agent.md
 # Le cockpit n'a de sens que si le superviseur tourne (sessions tmux à attacher).
 After=karl-agent.service
 Wants=karl-agent.service
 
 [Service]
 Type=simple
-WorkingDirectory=/zfs/workspaces/ai/project-management
+WorkingDirectory=@PM_ROOT@
 # ttyd est souvent dans /usr/bin (apt) ou ~/.local/bin — on étend le PATH comme
 # pour karl-agent.service afin de le trouver quel que soit le mode d'install.
 Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -21,7 +21,7 @@ Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=/usr/bin/env ttyd -i 127.0.0.1 -p 7681 -W -a \
   -t fontSize=14 -t 'theme={"background":"#0b0e14","foreground":"#c8d3e0"}' \
   -t titleFixed=karl-agent -t disableLeaveAlert=true -t rendererType=dom \
-  /zfs/workspaces/ai/project-management/deploy/karl-agent/cockpit/attach-karl.sh
+  @PM_ROOT@/deploy/karl-agent/cockpit/attach-karl.sh
 Restart=on-failure
 RestartSec=2
 

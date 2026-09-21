@@ -46,6 +46,21 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
+## Les preuves, sous la journée
+
+Trois listes dépliables, sous les boutons — de quoi vérifier chaque minute proposée :
+
+- **commits** : ce que la journée a produit, tous dépôts confondus, à la minute. Le travail
+  d'abord ; la plomberie PM (`pm(tick)`, moissons, rapports) est comptée à part et repliée,
+  parce qu'elle date l'activité sans la décrire.
+- **temps IA** : les tours d'agent groupés par ticket — plage horaire, durée, modèles, tokens.
+- **traces** : chaque trace horodatée, sa source, sa cible et un extrait. Les traces d'agent
+  sont grisées : elles servent à *attribuer* le temps, elles n'en *créent* pas.
+
+Le **client** et le **projet** se choisissent maintenant dans un menu, alimenté par le
+référentiel PM. Changer de client remet le projet à zéro. Une valeur posée autrefois et
+absente du référentiel reste proposée : un menu ne fait jamais disparaître une donnée.
+
 ## Reprendre une journée
 
 Chaque saisie déjà notée porte son origine : **outil** ou **à la main**. Si tu repères une

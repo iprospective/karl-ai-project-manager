@@ -25,6 +25,7 @@ Deux invariants, tenus par des tests :
 import bisect
 import collections
 import json
+import subprocess
 import re
 import sqlite3
 import sys
@@ -1612,6 +1613,103 @@ def cache_ecrire(jour, items, racine=None):
     tmp.write_text("".join(json.dumps(event_vers_dict(e, rm), ensure_ascii=False) + "\n"
                            for e, rm in items), encoding="utf-8")
     tmp.replace(dossier / f"{jour}.jsonl")
+
+
+# ── Commits de la journée (RM3229 / L3b) ─────────────────────────────────────
+
+#: Les commits de plomberie PM (`pm(tick)`, `pm(think)`, `pm(report)`…) sont posés par
+#: l'outillage, pas écrits à la main : ils datent le travail sans le décrire. On les
+#: garde — ils situent l'activité — mais séparés, pour qu'ils ne noient pas le reste.
+_COMMIT_AUTO_RE = re.compile(r"^(pm\(|Merge branch|Merge remote)")
+
+
+def depots_git(racine="/zfs/workspaces", profondeur=3):
+    """Les dépôts de premier niveau sous les workspaces.
+
+    Les worktrees (`envs/<ticket>/`) ne sont pas listés : ils PARTAGENT l'objet git de
+    leur dépôt, donc `git log --all` depuis la racine voit déjà leurs commits. Les
+    lister les compterait deux fois.
+    """
+    base = Path(racine)
+    if not base.is_dir():
+        return []
+    sortie = []
+    for git in base.glob("/".join(["*"] * (profondeur - 1)) + "/.git"):
+        if git.parent.name != "envs":
+            sortie.append(git.parent)
+    return sorted(sortie)
+
+
+def collect_commits(depuis, jusqu_a, auteur=None, racine="/zfs/workspaces"):
+    """Les commits d'une période, tous dépôts confondus — ce que la journée a produit.
+
+    Un commit est la trace la plus dure qui soit : il dit ce qui a été fait, où, et
+    à quelle minute. C'est le contrepoint des traces d'activité, qui disent seulement
+    qu'on était là.
+    """
+    sortie, vus = [], set()
+    d0 = depuis.strftime("%Y-%m-%d %H:%M")
+    d1 = jusqu_a.strftime("%Y-%m-%d %H:%M")
+    for depot in depots_git(racine):
+        argv = ["git", "-C", str(depot), "log", "--all", "--no-merges",
+                f"--since={d0}", f"--until={d1}",
+                "--pretty=%H%x1f%aI%x1f%an%x1f%s", "--date=iso"]
+        if auteur:
+            argv.insert(-1, f"--author={auteur}")
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode != 0:
+            continue
+        for ligne in r.stdout.splitlines():
+            parts = ligne.split("\x1f")
+            if len(parts) != 4:
+                continue
+            sha, iso, nom, sujet = parts
+            if sha in vus:          # un même commit vu depuis deux dépôts liés
+                continue
+            vus.add(sha)
+            try:
+                ts = datetime.fromisoformat(iso).replace(tzinfo=None)
+            except ValueError:
+                continue
+            sortie.append({"ts": ts.isoformat(timespec="seconds"), "sha": sha[:8],
+                           "depot": depot.name, "client": depot.parent.name,
+                           "auteur": nom, "sujet": sujet[:160],
+                           "auto": bool(_COMMIT_AUTO_RE.match(sujet))})
+    return sorted(sortie, key=lambda c: c["ts"])
+
+
+def commits_cache_lire(jour, racine=None):
+    p = (racine or ETAT / "commits") / f"{jour}.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def commits_cache_ecrire(jour, commits, racine=None):
+    dossier = racine or ETAT / "commits"
+    dossier.mkdir(parents=True, exist_ok=True)
+    tmp = dossier / f".{jour}.json.tmp"
+    tmp.write_text(json.dumps(commits, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(dossier / f"{jour}.json")
+
+
+def commits_du_jour(jour, auteur=None, racine="/zfs/workspaces", refresh=False):
+    """Les commits d'une journée, du cache si elle est finie. Aujourd'hui n'est jamais figé."""
+    if not refresh:
+        lu = commits_cache_lire(jour)
+        if lu is not None:
+            return lu
+    d0 = datetime.fromisoformat(jour)
+    commits = collect_commits(d0, d0 + timedelta(days=1), auteur, racine)
+    if jour < date.today().isoformat():
+        commits_cache_ecrire(jour, commits)
+    return commits
 
 
 # ── Surcharges par journée (RM3229 / L1) ─────────────────────────────────────

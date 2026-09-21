@@ -246,3 +246,65 @@ export function etat(jour) {
 export const ETAT_LABEL = {
   validee: "validée", a_valider: "à valider", manuelle: "saisie à la main", vide: "rien ce jour-là",
 };
+
+// ── La pièce à conviction d'une journée (RM3229 / L3b) ────────────────────────
+// Un chiffre sans ses preuves demande qu'on le croie. Ces trois listes — les traces,
+// les commits, les tours d'agent — donnent la journée à VÉRIFIER, à la minute près.
+
+/** Les traces horodatées, dans l'ordre. `humain` distingue ce qui crée du temps de ce qui l'attribue. */
+export function traces(jour) {
+  return ((jour && jour.traces) || []).map(t => ({
+    heure: t.heure, source: String(t.source || "").replace(/^claude-/, ""),
+    humain: !!t.humain, extrait: t.extrait || "",
+    cible: [t.client, t.projet].filter(Boolean).join("/"),
+    rm: t.ticket || null, chars: t.chars || 0,
+  }));
+}
+
+/**
+ * Les commits de la journée, le travail d'abord.
+ *
+ * La plomberie PM (`pm(tick)`, merges) date l'activité sans la décrire : elle est
+ * comptée à part et repliée, pour ne pas noyer les quelques commits qui disent
+ * vraiment ce qui a été fait.
+ */
+export function commits(jour) {
+  const tous = ((jour && jour.commits) || []).map(c => ({
+    heure: String(c.ts || "").slice(11, 16), sha: c.sha, depot: c.depot,
+    client: c.client, sujet: c.sujet || "", auto: !!c.auto,
+  }));
+  return { travail: tous.filter(c => !c.auto), plomberie: tous.filter(c => c.auto), total: tous.length };
+}
+
+/** Les tours d'agent de la journée, groupés par ticket — où l'IA a réellement travaillé. */
+export function toursIA(jour) {
+  const parTicket = new Map();
+  for (const k of (jour && jour.ia) || []) {
+    const cle = k.ticket ? `RM${k.ticket}` : [k.client, k.projet].filter(Boolean).join("/") || "—";
+    const g = parTicket.get(cle) || { cle, rm: k.ticket || null, cible: [k.client, k.projet].filter(Boolean).join("/"),
+                                      tours: 0, minutes: 0, tokens: 0, modeles: new Set(),
+                                      premier: k.heure, dernier: k.heure };
+    g.tours += 1;
+    g.minutes += Number(k.minutes) || 0;
+    g.tokens += Number(k.tokens) || 0;
+    if (k.modele) g.modeles.add(k.modele);
+    if (k.heure < g.premier) g.premier = k.heure;
+    if (k.heure > g.dernier) g.dernier = k.heure;
+    parTicket.set(cle, g);
+  }
+  return [...parTicket.values()]
+    .map(g => ({ ...g, modeles: [...g.modeles].join(", "), minutes: Math.round(g.minutes) }))
+    .sort((a, b) => b.minutes - a.minutes || b.tours - a.tours);
+}
+
+/** Les clients d'une liste `{client, project}`, puis les projets d'un client — la matière des deux menus. */
+export function clientsEtProjets(liste) {
+  const parClient = new Map();
+  for (const p of liste || []) {
+    if (!p || !p.client) continue;
+    if (!parClient.has(p.client)) parClient.set(p.client, []);
+    if (p.project) parClient.get(p.client).push(p.project);
+  }
+  for (const v of parClient.values()) v.sort();
+  return { clients: [...parClient.keys()].sort(), projets: (c) => (parClient.get(c) || []).slice() };
+}

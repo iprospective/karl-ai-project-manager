@@ -47,6 +47,16 @@ const JOUR = {
   ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5 },
        { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3 },
        { heure: "18:40", ticket: 3199, client: "calicote", projet: "infra", modele: "claude-opus-4-8", tokens: 400000, minutes: 2 }],
+  traces: [
+    { heure: "08:51", source: "claude-history", humain: true, chars: 120, extrait: "étudie et chiffre RM3217", client: "pisceen", projet: "dolibarr", ticket: 3217 },
+    { heure: "08:55", source: "claude-transcript", humain: false, chars: 40, extrait: "(tour d'agent)", client: "pisceen", projet: "dolibarr", ticket: 3217 },
+    { heure: "18:40", source: "opencode", humain: true, chars: 80, extrait: "migration des boîtes", client: "calicote", projet: "infra", ticket: null },
+  ],
+  commits: [
+    { ts: "2026-09-18T12:31:00", sha: "0679ddb0", depot: "infra", client: "calicote", sujet: "RM3199 : journal — première synchronisation IMAP", auto: false },
+    { ts: "2026-09-18T13:42:00", sha: "09877eee", depot: "infra", client: "calicote", sujet: "RM3199 : journal — 7 boîtes migrées", auto: false },
+    { ts: "2026-09-18T23:27:00", sha: "009d9ee1", depot: "ai-project-management", client: "iprospective", sujet: "pm(tick): RM3229 métriques temps/tokens", auto: true },
+  ],
   surcharge: null, valide: false,
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -133,6 +143,32 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(M.poseParOutil(null), { count: 0, minutes: 0 });
   console.log("✓ frontière outil / main : ce qui est reprenable, ce qui est intouchable");
 
+  // — la pièce à conviction : traces, commits, temps IA —
+  const tr = M.traces(JOUR);
+  assert.strictEqual(tr.length, 3);
+  assert.deepStrictEqual([tr[0].heure, tr[0].source, tr[0].humain, tr[0].cible, tr[0].rm],
+                         ["08:51", "history", true, "pisceen/dolibarr", 3217], "la trace dit l'heure, la source, sa nature et sa cible");
+  assert.strictEqual(tr[1].humain, false, "une trace d'agent est marquée : elle n'crée pas de temps");
+  assert.strictEqual(M.traces(null).length, 0);
+
+  const cm = M.commits(JOUR);
+  assert.deepStrictEqual([cm.total, cm.travail.length, cm.plomberie.length], [3, 2, 1], "la plomberie PM est comptée à part, pas mélangée au travail");
+  assert.strictEqual(cm.travail[0].heure, "12:31", "l'heure du commit se lit directement");
+  assert.strictEqual(cm.plomberie[0].sujet.startsWith("pm(tick)"), true);
+  assert.deepStrictEqual(M.commits({}).travail, []);
+
+  const groupes = M.toursIA(JOUR);
+  assert.strictEqual(groupes.length, 2, "les tours d'agent se groupent par cible");
+  assert.deepStrictEqual([groupes[0].cle, groupes[0].tours, groupes[0].minutes, groupes[0].tokens],
+                         ["RM3217", 2, 8, 2000000], "…en cumulant tours, minutes et tokens");
+  assert.strictEqual(groupes[0].premier, "08:55", "…et en gardant la plage horaire");
+
+  const cp = M.clientsEtProjets([{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }]);
+  assert.deepStrictEqual(cp.clients, ["calicote", "pisceen"], "les clients, triés");
+  assert.deepStrictEqual(cp.projets("pisceen"), ["dolibarr", "infra"], "les projets du client choisi");
+  assert.deepStrictEqual(cp.projets("inconnu"), [], "un client sans projet ne casse rien");
+  console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
+
   // — service : charger, ajuster, valider —
   const appels = []; let charge = clone(JOUR);
   const repo = { day: async (j, refresh) => { appels.push(["day", j, !!refresh]); return { day: j, jour: charge }; },
@@ -206,6 +242,19 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(vm.groupes[0].lignes[0].outillage.includes("outillage PM"), "la part d'outillage mutualisé est nommée (demande de Mathieu)");
   assert.strictEqual(vm.regie[0].client, "matnat");
   assert.strictEqual(vm.weekend, false);
+  { const avecRef = new BillingViewModel({ day: "2026-09-18", jour: JOUR, form: { client: "pisceen", projet: "dolibarr" },
+      projets: [{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }] });
+    assert.deepStrictEqual(avecRef.clients.map(c => c.value), ["calicote", "pisceen"]);
+    assert.strictEqual(avecRef.clients.find(c => c.value === "pisceen").selected, true, "le client courant est présélectionné");
+    assert.deepStrictEqual(avecRef.projetsDuClient.map(p => p.value), ["dolibarr", "infra"], "les projets suivent le client choisi");
+    const inconnu = new BillingViewModel({ day: "2026-09-18", jour: JOUR, form: { client: "villacactus", projet: "site" }, projets: [{ client: "pisceen", project: "dolibarr" }] });
+    assert.strictEqual(inconnu.clients[0].value, "villacactus", "une valeur absente du référentiel reste proposée — un menu ne perd jamais une donnée existante");
+    assert.strictEqual(inconnu.projetsDuClient[0].value, "site"); }
+  assert.strictEqual(vm.traces.length, 3);
+  assert.strictEqual(vm.tracesHumaines, 2);
+  assert.strictEqual(vm.commits.travail.length, 2);
+  assert.strictEqual(vm.ia[0].duree, "8 min");
+  assert.strictEqual(vm.ia[0].plage, "08:55");
   console.log("✓ ViewModel : en-tête, chiffres, bouton selon l'état, transversal, régie");
 
   // — vue : sûre, sans on*, et la frise porte des positions —
@@ -218,6 +267,11 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/data-action="revoke"/.test(frag) && /retirer 1 saisie \(45 min\)/.test(frag), "le bouton de reprise annonce ce qu'il retire");
   assert(/bl-o-auto[^>]*>outil</.test(frag) && /bl-o-main[^>]*>à la main</.test(frag), "chaque saisie déjà notée dit d'où elle vient");
   assert(!/\[timesheet:/.test(frag), "la marque technique ne fuit jamais à l'écran");
+  assert(/<select[^>]*data-field="client"/.test(frag) && /<select[^>]*data-field="projet"/.test(frag), "client et projet se choisissent dans un menu");
+  assert(/traces de la journée — 3 \(2 humaines\)/.test(frag), "les traces sont listées avec leur compte");
+  assert(/commits — 2 de travail/.test(frag) && /plomberie PM \(1\)/.test(frag), "les commits séparent travail et plomberie");
+  assert(/temps IA — 3 tours · 10 min sur 2 cible\(s\)/.test(frag), "le temps IA est détaillé par cible");
+  assert(/RM3199 : journal/.test(frag), "le sujet du commit se lit");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");
@@ -227,7 +281,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   const card = fakeEl("billingcard");
   const toasts = []; const demandes = []; let repond = true;
   let jour2 = clone(JOUR); const vus = [];
-  const repo2 = { day: async (j, r) => { vus.push([j, !!r]); return { day: j, jour: jour2 }; } };
+  const repo2 = { day: async (j, r) => { vus.push([j, !!r]); return { day: j, jour: jour2 }; },
+                  projects: async () => ({ projects: [{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }] }) };
   const runs2 = [];
   const ctl = mountBilling({ card }, {
     service: new BillingService({ repo: repo2, run: async (n, a, o) => { runs2.push([n, a, o]); return { ok: true, stdout: "✓ 3 saisie(s)" }; }, day: "2026-09-18" }),
@@ -250,6 +305,13 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(vus[vus.length - 1], ["2026-08-26", true], "⟳ rejoue les traces");
   await card.change("field", { field: "debut" }, "09:15");
   assert(/09:15/.test(card.innerHTML), "la saisie se voit tout de suite");
+  await new Promise(r => setTimeout(r, 0));
+  assert(/<option value="calicote"/.test(card.innerHTML) && /<option value="pisceen"/.test(card.innerHTML), "les menus se peuplent au référentiel PM");
+  await card.change("field", { field: "client" }, "pisceen");
+  await card.change("field", { field: "projet" }, "infra");
+  assert.strictEqual(ctl.svc.form().projet, "infra");
+  await card.change("field", { field: "client" }, "calicote");
+  assert.strictEqual(ctl.svc.form().projet, "", "changer de client remet le projet à zéro — une paire client/projet inexistante n'a pas de sens");
   await card.click("save");
   assert.strictEqual(runs2[0][0], "timesheet-day-adjust");
   assert(toasts.some(([m]) => /ajustée/.test(m)));

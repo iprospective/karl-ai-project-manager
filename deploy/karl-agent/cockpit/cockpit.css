@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 9a74e138cadab927 (39 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 3d8338e76940dd45 (39 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -5971,4 +5971,89 @@ button.mini.soft:hover {
 .bl-o-auto {
   color: var(--warn);
   border-color: var(--warn);
+}
+
+.bl-ev {
+  margin-top: 10px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.bl-ev > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-evl {
+  max-height: 42vh;
+  overflow-y: auto;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.bl-evr {
+  display: flex;
+  gap: 8px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.bl-evr:hover {
+  background: var(--panel2);
+}
+
+.bl-ag {
+  opacity: 0.62;
+}
+
+.bl-eh {
+  flex: 0 0 4.4em;
+  color: var(--muted);
+}
+
+.bl-es {
+  flex: 0 0 7em;
+  color: var(--accent);
+}
+
+.bl-ed {
+  flex: 0 0 11em;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-ec {
+  flex: 0 0 13em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-ex {
+  flex: 1 1 30%;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-sha {
+  flex: 0 0 5em;
+  color: var(--muted);
+}
+
+.bl-sub2 {
+  margin-top: 4px;
+}
+
+.bl-sub2 > summary {
+  color: var(--muted);
+  cursor: pointer;
+  padding-left: 6px;
 }

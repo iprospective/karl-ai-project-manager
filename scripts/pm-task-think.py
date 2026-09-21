@@ -19,6 +19,12 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
 Options communes : --by M|A|<nom> (défaut : A = agent), --sid <session> (défaut : $CLAUDE_CODE_SESSION_ID),
 --when AAAA-MM-JJ, --dedupe (ne rien écrire si le texte est déjà consigné), --no-commit, --dry-run.
 
+LA CHAÎNE (RM3266) : Q (pas tranché) → D (l'arbitrage, tracé TICKETÉ OU NON) → *parfois* F → ticket(s).
+Une décision ne donne une F que si elle implique une CAPACITÉ NOUVELLE — un arbitrage de méthode ou de
+politique se trace et s'arrête là. Et une F n'est PAS un ticket : une fonctionnalité est ce que le système
+sait faire, elle cite 0, 1 ou plusieurs tickets (RM3099), et peut donner lieu à un ticket, EN COMPLÉTER un,
+ou rester à faire. Les décisions non ticketées remontent au projet par `pm-think-merge`.
+
 REQUALIFIER (RM3290) : `--move` change de TICKET, `--requalify --as` change de RUBRIQUE — une capture
 du harvest rangée en question bloque la clôture (RM3141) ; on la passe en note sans rien perdre. L'id
 d'arrivée est neuf (les ids sont locaux à leur rubrique et jamais réattribués), « Date · auteur » et

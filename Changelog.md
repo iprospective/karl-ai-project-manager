@@ -1157,6 +1157,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Secrets de provider : saisie interactive et masquée** (RM3277). Le terminal était REFUSÉ
+  (« la valeur se lit sur l'entrée standard ») : l'intention était juste — jamais en argument,
+  `ps` est lisible de tous — mais elle poussait au `echo 'secret' | …`, qui dépose le secret dans
+  l'historique du shell. `mmi-pm provider-secret --instance <x>` demande désormais le **nom** de
+  la clé (avec les clés usuelles du provider en exemple), puis sa **valeur en saisie masquée,
+  confirmée par une seconde frappe** — un secret mal tapé se pose sans bruit et ne se relit
+  jamais. L'usage scripté (tube, redirection) est inchangé, et les trois règles du script
+  tiennent : jamais en argument, jamais relu, jamais journalisé.
 - **L'annuaire de contacts devient utile aux automatismes, et visible** (RM3024, lots L4-L5
   de RM2703). Trois consommateurs le lisent désormais. **`internal` est un attribut de
   personne** : posé ligne par ligne, il ne voulait rien dire — la même personne était marquée

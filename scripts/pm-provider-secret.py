@@ -13,6 +13,7 @@ respecte trois règles qui font toute la sécurité de la fonction :
   3. **Le journal garde le fait, pas la matière** : « clé <NOM> de <instance> remplacée », sans
      longueur, sans empreinte, sans extrait.
 
+  pm-provider-secret --instance vw-ipro                                     demande la clé, puis la valeur (masquée)
   pm-provider-secret --instance vw-ipro --key CLIENTID           < valeur     (défaut : le .env du dev courant)
   pm-provider-secret --instance vw-ipro --key CLIENTID --unset               efface la clé
   pm-provider-secret --instance vw-ipro --status                            l'état des clés, jamais leur valeur
@@ -25,6 +26,7 @@ Nom complet de la variable : `<PREFIXE>__<INSTANCE>__<CLE>`, l'instance en majus
 import argparse
 import os
 import pwd
+import getpass
 import re
 import sys
 from datetime import datetime
@@ -58,6 +60,39 @@ def nom_variable(instance: str, cle: str, prefixe: str) -> str:
     if not _CLE_RE.match(prefixe or ""):
         raise ValueError(f"préfixe invalide : {prefixe!r}")
     return f"{prefixe}__{slug(instance)}__{cle}"
+
+
+#: Les clés usuelles par famille de provider — pour guider la saisie, pas la contraindre.
+CLES_USUELLES = {"REDMINE": ("API_KEY", "HTTP_USER", "HTTP_PASSWORD"), "GITLAB": ("TOKEN",),
+                 "GOGS": ("TOKEN",), "GITHUB": ("TOKEN",), "NC": ("USER", "PASSWORD"),
+                 "SECRET": ("CLIENTID", "CLIENTSECRET", "PASSWORD"), "LLM": ("API_KEY",)}
+
+
+def demander_nom_cle(prefixe, lecteur=input):
+    """Demande le NOM de la clé (jamais sa valeur) : USER, PASSWORD, API_KEY…"""
+    exemples = CLES_USUELLES.get(prefixe or "", ("API_KEY", "USER", "PASSWORD"))
+    saisie = (lecteur(f"Nom de la clé (ex. {', '.join(exemples)}) : ") or "").strip().upper()
+    if not _CLE_RE.match(saisie):
+        raise ValueError(f"clé invalide : {saisie!r} (MAJUSCULES, chiffres, _)")
+    return saisie
+
+
+def lire_valeur(interactif, lecteur_masque=None, flux=None):
+    """La valeur du secret : masquée au terminal, sinon lue sur l'entrée standard.
+
+    Le terminal était jusqu'ici REFUSÉ, ce qui poussait à `echo 'secret' | …` — et
+    déposait le secret dans l'historique du shell. La saisie masquée le garde hors de
+    l'historique ET hors de l'écran ; la confirmation évite un secret mal tapé, qui se
+    pose sans bruit et ne se relit jamais (rien ne relit une valeur, règle 2).
+    """
+    if not interactif:
+        return ((flux or sys.stdin).read() or "").strip()
+    lecteur_masque = lecteur_masque or getpass.getpass
+    premiere = lecteur_masque("Valeur (saisie masquée) : ")
+    seconde = lecteur_masque("Confirmer : ")
+    if premiere != seconde:
+        raise ValueError("les deux saisies diffèrent — rien n'a été écrit")
+    return (premiere or "").strip()
 
 
 def env_path(scope: str, user: str = None) -> Path:
@@ -125,8 +160,17 @@ def main():
             print(f"{variable}\t{'posée' if posee else 'vide'}")
         return 0
 
-    if not (a.instance and a.key):
-        sys.exit("ERREUR : --instance et --key requis (ou --status)")
+    interactif = sys.stdin.isatty()
+    if not a.instance:
+        sys.exit("ERREUR : --instance requis (ou --status)")
+    if not a.key:
+        if not interactif:
+            sys.exit("ERREUR : --key requis (hors terminal, rien ne peut être demandé)")
+        try:
+            a.key = demander_nom_cle(a.prefix or TYPE_PREFIXES.get((a.type or "").lower())
+                                     or PREFIXES.get((a.axis or "").lower()))
+        except (ValueError, EOFError, KeyboardInterrupt) as e:
+            sys.exit(f"ERREUR : {e or 'saisie interrompue'}")
     prefixe = a.prefix or TYPE_PREFIXES.get((a.type or "").lower()) or PREFIXES.get((a.axis or "").lower())
     if not prefixe:
         sys.exit("ERREUR : --prefix, --type ou --axis requis pour nommer la variable")
@@ -137,9 +181,10 @@ def main():
 
     valeur = None
     if not a.unset:
-        if sys.stdin.isatty():
-            sys.exit("ERREUR : la valeur se lit sur l'entrée standard (jamais en argument) — `… --key X < fichier`")
-        valeur = sys.stdin.read().strip()
+        try:
+            valeur = lire_valeur(interactif)
+        except (ValueError, EOFError, KeyboardInterrupt) as e:
+            sys.exit(f"ERREUR : {e or 'saisie interrompue'}")
         if not valeur:
             sys.exit("ERREUR : valeur vide (utiliser --unset pour effacer)")
     etat = ecrit(path, variable, valeur, unset=a.unset)

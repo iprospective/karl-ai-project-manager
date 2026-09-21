@@ -10,7 +10,8 @@ export class BillingRepository extends Repository {
   constructor() {
     super({ name: "timesheet", ttl: 60000, max: 40,
             factory: new Factory({ type: "timesheet_day" }),
-            routes: { day: "timesheet.day", month: "timesheet.month" } });
+            routes: { day: "timesheet.day", month: "timesheet.month",
+                      projects: "project.projects" } });
   }
 
   /** Une journée. `refresh` rejoue les traces au lieu de lire le cache du jour (~20 s). */
@@ -24,4 +25,7 @@ export class BillingRepository extends Repository {
   month(mois) {
     return get(this.path("month") + "?" + new URLSearchParams({ month: String(mois) }).toString());
   }
+
+  /** Les clients et projets PM — ce que les menus du formulaire proposent. */
+  projects() { return get(this.path("projects")); }
 }

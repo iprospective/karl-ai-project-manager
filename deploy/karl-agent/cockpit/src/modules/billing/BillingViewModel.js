@@ -1,12 +1,44 @@
 // modules/billing/BillingViewModel — ce que l'écran « Facturation » présente d'une journée. Inerte. RM3229, L3.
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
-         poseParOutil } from "./billing.js";
+         poseParOutil, traces, commits, toursIA, clientsEtProjets } from "./billing.js";
 
 export class BillingViewModel {
-  constructor({ day, jour, form, loading, error, busy, dirty }) {
+  constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
+    this.p = clientsEtProjets(projets || []);
+  }
+
+  /** Les deux menus du formulaire : les clients PM, et les projets du client choisi. */
+  get clients() {
+    const cur = this.f.client || "";
+    const liste = this.p.clients.slice();
+    // Un client posé à la main mais absent du référentiel reste proposé : on ne perd
+    // jamais une valeur existante en la remplaçant par un menu.
+    if (cur && !liste.includes(cur)) liste.unshift(cur);
+    return liste.map(c => ({ value: c, selected: c === cur }));
+  }
+  get projetsDuClient() {
+    const cur = this.f.projet || "";
+    const liste = this.p.projets(this.f.client || "");
+    if (cur && !liste.includes(cur)) liste.unshift(cur);
+    return liste.map(x => ({ value: x, selected: x === cur }));
+  }
+
+  /** Les traces horodatées — la pièce à conviction de la journée. */
+  get traces() { return traces(this.j); }
+  get tracesHumaines() { return this.traces.filter(t => t.humain).length; }
+
+  /** Les commits, travail d'abord, plomberie PM repliée. */
+  get commits() { return commits(this.j); }
+
+  /** Les tours d'agent, groupés par ticket. */
+  get ia() {
+    return toursIA(this.j).map(g => ({
+      ...g, duree: fmtMin(g.minutes), jetons: fmtTokens(g.tokens),
+      plage: g.premier === g.dernier ? g.premier : `${g.premier}–${g.dernier}`,
+    }));
   }
   get titre() { return longDate(this.day); }
   get weekend() { return isWeekend(this.day); }

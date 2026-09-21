@@ -83,6 +83,66 @@ Regroupe le temps saisi dans Redmine par client et par activité, au tarif de la
 facture, avec la note publique habituelle et les mises en production du mois. L'ERP est
 le provider `erp` du registre ; réglages : `invoice.example.yml` → `~/.config/mmi-pm/invoice.yml`.
 
+## Le carnet de réflexion : de la question au ticket
+
+Chaque ticket a trois fichiers. Le `.md` est le **contrat**, le `.log.md` le **journal
+d'événements**, et le `.think.md` le **pourquoi** — c'est le carnet de réflexion. Il porte
+quatre rubriques, et c'est la chaîne qui les relie qui compte.
+
+| | Rubrique | Ce qu'on y range |
+|---|---|---|
+| **N** | Notes | une information utile plus tard, **verbatim, jamais reformulé** — jamais une demande immédiate, un accord, un accusé |
+| **Q** | Questions | ce qui **n'est pas tranché** : ce que ça bloque, l'urgence |
+| **D** | Décisions | ce que le demandeur demande, pose ou **tranche** — réponse à une question ou non, **ticketé ou non** |
+| **C** | Conseils | l'avis de l'agent, 🟡 jusqu'à l'arbitrage |
+| **F** | Fonctionnalités | une **capacité atomique** du système |
+
+### La chaîne
+
+```
+Q (pas tranché)  →  D (l'arbitrage, tracé quoi qu'il arrive)  →  parfois F  →  ticket(s)
+```
+
+Deux malentendus fréquents, tranchés ici :
+
+- **Une décision ne donne PAS toujours une fonctionnalité.** Elle n'en donne une que si elle
+  implique une **capacité nouvelle**. Un arbitrage de méthode, de politique ou de priorité se
+  trace et s'arrête là — c'est une décision complète, elle n'a rien à implémenter.
+- **Une fonctionnalité n'est PAS un ticket.** Une fonctionnalité est *ce que le système sait
+  faire* : elle existe pour elle-même, se dit en langage d'usage, et **cite 0, 1 ou plusieurs
+  tickets**. Elle peut donner lieu à un ticket, **en compléter** un, ou rester à faire. Le ticket
+  est une trace de travail, pas la définition.
+
+Corollaire : **les décisions non ticketées sont tracées**, et elles ne meurent pas avec le
+ticket — `pm-think-merge` fait remonter les carnets vers les registres du projet
+(`docs/cdc-decisions.md`, `cdc-questions.md`, `cdc-notes.md`, `cdc-features.md`), où les ids sont
+préfixés `RM<id>-`. Le cockpit les expose dans son panneau **CDC**.
+
+### Les gestes
+
+```bash
+mmi-pm task-think <id> --note "verbatim"            # consigner sans reformuler
+mmi-pm task-think <id> --question "…" --bloque X    # ce qui n'est pas tranché
+mmi-pm task-think <id> --decide "…"                 # l'arbitrage
+mmi-pm task-think <id> --feature "…"                # une capacité
+mmi-pm task-think <id> --show                       # ce que porte le ticket
+```
+
+Deux règles sont **tenues par l'outil**, pas par la discipline :
+
+- **Trancher une question appelle sa décision.** `--set Qnnn --state valide` est refusé si rien
+  ne tranche la question. Trois sorties : `--decide-with "…"` (pose la décision et la relie, en un
+  appel), `--dest Dnnn` (relier une décision existante), ou `--state invalide` si ce n'était pas
+  une question — **écarter n'est pas trancher**. `--orphans` liste les questions tranchées que rien
+  ne relie.
+- **Une entrée mal classée se requalifie, elle ne se détruit pas.**
+  `--requalify Qnnn --as note` change de rubrique en gardant date, auteur, état et texte ; la
+  colonne `Origine` garde la piste (`ex-Q001`). C'est ce qui débloque un ticket qu'une capture
+  accidentelle empêchait de fermer — **une question ouverte bloque la clôture**.
+
+> La norme qui fait foi est `norms/src/modules/cdc.md` (§ codes de lettres) ; le détail des gestes
+> est dans `mmi-pm task-think --help`. Cette section les résume, elle ne les remplace pas.
+
 ## Structure du repo
 
 ```

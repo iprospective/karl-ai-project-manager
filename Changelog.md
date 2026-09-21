@@ -13,6 +13,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **karl s'installe en service d'équipe : une instance par développeur** (RM3070, lots L4 et L5).
+  Côté cockpit, la session d'un autre porte désormais son nom — un administrateur voit toutes les
+  sessions, il lui fallait savoir à qui elles sont ; la sienne n'est pas étiquetée. Côté installation,
+  le gabarit `karl-agent@<login>.service` fait tourner une instance **sous le compte de chaque
+  développeur**, derrière un front unique : tout ce qui est déjà par utilisateur le reste (sessions
+  tmux, coffre, agent SSH, transcripts), et le multi devient un problème de routage plutôt qu'une
+  réécriture du superviseur. `mmi-pm karl-service --user alice --port 9881` rédige les trois pièces
+  (environnement du développeur, unité, fragment de reverse-proxy avec `upgrade=websocket`) et
+  **n'écrit rien dans `/etc`** : la pose reste un geste root. Un port déjà attribué est refusé
+  d'avance, en nommant l'autre développeur — sinon le conflit ne se verrait qu'au démarrage de la
+  seconde instance. Runbook : `docs/guides/karl-multi-utilisateur.md`, avec ce qui n'est pas encore
+  fait (transcripts et mail restent servis par l'identité de l'instance).
+
 - **Le carnet qualifie ses entrées** (RM3262) : questions, décisions et fonctionnalités portent
   « Date · auteur » comme les notes, et une question porte « Tranchée par » — rempli tout seul par
   la décision qui la cite. La signature d'une décision quitte son libellé, où elle était collée.

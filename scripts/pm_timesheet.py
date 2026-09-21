@@ -1040,7 +1040,7 @@ def _heure_de(cle_jour, alloc_horaire):
 
 
 def appliquer_presences(final, presences, debut, fin, par_heure=None,
-                        par_heure_cible=None):
+                        par_heure_cible=None, deja_par_jour=None):
     """Complète les journées de RÉGIE, que les traces d'agents ne peuvent pas voir.
 
     Une journée passée chez un client — 9 h 30 – 18 h 30, réunions comprises — ne
@@ -1121,6 +1121,10 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                 else:
                     mesure = sum(v for (j, cible), v in final.items()
                                  if j == cle and cible[0] == client)
+                # Ce qui est DÉJÀ saisi ce jour-là remplit le plancher au même titre que le
+                # mesuré : sans cela, une journée validée (régie comprise) se verrait
+                # re-proposer son complément à chaque recalcul — un doublon de facturation.
+                mesure = max(mesure, (deja_par_jour or {}).get(cle, 0))
                 manque = heures_jour * 60 - mesure
                 if manque > 1:
                     if reunion_jour > 0:
@@ -1222,9 +1226,7 @@ def charger_config(chemin=None, cfg=None):
     """
     if yaml is None:
         return {}
-    if chemin is None and cfg is not None:
-        chemin = Path(cfg.pm_dir) / "timesheet.yml"
-    p = Path(chemin) if chemin else None
+    p = chemin_config(chemin, cfg)
     if not p or not p.is_file():
         return {}
     try:
@@ -1525,3 +1527,115 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                              "alerte": bool(d.get("alerte_absence"))}
                          for j, d in sorted(journal.items())},
             "lignes": lignes}
+
+
+# ── Configuration utilisateur, état local, cache par jour (RM3229 / L0) ──────
+
+#: Les réglages sont ceux d'UNE personne (ses postes, ses clients, ses absences) :
+#: ils vivent chez elle, pas dans le code partagé. Leçon de RM2890 : posés dans un
+#: fichier de travail de session, ils ont disparu avec lui.
+CONF_UTILISATEUR = Path.home() / ".config" / "mmi-pm" / "timesheet.yml"
+ETAT = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
+
+
+def chemin_config(chemin=None, cfg=None):
+    """Le fichier de réglages retenu : explicite > utilisateur > core (historique)."""
+    if chemin:
+        return Path(chemin).expanduser()
+    if CONF_UTILISATEUR.is_file():
+        return CONF_UTILISATEUR
+    return Path(cfg.pm_dir) / "timesheet.yml" if cfg is not None else CONF_UTILISATEUR
+
+
+def event_vers_dict(e, rm_tour=None):
+    return {"ts": e.ts.isoformat(timespec="seconds"), "chars": e.chars, "source": e.source,
+            "cwd": e.cwd, "session": e.session, "text": (e.text or "")[:400],
+            "extends": e.extends, "cible": list(e.cible) if e.cible else None,
+            "rm_tour": rm_tour}
+
+
+def dict_vers_event(d):
+    e = Event(ts=datetime.fromisoformat(d["ts"]), chars=d.get("chars", 0),
+              source=d.get("source", ""), cwd=d.get("cwd"), session=d.get("session"),
+              text=d.get("text", ""), extends=d.get("extends", True),
+              cible=tuple(d["cible"]) if d.get("cible") else None)
+    return e, d.get("rm_tour")
+
+
+def cache_lire(jour, racine=None):
+    """Événements d'une journée déjà collectée, ou None. Lire le cache évite de
+    rejouer tous les transcripts (≈ 1 min par mois) à chaque ajustement d'horaire."""
+    p = (racine or ETAT / "cache") / f"{jour}.jsonl"
+    if not p.is_file():
+        return None
+    sortie = []
+    for ligne in p.read_text(encoding="utf-8").splitlines():
+        if ligne.strip():
+            sortie.append(dict_vers_event(json.loads(ligne)))
+    return sortie
+
+
+def cache_ecrire(jour, items, racine=None):
+    """Fige une journée TERMINÉE. Écriture atomique ; c'est aussi une archive, les
+    transcripts pouvant être purgés."""
+    dossier = racine or ETAT / "cache"
+    dossier.mkdir(parents=True, exist_ok=True)
+    tmp = dossier / f".{jour}.jsonl.tmp"
+    tmp.write_text("".join(json.dumps(event_vers_dict(e, rm), ensure_ascii=False) + "\n"
+                           for e, rm in items), encoding="utf-8")
+    tmp.replace(dossier / f"{jour}.jsonl")
+
+
+# ── Surcharges par journée (RM3229 / L1) ─────────────────────────────────────
+
+def surcharges_chemin(mois, racine=None):
+    return (racine or ETAT) / f"{mois}.days.yml"
+
+
+def surcharges_charger(mois, racine=None):
+    p = surcharges_chemin(mois, racine)
+    if yaml is None or not p.is_file():
+        return {}
+    return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+
+
+def surcharges_ecrire(mois, donnees, racine=None):
+    p = surcharges_chemin(mois, racine)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(yaml.safe_dump(donnees, allow_unicode=True, sort_keys=True), encoding="utf-8")
+    tmp.replace(p)
+
+
+def heures_travaillees(debut, fin, pause_h=None):
+    """« 09:30 » → « 18:30 », pause d'une heure par défaut au-delà de 6 h d'amplitude."""
+    h0, m0 = (int(x) for x in debut.split(":"))
+    h1, m1 = (int(x) for x in fin.split(":"))
+    amplitude = (h1 * 60 + m1 - h0 * 60 - m0) / 60
+    if pause_h is None:
+        pause_h = 1.0 if amplitude > 6 else 0.0
+    return max(round(amplitude - pause_h, 2), 0.0)
+
+
+def presences_effectives(presences, surcharges):
+    """Les présences déclarées, plus les journées ajustées une à une.
+
+    Une journée ajustée REMPLACE la présence régulière de ce jour-là (sinon deux
+    planchers s'empileraient) : sa date est ajoutée aux `sauf` des présences
+    régulières, et elle devient une présence datée à part entière.
+    """
+    jours = sorted(j for j, s in (surcharges or {}).items() if s and s.get("debut") and s.get("fin"))
+    sortie = []
+    for p in presences or []:
+        q = dict(p)
+        q["sauf"] = sorted(set(str(x) for x in (p.get("sauf") or [])) | set(jours))
+        sortie.append(q)
+    for j in jours:
+        s = surcharges[j]
+        sortie.append({
+            "client": s.get("client"), "projet": s.get("projet"), "dates": [j],
+            "debut": s["debut"], "fin": s["fin"],
+            "heures": s.get("heures") or heures_travaillees(s["debut"], s["fin"], s.get("pause_h")),
+            "reunion_h": s.get("reunion_h", 0), "exclusif": s.get("exclusif", False),
+        })
+    return [p for p in sortie if p.get("client")]

@@ -214,5 +214,50 @@ e2 = W.Event(ts=datetime(2026, 8, 3, 10, 0), chars=10, source="claude-transcript
 e3 = W.Event(ts=datetime(2026, 8, 3, 10, 5), chars=10, source="claude-transcript", text="autre")
 verifie(len(W.dedupe([e1, e2, e3])) == 2, "le même prompt vu par deux sources ne compte qu'une fois")
 
+
+# ── 10. Journée : configuration utilisateur, cache, surcharges (RM3229) ──────
+print("\n10. Journée — configuration, cache, surcharges")
+import tempfile
+with tempfile.TemporaryDirectory() as d:
+    racine = Path(d)
+    e1 = W.Event(ts=datetime(2026, 8, 26, 9, 45), chars=120, source="claude-transcript",
+                 cwd="/zfs/x", session="s1", text="bonjour")
+    e2 = W.Event(ts=datetime(2026, 8, 26, 14, 0), chars=30, source="redmine:matnat",
+                 text="commentaire", cible=("matnat", "infra", "matnat#5588"))
+    W.cache_ecrire("2026-08-26", [(e1, "2553"), (e2, None)], racine=racine)
+    relu = W.cache_lire("2026-08-26", racine=racine)
+    verifie(len(relu) == 2 and relu[0][1] == "2553" and relu[0][0].ts == e1.ts,
+            "cache aller-retour : événement et ticket du tour conservés")
+    verifie(relu[1][0].cible == ("matnat", "infra", "matnat#5588"), "cible certaine conservée")
+    verifie(W.cache_lire("2026-08-27", racine=racine) is None, "journée absente du cache : None")
+    W.surcharges_ecrire("2026-08", {"2026-08-26": {"debut": "09:30", "fin": "18:30", "client": "matnat"}},
+                        racine=racine)
+    verifie(W.surcharges_charger("2026-08", racine=racine)["2026-08-26"]["client"] == "matnat",
+            "surcharges aller-retour")
+
+verifie(W.heures_travaillees("09:30", "18:30") == 8.0, "9 h 30 – 18 h 30 = 8 h (pause d'1 h par défaut)")
+verifie(W.heures_travaillees("09:00", "12:00") == 3.0, "demi-journée : pas de pause")
+verifie(W.heures_travaillees("09:00", "18:00", 0.5) == 8.5, "pause explicite")
+
+reguliere = [{"client": "matnat", "jours": ["mercredi"], "heures": 8, "debut": "09:30", "fin": "18:30"}]
+eff = W.presences_effectives(reguliere, {"2026-08-12": {"debut": "09:00", "fin": "12:00", "client": "matnat"}})
+verifie("2026-08-12" in eff[0]["sauf"], "une journée ajustée sort de la présence régulière")
+verifie(eff[1]["dates"] == ["2026-08-12"] and eff[1]["heures"] == 3.0,
+        "…et devient une présence datée (3 h) — pas deux planchers empilés")
+verifie(W.presences_effectives(reguliere, {"2026-08-12": {"valide_sans_ajout": True}}) == reguliere
+        or W.presences_effectives(reguliere, {"2026-08-12": {"valide_sans_ajout": True}})[0]["sauf"] == [],
+        "une validation sans horaires ne touche pas aux présences")
+verifie(str(W.chemin_config("/tmp/x.yml")) == "/tmp/x.yml", "configuration explicite prioritaire")
+
+# une journée de régie DÉJÀ saisie ne se voit pas re-proposer son complément
+pres = [{"client": "matnat", "projet": "infra", "dates": ["2026-08-26"], "debut": "09:30",
+         "fin": "18:30", "heures": 8, "reunion_h": 1}]
+d0, d1 = datetime(2026, 8, 26), datetime(2026, 8, 27)
+ph = {("2026-08-26", h): 20.0 for h in range(9, 19)}          # 3 h 20 mesurées dans la plage
+aj_vide, _t = W.appliquer_presences({}, pres, d0, d1, ph)
+verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément jusqu'à 8 h")
+aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
+verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

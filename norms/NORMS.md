@@ -2580,7 +2580,9 @@ création, `pm-task-add` envoie la section de critères de `--description` au ch
 d'un `--set-from-file` que le champ couvre déjà, et **refuse** celle qui en diffère
 (critère ou coche en plus) ainsi que `--add-criterion` : on passe par `pm-task-acceptance`.
 L'existant se purge par `pm-acceptance-purge` (dry-run par défaut, dump JSONL avant
-écriture), selon une règle **orientée** : la section part si le champ la couvre ou est
+écriture ; `--fold` replie d'abord la section ENTIÈRE dans le champ — texte et sous-titres
+compris, coches fusionnées —, `--convert-bullets` y transforme les critères écrits en
+puces), selon une règle **orientée** : la section part si le champ la couvre ou est
 **en avance** ; elle reste si la description est en avance, si un item manque au champ,
 ou si elle porte de la prose — rien ne se perd, le reste se tranche à la main.
 

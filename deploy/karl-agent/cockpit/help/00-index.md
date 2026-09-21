@@ -58,9 +58,13 @@ force cette disposition sur un grand écran, `?layout=desktop` l'inverse.
 
 Au doigt, l'écran utile passe avant le décor :
 
-- **⛶ plein écran** (barre du bas) ne laisse que le panneau central. Il s'enclenche
+- **⛶ plein écran** (barre du bas) ne laisse que le **terminal** : ni barre du haut, ni
+  onglets, ni options du terminal (dicter, lire…), ni réponses possibles. Il s'enclenche
   **tout seul quand le clavier monte** — et se retire quand il redescend, sauf si on
   l'a demandé à la main ; **↙** revient à la vue normale.
+- **Glisser le doigt sur le terminal fait défiler l'historique** (xterm ne le fait pas
+  tout seul : le geste est ajouté par le cockpit). Un appui simple garde le clavier,
+  le pincer-zoomer reste au navigateur.
 - La **barre du haut se réduit aux icônes**, les moins courantes passant sous **…**.
   Un **premier appui affiche le nom** du bouton, le **second déclenche** son action :
   au doigt, on ne lance rien à l'aveugle.

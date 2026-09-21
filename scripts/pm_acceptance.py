@@ -308,6 +308,20 @@ def _is_marker(line):
     return line.lstrip().startswith(">") and "définir" in line.lower()
 
 
+_LEAD_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])?\s*(?:\[[ xX]\])?\s*")
+
+
+def _line_key(line):
+    """Clé de comparaison d'une LIGNE entre la section et le champ (RM3285).
+
+    Puce, numérotation et case à cocher sont retirées avant de comparer : une ligne
+    convertie en case (`- [x] le service répond`) est la MÊME que la puce d'origine
+    (`- le service répond`). Sans cela, le repliement d'une section convertie croyait
+    perdre chacune de ses lignes.
+    """
+    return norm_label(_LEAD_RE.sub("", line or ""))
+
+
 def purge_decision(cf_text, body):
     """Peut-on retirer les sections de critères de `body`, sachant que le CF porte `cf_text` ?
 
@@ -348,12 +362,87 @@ def purge_decision(cf_text, body):
                 motifs.append(f"coché dans la description, pas dans le CF : « {court} »")
             elif cf_by[key] and not ok:
                 en_avance += 1
+        # RM3285 : une ligne de texte que le CHAMP porte aussi n'est plus perdue si la
+        # section part — c'est tout l'objet du repliement. On ne garde donc que ce qui
+        # n'existe QUE dans la section.
+        dans_cf = {_line_key(l) for l in (cf_text or "").split("\n") if l.strip()}
         for ln in _stray_lines(texte):
+            if _line_key(ln) in dans_cf:
+                continue
             motifs.append(f"texte hors cases dans la section : « {ln[:70]} »")
     if motifs:
         return "garde", motifs
     return "retire", ([f"CF en avance de {en_avance} coche(s) sur la description"]
                       if en_avance else [])
+
+
+BULLET_RE = re.compile(r"^(\s*)(?:[-*+]|\d+[.)])\s+(?!\[[ xX]\])(\S.*)$")
+
+
+def convert_bullets(section, checked):
+    """Puces et listes numérotées d'une section → cases à cocher (RM3285).
+
+    16 tickets portent de vrais critères écrits `- le service répond` : aucun outil ne les
+    compte, et leur champ est resté vide. On les convertit, en gardant leur état demandé.
+
+    Ce qui n'est PAS une puce reste tel quel : une phrase de contexte (« Lié à RM2028. »)
+    ne devient pas un critère — on ne fabrique pas une exigence à partir d'une note.
+    Une ligne de continuation indentée suit sa puce, elle n'en devient pas une.
+    """
+    lines = (section or "").split("\n")
+    flags = pm_markdown.code_line_flags(lines)
+    out = []
+    for i, ln in enumerate(lines):
+        m = BULLET_RE.match(ln)
+        if m and not flags[i]:
+            out.append("{}- [{}] {}".format(m.group(1), "x" if checked else " ", m.group(2).strip()))
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
+def fold_into_field(cf_text, section, convert=None):
+    """La section devient la valeur du champ, sans rien perdre (RM3285). Fonction PURE.
+
+    Le CF 33 est un champ TEXTE : ses lignes qui ne sont pas des cases sont conservées et
+    ignorées par le parseur. Ce qui bloquait la purge — prose, sous-titres d'étapes — peut
+    donc y vivre. On replie donc la section ENTIÈRE plutôt que de déplacer son texte
+    ailleurs, ce qui casserait l'appariement « étape ↔ critères » (mesuré sur RM2481).
+
+    Trois garanties :
+      · le texte de la section est rendu intégralement, dans son ordre ;
+      · les coches FUSIONNENT — coché d'un côté reste coché (le champ est souvent en
+        avance : c'est tout le motif de RM3241) ;
+      · les critères que seul le CHAMP portait sont ajoutés à la suite, jamais perdus.
+
+    `convert` : None, True (cases cochées) ou False (cases décochées) — n'agit que si la
+    section ne porte AUCUNE case réelle, pour ne pas réécrire une section déjà propre.
+
+    Rend None si la section est vide (rien à replier) : jamais de valeur vide poussée.
+    """
+    txt = section or ""
+    if convert is not None and not parse_items(txt):
+        txt = convert_bullets(txt, bool(convert))
+    if not txt.strip():
+        return None
+    coches = {norm_label(lab): ok for ok, lab in parse_items(cf_text or "")}
+    lignes = txt.split("\n")
+    spans = {a: (ok, lab) for a, _b, ok, lab in _item_spans(txt)}
+    out = []
+    for i, ln in enumerate(lignes):
+        if i in spans:
+            ok, lab = spans[i]
+            if not ok and coches.get(norm_label(lab)):
+                ln = re.sub(r"\[ \]", "[x]", ln, count=1)   # le champ était en avance
+            out.append(ln)
+        else:
+            out.append(ln)
+    connus = {norm_label(lab) for _, lab in parse_items(txt)}
+    restants = [(ok, lab) for ok, lab in parse_items(cf_text or "")
+                if norm_label(lab) not in connus]
+    if restants:
+        out += ["", render_items(restants)]
+    return "\n".join(out).strip("\n")
 
 
 def cf_text_of_issue(issue):

@@ -13,6 +13,29 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Critères d'acceptation : la section se replie dans le champ** (RM3285, suite de RM3241). La purge
+  avait laissé 87 tickets intacts, faute de pouvoir décider : prose dans la section, sous-titres
+  d'étapes, critères écrits en puces sans cases. Le CF 33 étant un champ **texte**, tout cela peut y
+  vivre — `acceptance-purge --fold` replie la section entière (texte, sous-titres, ordre), fusionne
+  les coches (coché d'un côté reste coché), conserve les critères que seul le champ portait, puis
+  retire la section. `--convert-bullets coché|décoché` transforme en cases les critères écrits en
+  puces. Restent exclus, parce qu'ils demandent un arbitrage : divergence croisée entre la fiche et
+  Redmine, coche contradictoire, et critères rédigés en paragraphes (aucune case à replier).
+
+- **La moisson garde moins, et mieux** (RM3281). Deux familles passaient encore le critère de la note
+  et rendaient les carnets illisibles : l'**ordre d'exécution** — « go faire 3108… », et celui posé en
+  FIN de note (« … Consigne tout ça dans le ticket maintenant »), qui pilote le tour en cours et ne se
+  relira jamais — et le **fragment sans référent** — « on verra plus tard pour la suite, il faudra
+  trancher », que rien ne rattache à quoi que ce soit hors de sa conversation. Une note gardée doit
+  désormais porter de quoi la retrouver : un ticket, un chemin, une option de commande, un terme
+  technique, ou assez de mots qui désignent quelque chose. Un impératif AU MILIEU d'un raisonnement
+  reste une note : on ne coupe pas plus large que nécessaire.
+
+- **Une session épinglée éteinte se reprend d'un clic** (RM3265) : RM2819 relançait celles qui
+  appartiennent à un jeu ; les autres n'avaient droit qu'à « introuvable, fermer l'onglet ». Le clic
+  cherche désormais leur conversation par le ticket, prend la session éteinte (jamais celle qui
+  tourne) et la reprend, ancrée sur ce même ticket. Le survol annonce le geste : « clic : attacher »
+  ou « clic : relancer ou reprendre la conversation ».
 - **karl s'installe en service d'équipe : une instance par développeur** (RM3070, lots L4 et L5).
   Côté cockpit, la session d'un autre porte désormais son nom — un administrateur voit toutes les
   sessions, il lui fallait savoir à qui elles sont ; la sienne n'est pas étiquetée. Côté installation,

@@ -65,6 +65,7 @@ import { mountCdc } from "./modules/cdc/cdc.controller.js";                 // R
 import { mountClientNotify } from "./modules/clientnotify/clientnotify.controller.js";   // RM3052
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
 import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
+import { mountBilling } from "./modules/billing/billing.controller.js";      // RM3229
 import { mountEngines } from "./modules/engines/engines.controller.js";
 import { mountModules } from "./modules/modules/modules.controller.js";       // RM3145
 import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
@@ -345,7 +346,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let journal = null, cdc = null, clientnotify = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let journal = null, billing = null, cdc = null, clientnotify = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: PREFS, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
   resolve: () => stores.resolve,
@@ -365,6 +366,8 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     feed:     { label: "fil",          load: () => feedCtl.open(),    show: (on) => show("cp-feed", on) },     // RM2792
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
     clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
+    // RM3229 : le temps de travail d'une journée, à valider en le regardant — jamais un mois en bloc
+    billing:  { label: "facturation",  load: () => billing.open(),    show: (on) => show("cp-billing", on) },
   },
   // RM3115 : une vue ou un panneau est une surface centrale comme un ticket — c'est la disposition qui
   // décide s'il remplace la session ou s'affiche sous elle, pas un `display` posé à la main.
@@ -650,6 +653,9 @@ clientnotify = mountClientNotify(byId("clientnotifycard"), {
   clear: (id) => clearTimeout(id),
 });
 journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: PREFS, notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
+// RM3229 : l'écran de facturation — une journée, sa frise humain/IA, sa proposition, sa validation. L'écriture passe par le
+// catalogue PM (`pm.run`), avec confirmation : c'est le même chemin que la CLI, et il est journalisé.
+billing = mountBilling({ card: byId("billingcard") }, { run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, storage: PREFS, showTicket: (id) => meta.showTicket(id) });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
 // une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
@@ -658,7 +664,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, clientnotify, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, clientnotify, billing, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

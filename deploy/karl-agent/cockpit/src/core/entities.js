@@ -124,6 +124,8 @@ defineEntity("pm",        { icon: "⚙", label: "commandes pm", panel: true, too
 defineEntity("settings",  { icon: "🔧", label: "réglages", panel: true, tooltip: () => "réglages du cockpit", open: (api) => api.openPanel("settings") });
 defineEntity("journal",   { icon: "📜", label: "journal", panel: true, tooltip: () => "journal (serveur + navigateur)", open: (api) => api.openPanel("journal") });
 defineEntity("memory",    { icon: "🧠", label: "mémoire", panel: true, tooltip: () => "mémoire par module (sonde)", open: (api) => api.openPanel("memory") });
+// RM3229 : la facturation — une journée de travail à valider, plutôt qu'un mois écrit en bloc
+defineEntity("billing",   { icon: "💶", label: "facturation", panel: true, tooltip: () => "facturation : valider le temps de travail d'une journée", open: (api) => api.openPanel("billing") });
 // RM3044 : le CDC vivant — un panneau, trois onglets dedans (modèle POC AtomBox : Fonctionnalités · CDC · Feuille de route)
 defineEntity("cdc",       { icon: "📋", label: "CDC", panel: true, tooltip: () => "CDC vivant : fonctionnalités, chapitres, feuille de route", open: (api) => api.openPanel("cdc") });
 

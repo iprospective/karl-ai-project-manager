@@ -641,7 +641,14 @@ def main():
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"
-        if not chemin.is_file():
+        # Une JOURNÉE se valide depuis l'écran : sa proposition se recalcule ici même,
+        # juste avant d'écrire. Sans cela on appliquerait la proposition d'avant le
+        # dernier ajustement (début/fin, client principal) — l'écran montrerait une
+        # chose, Redmine en recevrait une autre. Un MOIS garde son yml amendable à la
+        # main : c'est le geste prévu pour lui.
+        if args.day:
+            ecrire_sorties(calculer(args, cfg, conf), dossier, libelle)
+        elif not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
         return appliquer(chemin, cfg, conf, args)
 

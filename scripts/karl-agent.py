@@ -10742,6 +10742,37 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "redmine_project_id", "label": "Projet Redmine parent (id/slug)", "type": "text",
           "flag": "--redmine-project-id", "max_len": 64},
      ]},
+    # RM3229 : la journée est l'unité de validation du temps humain. Deux gestes, et
+    # deux seulement : AJUSTER (heures réelles, client principal — rien n'est écrit
+    # hors de la surcharge locale) puis VALIDER, qui crée les saisies Redmine de CETTE
+    # journée. Jamais un mois en bloc : c'est la demande, et c'est aussi ce qui rend
+    # l'erreur rattrapable — une journée se relit, un mois posé d'un coup, non.
+    {"name": "timesheet-day-adjust", "label": "Ajuster une journée (heures, client principal)",
+     "category": "facturation", "script": "pm-timesheet.py", "mutate": True, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "start", "label": "Début", "type": "time", "flag": "--start"},
+         {"name": "end", "label": "Fin", "type": "time", "flag": "--end"},
+         {"name": "client", "label": "Client principal", "type": "text", "flag": "--client",
+          "max_len": 48},
+         {"name": "projet", "label": "Projet du client principal", "type": "text",
+          "flag": "--projet", "max_len": 64},
+         {"name": "pause", "label": "Pause (heures)", "type": "text", "flag": "--pause",
+          "max_len": 5},
+         {"name": "exclusif", "label": "Journée quasi exclusive pour ce client",
+          "type": "bool", "flag": "--exclusif"},
+         {"name": "clear_override", "label": "Retirer l'ajustement", "type": "bool",
+          "flag": "--clear-override"},
+         {"name": "validate_empty", "label": "Valider sans rien ajouter", "type": "bool",
+          "flag": "--validate-empty"},
+     ]},
+    {"name": "timesheet-day-apply", "label": "Valider la journée (crée les saisies Redmine)",
+     "category": "facturation", "script": "pm-timesheet.py",
+     "mutate": True, "confirm": True, "timeout": 600, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "apply", "const": True, "flag": "--apply"},
+         {"name": "dry_run", "label": "Simulation (n'écrit rien)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
@@ -12596,6 +12627,14 @@ def _pm_validate_arg(spec: dict, value) -> str:
     elif typ == "enum":
         if s not in (spec.get("choices") or []):
             raise ApiError(400, f"arg {name} : valeur hors choix {spec.get('choices')}")
+    elif typ == "date":      # RM3229 : une journée, AAAA-MM-JJ — et une VRAIE date
+        try:                 # la forme ne suffit pas : « 2026-13-45 » la respecte
+            datetime.date.fromisoformat(s)
+        except ValueError:
+            raise ApiError(400, f"arg {name} : date AAAA-MM-JJ attendue")
+    elif typ == "time":      # RM3229 : une heure de la journée, HH:MM
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", s):
+            raise ApiError(400, f"arg {name} : heure HH:MM attendue")
     elif typ == "path":
         # chemin borné aux workspaces — jamais de chemin arbitraire depuis le web
         if ".." in s or not s.startswith("/zfs/workspaces/"):
@@ -12690,6 +12729,62 @@ def op_pm_run(payload: dict) -> dict:
             pass  # le journal ne doit jamais faire échouer le run
     return {"name": name, "rc": r.returncode, "ok": r.returncode == 0,
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
+# ── RM3229 : le temps humain d'une journée, pour l'écran de validation ─────────
+# La LECTURE passe par ici (GET, sans effet de bord) ; l'ajustement et la
+# validation passent par le catalogue `/pm/run` comme toute commande mutante —
+# une seule vérité, la CLI, et le même journal d'exécution.
+_TS_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TS_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _timesheet(args: list, timeout: int = 300) -> dict:
+    """Lance `pm-timesheet --json` et rend son objet. ApiError si la sortie est illisible."""
+    path = (REPO_ROOT / "scripts" / "pm-timesheet.py").resolve()
+    if not path.is_file():
+        raise ApiError(500, "script introuvable : pm-timesheet.py")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout, env=_env_acteur())
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"pm-timesheet : timeout ({timeout}s)")
+    if p.returncode != 0:
+        raise ApiError(400, f"pm-timesheet : {(p.stderr or p.stdout or '').strip()[-400:]}")
+    out = (p.stdout or "").strip().splitlines()
+    try:
+        return json.loads(out[-1]) if out else {}
+    except (ValueError, IndexError):
+        raise ApiError(500, f"pm-timesheet : sortie illisible — {(p.stderr or p.stdout or '')[-300:]}")
+
+
+def op_timesheet_day(qs: dict) -> dict:
+    """Une journée : périodes mesurées, temps IA en face, proposition, déjà-saisi, ajustement.
+
+    Première ouverture d'une journée : ~20 s (les traces sont rejouées) ; ensuite le
+    cache par jour la rend immédiate. `refresh=1` force le rejeu.
+    """
+    day = str((qs or {}).get("day") or "").strip()
+    if not _TS_DAY_RE.match(day):
+        raise ApiError(400, "day : AAAA-MM-JJ attendu")
+    try:
+        datetime.date.fromisoformat(day)
+    except ValueError:
+        raise ApiError(400, f"day : {day} n'est pas une date")
+    args = ["--day", day]
+    if str((qs or {}).get("refresh") or "") in ("1", "true"):
+        args.append("--refresh")
+    data = _timesheet(args)
+    jours = data.get("jours") or []
+    return {"day": day, "jour": jours[0] if jours else None}
+
+
+def op_timesheet_month(qs: dict) -> dict:
+    """Le mois entier, une entrée par journée — la matière des vues semaine et mois."""
+    month = str((qs or {}).get("month") or "").strip()
+    if not _TS_MONTH_RE.match(month):
+        raise ApiError(400, "month : AAAA-MM attendu")
+    return _timesheet(["--month", month], timeout=900)
 
 
 def _mr_deliver_context(rm_id: str):
@@ -13599,6 +13694,12 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))
+            if path == "/timesheet/day":       # RM3229 : la journée à valider
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_timesheet_day(qs))
+            if path == "/timesheet/month":     # RM3229 : les vues semaine et mois
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_timesheet_month(qs))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)

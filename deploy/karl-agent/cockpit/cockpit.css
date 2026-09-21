@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : f1bda22c44cf6011 (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 959c7a6c90539637 (39 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -5559,4 +5559,385 @@ button.mini.soft:hover {
 
 .cn-dem input[disabled] + * {
   opacity: 0.5;
+}
+
+.bl-sub {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+.bl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.bl-date {
+  width: auto;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.bl-title {
+  font-weight: 600;
+  color: var(--fg-strong);
+  margin-left: 4px;
+}
+
+.bl-we {
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.bl-state {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.bl-validee {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.bl-a_valider {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bl-manuelle {
+  color: var(--muted);
+}
+
+.bl-vide {
+  color: var(--muted);
+}
+
+.bl-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bl-num {
+  flex: 1 1 120px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel2);
+}
+
+.bl-num b {
+  display: block;
+  font-size: 17px;
+  color: var(--fg-strong);
+}
+
+.bl-num span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bl-n-propose b {
+  color: var(--accent);
+}
+
+.bl-n-ia b {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.bl-frise {
+  position: relative;
+  margin: 6px 0 14px;
+  padding: 14px 18px 0 46px;
+}
+
+.bl-ruler {
+  position: relative;
+  height: 12px;
+}
+
+.bl-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.bl-tick i {
+  display: block;
+  width: 1px;
+  height: 4px;
+  margin: 0 auto 1px;
+  background: var(--line);
+}
+
+.bl-lane {
+  position: relative;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.bl-lane-label {
+  position: absolute;
+  left: -44px;
+  top: 3px;
+  width: 40px;
+  text-align: right;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
+.bl-normal {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--warn-soft);
+  border-left: 1px solid var(--warn);
+  border-right: 1px solid var(--warn);
+}
+
+.bl-seg {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.bl-seg:hover {
+  opacity: 1;
+}
+
+.bl-lane-ia {
+  height: 14px;
+}
+
+.bl-ia {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ok);
+  border-radius: 1px;
+}
+
+.bl-adj {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.bl-adj label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.bl-adj input {
+  width: auto;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.bl-h {
+  width: 6.5em;
+}
+
+.bl-p {
+  width: 4em;
+}
+
+.bl-c {
+  width: 8em;
+}
+
+.bl-worked {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.bl-src {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-hors {
+  flex-basis: 100%;
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.bl-ctx {
+  font-size: 11.5px;
+  color: var(--fg);
+  margin-bottom: 10px;
+}
+
+.bl-tr b {
+  color: var(--fg-strong);
+}
+
+.bl-dim {
+  color: var(--muted);
+}
+
+.bl-warn {
+  color: var(--warn);
+  margin-top: 3px;
+}
+
+.bl-rg {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.bl-rg span {
+  margin-right: 10px;
+}
+
+.bl-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bl-grp {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bl-grp-h {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.bl-grp-h b {
+  color: var(--accent);
+}
+
+.bl-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bl-line:last-child {
+  border-bottom: 0;
+}
+
+.bl-prj {
+  flex: 0 0 11em;
+  color: var(--fg);
+}
+
+.bl-rm {
+  flex: 0 0 5em;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bl-rm.bl-none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.bl-min {
+  flex: 0 0 4.5em;
+  text-align: right;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.bl-tool {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-lib {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.bl-deja {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.bl-deja summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-empty, .bl-load, .bl-err {
+  padding: 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bl-err {
+  color: var(--danger);
+}
+
+.bl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.bl-apply[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bl-hint {
+  color: var(--muted);
+  font-size: 11px;
 }

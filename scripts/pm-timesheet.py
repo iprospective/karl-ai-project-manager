@@ -641,7 +641,14 @@ def main():
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"
-        if not chemin.is_file():
+        # Une JOURNÉE se valide depuis l'écran : sa proposition se recalcule ici même,
+        # juste avant d'écrire. Sans cela on appliquerait la proposition d'avant le
+        # dernier ajustement (début/fin, client principal) — l'écran montrerait une
+        # chose, Redmine en recevrait une autre. Un MOIS garde son yml amendable à la
+        # main : c'est le geste prévu pour lui.
+        if args.day:
+            ecrire_sorties(calculer(args, cfg, conf), dossier, libelle)
+        elif not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
         return appliquer(chemin, cfg, conf, args)
 
@@ -696,7 +703,10 @@ def ajuster_journee(args):
 
 
 def vue_json(res, prop):
-    """La matière de l'écran de validation (cockpit) : une entrée par journée."""
+    """La matière de l'écran de validation (cockpit) : une entrée par journée.
+
+    Le temps IA y figure en face du temps humain : c'est lui qui justifie une plage.
+    """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
     sortie = []
@@ -714,6 +724,10 @@ def vue_json(res, prop):
                             "libelle": s.get("libelle", "")} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
+            "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
+                    "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
+                    "minutes": k["minutes"]}
+                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

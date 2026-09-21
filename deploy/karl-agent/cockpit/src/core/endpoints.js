@@ -133,6 +133,8 @@ export const ROUTES = {
   "ticket.triage": { current: "/triage", target: "/api/ticket/triage", lot: "L3", callers: 1 },
   "ticket.usage": { current: "/usage", target: "/api/ticket/usage", lot: "L3", callers: 1 },
   "ticket.workspace_status": { current: "/workspace-status", target: "/api/ticket/workspace-status", lot: "L3", callers: 1 },
+  "timesheet.day": { current: "/timesheet/day", target: "/api/timesheet/day", lot: "RM3229", callers: 1 },
+  "timesheet.month": { current: "/timesheet/month", target: "/api/timesheet/month", lot: "RM3229", callers: 1 },
   "voice.caps": { current: "/voice/caps", target: "/api/voice/caps", lot: "L5", callers: 1 },
   "voice.question": { current: "/question", target: "/api/voice/question", lot: "L5", callers: 2 },
   "voice.stt": { current: "/stt", target: "/api/voice/stt", lot: "L5", callers: 1 },

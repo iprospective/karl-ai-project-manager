@@ -696,7 +696,10 @@ def ajuster_journee(args):
 
 
 def vue_json(res, prop):
-    """La matière de l'écran de validation (cockpit) : une entrée par journée."""
+    """La matière de l'écran de validation (cockpit) : une entrée par journée.
+
+    Le temps IA y figure en face du temps humain : c'est lui qui justifie une plage.
+    """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
     sortie = []
@@ -714,6 +717,10 @@ def vue_json(res, prop):
                             "libelle": s.get("libelle", "")} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
+            "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
+                    "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
+                    "minutes": k["minutes"]}
+                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

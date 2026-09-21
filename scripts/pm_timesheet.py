@@ -419,6 +419,12 @@ def rapatrier(host, chemin, cache_dir, kind, verbose=False):
 
 _RM_TEXTE_RE = re.compile(r"(?:\bRM[\s#-]?|\B#)(\d{3,5})\b|^\s*(\d{4})\b", re.I)
 _LOG_ENTREE_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) —", re.M)
+#: L'en-tête d'un tour d'agent et sa ligne de compteurs :
+#:   ## 2026-06-04T14:32 — Tick IA (claude-opus-4-8)
+#:   Tokens : 242329 | Coût : $0.5087 | IA : 17.64 min
+_TICK_RE = re.compile(
+    r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) — Tick IA \(([^)]+)\)\s*\n"
+    r"\s*Tokens\s*:\s*([\d ]+)(?:[^\n]*?IA\s*:\s*([\d.]+)\s*min)?", re.M)
 
 #: Poids relatifs des indices d'attribution (CDC § 5.3). Un prompt ne « choisit »
 #: pas un ticket : il répartit son poids entre les candidats. Sur 2 328 tours
@@ -485,6 +491,7 @@ class TargetResolver:
         self._timeline = None
         self._timeline_ts = None
         self._index_tickets = None
+        self._ticks = None
 
     # -- projet --------------------------------------------------------------
     def projet(self, cwd):
@@ -643,7 +650,7 @@ class TargetResolver:
         """
         if self._timeline is not None:
             return self._timeline
-        tl = []
+        tl, ticks = [], []
         for ent, proj, _ in self.cfg.iter_projects():
             try:
                 tasks_dir = self.cfg.path("tasks_dir", entity=ent, project=proj)
@@ -665,10 +672,31 @@ class TargetResolver:
                     except ValueError:
                         continue
                     tl.append((ts, rm, ent, proj))
+                for m in _TICK_RE.finditer(txt):
+                    ticks.append({
+                        "jour": m.group(1), "heure": m.group(2), "ticket": rm,
+                        "client": ent, "projet": proj, "modele": m.group(3),
+                        "tokens": int((m.group(4) or "0").replace(" ", "") or 0),
+                        "minutes": round(float(m.group(5) or 0), 1)})
         tl.sort()
+        self._ticks = sorted(ticks, key=lambda x: (x["jour"], x["heure"]))
         self._timeline = tl
         self._timeline_ts = [x[0] for x in tl]
         return tl
+
+    def ticks(self, jour=None):
+        """Les tours d'agent : quand, sur quel ticket, quel modèle, combien de tokens.
+
+        C'est le temps IA à mettre en face du temps humain : chaque tour est déclenché
+        par une demande, et c'est ce qui JUSTIFIE la plage humaine qui le précède.
+        Lus dans la même passe que les journaux — les relire coûterait une seconde
+        traversée de 1 200 tickets.
+        """
+        if self._ticks is None:
+            self.timeline()
+        if jour is None:
+            return self._ticks
+        return [t for t in self._ticks if t["jour"] == jour]
 
     def logs_proches(self, ts, projet):
         """Entrées de journal du MÊME projet dans la fenêtre autour de `ts`."""

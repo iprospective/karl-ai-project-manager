@@ -330,6 +330,26 @@ for txt, exp in [
     ok, motif = pm_think.note_pertinente(txt)
     check(f"{'garde' if exp else 'écarte'} « {txt[:46]}… » ({motif})", ok == exp)
 
+print("\n[RM3281] deux familles nommées par le demandeur : ordre d'exécution, fragment sans référent")
+for txt, exp in [
+        # l'ordre en TÊTE, y compris à l'infinitif après « go » — « go faire 3108 » passait
+        ("go faire 3108, 3110 (il faudra faire en sorte que le doctor le mette à jour), puis continue", False),
+        ("ok, continuer sur la refonte du front, il faudra reprendre les tests plus tard", False),
+        # l'ordre en FIN : il pilote le tour en cours, il ne se relira pas
+        ("On a un souci de cache multi-utilisateur, il faudra le traiter avec un user dédié. Consigne tout ça dans le ticket maintenant.", False),
+        ("Le worktree partagé pose un problème de droits, il faudra le reprendre. Fais ça maintenant stp.", False),
+        # un impératif AU MILIEU d'un raisonnement n'est pas un ordre : on ne coupe pas trop large
+        ("Il faudra revoir la stratégie de cache des tickets : regarde comme les repos core la démultiplient, des conflits sont probables.", True),
+        # le fragment sans référent : hors de sa conversation, il ne se rattache à rien
+        ("on verra plus tard pour la suite, il faudra trancher entre les deux", False),
+        ("pour l'instant on laisse comme ça, il faudra le reprendre un jour ou l'autre", False),
+        # …et ce qui EST rattachable passe, même sans majuscule ni ticket
+        ("il faudra aussi gérer la config des connecteurs par défaut : matnat utilise nextcloud passwords et gogs", True),
+        ("Il faudra revoir la précharge NORMS plus tard, worker-infra est à 98 % de son plafond", True),
+]:
+    ok, motif = pm_think.note_pertinente(txt)
+    check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
+
 print("\n[RM3062] signatures, moisson, élagage")
 for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
                  ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),
@@ -476,12 +496,21 @@ for texte, attendu in [
 check("un tour de l'AGENT n'est jamais une question du demandeur",
       C.type_heuristique("A", "et si on faisait autrement ?") == "dette")
 
-lignes = [json.dumps({"type": "user", "message": {"content": "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"}}),
+Q_OUVERTE = "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"
+# RM3259 : la MÊME question, selon ce que le demandeur en fait ensuite.
+# Suivie d'une approbation, elle est tranchée — la consigner « ouverte » bloquerait la clôture
+# d'un ticket sur un point que le demandeur considère réglé (mesuré sur RM2881 : 20 sur 21).
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
           json.dumps({"type": "user", "message": {"content": "ok super"}}),
           json.dumps({"type": "user", "message": {"content": "fais la MR et merge"}})]
+check("question approuvée par le demandeur (« ok ») → PAS de question ouverte",
+      [k for k, _t, _e in harv.harvest_items(lignes)] == [], str(harv.harvest_items(lignes)))
+# Restée sans suite du demandeur, elle reste ouverte — c'est ce qui la distingue.
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
+          json.dumps({"type": "assistant", "message": {"content": "Voici ce que je vois : les deux vues lisent le même carnet."}})]
 items = harv.harvest_items(lignes)
 check("la moisson en fait une QUESTION, signée du demandeur",
-      [(k, e.get("by")) for k, _t, e in items] == [("question", "M")], str(items))
+      [(k, e.get("by")) for k, _t, e in items if k == "question"] == [("question", "M")], str(items))
 
 # elle ne passe PAS par le critère de la note : une question ne porte pas de dette
 check("le critère de la note l'aurait écartée — c'est bien pour ça qu'on la teste avant",

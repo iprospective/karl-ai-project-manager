@@ -93,7 +93,11 @@ defineEntity("dash",      { icon: "📊", label: "tableau de bord", fixed: true,
 defineEntity("session",   { icon: "▶", label: "session", surface: true, restorable: false,
   tooltip: (key, p, lbl, resolu) => avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key, resolu(key)),
   hoverFields: [{ key: "state" }, { key: "engine" },
-                { key: "alive", value: (d) => (d.alive ? "vivante" : "éteinte") }],
+                { key: "alive", value: (d) => (d.alive ? "vivante" : "éteinte") },
+                // RM3265 : ce que le clic fera, dit AVANT le clic. Une session éteinte se relance
+                // (si elle est dans un jeu) ou se reprend depuis son transcript : dans les deux
+                // cas quelque chose se passe, et l'utilisateur doit le savoir avant d'y aller.
+                { key: "alive", label: "clic :", value: (d) => (d.alive ? "attacher" : "relancer ou reprendre la conversation") }],
   hoverWhere: (d) => (d.client && d.project) ? d.client + "/" + d.project : "",
   open: (api, t) => api.openSessionTab(t.key) });
 defineEntity("review",    { icon: "🧪", label: "ticket", surface: true, idPrefix: "RM",
@@ -124,6 +128,8 @@ defineEntity("pm",        { icon: "⚙", label: "commandes pm", panel: true, too
 defineEntity("settings",  { icon: "🔧", label: "réglages", panel: true, tooltip: () => "réglages du cockpit", open: (api) => api.openPanel("settings") });
 defineEntity("journal",   { icon: "📜", label: "journal", panel: true, tooltip: () => "journal (serveur + navigateur)", open: (api) => api.openPanel("journal") });
 defineEntity("memory",    { icon: "🧠", label: "mémoire", panel: true, tooltip: () => "mémoire par module (sonde)", open: (api) => api.openPanel("memory") });
+// RM3229 : la facturation — une journée de travail à valider, plutôt qu'un mois écrit en bloc
+defineEntity("billing",   { icon: "💶", label: "facturation", panel: true, tooltip: () => "facturation : valider le temps de travail d'une journée", open: (api) => api.openPanel("billing") });
 // RM3044 : le CDC vivant — un panneau, trois onglets dedans (modèle POC AtomBox : Fonctionnalités · CDC · Feuille de route)
 defineEntity("cdc",       { icon: "📋", label: "CDC", panel: true, tooltip: () => "CDC vivant : fonctionnalités, chapitres, feuille de route", open: (api) => api.openPanel("cdc") });
 

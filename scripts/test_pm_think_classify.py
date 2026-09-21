@@ -139,5 +139,32 @@ with tempfile.TemporaryDirectory() as tmp:
     check("sortie JSON exploitable, un retenu, rien d'écrit", r.returncode == 0 and json.loads(r.stdout)["total"]["retenus"] == 1
           and json.loads(r.stdout)["total"]["ecrites"] == 0, (r.stdout + r.stderr)[-300:])
 
+# ── RM3259 : une question ouverte doit ENGAGER un arbitrage, et ne pas être déjà réglée ──
+# Mesure sur le transcript réel de RM2881 (20 001 lignes) : 71 questions consignées par l'ancien
+# critère, 12 par celui-ci. Les 59 écartées sont de la conduite de séance, des réponses à des
+# questions du carnet, ou des points que le demandeur a lui-même clos au tour suivant.
+print("\n[RM3259] ce qui mérite de rester une question ouverte")
+for texte, attendu, pourquoi in [
+    ("quel est le mdp de test pour mathieu sur atombox deja ?", False, "identifiants : ça se redemande, ça ne se tranche pas"),
+    ("on en est ou de la v0 ?", False, "état d'avancement"),
+    ("opn enchaine avec quoi ?", False, "conduite de séance"),
+    ("quelles questions bloquent ? je ne les vois pas", False, "conduite de séance"),
+    ("tout est encore dans poc-webmail ?", False, "trop courte pour porter un arbitrage"),
+    ("Q29 : Pour les ACL je dirai oui par defaut, carol conserve l'acces sur ses archives", False, "réponse à une question du carnet"),
+    ("Est-ce pertinent d'avoir une table message ou comm qui soit la table de base des communications ?", True, "arbitrage explicite"),
+    ("Karl doit-il se declarer mono-utilisateur ou multi-utilisateur a l'installation ?", True, "arbitrage"),
+    ("on enchaine avec quoi, ou faut-il d'abord trancher le format des identites ?", True, "l'arbitrage prime sur la conduite de séance"),
+    ("il y a des logs fichiers dans /logs du projet ? avec plusieurs niveaux par domaine et severite ?", True, "vraie question de conception"),
+]:
+    ok = C.question_pertinente(texte)[0]
+    check(f"{'garde' if attendu else 'écarte'} « {texte[:46]}… » ({pourquoi})", ok is attendu, C.question_pertinente(texte)[1])
+
+print("\n[RM3259] une question que le demandeur a vue tranchée n'est plus ouverte")
+check("il approuve → tranchée", C.deja_tranchee([("A", "voici ma réponse"), ("M", "ok super, on garde ça")]) is True)
+check("il enchaîne sur autre chose → tranchée", C.deja_tranchee([("M", "go 3140 et ferme 2756")]) is True)
+check("il repose la question → ouverte", C.deja_tranchee([("M", "oui mais pourquoi faut-il deux champs ici ?")]) is False)
+check("la séance s'arrête sans qu'il dise rien → ouverte", C.deja_tranchee([("A", "je te réponds ceci")]) is False)
+check("plus aucun tour → ouverte", C.deja_tranchee([]) is False)
+
 print("\n" + ("ÉCHEC — " + ", ".join(FAIL) if FAIL else "OK — pm-think-classify"))
 sys.exit(1 if FAIL else 0)

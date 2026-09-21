@@ -131,3 +131,5 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
 /modules/state	L5	pm	/api/pm/modules-state	1	modulesSetState
 /modules/policy	L5	pm	/api/pm/modules-policy	1	modulesSetPolicy
+/timesheet/day	RM3229	timesheet	/api/timesheet/day	1	billing (cockpit RM3229)
+/timesheet/month	RM3229	timesheet	/api/timesheet/month	1	billing (vues semaine/mois)

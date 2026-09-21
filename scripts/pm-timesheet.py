@@ -37,6 +37,9 @@ except ImportError:
 
 
 def _periode(args):
+    if getattr(args, "day", None):
+        debut = datetime.fromisoformat(args.day)
+        return debut, debut + timedelta(days=1), args.day
     if args.month:
         an, mois = (int(x) for x in args.month.split("-"))
         debut = datetime(an, mois, 1)
@@ -285,28 +288,53 @@ def calculer(args, cfg, conf):
     if args.quantum is not None:
         params["quantum_min"] = args.quantum
 
-    cache_dir = Path(args.out).parent / "cache" if args.out else \
-        Path(cfg.pm_dir) / "var" / "timesheet" / "cache"
-    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir, cfg)
-    if not events:
+    cache_dir = Path(args.out).parent / "cache" if args.out else W.ETAT / "rapatriement"
+    # Cache par jour (RM3229) : une journée TERMINÉE se relit depuis son cache au lieu
+    # de rejouer tous les transcripts — c'est ce qui rend la vue journée interactive.
+    # Aujourd'hui n'est jamais figé : il n'est pas fini.
+    jours = [(debut + timedelta(days=i)).date().isoformat() for i in range((fin - debut).days)]
+    aujourdhui = date.today().isoformat()
+    items, manquants = [], []
+    for j in jours:
+        lu = None if getattr(args, "refresh", False) or j >= aujourdhui else W.cache_lire(j)
+        if lu is None:
+            manquants.append(j)
+        else:
+            items += lu
+    detail = [("cache", str(W.ETAT / "cache"), len(items))] if items else []
+    if manquants:
+        d0 = datetime.fromisoformat(manquants[0])
+        d1 = datetime.fromisoformat(manquants[-1]) + timedelta(days=1)
+        events, det = collecter(conf, d0, d1, args.verbose, cache_dir, cfg)
+        detail += det
+        tours = {}
+        for s in _sources(conf):
+            if s.get("kind") != "claude-transcripts":
+                continue
+            chemin = str(Path(s.get("path", "")).expanduser())
+            if s.get("host"):
+                chemin = str(Path(cache_dir) /
+                             __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
+                if not Path(chemin).is_dir():
+                    continue
+            tours.update(W.rm_par_tour(chemin, d0, d1))
+        frais = collections.defaultdict(list)
+        for e in events:
+            j = e.ts.date().isoformat()
+            if j in manquants:
+                frais[j].append((e, tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))))
+        for j in manquants:
+            if j < aujourdhui:
+                W.cache_ecrire(j, frais.get(j, []))
+            items += frais.get(j, [])
+    if not items:
         sys.exit(f"Aucune trace sur la période {libelle} — sources : "
                  + ", ".join(s.get("kind", "?") for s in _sources(conf)))
 
     resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
-    tours = {}
-    for s in _sources(conf):
-        if s.get("kind") != "claude-transcripts":
-            continue
-        chemin = str(Path(s.get("path", "")).expanduser())
-        if s.get("host"):
-            chemin = str(Path(cache_dir) /
-                         __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
-            if not Path(chemin).is_dir():
-                continue
-        tours.update(W.rm_par_tour(chemin, debut, fin))
-    for e in events:
-        rm = tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))
+    for e, rm in items:
         resolver.resolve(e, rm_du_tour=rm)
+    events = [e for e, _rm in items]
 
     regles = W.regles_depuis_config(conf, cfg)
     alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
@@ -314,9 +342,8 @@ def calculer(args, cfg, conf):
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
-    deduit = []
+    deduit, toutes = [], []
     if not args.sans_deduction:
-        toutes = []
         for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
             saisies = saisies_humaines(url, key, uid, debut, fin, basic)
             if args.verbose:
@@ -328,12 +355,20 @@ def calculer(args, cfg, conf):
 
     # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
     # à la main compte dans le plancher, il ne s'y ajoute pas.
-    ajouts, transferts = W.appliquer_presences(final, conf.get("presences"),
-                                               debut, fin, par_heure, par_heure_cible)
+    surcharges = {}
+    for mois in sorted({j[:7] for j in jours}):
+        surcharges.update(W.surcharges_charger(mois))
+    presences = W.presences_effectives(conf.get("presences"), surcharges)
+    deja_par_jour = collections.Counter()
+    for sa in toutes:
+        deja_par_jour[sa["jour"]] += float(sa["minutes"])
+    ajouts, transferts = W.appliquer_presences(final, presences, debut, fin, par_heure,
+                                               par_heure_cible, deja_par_jour)
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
     return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+            "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
@@ -459,6 +494,82 @@ def appliquer(chemin_yml, cfg, conf, args):
     return 0 if not (echecs or sans_cible) else 1
 
 
+def reprendre_journee(cfg, conf, args):
+    """Retire de Redmine les saisies POSÉES PAR CET OUTIL sur une journée, pour la refaire.
+
+    Geste À LA DEMANDE, jamais automatique (arbitrage du 2026-09-21) : ni l'ouverture d'une
+    journée, ni son rafraîchissement, ni sa validation n'appellent cette fonction. Elle ne
+    s'exécute que si l'humain l'a explicitement demandée, sur une journée précise, après
+    avoir constaté une incohérence.
+
+    Deux garde-fous, non négociables :
+      — seules les saisies portant la marque `[timesheet:<jour>#…]` sont touchées ; une
+        saisie notée à la main par un humain n'est JAMAIS supprimée ;
+      — tout est sauvegardé en JSONL avant la première suppression (incident RM2409 :
+        334 notes supprimées sans sauvegarde). La sauvegarde s'écrit aussi en simulation.
+    """
+    from redmine_utils import redmine_creds, http_json
+    url, key = redmine_creds()
+    uid = args.user_id or conf.get("user_id")
+    if not uid:
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis.")
+    jour = args.day
+
+    saisies, offset = [], 0
+    while True:
+        code, body = http_json("GET", f"{url}/time_entries.json?user_id={uid}"
+                                      f"&from={jour}&to={jour}&limit=100&offset={offset}", key)
+        if code != 200:
+            sys.exit(f"Redmine a refusé la lecture des saisies du {jour} (HTTP {code}).")
+        saisies += body.get("time_entries", [])
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+
+    marque = f"[timesheet:{jour}#"
+    a_retirer = [t for t in saisies if marque in (t.get("comments") or "")]
+    gardees = len(saisies) - len(a_retirer)
+    if not a_retirer:
+        print(f"✓ journée {jour} : aucune saisie posée automatiquement à retirer"
+              + (f" ({gardees} saisie(s) notée(s) à la main, intactes)" if gardees else ""))
+        return 0
+
+    dossier = W.ETAT / "reprises"
+    dossier.mkdir(parents=True, exist_ok=True)
+    sauvegarde = dossier / f"{jour}-{datetime.now():%Y%m%dT%H%M%S}.jsonl"
+    with sauvegarde.open("w", encoding="utf-8") as f:
+        for t in a_retirer:
+            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+    heures = sum(float(t.get("hours") or 0) for t in a_retirer)
+
+    if args.dry_run:
+        print(f"  [simulation] {len(a_retirer)} saisie(s) seraient retirée(s) "
+              f"({heures:.2f} h) — sauvegarde {sauvegarde}")
+        return 0
+
+    retires, echecs = 0, []
+    for t in a_retirer:
+        code, corps = http_json("DELETE", f"{url}/time_entries/{t['id']}.json", key)
+        if code in (200, 204):
+            retires += 1
+        else:
+            echecs.append((t["id"], code, str(corps)[:120]))
+
+    # La journée redevient à valider : la marque « validée sans ajout » tombe avec elle.
+    donnees = W.surcharges_charger(jour[:7])
+    if (donnees.get(jour) or {}).pop("valide_sans_ajout", None) is not None:
+        W.surcharges_ecrire(jour[:7], donnees)
+
+    for tid, code, detail in echecs[:6]:
+        print(f"  ⚠ saisie {tid} non retirée : HTTP {code} {detail}", file=sys.stderr)
+    print(f"✓ journée {jour} reprise : {retires} saisie(s) retirée(s) ({heures:.2f} h)"
+          + (f", {len(echecs)} en échec" if echecs else "")
+          + (f" — {gardees} saisie(s) notée(s) à la main conservée(s)" if gardees else "")
+          + f"\n  sauvegarde : {sauvegarde}"
+          + f"\n  puis : mmi-pm timesheet --day {jour} --refresh")
+    return 0 if not echecs else 1
+
+
 def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
     """Réaligne l'activité des saisies déjà posées. Ne crée ni ne supprime rien.
 
@@ -554,10 +665,23 @@ def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--month", help="mois à traiter (AAAA-MM)")
+    ap.add_argument("--day", help="une journée (AAAA-MM-JJ) — l'unité de validation")
+    ap.add_argument("--start", help="avec --day : heure de début normale (HH:MM)")
+    ap.add_argument("--end", help="avec --day : heure de fin normale (HH:MM)")
+    ap.add_argument("--client", help="avec --day : client principal de la journée")
+    ap.add_argument("--projet", help="avec --day : projet PM du client principal")
+    ap.add_argument("--pause", type=float, help="avec --day : pause en heures (défaut 1 h au-delà de 6 h)")
+    ap.add_argument("--exclusif", action="store_true",
+                    help="avec --day : journée presque exclusivement pour le client principal")
+    ap.add_argument("--clear-override", action="store_true", help="avec --day : retire l'ajustement")
+    ap.add_argument("--validate-empty", action="store_true",
+                    help="avec --day : valider une journée saisie entièrement à la main")
+    ap.add_argument("--refresh", action="store_true", help="ignorer le cache par jour")
+    ap.add_argument("--json", action="store_true", help="sortie JSON (cockpit)")
     ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
     ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
     ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
-    ap.add_argument("--config", help="fichier de configuration (défaut : <core>/timesheet.yml)")
+    ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/timesheet.yml)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les saisies Redmine depuis la proposition validée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
@@ -565,6 +689,10 @@ def main():
     ap.add_argument("--activity", type=int, help="activité Redmine forcée")
     ap.add_argument("--follow-cap", type=float, help="plafond du temps de suivi (min)")
     ap.add_argument("--quantum", type=int, help="tranche d'arrondi (min)")
+    ap.add_argument("--revoke", action="store_true",
+                    help="avec --day : RETIRE les saisies que cet outil a posées ce jour-là "
+                         "(jamais celles notées à la main), après sauvegarde, pour refaire "
+                         "la journée. Geste à la demande — rien ne l'appelle tout seul.")
     ap.add_argument("--fix-activities", "--fix", dest="fix_activities",
                     action="store_true",
                     help="réaligne activité ET commentaire des saisies DÉJÀ posées ; "
@@ -574,25 +702,46 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    if not args.month and not (args.depuis and args.jusqu_a):
-        ap.error("--month AAAA-MM, ou --from et --to")
+    if not args.month and not args.day and not (args.depuis and args.jusqu_a):
+        ap.error("--month AAAA-MM, --day AAAA-MM-JJ, ou --from et --to")
+    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet, args.pause)) \
+        or args.exclusif or args.clear_override or args.validate_empty
+    if ajuste and not args.day:
+        ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
 
     cfg = PMConfig.load()
     conf = W.charger_config(args.config, cfg=cfg)
-    dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "timesheet"
+    dossier = Path(args.out) if args.out else W.ETAT
     _d, _f, libelle = _periode(args)
+    if ajuste:
+        ajuster_journee(args)
+
+    if args.revoke:
+        if not args.day:
+            ap.error("--revoke s'utilise avec --day : on ne reprend qu'une journée à la fois")
+        return reprendre_journee(cfg, conf, args)
 
     if args.fix_activities:
         return corriger_activites(cfg, conf, args, libelle)
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"
-        if not chemin.is_file():
+        # Une JOURNÉE se valide depuis l'écran : sa proposition se recalcule ici même,
+        # juste avant d'écrire. Sans cela on appliquerait la proposition d'avant le
+        # dernier ajustement (début/fin, client principal) — l'écran montrerait une
+        # chose, Redmine en recevrait une autre. Un MOIS garde son yml amendable à la
+        # main : c'est le geste prévu pour lui.
+        if args.day:
+            ecrire_sorties(calculer(args, cfg, conf), dossier, libelle)
+        elif not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
         return appliquer(chemin, cfg, conf, args)
 
     res = calculer(args, cfg, conf)
     md, yml, prop = ecrire_sorties(res, dossier, libelle)
+    if args.json:
+        print(json.dumps(vue_json(res, prop), ensure_ascii=False, default=str))
+        return 0
     total = sum(res["final"].values())
     print(f"✓ timesheet {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "
           f"{len(res['totaux'])} journées → {_fmt(total)} à noter "
@@ -603,6 +752,72 @@ def main():
     print(f"  rapport : {md}\n  proposition (à amender) : {yml}")
     print(f"  puis : mmi-pm timesheet --month {libelle} --apply")
     return 0
+
+
+def ajuster_journee(args):
+    """Pose, modifie ou efface la surcharge d'une journée (début, fin, client principal).
+
+    C'est le geste de l'écran de validation : la journée se recalcule aussitôt, depuis
+    son cache. Une journée DÉJÀ validée ne bouge plus — ses saisies sont déduites —
+    et on le dit, plutôt que de laisser croire à un recalcul silencieux.
+    """
+    mois = args.day[:7]
+    donnees = W.surcharges_charger(mois)
+    jour = dict(donnees.get(args.day) or {})
+    if args.clear_override:
+        donnees.pop(args.day, None)
+        W.surcharges_ecrire(mois, donnees)
+        print(f"✓ journée {args.day} : surcharge retirée")
+        return
+    for champ, valeur in (("debut", args.start), ("fin", args.end), ("client", args.client),
+                          ("projet", args.projet), ("pause_h", args.pause)):
+        if valeur is not None:
+            jour[champ] = valeur
+    if args.exclusif:
+        jour["exclusif"] = True
+    if args.validate_empty:
+        jour["valide_sans_ajout"] = True
+    donnees[args.day] = jour
+    W.surcharges_ecrire(mois, donnees)
+    if jour.get("debut") and jour.get("fin"):
+        h = W.heures_travaillees(jour["debut"], jour["fin"], jour.get("pause_h"))
+        print(f"✓ journée {args.day} : {jour['debut']}–{jour['fin']} ({h:g} h)"
+              + (f", client principal {jour['client']}" if jour.get("client") else ""))
+    elif args.validate_empty:
+        print(f"✓ journée {args.day} : validée sans ajout")
+
+
+def vue_json(res, prop):
+    """La matière de l'écran de validation (cockpit) : une entrée par journée.
+
+    Le temps IA y figure en face du temps humain : c'est lui qui justifie une plage.
+    """
+    jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
+                   | {s["jour"] for s in res.get("saisies", [])})
+    sortie = []
+    for j in jours:
+        surcharge = (res.get("surcharges") or {}).get(j) or {}
+        saisies = [s for s in res.get("saisies", []) if s["jour"] == j]
+        sortie.append({
+            "date": j,
+            "mesure_min": round(res["totaux"].get(j, 0)),
+            "periodes": [[a.strftime("%H:%M"), b.strftime("%H:%M")]
+                         for a, b in res["periodes"].get(j, [])],
+            "journal": res["journal"].get(j, {}),
+            "proposition": [l for l in prop["lignes"] if l["jour"] == j],
+            "deja_saisi": [{"minutes": round(s["minutes"]), "ticket": s.get("rm"),
+                            "libelle": s.get("libelle", "")} for s in saisies],
+            "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
+                      for (d, c, m), v in res["ajouts"].items() if d == j],
+            "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
+                    "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
+                    "minutes": k["minutes"]}
+                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
+            "surcharge": surcharge or None,
+            "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
+                      or bool(surcharge.get("valide_sans_ajout")),
+        })
+    return {"periode": res["libelle"], "jours": sortie}
 
 
 def _fmt(minutes):

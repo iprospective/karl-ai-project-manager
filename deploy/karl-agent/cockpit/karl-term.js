@@ -158,6 +158,20 @@
   }
   // <<< shouldTakeOverInput
 
+  // RM3286 : DÉFILEMENT TACTILE. xterm.js ne gère pas le toucher — son viewport ne
+  // reçoit aucun geste — et sur un téléphone il n'y a ni molette ni Maj+PgUp :
+  // l'historique était tout simplement hors d'atteinte. On convertit donc le
+  // glissement vertical en lignes de défilement, avec un reliquat (`acc`) pour que
+  // le texte suive le doigt au lieu d'avancer par à-coups.
+  // >>> touchScrollLines
+  function touchScrollLines(dy, rowHeight, acc) {
+    var h = rowHeight > 0 ? rowHeight : 17;          // hauteur de ligne inconnue : la valeur par défaut d'xterm
+    var total = (acc || 0) + (dy || 0);
+    var lines = total > 0 ? Math.floor(total / h) : Math.ceil(total / h);   // vers zéro, dans les deux sens
+    return { lines: lines, rest: total - lines * h };
+  }
+  // <<< touchScrollLines
+
   // Retourne la fonction de désinstallation — À APPELER dans dispose(). Les
   // écouteurs sont posés sur le conteneur, qui SURVIT aux remontages (le
   // cockpit se contente de vider son innerHTML) : sans ça, chaque changement de
@@ -229,6 +243,50 @@
    * options : { base } — origine de ttyd (ex. « http://karl.lxc:7681 »).
    * Retourne { term, dispose } ; `dispose()` ferme la socket et libère xterm.
    */
+
+  // Retourne la fonction de désinstallation (même raison que pour l'accent fix :
+  // le conteneur survit aux remontages). Un doigt seulement : le pincer-zoomer du
+  // navigateur doit rester possible.
+  // >>> installTouchScroll
+  function installTouchScroll(container, term) {
+    var lastY = null, acc = 0, moved = false;
+
+    function rowHeight() {
+      var rows = term && term.rows > 0 ? term.rows : 24;
+      var h = container && container.clientHeight ? container.clientHeight / rows : 0;
+      return h > 0 ? h : 17;
+    }
+    function onStart(ev) {
+      if (!ev.touches || ev.touches.length !== 1) { lastY = null; return; }
+      lastY = ev.touches[0].clientY; acc = 0; moved = false;
+    }
+    function onMove(ev) {
+      if (lastY === null || !ev.touches || ev.touches.length !== 1) return;
+      var y = ev.touches[0].clientY;
+      var r = touchScrollLines(lastY - y, rowHeight(), acc);   // doigt qui monte = on descend dans l'historique
+      lastY = y; acc = r.rest;
+      if (!r.lines) return;
+      moved = true;
+      try { term.scrollLines(r.lines); } catch (e) { /* terminal déjà libéré */ }
+      // seulement quand on défile VRAIMENT : sinon on confisquerait l'appui simple
+      if (ev.cancelable) ev.preventDefault();
+    }
+    function onEnd() { lastY = null; acc = 0; }
+
+    container.addEventListener("touchstart", onStart, { passive: true });
+    container.addEventListener("touchmove", onMove, { passive: false });
+    container.addEventListener("touchend", onEnd, { passive: true });
+    container.addEventListener("touchcancel", onEnd, { passive: true });
+
+    return function uninstallTouchScroll() {
+      container.removeEventListener("touchstart", onStart, { passive: true });
+      container.removeEventListener("touchmove", onMove, { passive: false });
+      container.removeEventListener("touchend", onEnd, { passive: true });
+      container.removeEventListener("touchcancel", onEnd, { passive: true });
+    };
+  }
+  // <<< installTouchScroll
+
   function attach(container, sid, options) {
     var opts = options || {};
     var base = String(opts.base || "").replace(/\/+$/, "");
@@ -265,6 +323,7 @@
 
     term.open(container);
     var uninstallAccentFix = installAccentFix(container, term);
+    var uninstallTouchScroll = installTouchScroll(container, term);   // RM3286 : défiler au doigt
     fit.fit();
 
     var socket = null, closed = false, retry = 0, retryTimer = null;
@@ -385,6 +444,7 @@
         clearTimeout(retryTimer);
         global.removeEventListener("resize", refit);
         uninstallAccentFix();          // le conteneur survit au démontage
+        uninstallTouchScroll();
         if (ro) ro.disconnect();
         mo.disconnect();
         if (socket) { try { socket.close(); } catch (e) {} }
@@ -418,6 +478,7 @@
   global.KarlTerm = {
     attach: attach,
     // exposés pour les tests et le composer (L1 de RM2467)
+    __installTouchScroll: installTouchScroll,   // RM3286 : rejouable sur un vrai xterm, hors WebSocket
     ttydHandshake: ttydHandshake,
     ttydEncodeInput: ttydEncodeInput,
     ttydEncodeResize: ttydEncodeResize,

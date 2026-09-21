@@ -176,6 +176,12 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
     const sess = E.hoverText("session", "42", { found: true, title: "S", state: "working",
                                                 engine: "claude", alive: true, client: "a", project: "b" });
     check("une SESSION a son propre jeu de champs", /working · claude · vivante/.test(sess) && /a\/b/.test(sess));
+    // RM3265 : le survol dit ce que le clic FERA — une session éteinte se relance ou se reprend,
+    // et c'est justement ce qu'on ne savait pas avant d'avoir cliqué pour rien.
+    check("…dont ce que le clic fera, selon qu'elle vit ou non",
+          /clic : attacher/.test(sess) &&
+          /clic : relancer ou reprendre la conversation/.test(
+              E.hoverText("session", "42", { found: true, title: "S", state: "idle", engine: "claude", alive: false })))
     check("un type sans champs déclarés rend « identifiant — titre », comme les autres",
           E.hoverText("file", "x", { found: true, title: "doc.md" }) === "x — doc.md");
 

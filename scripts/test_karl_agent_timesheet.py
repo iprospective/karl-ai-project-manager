@@ -122,6 +122,13 @@ check("argv d'ajustement : heures, client, exclusivité",
       "--start" in argv and "09:00" in argv and "--end" in argv
       and "--client" in argv and "pisceen" in argv and "--exclusif" in argv)
 
+ka.op_pm_run({"name": "timesheet-day-adjust",
+              "args": {"day": "2026-09-18", "lieu": "distanciel"}})
+check("le lieu de travail part avec la journée", "--lieu" in argv and "distanciel" in argv)
+refuse("lieu hors des deux valeurs refusé",
+       lambda: ka.op_pm_run({"name": "timesheet-day-adjust",
+                             "args": {"day": "2026-09-18", "lieu": "bureau"}}))
+
 refuse("heure invalide refusée",
        lambda: ka.op_pm_run({"name": "timesheet-day-adjust",
                              "args": {"day": "2026-09-18", "start": "25:00"}}))

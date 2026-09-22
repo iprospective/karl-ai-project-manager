@@ -10758,6 +10758,8 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--projet", "max_len": 64},
          {"name": "pause", "label": "Pause (heures)", "type": "text", "flag": "--pause",
           "max_len": 5},
+         {"name": "lieu", "label": "Lieu de travail", "type": "enum", "flag": "--lieu",
+          "choices": ["presentiel", "distanciel"]},
          {"name": "exclusif", "label": "Journée quasi exclusive pour ce client",
           "type": "bool", "flag": "--exclusif"},
          {"name": "clear_override", "label": "Retirer l'ajustement", "type": "bool",

@@ -132,9 +132,11 @@ def saisies_humaines(url, key, user_id, debut, fin, basic=None):
         for t in body.get("time_entries", []):
             if (t.get("comments") or "").startswith("Tick IA"):
                 continue
+            pr = t.get("project") or {}
             out.append({"jour": t["spent_on"], "minutes": float(t["hours"]) * 60,
                         "rm": str(t["issue"]["id"]) if t.get("issue") else None,
-                        "entity": None, "libelle": t.get("comments") or ""})
+                        "entity": None, "libelle": t.get("comments") or "",
+                        "projet_id": pr.get("id"), "projet_nom": pr.get("name") or ""})
         offset += 100
         if offset >= body.get("total_count", 0):
             break
@@ -342,10 +344,12 @@ def calculer(args, cfg, conf):
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
-    deduit, toutes = [], []
+    deduit, toutes, slugs = [], [], {}
     if not args.sans_deduction:
         for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
             saisies = saisies_humaines(url, key, uid, debut, fin, basic)
+            if saisies and not slugs:
+                slugs = slugs_projets_redmine(url, key, basic)
             if args.verbose:
                 print(f"  {len(saisies):5d}  saisies humaines à déduire "
                       f"({nom})", file=sys.stderr)
@@ -368,6 +372,7 @@ def calculer(args, cfg, conf):
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
     return {"resolver": resolver, "items": items, "ajouts": ajouts, "transferts": transferts,
+            "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
             "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
@@ -671,6 +676,9 @@ def main():
     ap.add_argument("--client", help="avec --day : client principal de la journée")
     ap.add_argument("--projet", help="avec --day : projet PM du client principal")
     ap.add_argument("--pause", type=float, help="avec --day : pause en heures (défaut 1 h au-delà de 6 h)")
+    ap.add_argument("--lieu", choices=["presentiel", "distanciel"],
+                    help="avec --day : journée chez le client (présentiel) ou à la maison "
+                         "(distanciel). Noté avec la journée — il conditionne le déplacement.")
     ap.add_argument("--exclusif", action="store_true",
                     help="avec --day : journée presque exclusivement pour le client principal")
     ap.add_argument("--clear-override", action="store_true", help="avec --day : retire l'ajustement")
@@ -704,7 +712,8 @@ def main():
 
     if not args.month and not args.day and not (args.depuis and args.jusqu_a):
         ap.error("--month AAAA-MM, --day AAAA-MM-JJ, ou --from et --to")
-    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet, args.pause)) \
+    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet,
+                                         args.pause, args.lieu)) \
         or args.exclusif or args.clear_override or args.validate_empty
     if ajuste and not args.day:
         ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
@@ -770,7 +779,7 @@ def ajuster_journee(args):
         print(f"✓ journée {args.day} : surcharge retirée")
         return
     for champ, valeur in (("debut", args.start), ("fin", args.end), ("client", args.client),
-                          ("projet", args.projet), ("pause_h", args.pause)):
+                          ("projet", args.projet), ("pause_h", args.pause), ("lieu", args.lieu)):
         if valeur is not None:
             jour[champ] = valeur
     if args.exclusif:
@@ -782,9 +791,50 @@ def ajuster_journee(args):
     if jour.get("debut") and jour.get("fin"):
         h = W.heures_travaillees(jour["debut"], jour["fin"], jour.get("pause_h"))
         print(f"✓ journée {args.day} : {jour['debut']}–{jour['fin']} ({h:g} h)"
-              + (f", client principal {jour['client']}" if jour.get("client") else ""))
+              + (f", client principal {jour['client']}" if jour.get("client") else "")
+              + (f", {jour['lieu']}" if jour.get("lieu") else ""))
     elif args.validate_empty:
         print(f"✓ journée {args.day} : validée sans ajout")
+
+
+def slugs_projets_redmine(url, key, basic=None):
+    """{id numérique → identifiant textuel} des projets Redmine.
+
+    Le chaînon manquant : une saisie de temps porte l'id NUMÉRIQUE de son projet,
+    quand les manifestes PM déclarent l'identifiant TEXTUEL (`matnat-infra`). Sans
+    cette table, aucune saisie ne se rattache à son client.
+    """
+    from redmine_utils import http_json
+    out, offset = {}, 0
+    while True:
+        code, body = http_json("GET", f"{url}/projects.json?limit=100&offset={offset}",
+                               key, basic=basic)
+        if code != 200:
+            break
+        for pr in body.get("projects", []):
+            out[str(pr.get("id"))] = pr.get("identifier") or ""
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+    return out
+
+
+def table_clients_redmine(cfg):
+    """{id de projet Redmine → (client PM, projet PM)}, parcourue UNE fois.
+
+    `find_project_by_redmine_id` re-balaye tous les projets à chaque appel : l'utiliser
+    par saisie ferait des centaines de parcours pour une seule journée.
+    """
+    table = {}
+    try:
+        for ent, proj, _chemin in cfg.iter_projects():
+            fm = cfg.project_meta(ent, proj)
+            rid = (fm.get("redmine") or {}).get("project_id")
+            if rid is not None:
+                table[str(rid)] = (ent, proj)
+    except Exception:
+        pass
+    return table
 
 
 def _cible_lisible(event):
@@ -817,6 +867,20 @@ def traces_du_jour(res, jour):
     return sorted(sortie, key=lambda t: t["heure"])
 
 
+def _ou(saisie, table, slugs=None):
+    """Où une saisie a été notée : client PM si on le connaît, et le projet.
+
+    Deux colonnes plutôt qu'un libellé collé : un client se lit d'un coup d'œil, et
+    c'est à cette maille que la facture se fait. La résolution tente l'id numérique,
+    puis l'identifiant textuel ; à défaut, le nom Redmine tient lieu de projet.
+    """
+    pid = str(saisie.get("projet_id"))
+    ent, proj = (table or {}).get(pid, (None, None))
+    if not ent and slugs:
+        ent, proj = (table or {}).get(slugs.get(pid) or "", (None, None))
+    return {"client": ent, "projet": proj or saisie.get("projet_nom") or ""}
+
+
 def vue_json(res, prop, commits=True):
     """La matière de l'écran de validation (cockpit) : une entrée par journée.
 
@@ -826,6 +890,8 @@ def vue_json(res, prop, commits=True):
     """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
+    table_clients = res.get("table_clients") or {}
+    slugs = res.get("slugs_redmine") or {}
     sortie = []
     for j in jours:
         surcharge = (res.get("surcharges") or {}).get(j) or {}
@@ -838,7 +904,8 @@ def vue_json(res, prop, commits=True):
             "journal": res["journal"].get(j, {}),
             "proposition": [l for l in prop["lignes"] if l["jour"] == j],
             "deja_saisi": [{"minutes": round(s["minutes"]), "ticket": s.get("rm"),
-                            "libelle": s.get("libelle", "")} for s in saisies],
+                            "libelle": s.get("libelle", ""),
+                            **_ou(s, table_clients, slugs)} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
             "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],

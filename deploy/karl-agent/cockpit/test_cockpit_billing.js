@@ -41,8 +41,8 @@ const JOUR = {
     { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6 },
     { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8 },
   ],
-  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration" },
-               { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]" }],
+  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration", client: "pisceen", projet: "pisceen-presta" },
+               { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]", client: "pisceen", projet: "infra" }],
   regie: [{ client: "matnat", motif: "presence", minutes: 90 }],
   ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5 },
        { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3 },
@@ -167,6 +167,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(cp.clients, ["calicote", "pisceen"], "les clients, triés");
   assert.deepStrictEqual(cp.projets("pisceen"), ["dolibarr", "infra"], "les projets du client choisi");
   assert.deepStrictEqual(cp.projets("inconnu"), [], "un client sans projet ne casse rien");
+  assert.strictEqual(M.libelleLieu("distanciel"), "distanciel (maison)");
+  assert.strictEqual(M.libelleLieu(""), "", "un lieu non renseigné ne s'invente pas");
+  assert.strictEqual(M.libelleLieu("ailleurs"), "");
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
   // — service : charger, ajuster, valider —
@@ -255,6 +258,10 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.commits.travail.length, 2);
   assert.strictEqual(vm.ia[0].duree, "8 min");
   assert.strictEqual(vm.ia[0].plage, "08:55");
+  assert.deepStrictEqual([vm.dejaSaisi[0].client, vm.dejaSaisi[0].projet], ["pisceen", "pisceen-presta"], "le déjà-noté dit OÙ, en deux colonnes");
+  { const ici = new BillingViewModel({ day: "2026-09-18", jour: JOUR, form: { lieu: "presentiel" } });
+    assert.strictEqual(ici.lieu, "présentiel");
+    assert.strictEqual(ici.lieux.find(l => l.value === "presentiel").selected, true); }
   console.log("✓ ViewModel : en-tête, chiffres, bouton selon l'état, transversal, régie");
 
   // — vue : sûre, sans on*, et la frise porte des positions —
@@ -268,6 +275,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/bl-o-auto[^>]*>outil</.test(frag) && /bl-o-main[^>]*>à la main</.test(frag), "chaque saisie déjà notée dit d'où elle vient");
   assert(!/\[timesheet:/.test(frag), "la marque technique ne fuit jamais à l'écran");
   assert(/<select[^>]*data-field="client"/.test(frag) && /<select[^>]*data-field="projet"/.test(frag), "client et projet se choisissent dans un menu");
+  assert(/<select[^>]*data-field="lieu"/.test(frag) && /distanciel \(maison\)/.test(frag), "le lieu de travail se choisit à la journée");
+  assert(/bl-cl[^>]*>pisceen</.test(frag), "le déjà-noté montre le client en colonne");
   assert(/traces de la journée — 3 \(2 humaines\)/.test(frag), "les traces sont listées avec leur compte");
   assert(/commits — 2 de travail/.test(frag) && /plomberie PM \(1\)/.test(frag), "les commits séparent travail et plomberie");
   assert(/temps IA — 3 tours · 10 min sur 2 cible\(s\)/.test(frag), "le temps IA est détaillé par cible");

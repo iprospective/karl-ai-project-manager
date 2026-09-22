@@ -25,6 +25,7 @@ Deux invariants, tenus par des tests :
 import bisect
 import collections
 import json
+import shutil
 import subprocess
 import re
 import sqlite3
@@ -1564,7 +1565,46 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
 #: ils vivent chez elle, pas dans le code partagé. Leçon de RM2890 : posés dans un
 #: fichier de travail de session, ils ont disparu avec lui.
 CONF_UTILISATEUR = Path.home() / ".config" / "mmi-pm" / "timesheet.yml"
-ETAT = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
+
+#: L'ÉTAT (cache des traces, commits, surcharges de journée, rapports, sauvegardes de
+#: reprise) est une donnée d'EXPLOITATION du PM, pas une préférence personnelle : sa place
+#: est `<core>/var/timesheet`, avec le reste de ce que le PM produit en tournant (RM3229,
+#: arbitrage du 2026-09-22). `var/` est hors git : c'est de l'état, pas du versionné.
+#:
+#: Les RÉGLAGES restent chez l'utilisateur (`~/.config`) : ils décrivent ses clients, ses
+#: absences et ses horaires, et n'ont rien à faire dans un dépôt partagé.
+ETAT_HERITE = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
+ETAT = ETAT_HERITE
+
+
+def configurer_etat(cfg=None, migrer=True):
+    """Pointe l'état sur `<core>/var/timesheet` et rapatrie l'ancien emplacement.
+
+    La reprise est faite UNE fois, et seulement si la nouvelle destination est vide :
+    un cache orphelin obligerait à rejouer tous les transcripts, et les sauvegardes de
+    reprise doivent suivre leur outil.
+    """
+    global ETAT
+    if cfg is None or not getattr(cfg, "state_dir", None):
+        return ETAT
+    ETAT = Path(cfg.state_dir) / "timesheet"
+    ETAT.mkdir(parents=True, exist_ok=True)
+    if migrer and ETAT_HERITE.is_dir() and ETAT_HERITE != ETAT and not any(ETAT.iterdir()):
+        deplaces = 0
+        for item in ETAT_HERITE.iterdir():
+            cible = ETAT / item.name
+            if cible.exists():
+                continue
+            try:
+                item.rename(cible)
+                deplaces += 1
+            except OSError:
+                shutil.move(str(item), str(cible))   # traversée de systèmes de fichiers
+                deplaces += 1
+        if deplaces:
+            print(f"  ↪ état du timesheet repris depuis {ETAT_HERITE} "
+                  f"({deplaces} entrée(s)) → {ETAT}", file=sys.stderr)
+    return ETAT
 
 
 def chemin_config(chemin=None, cfg=None):

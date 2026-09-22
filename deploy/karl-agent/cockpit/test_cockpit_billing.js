@@ -37,10 +37,13 @@ const JOUR = {
   journal: { destin: "refacture", cle: { pisceen: 0.5, calicote: 0.5 }, absence: null,
              client_h: 3.5, pot_ouvre_h: 1.98, pot_hors_h: 1.33, alerte_absence: false },
   proposition: [
-    { jour: "2026-09-18", client: "pisceen", projet: "dolibarr", ticket: 3217, minutes: 45, activite: 10, outillage_min: 7 },
-    { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6 },
-    { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8 },
+    { jour: "2026-09-18", client: "pisceen", projet: "dolibarr", ticket: 3217, minutes: 45, activite: 10, outillage_min: 7, facturable: true },
+    { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6, facturable: true },
+    { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8, facturable: true },
+    { jour: "2026-09-18", client: "iprospective", projet: "pm-ai-agents", ticket: null, minutes: 15, activite: 9, outillage_min: null, facturable: false },
   ],
+  pause: { declaree_h: null, trou: { debut: "12:36", fin: "13:32", minutes: 56 },
+           cible: { client: "iprospective", projet: null, commentaire: "repas midi", heures: 1 } },
   deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration", client: "pisceen", projet: "pisceen-presta" },
                { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]", client: "pisceen", projet: "infra" }],
   regie: [{ client: "matnat", motif: "presence", minutes: 90 }],
@@ -120,7 +123,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
   // — totaux et état —
   const t = M.totaux(JOUR);
-  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 90, 105, 90, 195]);
+  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 105, 105, 90, 210]);
   assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain");
   assert.strictEqual(M.etat(JOUR), "a_valider");
   assert.strictEqual(M.etat(Object.assign(clone(JOUR), { valide: true })), "validee");
@@ -128,7 +131,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.etat({ proposition: [], deja_saisi: [], mesure_min: 0 }), "vide");
   assert.strictEqual(M.etat(null), "vide");
   const grp = M.parClient(JOUR);
-  assert.deepStrictEqual(grp.map(g => [g.client, g.minutes]), [["pisceen", 60], ["calicote", 30]], "groupé par client, le plus gros d'abord");
+  assert.deepStrictEqual(grp.map(g => [g.client, g.minutes]), [["pisceen", 60], ["calicote", 30], ["iprospective", 15]], "groupé par client, le plus gros d'abord");
   assert.strictEqual(M.fmtTokens(2400000), "2,4 M"); assert.strictEqual(M.fmtTokens(43000), "43 k");
   console.log("✓ totaux, état, groupement par client");
 
@@ -170,6 +173,23 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.libelleLieu("distanciel"), "distanciel (maison)");
   assert.strictEqual(M.libelleLieu(""), "", "un lieu non renseigné ne s'invente pas");
   assert.strictEqual(M.libelleLieu("ailleurs"), "");
+  // — la pause de midi : signalée quand elle manque, jamais devinée —
+  const pz = M.pause(JOUR);
+  assert.strictEqual(pz.visible, true, "un trou de 56 min à midi, c'est une pause visible");
+  assert.strictEqual(pz.manquante, false);
+  assert(/12:36–13:32/.test(pz.texte));
+  const sansPause = M.pause({ pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1 } } });
+  assert.deepStrictEqual([sansPause.manquante, sansPause.proposition, sansPause.ou], [true, 1, "iprospective"], "sans trou ni déclaration : à signaler, avec la cible configurée");
+  assert.strictEqual(sansPause.texte, "aucune pause visible ce jour-là");
+  const declaree = M.pause({ pause: { declaree_h: 1, trou: null, cible: { client: "iprospective" } } });
+  assert.strictEqual(declaree.manquante, false, "déclarée : plus rien à signaler");
+  assert(/pause déclarée : 1 h sur iprospective/.test(declaree.texte));
+  assert.strictEqual(M.pause({}).manquante, false, "journée sans bloc pause : on ne réclame rien");
+
+  assert.deepStrictEqual(M.nonFacturable(JOUR), { count: 1, minutes: 15 }, "le temps sur soi est compté à part");
+  assert.deepStrictEqual(M.nonFacturable({ proposition: [{ minutes: 30, facturable: true }] }), { count: 0, minutes: 0 });
+  console.log("✓ pause de midi : visible, déclarée ou manquante ; temps non facturable");
+
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
   // — service : charger, ajuster, valider —
@@ -223,14 +243,14 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.titre, "vendredi 18 septembre 2026");
   assert.strictEqual(vm.prev, "2026-09-17"); assert.strictEqual(vm.next, "2026-09-19");
   assert.strictEqual(vm.etatLabel, "à valider");
-  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 30", "3 tours · 10 min"]);
+  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 45", "3 tours · 10 min"]);
   assert.deepStrictEqual([vm.auto.count, vm.auto.minutes], [1, 45], "l'écran sait ce que l'outil a posé ici");
   assert.strictEqual(vm.manuelles, 1, "…et combien de saisies sont à la main, donc protégées");
   assert.strictEqual(vm.reprenable, true);
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: { deja_saisi: [{ minutes: 60, libelle: "à la main" }] } }).reprenable, false, "rien posé par l'outil : pas de bouton de reprise");
   assert(/20:17/.test(vm.hors), "l'écran dit ce que le bornage a laissé dehors");
   assert.strictEqual(vm.action.geste, "apply");
-  assert(/1 h 30/.test(vm.action.label), "le bouton annonce ce qu'il va écrire");
+  assert(/1 h 45/.test(vm.action.label), "le bouton annonce ce qu'il va écrire");
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { valide: true, proposition: [] }) }).action.disabled, true, "une journée validée sans reste ne se revalide pas");
   // Décision du 2026-09-21 : juin à août se repassent journée par journée. Corriger les heures
   // d'une journée déjà validée peut faire apparaître un complément — le bouton doit le proposer,
@@ -258,6 +278,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.commits.travail.length, 2);
   assert.strictEqual(vm.ia[0].duree, "8 min");
   assert.strictEqual(vm.ia[0].plage, "08:55");
+  assert.strictEqual(vm.nonFacturable.label, "15 min", "l'écran chiffre ce qui ne sera facturé à personne");
+  assert.strictEqual(vm.groupes.find(g => g.client === "iprospective").facturable, false);
+  assert.strictEqual(vm.groupes.find(g => g.client === "pisceen").facturable, true);
   assert.deepStrictEqual([vm.dejaSaisi[0].client, vm.dejaSaisi[0].projet], ["pisceen", "pisceen-presta"], "le déjà-noté dit OÙ, en deux colonnes");
   { const ici = new BillingViewModel({ day: "2026-09-18", jour: JOUR, form: { lieu: "presentiel" } });
     assert.strictEqual(ici.lieu, "présentiel");
@@ -277,6 +300,11 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/<select[^>]*data-field="client"/.test(frag) && /<select[^>]*data-field="projet"/.test(frag), "client et projet se choisissent dans un menu");
   assert(/<select[^>]*data-field="lieu"/.test(frag) && /distanciel \(maison\)/.test(frag), "le lieu de travail se choisit à la journée");
   assert(/bl-cl[^>]*>pisceen</.test(frag), "le déjà-noté montre le client en colonne");
+  assert(/non facturé/.test(frag), "un groupe sur soi est marqué non facturé");
+  assert(/12:36–13:32/.test(frag), "l'écran dit que la pause apparaît");
+  { const manque = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1, commentaire: "repas midi" } } }), form: {} });
+    const f2 = String(V.Card(manque));
+    assert(/data-action="pause-midi"/.test(f2) && /aucune pause visible/.test(f2), "pause manquante : un bouton pour la noter en un clic"); }
   assert(/traces de la journée — 3 \(2 humaines\)/.test(frag), "les traces sont listées avec leur compte");
   assert(/commits — 2 de travail/.test(frag) && /plomberie PM \(1\)/.test(frag), "les commits séparent travail et plomberie");
   assert(/temps IA — 3 tours · 10 min sur 2 cible\(s\)/.test(frag), "le temps IA est détaillé par cible");
@@ -323,12 +351,20 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(ctl.svc.form().projet, "", "changer de client remet le projet à zéro — une paire client/projet inexistante n'a pas de sens");
   await card.click("save");
   assert.strictEqual(runs2[0][0], "timesheet-day-adjust");
+  // la pause en un clic : elle passe par l'ajustement, elle n'écrit RIEN dans Redmine
+  { jour2 = Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1 } } });
+    await ctl.load(false); runs2.length = 0;
+    await card.click("pause-midi");
+    assert.strictEqual(runs2[0][0], "timesheet-day-adjust", "la pause n'est pas une écriture Redmine");
+    assert.strictEqual(runs2[0][1].pause, "1", "elle pose la durée configurée");
+    assert(!runs2.some(([n]) => n === "timesheet-day-apply"), "…et ne valide rien au passage");
+    jour2 = clone(JOUR); await ctl.load(false); }
   assert(toasts.some(([m]) => /ajustée/.test(m)));
 
   repond = false; runs2.length = 0;
   await card.click("apply");
   assert.strictEqual(runs2.length, 0, "un refus de confirmation n'écrit rien");
-  assert(/pisceen : 1 h/.test(demandes[demandes.length - 1]) && /Total 1 h 30/.test(demandes[demandes.length - 1]),
+  assert(/pisceen : 1 h/.test(demandes[demandes.length - 1]) && /Total 1 h 45/.test(demandes[demandes.length - 1]),
          "la confirmation NOMME les clients et le total — un « êtes-vous sûr ? » ne protégerait de rien");
   repond = true; jour2 = Object.assign(clone(JOUR), { valide: true });
   await card.click("apply");

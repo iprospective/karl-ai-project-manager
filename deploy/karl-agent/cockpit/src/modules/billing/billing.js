@@ -166,9 +166,10 @@ export function totaux(jour) {
   const prop = somme(jour && jour.proposition, l => l.minutes);
   const deja = somme(jour && jour.deja_saisi, s => s.minutes);
   const regie = somme(jour && jour.regie, r => r.minutes);
-  // Le temps IA de la journée est celui de l'HORLOGE : deux tours parallèles ne font
-  // pas deux fois le temps. On somme donc les durées bornées au tour suivant.
-  const ia = somme(jour && jour.ia, k => (k.minutes_reelles != null ? k.minutes_reelles : k.minutes));
+  // Le temps IA est celui que les tours DÉCLARENT. On ne le rabote pas : deux agents en
+  // parallèle produisent bien deux fois du travail, même si l'horloge n'avance qu'une fois
+  // (arbitrage Mathieu 2026-09-22, après un premier essai de bornage qu'il a retiré).
+  const ia = somme(jour && jour.ia, k => k.minutes);
   return {
     mesure: Math.round(Number(jour && jour.mesure_min) || 0),
     propose: Math.round(prop), deja: Math.round(deja), regie: Math.round(regie),
@@ -295,15 +296,13 @@ export function toursIA(jour) {
   for (const k of (jour && jour.ia) || []) {
     const cle = k.ticket ? `RM${k.ticket}` : [k.client, k.projet].filter(Boolean).join("/") || "—";
     const g = parTicket.get(cle) || { cle, rm: k.ticket || null, cible: [k.client, k.projet].filter(Boolean).join("/"),
-                                      tours: 0, minutes: 0, declare: 0, bornes: 0,
+                                      tours: 0, minutes: 0, chevauche: 0,
                                       tokens: 0, modeles: new Set(),
                                       premier: k.heure, dernier: k.heure };
     g.tours += 1;
-    // Durée BORNÉE : additionner des tours parallèles compterait deux fois la même minute.
-    g.minutes += Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0;
-    g.declare += Number(k.minutes) || 0;
+    g.minutes += Number(k.minutes) || 0;
     g.tokens += Number(k.tokens) || 0;
-    if (k.borne) g.bornes += 1;
+    if (k.borne) g.chevauche += 1;
     if (k.modele) g.modeles.add(k.modele);
     if (k.heure < g.premier) g.premier = k.heure;
     if (k.heure > g.dernier) g.dernier = k.heure;
@@ -470,21 +469,25 @@ export function fil(jour) {
                cible: c.client || "", rm: null, texte: c.sujet, sha: c.sha });
   }
   for (const k of (jour && jour.ia) || []) {
-    const reel = Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0;
     out.push({ heure: k.heure, genre: "ia", source: k.modele || "agent", humain: false,
                cible: [k.client, k.projet].filter(Boolean).join("/"), rm: k.ticket,
-               texte: `${fmtMin(reel)}${k.borne ? " (borné au tour suivant)" : ""}`
-                      + ` · ${fmtTokens(k.tokens)} tokens`, borne: !!k.borne });
+               texte: `${fmtMin(k.minutes)}${k.borne ? " (en parallèle du tour suivant)" : ""}`
+                      + ` · ${fmtTokens(k.tokens)} tokens`, chevauche: !!k.borne });
   }
   return out.sort((a, b) => (a.heure < b.heure ? -1 : a.heure > b.heure ? 1 : 0));
 }
 
-/** Le temps IA de la journée : déclaré et borné, pour que l'écart se voie. */
+/**
+ * Le temps IA de la journée : ce que les tours déclarent, sans rabot.
+ *
+ * Le recouvrement entre tours est SIGNALÉ, jamais retranché : quand deux agents
+ * tournent en parallèle, le travail produit dépasse légitimement l'horloge.
+ */
 export function totauxIA(jour) {
   const ia = (jour && jour.ia) || [];
   const declare = ia.reduce((n, k) => n + (Number(k.minutes) || 0), 0);
-  const reel = ia.reduce((n, k) => n + (Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0), 0);
-  return { tours: ia.length, declare: Math.round(declare), reel: Math.round(reel),
-           bornes: ia.filter(k => k.borne).length,
-           chevauchement: Math.round(declare - reel) };
+  const horloge = ia.reduce((n, k) => n + (Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0), 0);
+  return { tours: ia.length, minutes: Math.round(declare),
+           paralleles: ia.filter(k => k.borne).length,
+           horloge: Math.round(horloge) };
 }

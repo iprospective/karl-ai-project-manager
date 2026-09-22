@@ -259,27 +259,29 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
-# ── Chevauchement des tours d'agent (RM3229, arbitrage Mathieu 2026-09-22) ──
-# « une durée s'arrête au pire lorsqu'une nouvelle commence » : additionner des tours
-# parallèles compte deux fois la même minute d'horloge.
+# ── Recouvrement des tours d'agent (RM3229, 2026-09-22) ─────────────────────
+# Le bornage a été demandé, essayé, puis RETIRÉ le jour même : deux agents en parallèle
+# produisent bien deux fois du travail, même si l'horloge n'avance qu'une fois. La
+# fonction reste — elle sert à SIGNALER le recouvrement — mais plus rien ne rabote les
+# durées : le chiffre affiché est celui que les tours déclarent.
 _t = W.ticks_sans_chevauchement([
     {"heure": "09:00", "minutes": 10.0},     # se termine à 09:10, rien après avant 09:20
     {"heure": "09:20", "minutes": 30.0},     # déborde sur 09:30 → borné à 10 min
     {"heure": "09:30", "minutes": 5.0},
 ])
 verifie([round(x["minutes_reelles"]) for x in _t] == [10, 10, 5],
-        "un tour est borné au début du suivant")
+        "le temps d'horloge d'un tour s'arrête au début du suivant")
 verifie([x["borne"] for x in _t] == [False, True, False],
-        "…et le bornage est signalé, pas silencieux")
-verifie(sum(x["minutes"] for x in _t) == 45 and sum(x["minutes_reelles"] for x in _t) == 25,
-        "les deux nombres coexistent : produit déclaré vs temps écoulé")
+        "…et le recouvrement est signalé")
+verifie([x["minutes"] for x in _t] == [10.0, 30.0, 5.0],
+        "la durée DÉCLARÉE est intacte : c'est elle qui compte, l'horloge n'est qu'une indication")
 verifie(W.ticks_sans_chevauchement([]) == [], "aucun tour : aucune erreur")
 _solo = W.ticks_sans_chevauchement([{"heure": "14:00", "minutes": 90.0}])
 verifie(_solo[0]["minutes_reelles"] == 90.0 and not _solo[0]["borne"],
-        "le dernier tour de la journée n'est borné par rien")
+        "le dernier tour de la journée ne recouvre rien")
 _desordre = W.ticks_sans_chevauchement([{"heure": "10:00", "minutes": 60.0},
                                         {"heure": "09:00", "minutes": 30.0}])
-verifie(_desordre[0]["heure"] == "09:00", "les tours sont remis dans l'ordre avant bornage")
+verifie(_desordre[0]["heure"] == "09:00", "les tours sont remis dans l'ordre avant analyse")
 
 # ── Bandes colorées de la frise ─────────────────────────────────────────────
 _d = lambda h, m: datetime(2026, 9, 18, h, m)          # noqa: E731

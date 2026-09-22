@@ -50,6 +50,7 @@ export function Ajustement(vm) {
     <span class="bl-worked" title="Heures travaillées, pause déduite">= ${h.label}</span>
     <label title="Client pour qui la journée a majoritairement été faite">client <select class="bl-c" data-action="field" data-field="client"><option value="">—</option>${vm.clients.map(c => html`<option value="${c.value}"${c.selected ? raw(" selected") : ""}>${c.value}</option>`)}</select></label>
     <label>projet <select class="bl-c" data-action="field" data-field="projet"><option value="">—</option>${vm.projetsDuClient.map(x => html`<option value="${x.value}"${x.selected ? raw(" selected") : ""}>${x.value}</option>`)}</select></label>
+    <label title="Journée chez le client, ou à la maison">lieu <select class="bl-c" data-action="field" data-field="lieu">${vm.lieux.map(l => html`<option value="${l.value}"${l.selected ? raw(" selected") : ""}>${l.label}</option>`)}</select></label>
     <button class="mini${vm.dirty ? " active" : ""}" data-action="save" ${vm.dirty && !vm.busy ? raw("") : raw("disabled")}>Enregistrer</button>
     ${vm.ajuste ? html`<button class="mini" data-action="clear" title="Revenir à ce que les traces disent">↺ ajustement</button>` : ""}
     <span class="bl-src">${vm.ajuste ? "heures ajustées à la main" : h.debut ? "heures déduites des traces" : ""}</span>
@@ -66,7 +67,7 @@ export function Proposition(vm) {
 /** Ce qui est DÉJÀ dans Redmine ce jour-là : la garantie qu'on ne compte pas deux fois. */
 export function DejaSaisi(vm) {
   if (!vm.dejaSaisi.length) return "";
-  return html`<details class="bl-deja" open><summary>déjà noté dans Redmine — ${vm.chiffres[1].valeur} (déduit de la proposition)</summary>${vm.dejaSaisi.map(s => html`<div class="bl-line"><span class="bl-min">${s.minutes}</span>${s.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(s.rm)}" href="#">${s.ticket}</a>` : html`<span class="bl-rm"></span>`}<span class="bl-lib">${s.libelle}</span><span class="bl-orig ${s.auto ? "bl-o-auto" : "bl-o-main"}" title="${s.auto ? "posée par l'outil — reprenable" : "notée à la main — jamais touchée par une reprise"}">${s.auto ? "outil" : "à la main"}</span></div>`)}</details>`;
+  return html`<details class="bl-deja" open><summary>déjà noté dans Redmine — ${vm.chiffres[1].valeur} (déduit de la proposition)</summary>${vm.dejaSaisi.map(s => html`<div class="bl-line"><span class="bl-min">${s.minutes}</span><span class="bl-cl">${s.client}</span><span class="bl-prj">${s.projet}</span>${s.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(s.rm)}" href="#">${s.ticket}</a>` : html`<span class="bl-rm"></span>`}<span class="bl-lib">${s.libelle}</span><span class="bl-orig ${s.auto ? "bl-o-auto" : "bl-o-main"}" title="${s.auto ? "posée par l'outil — reprenable" : "notée à la main — jamais touchée par une reprise"}">${s.auto ? "outil" : "à la main"}</span></div>`)}</details>`;
 }
 
 /** Comment le temps transversal a été traité, et le complément de régie éventuel. */

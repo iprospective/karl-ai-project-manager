@@ -1,7 +1,8 @@
 // modules/billing/BillingViewModel — ce que l'écran « Facturation » présente d'une journée. Inerte. RM3229, L3.
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
-         poseParOutil, traces, commits, toursIA, clientsEtProjets } from "./billing.js";
+         poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
+         libelleLieu } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -25,6 +26,10 @@ export class BillingViewModel {
     if (cur && !liste.includes(cur)) liste.unshift(cur);
     return liste.map(x => ({ value: x, selected: x === cur }));
   }
+
+  /** Présentiel ou distanciel : renseigné à la journée, il conditionne le déplacement. */
+  get lieux() { return LIEUX.map(l => ({ ...l, selected: l.value === (this.f.lieu || "") })); }
+  get lieu() { return libelleLieu(this.f.lieu); }
 
   /** Les traces horodatées — la pièce à conviction de la journée. */
   get traces() { return traces(this.j); }
@@ -92,6 +97,7 @@ export class BillingViewModel {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({
       minutes: fmtMin(s.minutes), ticket: s.ticket ? `RM${s.ticket}` : "", rm: s.ticket || null,
       libelle: libelleLisible(s), auto: estAutomatique(s),
+      client: s.client || "", projet: s.projet || "",
     }));
   }
 

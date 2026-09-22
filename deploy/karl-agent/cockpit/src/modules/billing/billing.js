@@ -184,6 +184,17 @@ export function estAutomatique(saisie) {
   return String((saisie && saisie.libelle) || "").includes(MARQUE);
 }
 
+/** Où la journée a été travaillée. Vide = non renseigné ; on ne devine pas. */
+export const LIEUX = [
+  { value: "", label: "—" },
+  { value: "presentiel", label: "présentiel" },
+  { value: "distanciel", label: "distanciel (maison)" },
+];
+export function libelleLieu(v) {
+  const t = LIEUX.find(x => x.value === String(v || ""));
+  return t && t.value ? t.label : "";
+}
+
 /** Le commentaire sans sa marque technique — ce qu'on montre à l'écran. */
 export function libelleLisible(saisie) {
   const s = String((saisie && saisie.libelle) || "");

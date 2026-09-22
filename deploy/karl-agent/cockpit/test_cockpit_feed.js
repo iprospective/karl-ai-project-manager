@@ -50,7 +50,14 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/×4/.test(card), "la répétition est visible");
   assert(/🔒mathieu/.test(card), "le privé est marqué dans la page, pas seulement dans les données");
   assert(/data-action="ticket" data-rm="2429"/.test(card), "une notification qui cite un ticket y mène");
-  assert(/data-action="done-all"/.test(card), "le geste « tout » existe dans la vue « ce qui attend »");
+  // RM3300 : deux gestes de lot, et chacun DIT ce qu'il fait — « tout » seul ne disait rien.
+  assert(/data-action="done-all"[^>]*>✓ tout traiter</.test(card), "« tout traiter » nomme son effet");
+  assert(/data-action="lu-all"[^>]*>○ tout lire</.test(card), "« tout lire » existe à côté");
+  assert(/Marquer lues les 2 notification\(s\) non lue\(s\)/.test(card), "…et annonce combien, avant le clic");
+  assert(/Marquer traitées les 3 notification\(s\)/.test(card));
+  { const luesToutes = String(V.FeedCard(new VM.FeedViewModel({ data: Object.assign({}, data, { counts: { open: 3, neuf: 0, worst: "critical" } }) })));
+    assert(!/data-action="lu-all"/.test(luesToutes), "rien à lire : le bouton disparaît, il ne reste pas inerte");
+    assert(/data-action="done-all"/.test(luesToutes), "…l'autre reste"); }
   assert(/lu au nom de <b>mathieu<\/b>/.test(card), "le lecteur est nommé : c'est ce qui explique ce qu'on ne voit pas");
   assert(!/\son(click|change|input)=/.test(card), "aucun handler inline");
   const anon = String(V.FeedCard(new VM.FeedViewModel({ data: Object.assign({}, data, { viewer: "" }) })));
@@ -78,6 +85,20 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/3 notification\(s\)/.test(asked), "« tout » dit combien il emporte avant de le faire");
   assert.deepStrictEqual(calls[0], ["mark", { all: true, etat: "traite" }]);
   assert(toasts.some(t => /3 notification\(s\) traitée\(s\)/.test(t)));
+
+  calls.length = 0; toasts.length = 0; await el.click("lu-all");
+  assert(/2 notification\(s\)/.test(asked), "« tout lire » dit combien il emporte");
+  assert(/restent dans la file/.test(asked), "…et ce qu'il ne fait PAS : elles ne sortent pas de la vue");
+  assert.deepStrictEqual(calls[0], ["mark", { all: true, etat: "lu" }], "lot « lu », sans filtre de personne quand il n'y en a pas");
+  assert(toasts.some(t => /notification\(s\) marquée\(s\) lue\(s\)/.test(t)));
+
+  // un refus de confirmation ne doit RIEN envoyer : le geste ne se défait pas
+  { const calls2 = []; const el2 = fakeEl();
+    const svc2 = { load: async () => data, mark: async (b) => { calls2.push(b); return { marked: 0 }; }, data: null };
+    const c2 = mountFeed(el2, { service: svc2, notify: () => {}, confirm: () => false });
+    await c2.open();
+    await el2.click("lu-all"); await el2.click("done-all");
+    assert.strictEqual(calls2.length, 0, "confirmation refusée : aucun appel serveur, ni pour lire ni pour traiter"); }
 
   calls.length = 0; await el.click("vue", { vue: "tout" });
   assert.strictEqual(ctr.state.etat, "tout"); assert.deepStrictEqual(calls[0][1], { etat: "tout", user: "" });

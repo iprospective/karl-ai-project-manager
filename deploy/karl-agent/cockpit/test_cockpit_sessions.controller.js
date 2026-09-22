@@ -91,6 +91,12 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert(/attnband/.test(L) && /data-k="s:7"/.test(L), "RM3302 : filtré sur « au repos », la session en attention reste signalée dans le bandeau « à traiter »");
   ev.length = 0; await list.click("filter-clear");
   assert(svc3.filtre === "" && /data-k="s:9"/.test(list.innerHTML) && !/filtbanner/.test(list.innerHTML), "« tout ✕ » : plus de filtre, tout revient");
+  // une session qui ENTRE dans la catégorie filtrée apparaît au rafraîchissement suivant, sans rechargement
+  svc3.setFiltre("waiting"); ctr.render(SF);
+  assert(!/data-k="s:9"/.test(list.innerHTML), "9 est au repos : hors du filtre");
+  ctr.render(SF.map(x => x.rm_id === "9" ? { ...x, state: "attention" } : x));
+  assert(/data-k="s:9"/.test(list.innerHTML) && /data-key="beta\/api"/.test(list.innerHTML), "RM3302 : elle passe en attention → elle entre dans la liste filtrée, et son groupe réapparaît");
+  svc3.setFiltre("");
   svc3.setFiltre("ghost"); ctr.render(SF);
   assert(/Aucune session « enregistrées »/.test(list.innerHTML), "un filtre sans résultat le DIT, au lieu d'une liste vide qui ressemble à une panne");
   svc3.setFiltre(""); ctr.render(SF);

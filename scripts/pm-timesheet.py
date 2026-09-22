@@ -176,6 +176,8 @@ def _libelle(ligne, marque):
     Seule la part d'outillage mutualisé (PM, infrastructure, produits) mérite
     d'être dite, puisqu'elle est incluse dans le temps sans être visible.
     """
+    if ligne.get("pause"):
+        return f"{ligne.get('commentaire') or 'repas midi'} {marque}"[:255]
     part = ligne.get("outillage_min") or 0
     if ligne.get("ticket"):
         base = "Travail assisté" + (f", dont {part} min d'outillage" if part >= 5 else "")
@@ -197,6 +199,10 @@ def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
     l'erreur en cascade fait chercher un problème de droits là où il n'y en a pas.
     On résout donc l'identifiant en id avant d'écrire.
     """
+    if ligne.get("project_id"):
+        # La pause vise un projet Redmine DIRECTEMENT : inventer un projet PM « interne »
+        # pour y loger un repas n'aurait pas de sens.
+        return ligne["project_id"]
     cle = f"{ligne.get('client')}/{ligne.get('projet')}"
     depuis_conf = (conf.get("project_map") or {}).get(cle)
     if depuis_conf:
@@ -373,6 +379,7 @@ def calculer(args, cfg, conf):
 
     return {"resolver": resolver, "items": items, "ajouts": ajouts, "transferts": transferts,
             "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
+            "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
@@ -392,17 +399,51 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
-                         resolver=res.get("resolver"),
+                         resolver=res.get("resolver"), regles=res.get("regles"),
                          activite_defaut=res.get("activite_defaut"),
                          refacture=res.get("refacture"),
                          meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),
                                "evenements": res["events"],
                                "sources": [{"kind": k, "path": p, "evenements": n}
                                            for k, p, n in res["sources"]]})
+    ajouter_pauses(prop, res)
     chemin_yml = dossier / f"{libelle}.yml"
     chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
                           encoding="utf-8")
     return chemin_md, chemin_yml, prop
+
+
+def ajouter_pauses(prop, res):
+    """Ajoute à la proposition la pause de midi DÉCLARÉE sur une journée.
+
+    Déclarée seulement : une pause qu'on n'a pas notée ne se crée pas toute seule. Elle
+    se note sur soi (entité `self`), avec l'activité « Pause » — c'est du temps qui ne
+    se facture pas, mais qui manque à la journée tant qu'il n'est pas noté.
+
+    La déduction en amont la protège d'un doublon : sa marque lui est propre
+    (`…#<client>/-@<activité pause>`), et `--apply` ne recrée jamais une marque connue.
+    """
+    pconf = W.conf_pause(res.get("conf") or {})
+    if not pconf.get("client"):
+        return prop
+    deja = {(s["jour"], round(float(s["minutes"]))) for s in res.get("saisies", [])
+            if pconf["commentaire"] and pconf["commentaire"] in (s.get("libelle") or "")}
+    for jour, surcharge in sorted((res.get("surcharges") or {}).items()):
+        heures = surcharge.get("pause_h")
+        if not heures or float(heures) <= 0:
+            continue
+        minutes = int(round(float(heures) * 60))
+        if (jour, minutes) in deja:
+            continue
+        prop["lignes"].append({
+            "jour": jour, "client": pconf["client"], "projet": pconf.get("projet"),
+            "ticket": None, "minutes": minutes,
+            "activite": pconf.get("activity_id") or 27,
+            "outillage_min": None, "valide": True, "facturable": False,
+            "pause": True, "commentaire": pconf.get("commentaire") or "repas midi",
+            "project_id": pconf.get("project_id"),
+        })
+    return prop
 
 
 def appliquer(chemin_yml, cfg, conf, args):
@@ -916,6 +957,14 @@ def vue_json(res, prop, commits=True):
             "traces": traces_du_jour(res, j),
             "commits": (W.commits_du_jour(j, auteur=(res.get("params") or {}).get("git_author")
                                           or "Mathieu Moulin") if commits else []),
+            "pause": {
+                "declaree_h": surcharge.get("pause_h"),
+                "trou": W.trou_de_midi(
+                    [[a.strftime("%H:%M"), b.strftime("%H:%M")]
+                     for a, b in res["periodes"].get(j, [])]),
+                "cible": {k: v for k, v in (W.conf_pause(res.get("conf") or {})).items()
+                          if k in ("client", "projet", "commentaire", "heures")},
+            },
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

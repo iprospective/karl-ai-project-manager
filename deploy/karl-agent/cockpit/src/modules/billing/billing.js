@@ -319,3 +319,41 @@ export function clientsEtProjets(liste) {
   for (const v of parClient.values()) v.sort();
   return { clients: [...parClient.keys()].sort(), projets: (c) => (parClient.get(c) || []).slice() };
 }
+
+// ── La pause de midi (RM3229) ─────────────────────────────────────────────────
+
+/**
+ * Ce que l'écran dit de la pause : est-elle déclarée, apparaît-elle dans les traces,
+ * et que proposer si elle manque.
+ *
+ * Elle ne se devine pas. Une journée sans trou à midi peut être une journée sans pause
+ * (sandwich devant l'écran) ou une pause que rien n'a tracée : c'est à l'humain de dire
+ * laquelle. L'écran se contente de signaler qu'elle n'apparaît pas.
+ */
+export function pause(jour) {
+  const p = (jour && jour.pause) || null;
+  const cible = (p && p.cible) || {};
+  const declaree = Number(p && p.declaree_h) || 0;
+  const trou = (p && p.trou) || null;
+  return {
+    declaree, trou,
+    visible: !!trou,
+    // Sans bloc `pause` du serveur, on ne SAIT pas : une journée d'avant cette
+    // fonctionnalité ne doit pas réclamer une pause qu'on n'a pas cherchée.
+    manquante: !!p && !declaree && !trou,
+    proposition: Number(cible.heures) || 1,
+    ou: [cible.client, cible.projet].filter(Boolean).join("/") || "",
+    commentaire: cible.commentaire || "",
+    texte: declaree
+      ? `pause déclarée : ${fmtMin(declaree * 60)}${cible.client ? ` sur ${cible.client}` : ""}`
+      : trou
+        ? `pause visible dans les traces : ${trou.debut}–${trou.fin} (${fmtMin(trou.minutes)})`
+        : p ? "aucune pause visible ce jour-là" : "",
+  };
+}
+
+/** Les lignes que la journée ne facturera à personne — son propre temps (entités `self`). */
+export function nonFacturable(jour) {
+  const lignes = ((jour && jour.proposition) || []).filter(l => l.facturable === false);
+  return { count: lignes.length, minutes: Math.round(lignes.reduce((n, l) => n + (Number(l.minutes) || 0), 0)) };
+}

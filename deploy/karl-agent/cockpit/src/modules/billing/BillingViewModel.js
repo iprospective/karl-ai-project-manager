@@ -2,7 +2,7 @@
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
-         libelleLieu } from "./billing.js";
+         libelleLieu, pause, nonFacturable } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -25,6 +25,15 @@ export class BillingViewModel {
     const liste = this.p.projets(this.f.client || "");
     if (cur && !liste.includes(cur)) liste.unshift(cur);
     return liste.map(x => ({ value: x, selected: x === cur }));
+  }
+
+  /** La pause de midi : déclarée, visible dans les traces, ou manquante. */
+  get pause() { return pause(this.j); }
+
+  /** Ce que la journée ne facturera à personne (son propre temps). */
+  get nonFacturable() {
+    const nf = nonFacturable(this.j);
+    return { ...nf, label: nf.minutes ? fmtMin(nf.minutes) : "" };
   }
 
   /** Présentiel ou distanciel : renseigné à la journée, il conditionne le déplacement. */
@@ -85,6 +94,7 @@ export class BillingViewModel {
   get groupes() {
     return parClient(this.j).map(g => ({
       client: g.client, total: fmtMin(g.minutes),
+      facturable: g.lignes.some(l => l.facturable !== false),
       lignes: g.lignes.map(l => ({
         projet: l.projet, ticket: l.ticket ? `RM${l.ticket}` : "", rm: l.ticket || null,
         minutes: fmtMin(l.minutes),

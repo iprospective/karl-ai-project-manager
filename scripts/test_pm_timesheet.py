@@ -259,7 +259,34 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
-# ── L'état vit dans <core>/var, pas dans le home (RM3229, arbitrage 2026-09-22) ──
+# ── Facturable et pause de midi (RM3229, 2026-09-22) ────────────────────────
+# « ce sont les type self (c'est moi) » : la liste des entités non facturées n'est pas
+# une conf, elle est DÉJÀ dans les manifestes PM.
+_r = W.Regles(types={"pisceen": "client", "iprospective": "self", "lemathou": "self",
+                     "dolibarr": "product"})
+verifie(_r.facturable("pisceen"), "un client se facture")
+verifie(not _r.facturable("iprospective"), "soi-même, non")
+verifie(not _r.facturable("lemathou"), "le perso non plus")
+verifie(not _r.facturable("dolibarr"), "un produit mutualisé non plus")
+verifie(_r.est_soi("iprospective") and not _r.est_soi("pisceen"), "type self reconnu")
+
+# le trou de midi : ce qui permet de dire « la pause n'apparaît pas » sans le deviner
+verifie(W.trou_de_midi([["09:00", "12:15"], ["13:30", "18:00"]])["minutes"] == 75,
+        "un vrai trou de midi est mesuré")
+verifie(W.trou_de_midi([["09:00", "18:00"]]) is None,
+        "journée d'un seul tenant : aucune pause visible")
+verifie(W.trou_de_midi([["09:00", "12:50"], ["13:05", "18:00"]]) is None,
+        "15 min ne font pas une pause de midi")
+verifie(W.trou_de_midi([["09:00", "11:00"], ["14:45", "18:00"]])["debut"] == "11:30",
+        "le trou est borné au créneau du midi, pas à la journée")
+_pc = W.conf_pause({"pause": {"client": "iprospective", "heures": 0.75}})
+verifie(_pc["client"] == "iprospective" and _pc["heures"] == 0.75
+        and _pc["activity_id"] == 27,
+        "la conf de pause complète les défauts sans les perdre")
+verifie(W.conf_pause({})["client"] is None,
+        "sans conf, aucune cible : rien ne se note d'office")
+
+
 # Les données d'exploitation du PM (cache des traces, surcharges, sauvegardes de reprise)
 # appartiennent au core, avec le reste de ce que le PM produit en tournant.
 import tempfile as _tf

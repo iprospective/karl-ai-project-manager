@@ -47,6 +47,7 @@ export function Ajustement(vm) {
     <label>début <input class="bl-h" type="time" data-action="field" data-field="debut" value="${h.debut}"></label>
     <label>fin <input class="bl-h" type="time" data-action="field" data-field="fin" value="${h.fin}"></label>
     <label title="Vide : 1 h au-delà de 6 h travaillées">pause <input class="bl-p" data-action="field" data-field="pause" value="${String(h.pause)}" placeholder="auto"></label>
+    ${vm.pause.declaree ? "" : html`<button class="mini${vm.pause.manquante ? " bl-manque" : ""}" data-action="pause-midi" title="Noter la pause de midi : ${String(vm.pause.proposition)} h${vm.pause.ou ? " sur " + vm.pause.ou : ""}${vm.pause.commentaire ? ", « " + vm.pause.commentaire + " »" : ""}. Elle ne se facture à personne.">+ pause midi</button>`}
     <span class="bl-worked" title="Heures travaillées, pause déduite">= ${h.label}</span>
     <label title="Client pour qui la journée a majoritairement été faite">client <select class="bl-c" data-action="field" data-field="client"><option value="">—</option>${vm.clients.map(c => html`<option value="${c.value}"${c.selected ? raw(" selected") : ""}>${c.value}</option>`)}</select></label>
     <label>projet <select class="bl-c" data-action="field" data-field="projet"><option value="">—</option>${vm.projetsDuClient.map(x => html`<option value="${x.value}"${x.selected ? raw(" selected") : ""}>${x.value}</option>`)}</select></label>
@@ -54,6 +55,7 @@ export function Ajustement(vm) {
     <button class="mini${vm.dirty ? " active" : ""}" data-action="save" ${vm.dirty && !vm.busy ? raw("") : raw("disabled")}>Enregistrer</button>
     ${vm.ajuste ? html`<button class="mini" data-action="clear" title="Revenir à ce que les traces disent">↺ ajustement</button>` : ""}
     <span class="bl-src">${vm.ajuste ? "heures ajustées à la main" : h.debut ? "heures déduites des traces" : ""}</span>
+    <span class="bl-pz${vm.pause.manquante ? " bl-manque" : ""}">${vm.pause.texte}</span>
     ${vm.hors ? html`<div class="bl-hors">${vm.hors}</div>` : ""}
   </div>`;
 }
@@ -61,7 +63,7 @@ export function Ajustement(vm) {
 /** La proposition, par client puis par projet/ticket : ce qui sera écrit, ligne à ligne. */
 export function Proposition(vm) {
   if (!vm.groupes.length) return html`<div class="bl-empty">rien à ajouter — ${vm.t.deja ? "tout est déjà noté à la main" : "aucune trace exploitable ce jour-là"}</div>`;
-  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b>${g.client}</b><span>${g.total}</span></div>${g.lignes.map(l => html`<div class="bl-line"><span class="bl-prj">${l.projet}</span>${l.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(l.rm)}" href="#">${l.ticket}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}<span class="bl-min">${l.minutes}</span>${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}</div>`)}</div>`)}</div>`;
+  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b${g.facturable ? raw("") : raw(' class="bl-nf"')}>${g.client}</b>${g.facturable ? "" : html`<span class="bl-nf-tag" title="Entité de type « self » : ce temps est noté, jamais facturé">non facturé</span>`}<span>${g.total}</span></div>${g.lignes.map(l => html`<div class="bl-line"><span class="bl-prj">${l.projet}</span>${l.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(l.rm)}" href="#">${l.ticket}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}<span class="bl-min">${l.minutes}</span>${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}</div>`)}</div>`)}</div>`;
 }
 
 /** Ce qui est DÉJÀ dans Redmine ce jour-là : la garantie qu'on ne compte pas deux fois. */

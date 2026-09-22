@@ -259,5 +259,37 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── L'état vit dans <core>/var, pas dans le home (RM3229, arbitrage 2026-09-22) ──
+# Les données d'exploitation du PM (cache des traces, surcharges, sauvegardes de reprise)
+# appartiennent au core, avec le reste de ce que le PM produit en tournant.
+import tempfile as _tf
+import types as _ty
+
+with _tf.TemporaryDirectory() as _tmp:
+    _core = Path(_tmp) / "core"
+    (_core / "var").mkdir(parents=True)
+    _ancien = Path(_tmp) / "home-state"
+    (_ancien / "cache").mkdir(parents=True)
+    (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: matnat}\n", encoding="utf-8")
+    (_ancien / "cache" / "2026-08-26.jsonl").write_text("{}\n", encoding="utf-8")
+
+    _avant, _herite = W.ETAT, W.ETAT_HERITE
+    try:
+        W.ETAT_HERITE = _ancien
+        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        verifie(_cible == _core / "var" / "timesheet", "l'état pointe sur <core>/var/timesheet")
+        verifie((_cible / "2026-08.days.yml").is_file(), "les surcharges de journée ont suivi")
+        verifie((_cible / "cache" / "2026-08-26.jsonl").is_file(),
+                "le cache des traces a suivi (sinon : tout rejouer)")
+        verifie(not any(_ancien.iterdir()), "l'ancien emplacement est vidé")
+
+        (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: AUTRE}\n", encoding="utf-8")
+        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        verifie("matnat" in (_cible / "2026-08.days.yml").read_text(encoding="utf-8"),
+                "une seconde reprise n'écrase pas l'état déjà en place")
+        verifie(W.configurer_etat(None) == _cible, "sans configuration, l'état ne bouge pas")
+    finally:
+        W.ETAT, W.ETAT_HERITE = _avant, _herite
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

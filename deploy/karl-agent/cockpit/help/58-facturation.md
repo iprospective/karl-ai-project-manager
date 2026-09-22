@@ -35,10 +35,11 @@ le temps de la journée quand les traces ne le disent pas seules. Le **lieu**
 ### Où ces informations sont enregistrées
 
 Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :
-elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent en
-local, dans `~/.local/state/mmi-pm/timesheet/<AAAA-MM>.days.yml`, et **ne sont écrites que
-lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas fait, ce que l'écran montre
-est une proposition recalculée depuis les traces à chaque ouverture.
+elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent avec
+le reste des données d'exploitation du PM, dans `<core>/var/timesheet/<AAAA-MM>.days.yml`,
+et **ne sont écrites que lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas
+fait, ce que l'écran montre est une proposition recalculée depuis les traces à chaque
+ouverture.
 
 ```yaml
 '2026-08-26':
@@ -48,8 +49,13 @@ est une proposition recalculée depuis les traces à chaque ouverture.
   lieu: presentiel
 ```
 
-Ce fichier est propre à cette machine. S'il doit survivre à une réinstallation ou être
-visible ailleurs, il faut le sauvegarder — ou décider de porter ces champs dans Redmine.
+Le même dossier porte le cache des traces, celui des commits et les sauvegardes de reprise.
+`var/` est hors git : c'est de l'état, pas du versionné — il suit donc la sauvegarde du core,
+pas son historique. Porter ces champs dans Redmine reste une question ouverte : **RM3298**.
+
+Les **réglages** (tes clients, tes absences, tes horaires habituels) restent ailleurs, chez
+toi : `~/.config/mmi-pm/timesheet.yml`. Ce sont des préférences, pas de l'état, et elles
+n'ont rien à faire dans un dépôt partagé.
 
 **Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
 aussitôt. **↺ ajustement** revient à ce que les traces disent.

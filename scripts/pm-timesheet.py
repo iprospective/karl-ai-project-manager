@@ -719,6 +719,7 @@ def main():
         ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
 
     cfg = PMConfig.load()
+    W.configurer_etat(cfg)          # <core>/var/timesheet — données d'exploitation du PM
     conf = W.charger_config(args.config, cfg=cfg)
     dossier = Path(args.out) if args.out else W.ETAT
     _d, _f, libelle = _periode(args)

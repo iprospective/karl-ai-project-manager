@@ -46,7 +46,8 @@
 | je démarre un travail et je ne sais pas **par quel bout** le prendre — projet neuf, reprise d'existant, migration, ticket qui ressemble à une étude | `modules/methodes-travail.md` (quatre natures, quatre protocoles) | — |
 | j'attaque un **projet neuf par un cahier des charges complet**, je consigne un arbitrage dans un CDC, ou je veux savoir quand il est fini | `modules/cdc.md` (trois livrables, grille 360°, harnais) | `pm-cdc` |
 | on me demande un **audit** (site, sécurité, infra, DNS, mail, conformité), d'où que parte la demande | `modules/audits.md` — lire l'existant AVANT de mesurer ; findings dans `iprospective/audits`, remédiation dans le projet propriétaire | skill `mmi-audit`, `new-audit-session.sh` |
-| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
+| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique ; **un paragraphe = une ligne, jamais de coupe à 80 colonnes**) | `pm-wiki-sync` |
+| je rédige une **description** ou une **note** de ticket | `modules/redmine-sync.md` (**un paragraphe = une ligne** — Redmine ne rejoint pas les lignes coupées à la main) | `pm-task-description-update`, `redmine-post-note` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |

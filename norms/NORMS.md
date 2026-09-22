@@ -1,9 +1,9 @@
 ---
-schema_version: "2.59.0"
-updated: 2026-09-19
+schema_version: "2.60.0"
+updated: 2026-09-22
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.59.0
+# Normes de gestion des tâches — v2.60.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -53,7 +53,8 @@ updated: 2026-09-19
 | je démarre un travail et je ne sais pas **par quel bout** le prendre — projet neuf, reprise d'existant, migration, ticket qui ressemble à une étude | `modules/methodes-travail.md` (quatre natures, quatre protocoles) | — |
 | j'attaque un **projet neuf par un cahier des charges complet**, je consigne un arbitrage dans un CDC, ou je veux savoir quand il est fini | `modules/cdc.md` (trois livrables, grille 360°, harnais) | `pm-cdc` |
 | on me demande un **audit** (site, sécurité, infra, DNS, mail, conformité), d'où que parte la demande | `modules/audits.md` — lire l'existant AVANT de mesurer ; findings dans `iprospective/audits`, remédiation dans le projet propriétaire | skill `mmi-audit`, `new-audit-session.sh` |
-| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
+| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique ; **un paragraphe = une ligne, jamais de coupe à 80 colonnes**) | `pm-wiki-sync` |
+| je rédige une **description** ou une **note** de ticket | `modules/redmine-sync.md` (**un paragraphe = une ligne** — Redmine ne rejoint pas les lignes coupées à la main) | `pm-task-description-update`, `redmine-post-note` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -2755,6 +2756,23 @@ Il ne remplace pas, il **chapeaute** — le détail vit dans les modules dédié
   unique (`templates/redmine/issue-body.md`), poussés via rails runner idempotent.
   On édite la source, on relance, les N templates sont alignés (RM2016).
 - **`pm-wiki-sync`** — sens unique git → Wiki, bandeau « généré » sur chaque page.
+
+## Rédaction : un paragraphe, une ligne — pas de coupe à 80 colonnes
+
+**Ne coupe jamais un paragraphe à une largeur fixe.** Un paragraphe est **une seule ligne logique**, quelle que soit sa longueur ; c'est au rendu de décider où revenir à la ligne, c'est son métier.
+
+La raison est concrète : les destinations que l'on vise — wiki Redmine, **descriptions** et **notes** de tickets — ne rejoignent pas fiablement des lignes coupées à la main. Le lecteur voit alors des paragraphes en dents de scie, avec des retours à la ligne qui ne correspondent à rien. Confortable dans un éditeur, illisible là où le texte est réellement lu.
+
+S'applique à **tout markdown produit par un agent** et destiné à être rendu :
+
+- documents d'aspect `docs/*.md` (poussés en wiki par `pm-wiki-sync`) ;
+- descriptions de tickets Redmine ;
+- notes de tickets ;
+- `.log.md` et, plus généralement, tout ce qui finit sous un moteur de rendu.
+
+**Ne s'applique pas** à ce qui est lu brut, où la coupe porte du sens : le code et les blocs de code, et les **messages de commit git**, qui gardent leur convention propre (sujet court, corps à ~72 colonnes). Confondre les deux fait basculer d'un excès à l'autre.
+
+> Demandé plusieurs fois par Mathieu avant d'être écrit ici (RM3297, 2026-09-22). Une préférence de mise en forme se redemande à chaque document ; une règle écrite survit au compactage de contexte et aux sessions successives.
 > 📂 **Module `redmine-hygiene` — quand lire ceci :** le ticket a une checklist · sa description est périmée · son done_ratio évolue.
 > **Outils :** `pm-task-description-update` · **Préchargé par :** worker-analyst, worker-design *(worker-dev l'ouvre à la demande — RM3037 : le tripwire #9 porte l'obligation, le module porte le mode d'emploi)*.
 

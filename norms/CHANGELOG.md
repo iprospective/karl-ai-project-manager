@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.60.0] - 2026-09-22
+
+### Ajouté
+- Module `redmine-sync` — **« un paragraphe, une ligne » : pas de coupe à 80 colonnes**
+  (RM3297). Les destinations visées — wiki Redmine, descriptions et notes de tickets — ne
+  rejoignent pas fiablement des lignes coupées à la main : le lecteur voit des paragraphes
+  en dents de scie. Confortable dans un éditeur, illisible là où le texte est lu.
+  S'applique à tout markdown destiné à un rendu ; **ne s'applique pas** au code ni aux
+  messages de commit git, qui gardent leur convention propre (~72 colonnes) — la
+  distinction est explicite, sans quoi la règle se surapplique.
+- KERNEL — la ligne-déclencheur « livrable documentaire » porte la règle, et une seconde
+  est ajoutée pour **« je rédige une description ou une note de ticket »** : la demande
+  vaut pour les champs Redmine autant que pour les documents.
+
 ## [2.59.0] - 2026-09-19
 
 ### Ajouté

@@ -86,3 +86,20 @@ Il ne remplace pas, il **chapeaute** — le détail vit dans les modules dédié
   unique (`templates/redmine/issue-body.md`), poussés via rails runner idempotent.
   On édite la source, on relance, les N templates sont alignés (RM2016).
 - **`pm-wiki-sync`** — sens unique git → Wiki, bandeau « généré » sur chaque page.
+
+## Rédaction : un paragraphe, une ligne — pas de coupe à 80 colonnes
+
+**Ne coupe jamais un paragraphe à une largeur fixe.** Un paragraphe est **une seule ligne logique**, quelle que soit sa longueur ; c'est au rendu de décider où revenir à la ligne, c'est son métier.
+
+La raison est concrète : les destinations que l'on vise — wiki Redmine, **descriptions** et **notes** de tickets — ne rejoignent pas fiablement des lignes coupées à la main. Le lecteur voit alors des paragraphes en dents de scie, avec des retours à la ligne qui ne correspondent à rien. Confortable dans un éditeur, illisible là où le texte est réellement lu.
+
+S'applique à **tout markdown produit par un agent** et destiné à être rendu :
+
+- documents d'aspect `docs/*.md` (poussés en wiki par `pm-wiki-sync`) ;
+- descriptions de tickets Redmine ;
+- notes de tickets ;
+- `.log.md` et, plus généralement, tout ce qui finit sous un moteur de rendu.
+
+**Ne s'applique pas** à ce qui est lu brut, où la coupe porte du sens : le code et les blocs de code, et les **messages de commit git**, qui gardent leur convention propre (sujet court, corps à ~72 colonnes). Confondre les deux fait basculer d'un excès à l'autre.
+
+> Demandé plusieurs fois par Mathieu avant d'être écrit ici (RM3297, 2026-09-22). Une préférence de mise en forme se redemande à chaque document ; une règle écrite survit au compactage de contexte et aux sessions successives.

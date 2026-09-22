@@ -9052,9 +9052,18 @@ def op_notifications_mark(payload: dict, auth_ctx=None) -> dict:
     qui = _notify_viewer(auth_ctx)
     ids = payload.get("ids") or ([] if not payload.get("id") else [payload["id"]])
     if payload.get("all"):
-        ids = [e["id"] for e in pm_notify.feed(etat="ouvert", limit=1000, viewer=qui)]
+        # « tout marquer lu » ne porte que sur ce qui n'est PAS lu : re-marquer une entrée
+        # déjà lue ne changerait rien et gonflerait le compte rendu rendu à l'utilisateur.
+        # Le filtre par personne de la vue est respecté — le bouton dit « dans cette vue ».
+        source = "neuf" if etat == "lu" else "ouvert"
+        ids = [e["id"] for e in pm_notify.feed(etat=source, limit=1000, viewer=qui,
+                                               user=str(payload.get("user") or "") or None)]
     ids = [str(i) for i in ids if str(i).strip()]
     if not ids:
+        if payload.get("all"):
+            # Rien à marquer n'est pas une erreur : le bouton a simplement été cliqué
+            # sur une file déjà à jour.
+            return {"ok": True, "marked": 0, "etat": etat, "counts": pm_notify.counts(viewer=qui)}
         raise ApiError(400, "aucune notification désignée (ids, id, ou all)")
     n = pm_notify.mark(ids, etat, viewer=qui)
     _jlog("system", "info", f"{n} notification(s) → {etat}", by=str((auth_ctx or {}).get("user") or ""))

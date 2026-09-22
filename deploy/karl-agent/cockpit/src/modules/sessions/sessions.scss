@@ -145,3 +145,12 @@
 @media (prefers-reduced-motion: reduce) {
   .runitem.unseen { animation: none; background: var(--accent-soft); border-color: var(--accent); }
 }
+
+/* RM3302 : les compteurs deviennent des filtres. La pastille active est ENFONCÉE (fond plein),
+   pas seulement colorée : la couleur seule ne distingue rien pour qui ne la voit pas. */
+.hcnt .pill.filt { cursor: pointer; }
+.hcnt .pill.filt:hover { border-color: var(--accent); }
+.hcnt .pill.filt.on { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+.hcnt .pill.ghostpill { opacity: .6; }
+.hcnt .pill.choice { color: var(--warn); border-color: var(--warn); }
+.filtbanner .mini { margin-left: 4px; }

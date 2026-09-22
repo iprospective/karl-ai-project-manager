@@ -1,7 +1,7 @@
 // viewmodels/sessions/SessionsViewModel — ce que la liste « en cours » PRÉSENTE : tuiles vivantes et grises, en-têtes de groupe,
 // bandeau « à traiter », compteurs, titre de la session attachée. Inerte : ni réseau ni DOM. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
-import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge, DISP_LABEL, toggleDisposition } from "./sessions.js";
+import { FILTRE_LABEL, effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge, DISP_LABEL, toggleDisposition } from "./sessions.js";
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";   // RM3082 : la règle de fenêtre est écrite une fois, pour l'encart méta ET la tuile
 import { bindEntity } from "../../core/entities.js";
 
@@ -145,7 +145,12 @@ export class AttnChipViewModel {
 
 /** RM2283 : compteurs globaux — panneau, badges de l'onglet « en cours », « ✔ tout », titre du navigateur. */
 export class CountersViewModel {
-  constructor(counts, unseen = 0) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; this.unseen = unseen; }
+  constructor(counts, unseen = 0, filtre = "", masquees = 0) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; this.unseen = unseen; this.filtre = filtre || ""; this.masquees = masquees; }
+  /** RM3302 : la pastille cliquée est ENFONCÉE — sans ça, rien ne dit laquelle filtre. */
+  actif(f) { return this.filtre === f; }
+  get filtreLabel() { return FILTRE_LABEL[this.filtre] || ""; }
+  /** Le libellé d'un compteur cliquable : ce que fera le clic, pas ce que le compteur vaut. */
+  tip(f, base) { return base + "\n(clic : ne montrer que ces sessions" + (this.actif(f) ? " — second clic pour tout revoir)" : ")"); }
   get waiting() { return this.c.attention + this.c.choice; }   // RM2327 : ❓ compte aussi
   get showYesAll() { return this.c.attention > 1; }           // RM2327 : dès 2 sessions en attention
   /** RM3236 : le compteur « à voir » passe dans le titre — c'est lui qu'on aperçoit depuis un autre onglet. */

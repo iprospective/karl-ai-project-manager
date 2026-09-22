@@ -82,6 +82,28 @@ const { fakeEl, settle, now, SETS, writable, mkRepo } = require("./test_cockpit_
   assert.deepStrictEqual(d.ordered.map(s => s.rm_id), ["1", "3", "2"], "à plat dans l'ordre d'affichage (RM2302), terminé en bas dans son groupe"); assert(d.hidden === 0 && d.visKeys.length === 2);
   const dc = svc.compute([{ rm_id: "1", client: "acme", project: "shop", state: "working" }, { rm_id: "2", client: "beta", project: "api", state: "working" }, { rm_id: "3", client: "beta", project: "api", state: "attention" }], {}, "acme");
   assert.deepStrictEqual(new Set(dc.visKeys), new Set(["acme/shop", "beta/api"]), "RM2639 : un groupe d'un autre client reste visible si une session y attend"); assert.strictEqual(svc.compute([{ rm_id: "2", client: "beta", project: "api", state: "working" }], {}, "acme").hidden, 1);
+  // — RM3302 : filtres de lecture —
+  assert(M.FILTRES.includes("unseen") && M.FILTRE_LABEL.waiting === "en attente");
+  const U = new Set(["3"]);
+  assert(M.matchFiltre({ rm_id: "3", state: "idle" }, "unseen", U) && !M.matchFiltre({ rm_id: "4", state: "idle" }, "unseen", U), "à voir : seulement les non vues");
+  assert(!M.matchFiltre({ rm_id: "3", ghost: true }, "unseen", U), "une tuile grise n'est jamais « à voir » : elle ne tourne pas");
+  assert(M.matchFiltre({ state: "attention" }, "waiting") && M.matchFiltre({ state: "choice" }, "waiting") && !M.matchFiltre({ state: "working" }, "waiting"), "en attente : ⚠ et ❓");
+  assert(M.matchFiltre({ state: "working" }, "working") && !M.matchFiltre({ state: "idle" }, "working") && M.matchFiltre({ state: "idle" }, "idle"));
+  assert(M.matchFiltre({ ghost: true }, "ghost") && !M.matchFiltre({ state: "idle" }, "ghost"));
+  assert(M.matchFiltre({ state: "idle" }, "") && M.matchFiltre({ state: "idle" }, "filtre-disparu"), "filtre absent ou inconnu : tout passe, jamais de liste vide inexpliquée");
+  const S3 = [{ rm_id: "1", client: "acme", project: "shop", state: "working" }, { rm_id: "3", client: "acme", project: "shop", state: "attention" }, { rm_id: "2", client: "beta", project: "api", state: "idle" }];
+  assert.strictEqual(svc.filtre, "", "aucun filtre par défaut");
+  assert(/en attente/.test(svc.setFiltre("waiting")) && store.karlSessFiltre === "waiting", "filtre posé et persisté");
+  const df = svc.compute(S3.map(x => ({ ...x })), {}, "");
+  assert.deepStrictEqual(df.ordered.map(s => s.rm_id), ["3"], "la liste ne montre que les sessions en attente");
+  assert.deepStrictEqual(df.visKeys, ["acme/shop"], "un groupe vidé par le filtre disparaît");
+  assert.deepStrictEqual(df.counts, { total: 3, attention: 1, choice: 0, idle: 1, working: 1, ghost: 0 }, "les compteurs restent GLOBAUX : sinon on ne saurait plus quoi cliquer");
+  assert.strictEqual(df.filtres, 2, "et la bannière peut dire combien sont masquées");
+  assert(/Filtre retiré/.test(svc.setFiltre("waiting")) && svc.filtre === "" && store.karlSessFiltre === "", "second clic sur le même compteur : filtre retiré");
+  svc.setFiltre("unseen"); const svc3 = new SessionsService({ repo, storage, now: () => st.clock });
+  assert.strictEqual(svc3.filtre, "unseen", "le filtre survit au rechargement (ce navigateur)");
+  store.karlSessFiltre = "categorie-supprimee"; assert.strictEqual(new SessionsService({ repo, storage, now: () => st.clock }).filtre, "", "valeur périmée relue comme « aucun filtre »");
+  svc.setFiltre("");
   assert.strictEqual(await svc.approve("5"), "✔ Oui envoyé à RM5 (y + Entrée)"); assert.deepStrictEqual(await svc.approveAll(), { n: 2, msg: "✔ Oui envoyé à 2 session(s) : RM1, RM2" }); assert(/armé pour 15 min/.test(await svc.autoYes("5", "15"))); assert.strictEqual(await svc.autoYes("5", 0), "auto-oui désarmé");
   console.log("✓ service : préférences persistées (RM2344/2448), gel (RM2346), ordre et visibilité (RM2302/2639), Oui / tout / auto-oui");
 

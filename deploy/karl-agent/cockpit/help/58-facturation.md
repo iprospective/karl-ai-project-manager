@@ -29,7 +29,27 @@ pas proposer une journée de 14 h, qui servirait ensuite de plancher. Ce qui a �
 dehors est **dit** sous la ligne ; une soirée se rajoute à la main si elle doit compter.
 
 Le **client principal** sert les journées passées chez un client : il dit à qui revient
-le temps de la journée quand les traces ne le disent pas seules.
+le temps de la journée quand les traces ne le disent pas seules. Le **lieu**
+(présentiel / distanciel) se note à la journée — il conditionne le déplacement.
+
+### Où ces informations sont enregistrées
+
+Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :
+elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent en
+local, dans `~/.local/state/mmi-pm/timesheet/<AAAA-MM>.days.yml`, et **ne sont écrites que
+lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas fait, ce que l'écran montre
+est une proposition recalculée depuis les traces à chaque ouverture.
+
+```yaml
+'2026-08-26':
+  debut: '09:00'
+  fin: '18:00'
+  client: matnat
+  lieu: presentiel
+```
+
+Ce fichier est propre à cette machine. S'il doit survivre à une réinstallation ou être
+visible ailleurs, il faut le sauvegarder — ou décider de porter ces champs dans Redmine.
 
 **Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
 aussitôt. **↺ ajustement** revient à ce que les traces disent.
@@ -62,6 +82,11 @@ référentiel PM. Changer de client remet le projet à zéro. Une valeur posée 
 absente du référentiel reste proposée : un menu ne fait jamais disparaître une donnée.
 
 ## Reprendre une journée
+
+La liste **déjà noté dans Redmine** donne pour chaque saisie son **client** et son
+**projet** en deux colonnes, puis le ticket et le commentaire. Le client est résolu depuis
+le manifeste PM du projet Redmine ; quand aucun projet PM ne correspond, la colonne client
+reste vide et le nom Redmine tient lieu de projet — on n'invente pas un rattachement.
 
 Chaque saisie déjà notée porte son origine : **outil** ou **à la main**. Si tu repères une
 incohérence — un volume qui ne colle pas au temps mesuré, un client qui n'a rien à faire là —

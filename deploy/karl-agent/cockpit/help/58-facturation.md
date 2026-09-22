@@ -126,14 +126,10 @@ précède quoi. Ici, tout se lit dans l'ordre où c'est arrivé.
 
 ### Le temps IA et les tours parallèles
 
-Un tour d'agent est **borné au début du suivant** : quand plusieurs agents tournent en
-même temps, additionner leurs durées compterait deux fois la même minute d'horloge. Le
-chiffre affiché est donc le temps écoulé ; le survol donne la somme déclarée et l'écart
-(« 2 h 28 déclarées, 24 min de chevauchement retranchées, 11 tours bornés »). Les tours
-bornés le disent dans le fil.
-
-Lequel des deux doit faire foi reste à trancher (question Q009 du ticket) : l'horloge, ou
-le travail réellement produit, qui peut légitimement dépasser l'horloge.
+Le chiffre affiché est celui que les tours **déclarent** — il n'est pas raboté. Quand
+plusieurs agents tournent en même temps, leurs durées se recouvrent : le travail produit
+dépasse alors le temps écoulé, et c'est normal. Le recouvrement est **signalé** (dans le
+survol du chiffre, et sur la ligne du tour dans le fil), jamais retranché.
 
 Le **client** et le **projet** se choisissent maintenant dans un menu, alimenté par le
 référentiel PM. Changer de client remet le projet à zéro. Une valeur posée autrefois et

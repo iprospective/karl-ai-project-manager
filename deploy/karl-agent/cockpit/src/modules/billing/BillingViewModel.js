@@ -99,10 +99,10 @@ export class BillingViewModel {
       { cle: "mesure", label: "mesuré", valeur: fmtMin(t.mesure), aide: "temps humain observé dans les traces, plages fusionnées" },
       { cle: "deja", label: "déjà noté", valeur: fmtMin(t.deja), aide: "saisies de temps déjà présentes dans Redmine ce jour-là" },
       { cle: "propose", label: "proposé", valeur: fmtMin(t.propose), aide: "ce que la validation ajouterait dans Redmine" },
-      { cle: "ia", label: "IA", valeur: `${this.iaTotaux.tours} tours · ${fmtMin(this.iaTotaux.reel)}`,
+      { cle: "ia", label: "IA", valeur: `${this.iaTotaux.tours} tours · ${fmtMin(this.iaTotaux.minutes)}`,
         aide: `${fmtTokens(t.tokens)} tokens`
-              + (this.iaTotaux.chevauchement > 0
-                 ? ` — ${fmtMin(this.iaTotaux.declare)} déclarées, ${fmtMin(this.iaTotaux.chevauchement)} de chevauchement retranchées (${this.iaTotaux.bornes} tours bornés au suivant)`
+              + (this.iaTotaux.paralleles > 0
+                 ? ` — ${this.iaTotaux.paralleles} tour(s) en parallèle d'un autre (${fmtMin(this.iaTotaux.horloge)} d'horloge) : le travail produit dépasse le temps écoulé, c'est normal`
                  : "") },
     ];
   }

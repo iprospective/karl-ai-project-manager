@@ -6,7 +6,19 @@ attaché à un ticket ou à un dossier de travail.
 ## Panneau « ▶ en cours »
 
 Liste les sessions ouvertes. Les compteurs de l'en-tête indiquent : sessions
-ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
+ouvertes · à voir (👁) · enregistrées (⏸) · en **attention** (⚠ elles attendent
+une réponse) · en travail (⚙) · au repos (💤).
+
+**Les compteurs filtrent la liste** : un clic sur l'un d'eux ne montre que ces
+sessions-là, un second clic revient à tout. Le compteur cliqué reste enfoncé, un
+bandeau rappelle le filtre en cours et dit combien de sessions il masque ; « tout
+✕ » l'annule. Les compteurs eux-mêmes gardent toujours leur total, filtre ou pas,
+pour rester le chemin vers un autre filtre. Le filtre est propre à ce navigateur
+et retenu d'une visite à l'autre.
+
+Un filtre ne fait jamais disparaître un appel : le bandeau « à traiter », en tête
+de liste, continue d'afficher les sessions qui attendent une réponse, même quand
+le filtre en cours les exclut.
 
 - **⚠ suivante ➜** : attache la prochaine session qui attend une réponse (cycle
   s'il y en a plusieurs).

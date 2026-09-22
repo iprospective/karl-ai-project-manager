@@ -10,6 +10,8 @@
   S'applique à tout markdown destiné à un rendu ; **ne s'applique pas** au code ni aux
   messages de commit git, qui gardent leur convention propre (~72 colonnes) — la
   distinction est explicite, sans quoi la règle se surapplique.
+  Précise aussi que les **citations** (`>`) sont concernées : un bloc de citation
+  contient des paragraphes, ce n'est pas une structure à préserver ligne à ligne.
 - KERNEL — la ligne-déclencheur « livrable documentaire » porte la règle, et une seconde
   est ajoutée pour **« je rédige une description ou une note de ticket »** : la demande
   vaut pour les champs Redmine autant que pour les documents.

@@ -2770,6 +2770,8 @@ S'applique à **tout markdown produit par un agent** et destiné à être rendu 
 - notes de tickets ;
 - `.log.md` et, plus généralement, tout ce qui finit sous un moteur de rendu.
 
+Y compris **dans une citation** (`>`) : un bloc de citation contient des paragraphes comme le reste du texte, il n'est pas une structure à préserver ligne à ligne. C'est l'erreur commise en appliquant la règle pour la première fois — l'introduction d'un document, écrite en citation, a gardé sa coupe alors que tout le reste était recollé.
+
 **Ne s'applique pas** à ce qui est lu brut, où la coupe porte du sens : le code et les blocs de code, et les **messages de commit git**, qui gardent leur convention propre (sujet court, corps à ~72 colonnes). Confondre les deux fait basculer d'un excès à l'autre.
 
 > Demandé plusieurs fois par Mathieu avant d'être écrit ici (RM3297, 2026-09-22). Une préférence de mise en forme se redemande à chaque document ; une règle écrite survit au compactage de contexte et aux sessions successives.

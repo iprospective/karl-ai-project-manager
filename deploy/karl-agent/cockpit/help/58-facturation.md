@@ -21,6 +21,14 @@ Sous les chiffres, la **frise** aligne deux voies sur la même échelle : le tem
 elle qui justifie une plage — une heure de présence se défend par ce qui s'y est passé.
 Le bandeau plus clair, derrière, est la plage d'**heures normales** déclarée.
 
+La frise est **colorée par client** : chaque plage prend la couleur du client qui y
+domine, et la notice dessous donne la correspondance avec le cumul de la journée. La
+couleur ne dit que le dominant — le **survol** donne la répartition complète d'une plage
+(« pisceen 12 min · calicote 4 min »). La **pause** a sa propre bande, hachurée et neutre :
+elle ne se facture à personne.
+
+La teinte d'un client est dérivée de son nom : la même partout, d'une journée à l'autre.
+
 ## Corriger la journée
 
 La ligne **début / fin / pause** est une *proposition*, déduite des traces et **ramenée
@@ -102,16 +110,30 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
-## Les preuves, sous la journée
+## Ce qui s'est passé — un seul fil
 
-Trois listes dépliables, sous les boutons — de quoi vérifier chaque minute proposée :
+Sous les boutons, **une** liste chronologique réunit tout ce que la journée a laissé :
 
-- **commits** : ce que la journée a produit, tous dépôts confondus, à la minute. Le travail
-  d'abord ; la plomberie PM (`pm(tick)`, moissons, rapports) est comptée à part et repliée,
-  parce qu'elle date l'activité sans la décrire.
-- **temps IA** : les tours d'agent groupés par ticket — plage horaire, durée, modèles, tokens.
-- **traces** : chaque trace horodatée, sa source, sa cible et un extrait. Les traces d'agent
-  sont grisées : elles servent à *attribuer* le temps, elles n'en *créent* pas.
+| Genre | Ce que c'est |
+|---|---|
+| **trace** | une trace horodatée : sa source, sa cible, un extrait. Les traces d'agent sont grisées — elles *attribuent* le temps, elles n'en *créent* pas |
+| **commit** | ce qui a été produit, tous dépôts confondus, à la minute |
+| **pm** | la plomberie PM (`pm(tick)`, moissons, rapports) : elle date l'activité sans la décrire, donc elle est estompée |
+| **IA** | un tour d'agent : sa durée, ses tokens |
+
+Trois listes séparées obligeaient à faire la couture dans sa tête pour savoir ce qui
+précède quoi. Ici, tout se lit dans l'ordre où c'est arrivé.
+
+### Le temps IA et les tours parallèles
+
+Un tour d'agent est **borné au début du suivant** : quand plusieurs agents tournent en
+même temps, additionner leurs durées compterait deux fois la même minute d'horloge. Le
+chiffre affiché est donc le temps écoulé ; le survol donne la somme déclarée et l'écart
+(« 2 h 28 déclarées, 24 min de chevauchement retranchées, 11 tours bornés »). Les tours
+bornés le disent dans le fil.
+
+Lequel des deux doit faire foi reste à trancher (question Q009 du ticket) : l'horloge, ou
+le travail réellement produit, qui peut légitimement dépasser l'horloge.
 
 Le **client** et le **projet** se choisissent maintenant dans un menu, alimenté par le
 référentiel PM. Changer de client remet le projet à zéro. Une valeur posée autrefois et

@@ -42,14 +42,20 @@ const JOUR = {
     { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8, facturable: true },
     { jour: "2026-09-18", client: "iprospective", projet: "pm-ai-agents", ticket: null, minutes: 15, activite: 9, outillage_min: null, facturable: false },
   ],
+  bandes: [
+    { debut: "08:51", fin: "09:31", client: "pisceen", minutes: 40, parts: { pisceen: 32, calicote: 8 } },
+    { debut: "13:32", fin: "13:52", client: "calicote", minutes: 20, parts: { calicote: 20 } },
+    { debut: "18:33", fin: "20:17", client: null, minutes: 104, parts: { null: 104 } },
+  ],
+  transversal_par_client: { pisceen: 55, calicote: 36 },
   pause: { declaree_h: null, trou: { debut: "12:36", fin: "13:32", minutes: 56 },
            cible: { client: "iprospective", projet: null, commentaire: "repas midi", heures: 1 } },
   deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration", client: "pisceen", projet: "pisceen-presta" },
                { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]", client: "pisceen", projet: "infra" }],
   regie: [{ client: "matnat", motif: "presence", minutes: 90 }],
-  ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5 },
-       { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3 },
-       { heure: "18:40", ticket: 3199, client: "calicote", projet: "infra", modele: "claude-opus-4-8", tokens: 400000, minutes: 2 }],
+  ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5, minutes_reelles: 4.5, borne: false },
+       { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3, minutes_reelles: 3, borne: false },
+       { heure: "18:40", ticket: 3199, client: "calicote", projet: "infra", modele: "claude-opus-4-8", tokens: 400000, minutes: 10, minutes_reelles: 2, borne: true }],
   traces: [
     { heure: "08:51", source: "claude-history", humain: true, chars: 120, extrait: "étudie et chiffre RM3217", client: "pisceen", projet: "dolibarr", ticket: 3217 },
     { heure: "08:55", source: "claude-transcript", humain: false, chars: 40, extrait: "(tour d'agent)", client: "pisceen", projet: "dolibarr", ticket: 3217 },
@@ -124,7 +130,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   // — totaux et état —
   const t = M.totaux(JOUR);
   assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 105, 105, 90, 210]);
-  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain");
+  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain, et BORNÉ (18 min déclarées sur des tours parallèles = 10 min d'horloge)");
   assert.strictEqual(M.etat(JOUR), "a_valider");
   assert.strictEqual(M.etat(Object.assign(clone(JOUR), { valide: true })), "validee");
   assert.strictEqual(M.etat({ proposition: [], deja_saisi: [{ minutes: 60 }], mesure_min: 0 }), "manuelle");
@@ -189,6 +195,45 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(M.nonFacturable(JOUR), { count: 1, minutes: 15 }, "le temps sur soi est compté à part");
   assert.deepStrictEqual(M.nonFacturable({ proposition: [{ minutes: 30, facturable: true }] }), { count: 0, minutes: 0 });
   console.log("✓ pause de midi : visible, déclarée ou manquante ; temps non facturable");
+
+  // — couleurs, bandes, notice —
+  assert.strictEqual(M.couleurClient("pisceen"), M.couleurClient("pisceen"), "une couleur stable pour un client");
+  assert.notStrictEqual(M.couleurClient("pisceen"), M.couleurClient("calicote"), "deux clients, deux couleurs");
+  assert.strictEqual(M.couleurClient(null), "var(--muted)", "le non-attribué reste neutre");
+  assert.strictEqual(M.nomClient(null), "non attribué");
+  assert.strictEqual(M.nomClient("null"), "non attribué", "le null du JSON ne doit pas s'afficher tel quel");
+
+  const bd = M.bandes(JOUR, { from: 8 * 60, to: 21 * 60, span: 780 });
+  assert.strictEqual(bd.length, 3);
+  assert.strictEqual(bd[0].client, "pisceen");
+  assert(bd.every(b => b.left >= 0 && b.left + b.width <= 100.01), "aucune bande ne déborde");
+  assert(/pisceen 32 min · calicote 8 min/.test(bd[0].titre), "le survol dit la répartition que la couleur cache");
+  assert.strictEqual(bd[2].client, "non attribué");
+
+  const lg = M.legende(JOUR);
+  assert.deepStrictEqual(lg.map(x => x.client), ["non attribué", "pisceen", "calicote"], "la notice classe par poids");
+  assert.strictEqual(lg.find(x => x.client === "pisceen").duree, "32 min");
+
+  const bp = M.bandePause(JOUR, { from: 8 * 60, to: 21 * 60, span: 780 });
+  assert(bp && /pause 12:36–13:32/.test(bp.titre) && bp.declaree === false, "la pause a sa bande");
+  assert.strictEqual(M.bandePause({ pause: { trou: null } }, { from: 0, span: 60 }), null);
+
+  assert.deepStrictEqual(M.transversalParClient(JOUR).map(x => [x.client, x.duree]),
+                         [["pisceen", "55 min"], ["calicote", "36 min"]], "le transversal se lit en minutes, pas en pourcentage");
+
+  // — le fil unique, trié —
+  const fl = M.fil(JOUR);
+  assert.strictEqual(fl.length, 9, "traces + commits + plomberie + tours d'agent");
+  const heures = fl.map(x => x.heure);
+  assert.deepStrictEqual(heures, [...heures].sort(), "trié par heure, tous genres confondus");
+  assert.deepStrictEqual([...new Set(fl.map(x => x.genre))].sort(), ["commit", "ia", "plomberie", "trace"]);
+  assert(/borné au tour suivant/.test(fl.find(x => x.genre === "ia" && x.borne).texte));
+
+  // — le chevauchement des temps IA —
+  const ti = M.totauxIA(JOUR);
+  assert.deepStrictEqual([ti.tours, ti.declare, ti.reel, ti.bornes, ti.chevauchement], [3, 18, 10, 1, 8],
+                         "déclaré et borné sont donnés tous les deux : ils ne répondent pas à la même question");
+  console.log("✓ couleurs par client, notice, bande de pause, cumul transversal, fil unique, temps IA borné");
 
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
@@ -305,10 +350,13 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   { const manque = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1, commentaire: "repas midi" } } }), form: {} });
     const f2 = String(V.Card(manque));
     assert(/data-action="pause-midi"/.test(f2) && /aucune pause visible/.test(f2), "pause manquante : un bouton pour la noter en un clic"); }
-  assert(/traces de la journée — 3 \(2 humaines\)/.test(frag), "les traces sont listées avec leur compte");
-  assert(/commits — 2 de travail/.test(frag) && /plomberie PM \(1\)/.test(frag), "les commits séparent travail et plomberie");
-  assert(/temps IA — 3 tours · 10 min sur 2 cible\(s\)/.test(frag), "le temps IA est détaillé par cible");
+  assert(/ce qui s'est passé — 9 actions/.test(frag), "un seul fil : traces, commits et tours d'agent réunis");
+  assert(/2 traces humaines · 2 commits · 3 tours d'agent/.test(frag), "…et le détail de sa composition");
   assert(/RM3199 : journal/.test(frag), "le sujet du commit se lit");
+  assert(/bl-leg-i/.test(frag) && /background:hsl\(/.test(frag), "la notice donne une couleur par client");
+  assert(/bl-pause-band/.test(frag), "la pause a sa propre bande, neutre");
+  assert(/bl-tc-i/.test(frag), "le transversal montre son cumul par client");
+  assert(/borné au tour suivant/.test(frag), "un tour d'agent borné le dit");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");

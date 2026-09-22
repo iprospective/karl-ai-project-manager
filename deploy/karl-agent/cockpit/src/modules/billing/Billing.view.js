@@ -28,16 +28,27 @@ export function Frise(vm) {
   const f = vm.frise;
   return html`<div class="bl-frise">
     <div class="bl-ruler">${f.heures.map(h => html`<span class="bl-tick" style="left:${String(h.left)}%"><i></i>${h.label}</span>`)}</div>
-    <div class="bl-lane bl-lane-h" title="Temps humain mesuré (plages fusionnées : rien n'est compté deux fois)">
+    <div class="bl-lane bl-lane-h" title="Temps humain mesuré (plages fusionnées : rien n'est compté deux fois). La couleur est celle du client dominant de la plage ; le survol donne le détail.">
       ${f.normal ? html`<span class="bl-normal" style="left:${String(f.normal.left)}%;width:${String(f.normal.width)}%" title="Heures normales déclarées : ${f.normal.debut}–${f.normal.fin}"></span>` : ""}
-      ${f.humain.map(s => html`<span class="bl-seg" style="left:${String(s.left)}%;width:${String(s.width)}%" title="${s.debut}–${s.fin}"></span>`)}
+      ${f.pause ? html`<span class="bl-pause-band${f.pause.declaree ? " bl-pd" : ""}" style="left:${String(f.pause.left)}%;width:${String(f.pause.width)}%" title="${f.pause.titre}"></span>` : ""}
+      ${f.bandes.length
+        ? f.bandes.map(b => html`<span class="bl-seg" style="left:${String(b.left)}%;width:${String(b.width)}%;background:${b.couleur}" title="${b.titre}"></span>`)
+        : f.humain.map(s => html`<span class="bl-seg" style="left:${String(s.left)}%;width:${String(s.width)}%" title="${s.debut}–${s.fin}"></span>`)}
       <span class="bl-lane-label">humain</span>
     </div>
     <div class="bl-lane bl-lane-ia" title="Tours d'agent : ce que l'IA a produit pendant la journée">
       ${f.ia.map(k => html`<span class="bl-ia" style="left:${String(k.left)}%" title="${k.heure} · ${String(k.tours)} tour(s)${k.tickets.length ? " · RM" + k.tickets.join(", RM") : ""}"></span>`)}
       <span class="bl-lane-label">IA</span>
     </div>
+    ${Legende(vm)}
   </div>`;
+}
+
+/** La notice de la frise : à quel client correspond quelle couleur, et combien il pèse. */
+export function Legende(vm) {
+  const l = vm.legende;
+  if (!l.length) return "";
+  return html`<div class="bl-leg">${l.map(x => html`<span class="bl-leg-i" title="${x.client} — ${x.duree} mesurées ce jour-là"><i style="background:${x.couleur}"></i>${x.client} <b>${x.duree}</b></span>`)}${vm.frise.pause ? html`<span class="bl-leg-i" title="Pause : du temps qui ne se facture à personne"><i class="bl-leg-pause"></i>pause</span>` : ""}</div>`;
 }
 
 /** Les heures normales de la journée et son client principal — ce que Mathieu corrige. */
@@ -77,7 +88,7 @@ export function Contexte(vm) {
   const tr = vm.transversal;
   const rg = vm.regie;
   if (!tr && !rg.length) return "";
-  return html`<div class="bl-ctx">${tr ? html`<div class="bl-tr">temps transversal (PM, infra, écosystèmes) : <b>${tr.destin}</b>${tr.cle ? html` — ${tr.cle}` : ""}${tr.ouvre ? html` <span class="bl-dim">${tr.ouvre}${tr.hors ? ", " + tr.hors : ""}</span>` : ""}${tr.alerte ? html`<div class="bl-warn">⚠ ${tr.alerte}</div>` : ""}</div>` : ""}${rg.length ? html`<div class="bl-rg">complément de régie : ${rg.map(r => html`<span>${r.client} ${r.minutes} <i>(${r.motif})</i></span>`)}</div>` : ""}</div>`;
+  return html`<div class="bl-ctx">${tr ? html`<div class="bl-tr">temps transversal (PM, infra, écosystèmes) : <b>${tr.destin}</b>${tr.cle ? html` — ${tr.cle}` : ""}${vm.transversalCumul.length ? html`<div class="bl-tc">${vm.transversalCumul.map(x => html`<span class="bl-tc-i" title="${x.client} a reçu ${x.duree} de temps transversal ce jour-là"><i style="background:${x.couleur}"></i>${x.client} <b>${x.duree}</b></span>`)}</div>` : ""}${tr.ouvre ? html` <span class="bl-dim">${tr.ouvre}${tr.hors ? ", " + tr.hors : ""}</span>` : ""}${tr.alerte ? html`<div class="bl-warn">⚠ ${tr.alerte}</div>` : ""}</div>` : ""}${rg.length ? html`<div class="bl-rg">complément de régie : ${rg.map(r => html`<span>${r.client} ${r.minutes} <i>(${r.motif})</i></span>`)}</div>` : ""}</div>`;
 }
 
 /** Le pied : le bouton qui écrit, et rien d'autre à côté qui puisse être cliqué par erreur. */
@@ -117,10 +128,24 @@ export function TempsIA(vm) {
   return html`<details class="bl-ev"><summary>temps IA — ${vm.chiffres[3].valeur} sur ${String(g.length)} cible(s)</summary><div class="bl-evl">${g.map(x => html`<div class="bl-evr"><span class="bl-eh">${x.plage}</span><span class="bl-ec">${x.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">${x.cle}</a>` : x.cle}</span><span class="bl-ex">${x.cible} <span class="bl-dim">${x.modeles}</span></span><span class="bl-min">${x.duree}</span><span class="bl-tool">${String(x.tours)} tours · ${x.jetons}</span></div>`)}</div></details>`;
 }
 
+const GENRE = { trace: "trace", commit: "commit", plomberie: "pm", ia: "IA" };
+
+/**
+ * TOUT ce qui s'est passé dans la journée, dans l'ordre : traces, commits, tours d'agent.
+ *
+ * La couture entre trois listes séparées se faisait dans la tête ; elle se fait ici.
+ */
+export function Fil(vm) {
+  const f = vm.fil;
+  if (!f.length) return "";
+  const c = vm.commits;
+  return html`<details class="bl-ev" open><summary>ce qui s'est passé — ${String(f.length)} actions <span class="bl-dim">· ${String(vm.tracesHumaines)} traces humaines · ${String(c.travail.length)} commits · ${String(vm.iaTotaux.tours)} tours d'agent</span></summary><div class="bl-evl">${f.map(x => html`<div class="bl-evr bl-g-${x.genre}${x.humain ? "" : " bl-ag"}"><span class="bl-eh">${x.heure}</span><span class="bl-gn">${GENRE[x.genre] || x.genre}</span><span class="bl-es">${x.source}</span><span class="bl-ec">${x.cible}${x.rm ? html` <a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">RM${String(x.rm)}</a>` : ""}</span><span class="bl-ex">${x.texte}</span></div>`)}</div></details>`;
+}
+
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Commits(vm)}${TempsIA(vm)}${Traces(vm)}`;
+  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

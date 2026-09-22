@@ -100,3 +100,23 @@
 .bl-manque { color: var(--warn); border-color: var(--warn); }
 .bl-nf { color: var(--muted) !important; }
 .bl-nf-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px; margin-left: 6px; }
+
+// couleurs par client sur la frise, notice, pause neutre
+.bl-seg { transition: opacity .1s; }
+.bl-pause-band { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); border-radius: 2px; }
+.bl-pd { background: repeating-linear-gradient(45deg, var(--muted) 0 4px, transparent 4px 8px); }
+.bl-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 0 -46px; padding-left: 46px; font-size: 10.5px; color: var(--muted); }
+.bl-leg-i { display: inline-flex; align-items: center; gap: 4px; }
+.bl-leg-i i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.bl-leg-i b { color: var(--fg); font-weight: 600; }
+.bl-leg-pause { background: repeating-linear-gradient(45deg, var(--muted) 0 3px, transparent 3px 6px); border: 1px solid var(--line); }
+// cumul du transversal, en minutes
+.bl-tc { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; }
+.bl-tc-i { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.bl-tc-i i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.bl-tc-i b { color: var(--fg); }
+// le fil unique
+.bl-gn { flex: 0 0 4.2em; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.bl-g-commit .bl-gn { color: var(--ok); }
+.bl-g-ia .bl-gn { color: var(--accent); }
+.bl-g-plomberie { opacity: .48; }

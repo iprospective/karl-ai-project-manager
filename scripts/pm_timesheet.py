@@ -883,8 +883,12 @@ def allocate(intervals, params=None):
     par_heure = collections.Counter()      # (jour, heure) → minutes mesurées
     par_heure_cible = collections.Counter()  # (jour, heure, cible) → minutes
     periodes = collections.defaultdict(list)
+    segments = collections.defaultdict(list)   # jour → [(debut, fin, {client: minutes})]
     if not intervals:
-        return dict(alloc), dict(periodes), dict(totaux), dict(par_heure)
+        # Cinq valeurs, comme le cas nominal : rendre un tuple plus court ici faisait
+        # planter les appelants sur une période sans la moindre trace.
+        return (dict(alloc), dict(periodes), dict(totaux), dict(par_heure),
+                dict(par_heure_cible), dict(segments))
 
     ivs = sorted(intervals, key=lambda x: x.debut)
     debuts = [iv.debut for iv in ivs]
@@ -907,13 +911,84 @@ def allocate(intervals, params=None):
         poids_total = sum(sum(iv.scores.values()) for iv in actifs)
         if poids_total <= 0:
             continue
+        parts = collections.Counter()
         for iv in actifs:
             for cible, poids in iv.scores.items():
                 part = duree * poids / poids_total
                 alloc[(jour, ouvre, cible)] += part
                 par_heure_cible[(jour, a.hour, cible)] += part
+                parts[cible[0]] += part
+        # La tranche élémentaire et ses parts de client : c'est ce qui permet de
+        # COLORER la frise. Par heure, on ne saurait pas où commence un client.
+        segments[jour].append((a, b, dict(parts)))
     return (dict(alloc), dict(periodes), dict(totaux), dict(par_heure),
-            dict(par_heure_cible))
+            dict(par_heure_cible), dict(segments))
+
+
+def bandes_par_client(segments_du_jour, minimum_min=2.0):
+    """Les tranches élémentaires fusionnées en bandes d'un même client dominant.
+
+    Une bande porte SA répartition complète (`parts`) : le survol peut dire « pisceen
+    12 min, calicote 4 min » là où la couleur ne montre que le dominant. Les miettes
+    sous `minimum_min` sont absorbées par la bande précédente : sans cela, la frise
+    devient un peigne illisible de traits d'une minute.
+    """
+    bandes = []
+    for debut, fin, parts in sorted(segments_du_jour or []):
+        if not parts:
+            continue
+        dominant = max(parts.items(), key=lambda kv: kv[1])[0]
+        duree = (fin - debut).total_seconds() / 60
+        if bandes and bandes[-1]["fin"] == debut and (
+                bandes[-1]["client"] == dominant or duree < minimum_min):
+            prec = bandes[-1]
+            prec["fin"] = fin
+            prec["minutes"] += duree
+            for c, m in parts.items():
+                prec["parts"][c] = prec["parts"].get(c, 0) + m
+            prec["client"] = max(prec["parts"].items(), key=lambda kv: kv[1])[0]
+        else:
+            bandes.append({"debut": debut, "fin": fin, "minutes": duree,
+                           "client": dominant, "parts": dict(parts)})
+    return bandes
+
+
+def ticks_sans_chevauchement(ticks):
+    """Borne chaque tour d'agent au début du suivant (arbitrage Mathieu, 2026-09-22).
+
+    « une durée s'arrête au pire lorsqu'une nouvelle commence. » Les durées déclarées
+    par les ticks se chevauchent quand plusieurs agents tournent en parallèle : les
+    additionner compte deux fois la même minute d'horloge. On garde les deux nombres —
+    `minutes` (déclarée, le travail réellement produit) et `minutes_reelles` (l'union,
+    le temps écoulé) — parce qu'ils ne répondent pas à la même question.
+    """
+    ordonnes = sorted(ticks or [], key=lambda k: k.get("heure") or "")
+
+    def en_min(hhmm):
+        try:
+            h, m = str(hhmm).split(":")
+            return int(h) * 60 + int(m)
+        except (ValueError, AttributeError):
+            return None
+
+    sortie = []
+    for i, k in enumerate(ordonnes):
+        debut = en_min(k.get("heure"))
+        declaree = float(k.get("minutes") or 0)
+        if debut is None:
+            sortie.append({**k, "minutes_reelles": declaree, "borne": False})
+            continue
+        suivant = None
+        for j in range(i + 1, len(ordonnes)):
+            suivant = en_min(ordonnes[j].get("heure"))
+            if suivant is not None:
+                break
+        fin = debut + declaree
+        borne = suivant is not None and fin > suivant
+        if borne:
+            fin = suivant
+        sortie.append({**k, "minutes_reelles": max(0.0, fin - debut), "borne": borne})
+    return sortie
 
 
 # ── Règles métier ────────────────────────────────────────────────────────────

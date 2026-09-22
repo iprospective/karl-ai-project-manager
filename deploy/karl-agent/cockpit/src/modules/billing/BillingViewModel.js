@@ -2,7 +2,8 @@
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
-         libelleLieu, pause, nonFacturable } from "./billing.js";
+         libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
+         transversalParClient, fil, totauxIA } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -26,6 +27,9 @@ export class BillingViewModel {
     if (cur && !liste.includes(cur)) liste.unshift(cur);
     return liste.map(x => ({ value: x, selected: x === cur }));
   }
+
+  /** Le temps IA : déclaré et borné. L'écart est le chevauchement de tours parallèles. */
+  get iaTotaux() { return totauxIA(this.j); }
 
   /** La pause de midi : déclarée, visible dans les traces, ou manquante. */
   get pause() { return pause(this.j); }
@@ -63,7 +67,16 @@ export class BillingViewModel {
   get validee() { return this.etat === "validee"; }
   get vide() { return !this.j || this.etat === "vide"; }
   get t() { return totaux(this.j); }
-  get frise() { return timeline(this.j, { start: this.f.debut, end: this.f.fin }); }
+  get frise() {
+    const t = timeline(this.j, { start: this.f.debut, end: this.f.fin });
+    return { ...t, bandes: bandes(this.j, t), pause: bandePause(this.j, t) };
+  }
+  /** La notice de la frise : un client, sa couleur, son cumul. */
+  get legende() { return legende(this.j); }
+  /** Le cumul de transversal reçu par chaque client — en minutes, pas en pourcentage. */
+  get transversalCumul() { return transversalParClient(this.j); }
+  /** Tout ce qui s'est passé, dans l'ordre. */
+  get fil() { return fil(this.j); }
   get ajuste() { return this.f.source === "ajuste"; }
 
   /** Les heures normales, et ce qu'elles font une fois la pause déduite. */
@@ -86,7 +99,11 @@ export class BillingViewModel {
       { cle: "mesure", label: "mesuré", valeur: fmtMin(t.mesure), aide: "temps humain observé dans les traces, plages fusionnées" },
       { cle: "deja", label: "déjà noté", valeur: fmtMin(t.deja), aide: "saisies de temps déjà présentes dans Redmine ce jour-là" },
       { cle: "propose", label: "proposé", valeur: fmtMin(t.propose), aide: "ce que la validation ajouterait dans Redmine" },
-      { cle: "ia", label: "IA", valeur: `${t.tours} tours · ${fmtMin(t.ia)}`, aide: `${fmtTokens(t.tokens)} tokens` },
+      { cle: "ia", label: "IA", valeur: `${this.iaTotaux.tours} tours · ${fmtMin(this.iaTotaux.reel)}`,
+        aide: `${fmtTokens(t.tokens)} tokens`
+              + (this.iaTotaux.chevauchement > 0
+                 ? ` — ${fmtMin(this.iaTotaux.declare)} déclarées, ${fmtMin(this.iaTotaux.chevauchement)} de chevauchement retranchées (${this.iaTotaux.bornes} tours bornés au suivant)`
+                 : "") },
     ];
   }
 

@@ -166,7 +166,9 @@ export function totaux(jour) {
   const prop = somme(jour && jour.proposition, l => l.minutes);
   const deja = somme(jour && jour.deja_saisi, s => s.minutes);
   const regie = somme(jour && jour.regie, r => r.minutes);
-  const ia = somme(jour && jour.ia, k => k.minutes);
+  // Le temps IA de la journée est celui de l'HORLOGE : deux tours parallèles ne font
+  // pas deux fois le temps. On somme donc les durées bornées au tour suivant.
+  const ia = somme(jour && jour.ia, k => (k.minutes_reelles != null ? k.minutes_reelles : k.minutes));
   return {
     mesure: Math.round(Number(jour && jour.mesure_min) || 0),
     propose: Math.round(prop), deja: Math.round(deja), regie: Math.round(regie),
@@ -293,11 +295,15 @@ export function toursIA(jour) {
   for (const k of (jour && jour.ia) || []) {
     const cle = k.ticket ? `RM${k.ticket}` : [k.client, k.projet].filter(Boolean).join("/") || "—";
     const g = parTicket.get(cle) || { cle, rm: k.ticket || null, cible: [k.client, k.projet].filter(Boolean).join("/"),
-                                      tours: 0, minutes: 0, tokens: 0, modeles: new Set(),
+                                      tours: 0, minutes: 0, declare: 0, bornes: 0,
+                                      tokens: 0, modeles: new Set(),
                                       premier: k.heure, dernier: k.heure };
     g.tours += 1;
-    g.minutes += Number(k.minutes) || 0;
+    // Durée BORNÉE : additionner des tours parallèles compterait deux fois la même minute.
+    g.minutes += Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0;
+    g.declare += Number(k.minutes) || 0;
     g.tokens += Number(k.tokens) || 0;
+    if (k.borne) g.bornes += 1;
     if (k.modele) g.modeles.add(k.modele);
     if (k.heure < g.premier) g.premier = k.heure;
     if (k.heure > g.dernier) g.dernier = k.heure;
@@ -356,4 +362,129 @@ export function pause(jour) {
 export function nonFacturable(jour) {
   const lignes = ((jour && jour.proposition) || []).filter(l => l.facturable === false);
   return { count: lignes.length, minutes: Math.round(lignes.reduce((n, l) => n + (Number(l.minutes) || 0), 0)) };
+}
+
+// ── Couleurs par client, bandes de la frise, fil unique des actions (RM3229) ──
+
+/**
+ * Une teinte stable par client, dérivée de son nom.
+ *
+ * Pas de palette fixe : les clients vont et viennent, et une table à maintenir
+ * finirait par attribuer deux fois la même couleur sans qu'on le voie. Le nom donne
+ * la teinte ; la même partout, d'une journée à l'autre et d'un écran à l'autre.
+ */
+export function couleurClient(nom) {
+  const s = String(nom || "");
+  if (!s || s === "null") return "var(--muted)";
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return `hsl(${h} 62% 56%)`;
+}
+
+/** « null » / vide → ce que l'écran doit lire : du temps qu'on n'a pas su rattacher. */
+export function nomClient(c) {
+  return (!c || c === "null") ? "non attribué" : String(c);
+}
+
+/**
+ * Les bandes colorées de la frise, positionnées et légendées.
+ *
+ * Chaque bande porte sa répartition complète : la couleur ne montre que le client
+ * dominant, le survol dit le détail — sans quoi une bande « pisceen » cacherait
+ * les 4 minutes de calicote qu'elle contient.
+ */
+export function bandes(jour, { from, span }) {
+  return ((jour && jour.bandes) || []).map(b => {
+    const x0 = minOf(b.debut), x1 = minOf(b.fin);
+    const detail = Object.entries(b.parts || {})
+      .map(([c, m]) => `${nomClient(c)} ${fmtMin(m)}`).join(" · ");
+    return {
+      debut: b.debut, fin: b.fin, client: nomClient(b.client),
+      couleur: couleurClient(b.client), minutes: b.minutes,
+      left: Math.max(0, ((x0 - from) / span) * 100),
+      width: Math.max(0.4, ((x1 - x0) / span) * 100),
+      titre: `${b.debut}–${b.fin} · ${fmtMin(b.minutes)}\n${detail}`,
+    };
+  }).filter(b => !isNaN(b.left));
+}
+
+/** La légende : un client, sa couleur, son cumul de la journée. */
+export function legende(jour) {
+  const cumul = new Map();
+  for (const b of (jour && jour.bandes) || []) {
+    for (const [c, m] of Object.entries(b.parts || {})) {
+      cumul.set(c, (cumul.get(c) || 0) + (Number(m) || 0));
+    }
+  }
+  return [...cumul.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, m]) => ({ client: nomClient(c), couleur: couleurClient(c),
+                        minutes: Math.round(m), duree: fmtMin(m) }));
+}
+
+/** La bande neutre de la pause : déclarée si elle l'est, sinon le trou mesuré. */
+export function bandePause(jour, { from, span }) {
+  const p = pause(jour);
+  const t = p.trou;
+  if (!t) return null;
+  const x0 = minOf(t.debut), x1 = minOf(t.fin);
+  if (isNaN(x0) || isNaN(x1)) return null;
+  return {
+    debut: t.debut, fin: t.fin, minutes: t.minutes,
+    left: Math.max(0, ((x0 - from) / span) * 100),
+    width: Math.max(0.4, ((x1 - x0) / span) * 100),
+    declaree: !!p.declaree,
+    titre: `pause ${t.debut}–${t.fin} (${fmtMin(t.minutes)})`
+           + (p.declaree ? ` · déclarée ${fmtMin(p.declaree * 60)}` : " · vue dans les traces"),
+  };
+}
+
+/** Le cumul de temps transversal reçu par chaque client ce jour-là. */
+export function transversalParClient(jour) {
+  const t = (jour && jour.transversal_par_client) || {};
+  return Object.entries(t)
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, m]) => ({ client: nomClient(c), couleur: couleurClient(c),
+                        minutes: m, duree: fmtMin(m) }));
+}
+
+/**
+ * TOUT ce qui s'est passé dans la journée, en un seul fil chronologique.
+ *
+ * Trois listes séparées obligeaient à faire la couture dans sa tête pour savoir ce qui
+ * précède quoi. Ici, une trace, un commit et un tour d'agent se lisent dans l'ordre
+ * où ils sont arrivés — c'est comme ça qu'on reconstitue une journée.
+ */
+export function fil(jour) {
+  const out = [];
+  for (const t of traces(jour)) {
+    out.push({ heure: t.heure, genre: "trace", source: t.source, humain: t.humain,
+               cible: t.cible, rm: t.rm, texte: t.extrait });
+  }
+  for (const c of commits(jour).travail) {
+    out.push({ heure: c.heure, genre: "commit", source: c.depot, humain: true,
+               cible: c.client || "", rm: null, texte: c.sujet, sha: c.sha });
+  }
+  for (const c of commits(jour).plomberie) {
+    out.push({ heure: c.heure, genre: "plomberie", source: c.depot, humain: false,
+               cible: c.client || "", rm: null, texte: c.sujet, sha: c.sha });
+  }
+  for (const k of (jour && jour.ia) || []) {
+    const reel = Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0;
+    out.push({ heure: k.heure, genre: "ia", source: k.modele || "agent", humain: false,
+               cible: [k.client, k.projet].filter(Boolean).join("/"), rm: k.ticket,
+               texte: `${fmtMin(reel)}${k.borne ? " (borné au tour suivant)" : ""}`
+                      + ` · ${fmtTokens(k.tokens)} tokens`, borne: !!k.borne });
+  }
+  return out.sort((a, b) => (a.heure < b.heure ? -1 : a.heure > b.heure ? 1 : 0));
+}
+
+/** Le temps IA de la journée : déclaré et borné, pour que l'écart se voie. */
+export function totauxIA(jour) {
+  const ia = (jour && jour.ia) || [];
+  const declare = ia.reduce((n, k) => n + (Number(k.minutes) || 0), 0);
+  const reel = ia.reduce((n, k) => n + (Number(k.minutes_reelles != null ? k.minutes_reelles : k.minutes) || 0), 0);
+  return { tours: ia.length, declare: Math.round(declare), reel: Math.round(reel),
+           bornes: ia.filter(k => k.borne).length,
+           chevauchement: Math.round(declare - reel) };
 }

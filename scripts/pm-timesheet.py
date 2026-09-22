@@ -345,7 +345,7 @@ def calculer(args, cfg, conf):
     events = [e for e, _rm in items]
 
     regles = W.regles_depuis_config(conf, cfg)
-    alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
+    alloc, periodes, totaux, par_heure, par_heure_cible, segments = W.allocate(
         W.build_intervals(events, params), params)
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
@@ -377,7 +377,8 @@ def calculer(args, cfg, conf):
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
-    return {"resolver": resolver, "items": items, "ajouts": ajouts, "transferts": transferts,
+    return {"resolver": resolver, "items": items, "segments": segments,
+            "ajouts": ajouts, "transferts": transferts,
             "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
             "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
@@ -909,6 +910,19 @@ def traces_du_jour(res, jour):
     return sorted(sortie, key=lambda t: t["heure"])
 
 
+def _cumul_transversal(res, jour):
+    """Combien de temps transversal chaque client a reçu ce jour-là.
+
+    La clé de répartition dit des pourcentages ; ce cumul dit des minutes. C'est
+    lui qu'on relit pour juger si la refacturation est juste.
+    """
+    cumul = collections.Counter()
+    for (j, cible), minutes in (res.get("refacture") or {}).items():
+        if j == jour:
+            cumul[cible[0]] += minutes
+    return cumul
+
+
 def _ou(saisie, table, slugs=None):
     """Où une saisie a été notée : client PM si on le connaît, et le projet.
 
@@ -950,10 +964,21 @@ def vue_json(res, prop, commits=True):
                             **_ou(s, table_clients, slugs)} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
+            "bandes": [{"debut": b["debut"].strftime("%H:%M"),
+                        "fin": b["fin"].strftime("%H:%M"),
+                        "client": b["client"], "minutes": round(b["minutes"]),
+                        "parts": {c: round(m) for c, m in sorted(
+                            b["parts"].items(), key=lambda kv: -kv[1]) if round(m)}}
+                       for b in W.bandes_par_client((res.get("segments") or {}).get(j, []))],
+            "transversal_par_client": {
+                c: round(v) for c, v in sorted(
+                    _cumul_transversal(res, j).items(), key=lambda kv: -kv[1]) if round(v)},
             "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
                     "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
-                    "minutes": k["minutes"]}
-                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
+                    "minutes": k["minutes"], "minutes_reelles": k["minutes_reelles"],
+                    "borne": k["borne"]}
+                   for k in W.ticks_sans_chevauchement(
+                       res.get("resolver").ticks(j) if res.get("resolver") else [])],
             "traces": traces_du_jour(res, j),
             "commits": (W.commits_du_jour(j, auteur=(res.get("params") or {}).get("git_author")
                                           or "Mathieu Moulin") if commits else []),

@@ -54,7 +54,7 @@ params = {"follow_cap": 10, "write_base": 1, "chars_per_min": 45,
 # même instant ET même horizon (un 3e prompt plus tard) → intervalles identiques
 simultanes = [ev(0, cible=("a", "p1", None)), ev(0, cible=("b", "p2", None)),
               ev(30, cible=("a", "p1", None))]
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(simultanes, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(simultanes, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values())),
         "somme des lignes attribuées = mesure de l'union")
 ivs = W.build_intervals(simultanes, params)
@@ -69,26 +69,26 @@ verifie(part_b > 0 and part_a > part_b,
 
 # série réaliste : 20 prompts entremêlés sur 3 projets
 serie = [ev(i * 3, chars=60 + 10 * i, cible=(f"c{i%3}", "p", None)) for i in range(20)]
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(serie, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(serie, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values()), 1e-6),
         "invariant tenu sur une série entremêlée")
 
 # ── 2. Plafond de suivi ──────────────────────────────────────────────────────
 print("\n2. Plafond de suivi (l'agent travaille seul, l'humain revient plus tard)")
 loin = [ev(0), ev(120)]      # deux heures d'écart
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(loin, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(loin, params), params)
 verifie(sum(totaux.values()) < 40,
         f"les 2 h d'absence ne sont pas comptées ({sum(totaux.values()):.0f} min)")
 serre = [ev(0), ev(5)]
-_a, _p, t2, _ph2, _phc2 = W.allocate(W.build_intervals(serre, params), params)
+_a, _p, t2, _ph2, _phc2, _sg = W.allocate(W.build_intervals(serre, params), params)
 verifie(sum(t2.values()) < sum(totaux.values()) or True, "cas resserré calculé")
 
 # ── 3. Les traces d'agent n'étendent pas le temps ────────────────────────────
 print("\n3. Traces d'agent : elles attribuent, elles ne créent pas")
 humain = [ev(0, cible=("a", "p", "111"))]
 avec_agent = humain + [ev(60, cible=("a", "p", "222"), extends=False)]
-_a1, _p1, t_h, _p3, _p3c = W.allocate(W.build_intervals(humain, params), params)
-_a2, _p2, t_a, _p4, _p4c = W.allocate(W.build_intervals(avec_agent, params), params)
+_a1, _p1, t_h, _p3, _p3c, _sg = W.allocate(W.build_intervals(humain, params), params)
+_a2, _p2, t_a, _p4, _p4c, _sg = W.allocate(W.build_intervals(avec_agent, params), params)
 verifie(presque(sum(t_h.values()), sum(t_a.values()), 0.01),
         "une trace d'agent isolée n'ajoute aucune minute")
 
@@ -258,6 +258,46 @@ aj_vide, _t = W.appliquer_presences({}, pres, d0, d1, ph)
 verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément jusqu'à 8 h")
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
+
+# ── Chevauchement des tours d'agent (RM3229, arbitrage Mathieu 2026-09-22) ──
+# « une durée s'arrête au pire lorsqu'une nouvelle commence » : additionner des tours
+# parallèles compte deux fois la même minute d'horloge.
+_t = W.ticks_sans_chevauchement([
+    {"heure": "09:00", "minutes": 10.0},     # se termine à 09:10, rien après avant 09:20
+    {"heure": "09:20", "minutes": 30.0},     # déborde sur 09:30 → borné à 10 min
+    {"heure": "09:30", "minutes": 5.0},
+])
+verifie([round(x["minutes_reelles"]) for x in _t] == [10, 10, 5],
+        "un tour est borné au début du suivant")
+verifie([x["borne"] for x in _t] == [False, True, False],
+        "…et le bornage est signalé, pas silencieux")
+verifie(sum(x["minutes"] for x in _t) == 45 and sum(x["minutes_reelles"] for x in _t) == 25,
+        "les deux nombres coexistent : produit déclaré vs temps écoulé")
+verifie(W.ticks_sans_chevauchement([]) == [], "aucun tour : aucune erreur")
+_solo = W.ticks_sans_chevauchement([{"heure": "14:00", "minutes": 90.0}])
+verifie(_solo[0]["minutes_reelles"] == 90.0 and not _solo[0]["borne"],
+        "le dernier tour de la journée n'est borné par rien")
+_desordre = W.ticks_sans_chevauchement([{"heure": "10:00", "minutes": 60.0},
+                                        {"heure": "09:00", "minutes": 30.0}])
+verifie(_desordre[0]["heure"] == "09:00", "les tours sont remis dans l'ordre avant bornage")
+
+# ── Bandes colorées de la frise ─────────────────────────────────────────────
+_d = lambda h, m: datetime(2026, 9, 18, h, m)          # noqa: E731
+_bandes = W.bandes_par_client([
+    (_d(9, 0), _d(9, 10), {"pisceen": 10}),
+    (_d(9, 10), _d(9, 20), {"pisceen": 10}),           # même client, contigu → fusionné
+    (_d(9, 20), _d(9, 40), {"calicote": 20}),
+    (_d(10, 0), _d(10, 30), {"matnat": 20, "pisceen": 10}),
+])
+verifie(len(_bandes) == 3, "les tranches contiguës d'un même client fusionnent")
+verifie(_bandes[0]["minutes"] == 20 and _bandes[0]["client"] == "pisceen",
+        "…en cumulant leur durée")
+verifie(_bandes[2]["client"] == "matnat" and _bandes[2]["parts"]["pisceen"] == 10,
+        "la bande garde TOUTE sa répartition, pas seulement le dominant")
+verifie(W.bandes_par_client([]) == [], "journée sans tranche : aucune bande")
+_miette = W.bandes_par_client([(_d(9, 0), _d(9, 30), {"pisceen": 30}),
+                               (_d(9, 30), _d(9, 31), {"calicote": 1})])
+verifie(len(_miette) == 1, "une miette d'une minute est absorbée, pas dessinée")
 
 # ── Facturable et pause de midi (RM3229, 2026-09-22) ────────────────────────
 # « ce sont les type self (c'est moi) » : la liste des entités non facturées n'est pas

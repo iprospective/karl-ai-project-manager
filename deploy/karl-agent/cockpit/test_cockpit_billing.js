@@ -130,7 +130,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   // — totaux et état —
   const t = M.totaux(JOUR);
   assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 105, 105, 90, 210]);
-  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain, et BORNÉ (18 min déclarées sur des tours parallèles = 10 min d'horloge)");
+  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 18, 2400000], "le temps IA est compté à part du temps humain, et DÉCLARÉ — jamais raboté du recouvrement entre tours parallèles");
   assert.strictEqual(M.etat(JOUR), "a_valider");
   assert.strictEqual(M.etat(Object.assign(clone(JOUR), { valide: true })), "validee");
   assert.strictEqual(M.etat({ proposition: [], deja_saisi: [{ minutes: 60 }], mesure_min: 0 }), "manuelle");
@@ -169,8 +169,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   const groupes = M.toursIA(JOUR);
   assert.strictEqual(groupes.length, 2, "les tours d'agent se groupent par cible");
   assert.deepStrictEqual([groupes[0].cle, groupes[0].tours, groupes[0].minutes, groupes[0].tokens],
-                         ["RM3217", 2, 8, 2000000], "…en cumulant tours, minutes et tokens");
-  assert.strictEqual(groupes[0].premier, "08:55", "…et en gardant la plage horaire");
+                         ["RM3199", 1, 10, 400000], "…en cumulant tours, minutes déclarées et tokens");
+  assert.strictEqual(groupes[1].premier, "08:55", "…et en gardant la plage horaire");
 
   const cp = M.clientsEtProjets([{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }]);
   assert.deepStrictEqual(cp.clients, ["calicote", "pisceen"], "les clients, triés");
@@ -227,12 +227,15 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   const heures = fl.map(x => x.heure);
   assert.deepStrictEqual(heures, [...heures].sort(), "trié par heure, tous genres confondus");
   assert.deepStrictEqual([...new Set(fl.map(x => x.genre))].sort(), ["commit", "ia", "plomberie", "trace"]);
-  assert(/borné au tour suivant/.test(fl.find(x => x.genre === "ia" && x.borne).texte));
+  assert(/en parallèle du tour suivant/.test(fl.find(x => x.genre === "ia" && x.chevauche).texte),
+         "un tour parallèle est SIGNALÉ, pas raboté");
 
   // — le chevauchement des temps IA —
+  // Le bornage a été essayé puis RETIRÉ (2026-09-22) : deux agents en parallèle produisent
+  // bien deux fois du travail, même si l'horloge n'avance qu'une fois. On signale, on ne rabote pas.
   const ti = M.totauxIA(JOUR);
-  assert.deepStrictEqual([ti.tours, ti.declare, ti.reel, ti.bornes, ti.chevauchement], [3, 18, 10, 1, 8],
-                         "déclaré et borné sont donnés tous les deux : ils ne répondent pas à la même question");
+  assert.deepStrictEqual([ti.tours, ti.minutes, ti.paralleles, ti.horloge], [3, 18, 1, 10],
+                         "le chiffre est le DÉCLARÉ ; l'horloge n'est qu'une information");
   console.log("✓ couleurs par client, notice, bande de pause, cumul transversal, fil unique, temps IA borné");
 
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
@@ -288,7 +291,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.titre, "vendredi 18 septembre 2026");
   assert.strictEqual(vm.prev, "2026-09-17"); assert.strictEqual(vm.next, "2026-09-19");
   assert.strictEqual(vm.etatLabel, "à valider");
-  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 45", "3 tours · 10 min"]);
+  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 45", "3 tours · 18 min"]);
   assert.deepStrictEqual([vm.auto.count, vm.auto.minutes], [1, 45], "l'écran sait ce que l'outil a posé ici");
   assert.strictEqual(vm.manuelles, 1, "…et combien de saisies sont à la main, donc protégées");
   assert.strictEqual(vm.reprenable, true);
@@ -321,8 +324,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.traces.length, 3);
   assert.strictEqual(vm.tracesHumaines, 2);
   assert.strictEqual(vm.commits.travail.length, 2);
-  assert.strictEqual(vm.ia[0].duree, "8 min");
-  assert.strictEqual(vm.ia[0].plage, "08:55");
+  assert.strictEqual(vm.ia[0].duree, "10 min", "la durée déclarée du tour, telle quelle");
+  assert.strictEqual(vm.ia[1].plage, "08:55");
   assert.strictEqual(vm.nonFacturable.label, "15 min", "l'écran chiffre ce qui ne sera facturé à personne");
   assert.strictEqual(vm.groupes.find(g => g.client === "iprospective").facturable, false);
   assert.strictEqual(vm.groupes.find(g => g.client === "pisceen").facturable, true);
@@ -356,7 +359,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/bl-leg-i/.test(frag) && /background:hsl\(/.test(frag), "la notice donne une couleur par client");
   assert(/bl-pause-band/.test(frag), "la pause a sa propre bande, neutre");
   assert(/bl-tc-i/.test(frag), "le transversal montre son cumul par client");
-  assert(/borné au tour suivant/.test(frag), "un tour d'agent borné le dit");
+  assert(/en parallèle du tour suivant/.test(frag), "un tour d'agent parallèle le signale");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");

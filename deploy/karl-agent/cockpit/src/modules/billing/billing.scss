@@ -96,3 +96,7 @@
 .bl-sub2 { margin-top: 4px; }
 .bl-sub2 > summary { color: var(--muted); cursor: pointer; padding-left: 6px; }
 .bl-cl { flex: 0 0 8em; color: var(--accent); }   // colonne client du déjà-noté
+.bl-pz { color: var(--muted); font-size: 11px; }
+.bl-manque { color: var(--warn); border-color: var(--warn); }
+.bl-nf { color: var(--muted) !important; }
+.bl-nf-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px; margin-left: 6px; }

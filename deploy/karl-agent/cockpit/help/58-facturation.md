@@ -32,6 +32,36 @@ Le **client principal** sert les journées passées chez un client : il dit à q
 le temps de la journée quand les traces ne le disent pas seules. Le **lieu**
 (présentiel / distanciel) se note à la journée — il conditionne le déplacement.
 
+### La pause de midi
+
+Sous les horaires, l'écran dit ce qu'il en sait : *« pause visible dans les traces :
+12:36–13:32 »*, ou *« aucune pause visible ce jour-là »* — en orange dans ce cas.
+
+Elle ne se devine jamais : une journée sans trou à midi peut être une journée sans pause
+(sandwich devant l'écran) comme une pause que rien n'a tracée. **+ pause midi** la note en
+un clic, à la durée configurée. Rien n'est écrit dans Redmine à ce moment-là : la pause
+entre dans la proposition, qui reste à valider.
+
+Sa destination se règle une fois pour toutes dans `~/.config/mmi-pm/timesheet.yml` :
+
+```yaml
+pause:
+  client: iprospective
+  project_id: 19          # projet Redmine (id numérique)
+  activity_id: 27         # activité « Pause »
+  commentaire: "repas midi"
+  heures: 1.0             # durée proposée en un clic
+  plage: ["11:30", "14:30"]
+  trou_min: 30            # en deçà, la pause « n'apparaît pas »
+```
+
+### Ce qui ne se facture à personne
+
+Un groupe porte la mention **non facturé** quand son entité est de type `self` — dans ton
+cas `iprospective` et `lemathou`. Cette liste **ne se déclare pas** ici : elle est déjà
+dans les manifestes PM, et la redéclarer serait la voir diverger un jour. Ce temps est
+noté dans Redmine comme le reste ; il n'entre simplement dans aucune facture.
+
 ### Où ces informations sont enregistrées
 
 Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :

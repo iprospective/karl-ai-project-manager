@@ -930,6 +930,18 @@ class Regles:
     def est_client(self, entity):
         return self.types.get(entity) == "client"
 
+    def est_soi(self, entity):
+        """Entité de type `self` : Mathieu lui-même (iprospective, lemathou).
+
+        La liste ne se déclare pas en conf — elle est DÉJÀ dans les manifestes PM
+        (`type: self`). La redéclarer, c'est la voir diverger un jour.
+        """
+        return self.types.get(entity) == "self"
+
+    def facturable(self, entity):
+        """Seul le temps d'un CLIENT se facture. Le sien et les produits, non."""
+        return self.est_client(entity)
+
     def dans_le_pot(self, entity):
         """Transversal refacturable : ni client, ni perso (PM, infra, produits)."""
         return entity not in self.perso and not self.est_client(entity)
@@ -1500,8 +1512,13 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
     return "\n".join(L)
 
 
+def _facturable(regles, entity):
+    """Facturable = entité de type `client`. Sans règles connues, on ne préjuge pas."""
+    return regles.facturable(entity) if regles else None
+
+
 def proposition(final, journal, quantum=None, meta=None, resolver=None,
-                activite_defaut=None, refacture=None):
+                activite_defaut=None, refacture=None, regles=None):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
 
     Elle est relue telle quelle par `--apply` : ce que l'humain a corrigé est ce
@@ -1536,6 +1553,7 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                             "jour": j, "client": ent, "projet": proj, "ticket": None,
                             "minutes": part, "activite": act,
                             "outillage_min": None, "valide": True,
+                            "facturable": _facturable(regles, ent),
                         })
                     if reste <= 0:
                         continue
@@ -1551,6 +1569,7 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                 # commentaire de la saisie, pour que le client sache ce qu'il paie.
                 "outillage_min": int(round(refacture.get((j, cible), 0))) or None,
                 "valide": True,
+                "facturable": _facturable(regles, ent),
             })
     return {"meta": meta or {}, "quantum_min": quantum,
             "journees": {j: {"destin": d.get("destin"), "absence": d.get("absence"),
@@ -1653,6 +1672,58 @@ def cache_ecrire(jour, items, racine=None):
     tmp.write_text("".join(json.dumps(event_vers_dict(e, rm), ensure_ascii=False) + "\n"
                            for e, rm in items), encoding="utf-8")
     tmp.replace(dossier / f"{jour}.jsonl")
+
+
+# ── La pause de midi (RM3229) ────────────────────────────────────────────────
+
+#: Elle ne se DEVINE pas : une journée sans trou à midi peut être une journée sans
+#: pause (sandwich devant l'écran) comme une pause que rien n'a tracée. On la propose
+#: quand aucun trou n'apparaît, et c'est l'humain qui tranche.
+PAUSE_DEFAUT = {"client": None, "projet": None, "project_id": None,
+                "activity_id": 27, "commentaire": "repas midi",
+                "heures": 1.0, "plage": ["11:30", "14:30"], "trou_min": 30}
+
+
+def conf_pause(conf):
+    """Où et comment se note la pause de midi. Fusionne les réglages sur les défauts."""
+    return {**PAUSE_DEFAUT, **(dict((conf or {}).get("pause") or {}))}
+
+
+def trou_de_midi(periodes, plage=None, minimum=None):
+    """Le plus grand trou entre deux plages de travail dans le créneau du midi.
+
+    Rend `(debut, fin, minutes)` s'il en existe un d'au moins `minimum`, sinon None.
+    C'est ce qui permet de dire « la pause n'apparaît pas » sans le deviner.
+    """
+    cfg = {**PAUSE_DEFAUT}
+    debut_p, fin_p = (plage or cfg["plage"])
+    minimum = minimum if minimum is not None else cfg["trou_min"]
+
+    def m(hhmm):
+        h, mi = str(hhmm).split(":")
+        return int(h) * 60 + int(mi)
+
+    lo, hi = m(debut_p), m(fin_p)
+    bornes = sorted(((m(a), m(b)) for a, b in periodes or []))
+    meilleur = None
+    curseur = lo
+    for a, b in bornes:
+        if b <= lo or a >= hi:
+            continue
+        if a > curseur:
+            duree = min(a, hi) - curseur
+            if duree >= minimum and (not meilleur or duree > meilleur[2]):
+                meilleur = (curseur, min(a, hi), duree)
+        curseur = max(curseur, b)
+    if curseur < hi and (hi - curseur) >= minimum:
+        duree = hi - curseur
+        if not meilleur or duree > meilleur[2]:
+            meilleur = (curseur, hi, duree)
+    if not meilleur:
+        return None
+    a, b, duree = meilleur
+    fmt = lambda n: f"{n // 60:02d}:{n % 60:02d}"      # noqa: E731
+    return {"debut": fmt(a), "fin": fmt(b), "minutes": duree}
 
 
 # ── Commits de la journée (RM3229 / L3b) ─────────────────────────────────────

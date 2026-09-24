@@ -4,6 +4,10 @@ import { EntityViewModel } from "../../core/EntityViewModel.js";
 
 // RM3099 : `domaine` est le domaine d'USAGE — il groupe le chapitre ; `domaine_technique` reste
 // visible en ÉTIQUETTE (quelle partie du système est touchée), jamais comme second classement.
+//: RM3306 — le mot-clé qui isole les fonctionnalités qu'aucun ticket ne porte, et les états qui
+//: rendent l'absence de ticket légitime (une trace, pas un oubli). Mêmes mots que le CLI.
+export const SANS_TICKET = "sans-ticket";
+const SOLDES = ["livré", "écarté"];
 export const COLS = [["id", "#"], ["libelle", "Fonctionnalité"], ["domaine", "Domaine"], ["tickets", "Ticket(s)"], ["domaine_technique", "Technique"], ["type", "Type"], ["version", "Version"], ["etat", "État"], ["date", "Date"]];
 /** La version d'une entrée : `version` (V0, V1…, RM3015-D018) ou l'ancien `jalon` entier (AtomBox) rendu `V<n>` ; "" sinon. */
 export const versionOf = (e) => e.version ? String(e.version) : (e.jalon === null || e.jalon === undefined ? "" : "V" + e.jalon);
@@ -70,11 +74,28 @@ export class FeaturesViewModel extends EntityViewModel {
   rows() {
     const q = String(this.e.q || "").trim().toLowerCase(); const s = this.e.sort || "id", desc = !!this.e.desc;
     const val = f => { if (s === "version") { const vv = versionOf(f); return vv ? "0" + vv : "1"; } /* sans version en dernier (ICU trie la ponctuation avant les lettres) */ if (s === "etat") return ORDRE_ETAT[etatKey(f.etat)] ?? 8; if (s === "tickets") return f.tickets[0] || 0; return String(f[s] || ""); };
+    // RM3306 : « sans-ticket » est un mot-clé de filtre, pas un texte à chercher — une
+    // fonctionnalité qu'aucun ticket ne porte n'apparaît dans AUCUNE liste de travail, et c'est
+    // précisément celle qu'on veut pouvoir isoler (RM3266-D004).
+    if (q === SANS_TICKET) {
+      const nues = this.all.filter(f => !f.tickets.length);
+      return this._ordonne(nues, s, desc, val);
+    }
     const rows = this.all.filter(f => !q || [f.id, f.libelle, f.domaine, f.domaine_technique, f.etat, f.type, ...f.tickets.map(t => "rm" + t)].join(" ").toLowerCase().includes(q));
+    return this._ordonne(rows, s, desc, val);
+  }
+  /** Le tri commun, quel que soit le filtre (RM3306 : le mot-clé « sans-ticket » en a besoin aussi). */
+  _ordonne(rows, s, desc, val) {
     rows.sort((a, b) => { const x = val(a), y = val(b); const c = typeof x === "number" ? x - y : x.localeCompare(y); return (desc ? -c : c) || (a.id < b.id ? -1 : 1); });
     return rows.map(f => ({ id: f.id, libelle: f.libelle || "", domaine: f.domaine || "", tickets: f.tickets, tech: f.domaine_technique || "", type: f.type || "", version: versionOf(f), etat: f.etat || "", cls: etatClass(f.etat), date: f.date || "", manuel: !!f.manuel, parent: f.parent || null }));
   }
   get count() { return this.rows().length + " / " + this.all.length; }
+  /** RM3306 : combien ne citent aucun ticket, et combien d'entre elles restent à faire. */
+  get sansTicket() {
+    const nues = this.all.filter(f => !f.tickets.length);
+    const aFaire = nues.filter(f => !SOLDES.some(e => String(f.etat || "").startsWith(e)));
+    return { n: nues.length, aFaire: aFaire.length, on: String(this.e.q || "").trim().toLowerCase() === SANS_TICKET };
+  }
   /** RM3064 : les états qu'une ligne peut recevoir depuis le panneau (l'entrée est alors figée). */
   get featureStates() { return FEATURE_STATES; }
   /** RM3060 : les versions offertes au rattachement — celles déclarées, plus celles déjà portées par une

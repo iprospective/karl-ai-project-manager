@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Suivre les fonctionnalités qu'aucun ticket ne porte** (RM3306) : `pm-cdc-features --sans-ticket`
+  les liste, en séparant les soldées (livrées ou écartées — ce sont des traces) de celles qui restent
+  à faire, à qui il manque un ticket. Le chapitre généré porte la synthèse, et le cockpit a une
+  pastille « sans ticket n · m à faire » qui filtre la table. Rien ne devient bloquant : une
+  fonctionnalité sans ticket reste légitime (RM3099-D001) — elle était juste invisible, alors que
+  « on la ticketera plus tard » (RM3266-D004) suppose que quelqu'un la revoie.
 - **Critères d'acceptation : la section se replie dans le champ** (RM3285, suite de RM3241). La purge
   avait laissé 87 tickets intacts, faute de pouvoir décider : prose dans la section, sous-titres
   d'étapes, critères écrits en puces sans cases. Le CF 33 étant un champ **texte**, tout cela peut y

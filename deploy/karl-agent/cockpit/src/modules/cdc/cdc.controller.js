@@ -4,7 +4,7 @@
 import { html } from "../../core/html.js";
 import { mount } from "../../core/dom.js";
 import { CdcService } from "./cdc.service.js";
-import { CdcHeaderViewModel, FeaturesViewModel, ChaptersViewModel } from "./CdcViewModel.js";
+import { CdcHeaderViewModel, FeaturesViewModel, ChaptersViewModel, SANS_TICKET } from "./CdcViewModel.js";
 import { FeaturesPage, ChaptersPage } from "./Cdc.view.js";
 
 export function mountCdc(el, ctx = {}) {
@@ -56,6 +56,8 @@ export function mountCdc(el, ctx = {}) {
     if (a === "page") { if (isPage(el.dataset.page)) { setPage(el.dataset.page); state.sec = null; render(); } }
     else if (a === "select") { svc.select(el.dataset.key); state.chapter = null; render(); }
     else if (a === "sort") { const k = el.dataset.key; if (state.sort === k) state.desc = !state.desc; else { state.sort = k; state.desc = false; } try { if (ctx.storage) ctx.storage.setItem("karlCdcSort", state.sort + ":" + (state.desc ? 1 : 0)); } catch (e) { /* */ } renderFeatures(); }
+    // RM3306 : bascule du filtre « sans ticket » — l'isoler, puis revenir à tout d'un second clic.
+    else if (a === "sans-ticket") { state.q = state.q === SANS_TICKET ? "" : SANS_TICKET; renderFeatures(); }
     else if (a === "chapter") { setPage("chap:" + el.dataset.path); state.sec = null; renderChapters(); }
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
     else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }

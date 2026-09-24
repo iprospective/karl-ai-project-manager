@@ -428,6 +428,35 @@ def compose(reg, chap: Path) -> str:
     return build(reg) + ("\n## Détail par ticket (depuis les `.think.md`)\n\n" + block + "\n" if block else "")
 
 
+#: une fonctionnalité de cet état ne doit plus rien à personne : sans ticket, c'est une TRACE,
+#: pas un oubli. Les autres, sans ticket, sont du travail que rien ne porte.
+ETATS_SOLDES = ("livré", "écarté")
+
+
+def sans_ticket(ents) -> dict:
+    """RM3306 — {soldees, a_faire} : les fonctionnalités qui ne citent AUCUN ticket, séparées selon
+    qu'elles soient soldées ou non. Pure, testée.
+
+    Une fonctionnalité sans ticket est légitime (RM3099-D001 : « les fonctionnalités n'ont pas
+    besoin d'un ticket pour exister »). Mais Mathieu a précisé la règle (RM3266-D004) : une
+    fonctionnalité appelle un ticket, pas forcément tout de suite — et sans ce compteur, « pas tout
+    de suite » devient « jamais », car une fonctionnalité non ticketée n'apparaît dans AUCUNE liste
+    de travail. Livrée ou écartée, elle est une trace ; sinon, il lui manque un ticket."""
+    nues = [e for e in ents if not tickets_de(e)]
+    solde = lambda e: str(e.get("etat") or "").startswith(ETATS_SOLDES)
+    return {"soldees": [e for e in nues if solde(e)], "a_faire": [e for e in nues if not solde(e)]}
+
+
+def ligne_sans_ticket(ents) -> str:
+    """La synthèse d'une ligne, pour le chapitre et la sortie du CLI. Vide s'il n'y en a aucune."""
+    s = sans_ticket(ents)
+    n, m = len(s["soldees"]) + len(s["a_faire"]), len(s["a_faire"])
+    if not n:
+        return ""
+    return (f"{n} fonctionnalité(s) ne citent aucun ticket"
+            + (f", dont **{m} à faire** — il leur manque un ticket" if m else " — toutes soldées, ce sont des traces"))
+
+
 def etat_affiche(e):
     """« livré », ou « livré · 2 en cours » quand la fonctionnalité porte encore du travail ouvert."""
     etat = e.get("etat") or ""
@@ -455,6 +484,9 @@ def build(reg):
         if k in cnt:
             L.append(f"| {k} | {cnt[k]} |")
     L.append("")
+    note = ligne_sans_ticket(ents)      # RM3306 : ce que rien d'autre ne montre
+    if note:
+        L += [f"> {note} (`pm-cdc-features --sans-ticket`).", ""]
     for dom in ordre:
         rows = par_dom.get(dom)
         if not rows:
@@ -506,6 +538,8 @@ def main():
     ap.add_argument("--sync", action="store_true"); ap.add_argument("--build", action="store_true"); ap.add_argument("--check", action="store_true")
     ap.add_argument("--no-sync", action="store_true", help="avec --init : registre vide (à remplir à la main)")
     ap.add_argument("--absorb", metavar="YML", help="verse un autre registre dans celui-ci (RM3099)")
+    ap.add_argument("--sans-ticket", action="store_true",
+                    help="RM3306 : les fonctionnalités qui ne citent aucun ticket — soldées (traces) et à faire (il leur en manque un)")
     ap.add_argument("--assign-version", metavar="V", help="pose cette version sur les entrées qui n'en ont pas (filtre --etat)")
     ap.add_argument("--set-etat", nargs=2, metavar=("ID", "ETAT"), help="pose l'état d'une entrée (prévu · en cours · en pause · écarté · livré) et le fige (RM3064)")
     ap.add_argument("--etat", help="avec --assign-version : seulement les entrées de cet état (ex. livré)")
@@ -532,6 +566,18 @@ def main():
         sys.exit(f"aucun registre {reg_path} — `pm-cdc-features --init`")
     chap = docs / "cdc-features.md"
     road = docs / "cdc-roadmap.md"
+    if a.sans_ticket:
+        # RM3306 : lecture seule — on ne synchronise pas, on REGARDE. Sortie 0 dans tous les cas :
+        # une fonctionnalité sans ticket est légitime, ce n'est pas une garde (RM3099-D001).
+        s = sans_ticket(reg["entrees"])
+        for titre, lot in (("à faire — il leur manque un ticket", s["a_faire"]),
+                           ("soldées — sans ticket, ce sont des traces", s["soldees"])):
+            print(f"\n{len(lot)} {titre}" + (" :" if lot else ""))
+            for e in lot:
+                print(f"  {e['id']}  {str(e.get('etat') or ''):<9} {e.get('domaine') or ''} — {e['libelle']}")
+        note = ligne_sans_ticket(reg["entrees"])
+        print("\n" + (note.replace("**", "") if note else "aucune fonctionnalité sans ticket"))
+        return
     if a.check:
         avant = dump(reg)
         sync(reg, lire_tickets(tasks))

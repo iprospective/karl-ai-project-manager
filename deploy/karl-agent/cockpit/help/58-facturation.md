@@ -50,7 +50,7 @@ Elle ne se devine jamais : une journée sans trou à midi peut être une journé
 un clic, à la durée configurée. Rien n'est écrit dans Redmine à ce moment-là : la pause
 entre dans la proposition, qui reste à valider.
 
-Sa destination se règle une fois pour toutes dans `~/.config/mmi-pm/timesheet.yml` :
+Sa destination se règle une fois pour toutes dans ton `timesheet.yml` (`<core>/var/users/<toi>/`) :
 
 ```yaml
 pause:
@@ -91,9 +91,9 @@ Le même dossier porte le cache des traces, celui des commits et les sauvegardes
 `var/` est hors git : c'est de l'état, pas du versionné — il suit donc la sauvegarde du core,
 pas son historique. Porter ces champs dans Redmine reste une question ouverte : **RM3298**.
 
-Les **réglages** (tes clients, tes absences, tes horaires habituels) restent ailleurs, chez
-toi : `~/.config/mmi-pm/timesheet.yml`. Ce sont des préférences, pas de l'état, et elles
-n'ont rien à faire dans un dépôt partagé.
+Les **réglages** (tes clients, tes absences, tes horaires habituels) sont dans ton dossier de
+conf PM : `<core>/var/users/<toi>/timesheet.yml`. Hors git (ils n'ont rien à faire dans un
+dépôt partagé) et jamais dans ton home.
 
 **Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
 aussitôt. **↺ ajustement** revient à ce que les traces disent.

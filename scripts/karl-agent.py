@@ -11209,7 +11209,7 @@ def _envchk_vault_instances():
         return present
 
     # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
-    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # venir de `<core>/var/users/<user>/.env` (par dev) ou de l'environnement. C'est le cas
     # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
     present = _env_keys()
     env_absent = present is None
@@ -11232,7 +11232,7 @@ def _envchk_vault_instances():
         if env_absent:
             return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
                          "normal dans un worktree : les identifiants viennent alors de "
-                         "~/.config/mmi-pm/.env")]
+                         "var/users/<user>/.env")]
         needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
         missing = [v for v in needed if v not in present]
         if missing:
@@ -11260,7 +11260,7 @@ def _envchk_vault_instances():
         else:
             out.append(_chk(etiquette, "warn",
                             f"type={inst.type} · aucun identifiant trouvé",
-                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
+                            f"renseigner {prefix}… dans var/users/<user>/.env"))
     return out
 
 
@@ -12331,7 +12331,7 @@ _PM_SETTINGS_CONF = [
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
      "path": ["git", "worktree_source"],
      "help": "central : dépôt partagé <workspace>/repos/<repo>.git. per_user : le dépôt de chaque dev, "
-             "dans son dossier de dépôts (PM_REPOS_DIR de son ~/.config/mmi-pm/.env, défaut ~/repos)."},
+             "dans son dossier de dépôts (PM_REPOS_DIR de son var/users/<user>/.env, défaut ~/repos)."},
     {"key": "conf:git.envs_layout", "label": "Emplacement des envs", "group": "Worktrees",
      "type": "enum", "options": ["project", "user"], "default": "project", "admin": True,
      "path": ["git", "envs_layout"],

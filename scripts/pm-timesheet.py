@@ -731,7 +731,7 @@ def main():
     ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
     ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
     ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
-    ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/timesheet.yml)")
+    ap.add_argument("--config", help="réglages (défaut : <core>/var/users/<user>/timesheet.yml)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les saisies Redmine depuis la proposition validée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")

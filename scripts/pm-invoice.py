@@ -11,7 +11,7 @@ ERP) ou par tâche, applique le tarif de la dernière facture du client, et réd
 note publique au modèle habituel, mises en production du mois comprises.
 
 L'ERP est le provider de l'axe `erp` du registre (Dolibarr, `dolibarr-ipro`).
-Réglages : `~/.config/mmi-pm/invoice.yml` (modèle : `invoice.example.yml`).
+Réglages : `<core>/var/users/<user>/invoice.yml` (RM3318 ; modèle : `invoice.example.yml`).
 """
 import argparse
 import calendar
@@ -30,7 +30,8 @@ except ImportError:
 
 
 def charger_conf(chemin):
-    p = Path(chemin).expanduser() if chemin else Path.home() / ".config" / "mmi-pm" / "invoice.yml"
+    import pm_paths
+    p = Path(chemin).expanduser() if chemin else pm_paths.user_conf_file("invoice.yml")
     return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
 
 
@@ -141,7 +142,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--month", required=True, help="mois facturé (AAAA-MM)")
     ap.add_argument("--client", help="un seul client PM")
-    ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/invoice.yml)")
+    ap.add_argument("--config", help="réglages (défaut : <core>/var/users/<user>/invoice.yml)")
     ap.add_argument("--out", help="dossier de sortie (défaut : ~/.local/state/mmi-pm/invoice)")
     args = ap.parse_args()
 

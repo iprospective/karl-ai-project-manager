@@ -17,7 +17,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
-from pm_paths import _user_env, _instance_env, _load_env_file  # noqa: E402
+from pm_paths import _user_env, _legacy_user_env, _instance_env, _load_env_file  # noqa: E402
 
 
 def _clean(*keys):
@@ -79,19 +79,30 @@ def test_instance_locator_fallback(tmp):
 
 
 def test_user_still_primes(tmp):
-    """`_user_env` (RM2497) suit XDG_CONFIG_HOME et reste prioritaire."""
-    xdg = tmp / "xdg"
+    """`_user_env` : `<state>/users/<user>/.env` (RM3318) ; l'ancien `~/.config/mmi-pm/.env`
+    (RM2497, via XDG_CONFIG_HOME) n'est plus qu'un repli transitoire."""
+    import pwd
+    xdg, state = tmp / "xdg", tmp / "state"
     os.environ["XDG_CONFIG_HOME"] = str(xdg)
-    os.environ.pop("PM_USER_ENV", None)
+    os.environ["PM_STATE_DIR"] = str(state)
+    for k in ("PM_USER_ENV", "PM_USER_DIR", "PM_CORE_DIR"):
+        os.environ.pop(k, None)
     try:
         assert _user_env() is None
-        f = xdg / "mmi-pm" / ".env"
-        f.parent.mkdir(parents=True)
-        f.write_text("X=1\n")
-        assert _user_env() == f
+        old = xdg / "mmi-pm" / ".env"
+        old.parent.mkdir(parents=True)
+        old.write_text("X=1\n")
+        assert _user_env() == old, "repli transitoire sur l'ancien emplacement"
+        new = state / "users" / pwd.getpwuid(os.geteuid()).pw_name / ".env"
+        new.parent.mkdir(parents=True)
+        new.write_text("X=2\n")
+        assert _user_env() == new, "le nouvel emplacement prime"
+        assert _legacy_user_env(new) == old, "l'ancien reste chargé en complément"
+        os.environ["PM_USER_DIR"] = str(tmp / "ailleurs")
+        assert _user_env() is None, "PM_USER_DIR isole complètement"
     finally:
-        _clean("XDG_CONFIG_HOME", "X")
-    print("✓ _user_env (RM2497) intact : ~/.config/mmi-pm/.env")
+        _clean("XDG_CONFIG_HOME", "PM_STATE_DIR", "PM_USER_DIR", "X")
+    print("✓ _user_env (RM3318) : var/users/<user>/.env prime, ~/.config en repli transitoire")
 
 
 def test_priority_order(tmp):

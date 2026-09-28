@@ -1,6 +1,6 @@
 # timesheet.yml — configuration de la feuille de temps (RM2890).
 #
-# Copier en `~/.config/mmi-pm/timesheet.yml` et adapter : ce fichier décrit UNE personne
+# Copier en `<core>/var/users/<user>/timesheet.yml` et adapter : ce fichier décrit UNE personne
 # (ses postes, ses clients, ses absences). Il vit chez elle, pas dans le code partagé —
 # un `timesheet.yml` à la racine du core reste lu en dernier recours (historique).
 # Sans lui, la feuille de temps tourne avec les défauts et les sources de cette machine.

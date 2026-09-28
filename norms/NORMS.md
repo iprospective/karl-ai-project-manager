@@ -1,9 +1,9 @@
 ---
-schema_version: "2.59.0"
-updated: 2026-09-19
+schema_version: "2.60.0"
+updated: 2026-09-28
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.59.0
+# Normes de gestion des tâches — v2.60.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -114,6 +114,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 20. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
+
+21. **Conf PM jamais dans le home (RM3318).** Aucun fichier PM — réglage, préférence, clé, état, cache — ne s'écrit dans `~` (`~/.config`, `~/.local`…), **même les réglages personnels** d'un utilisateur. Leur place : **`<core>/var/users/<user>/`** (hors git, dossier `700`, fichiers `600`) — `.env` pour les clés (`REDMINE_API_KEY`, `PM_REPOS_DIR`, `PM_MAIL_*`…), fichiers dédiés à côté (`invoice.yml`, `timesheet.yml`) ; l'état produit en tournant va sous `<core>/var/<outil>/`. Chemin résolu **uniquement** par `pm_paths.user_conf_dir()` / `user_conf_file()` (jamais composé à la main ; `PM_CORE_DIR` depuis un worktree). L'ancien `~/.config/mmi-pm/` n'est lu qu'en repli transitoire ; le vider par `pm-user-conf-migrate.py`. Règle rappelée « une dizaine de fois » par Mathieu avant d'être écrite. → `modules/collaboration.md`
 
 ## Propriété, verrou & journal — tripwires structurels
 
@@ -3092,7 +3094,7 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 Trois règles, le détail est dans `git-mep-pratique` § « Remote canonique » :
 
 - **Identité par dev, karl en repli.** Le jeton forge se résout par la cascade des secrets — jeton perso
-  du dev (`~/.config/mmi-pm/.env`) d'abord, karl ensuite. L'auteur d'une MR ou d'une branche est le **dev**.
+  du dev (`<core>/var/users/<user>/.env`) d'abord, karl ensuite. L'auteur d'une MR ou d'une branche est le **dev**.
 - **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique** (`.gitmodules`
   inclus). **Ne jamais** convertir un remote en HTTPS par dépôt : ça casse les submodules, et l'`insteadOf`
   global obtient le même transport token.
@@ -3298,7 +3300,7 @@ l'environnement :
 
 - `git.worktree_source` : `central` (défaut) = dépôt partagé `<ws>/repos/<repo>.git` ; `per_user` = le dépôt
   de chaque dev, `<dossier des dépôts>/<repo>` — dossier réglé **par utilisateur** (`PM_REPOS_DIR` de son
-  `~/.config/mmi-pm/.env`, défaut `~/repos`) ;
+  `<core>/var/users/<user>/.env`, défaut `~/repos`) ;
 - `git.envs_layout` : `project` (défaut) = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<utilisateur>/<env>`.
 
 En `per_user`, `pm-branch-start --worktree` se lance **depuis son propre dépôt** (refus sinon) et
@@ -3654,7 +3656,7 @@ sait y ouvrir des PR. Pour **créer** un dépôt et y pousser des branches chois
   avertissement sinon (les dépôts privés d'un plan gratuit n'en ont pas) ;
 - `--remote github` pose le remote sous ce nom : `origin` (GitLab) reste intact ;
 - le jeton est **par organisation** : `GITHUB__<OWNER>__TOKEN` (ex. `GITHUB__IPROSPECTIVE__TOKEN`) dans le
-  **`.env` utilisateur** (`~/.config/mmi-pm/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
+  **`.env` utilisateur** (`<core>/var/users/<user>/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
   `deploy/karl-agent/git-credential-pm-github` (installé dans `~/.local/bin`) le sert à `git` ; le
   repli HTTPS+jeton de l'alias canonique est `url.https://github.com/.insteadOf github:` en
   config globale — le remote stocké reste `github:owner/repo.git` (RM2328).
@@ -4476,7 +4478,7 @@ providers:
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
-identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+identifiants d'accès sont **par développeur**, dans `<core>/var/users/<user>/.env`, nommés
 par slug **normalisé** (majuscules, non-alphanum → `_`) :
 `SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
 
@@ -4574,7 +4576,7 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
    défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
 
-**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+**Identifiants** — par dev, dans `<core>/var/users/<user>/.env`, nommés par slug d'instance
 (`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
 `BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
 
@@ -4750,8 +4752,18 @@ Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes d
 remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
 
 - **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
-  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
-  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+  `<core>/var/users/<user>/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**.
+- **Conf PM par utilisateur : `<core>/var/users/<user>/`, jamais le home (RM3318).** Toute la conf
+  propre à un utilisateur — clés et préférences dans `.env` (`REDMINE_API_KEY`, tokens forge,
+  `PM_REPOS_DIR`, `PM_MAIL_SIGNATURE` / `PM_MAIL_FROM_NAME`…), réglages d'outils dans des fichiers
+  dédiés (`invoice.yml`, `timesheet.yml`) — vit sous `var/` du core : hors git, dossier `700`,
+  fichiers `600`. **Rien** dans `~/.config`, `~/.local` ni ailleurs dans le home : le home disperse
+  la conf entre machines et la sort de la sauvegarde du core. Résolution **unique** par
+  `pm_paths.user_conf_dir()` / `user_conf_file(nom)` (override `PM_USER_DIR` ; depuis un worktree,
+  `PM_CORE_DIR` désigne le core). L'ancien `~/.config/mmi-pm/` (RM2497) n'est plus lu qu'en repli
+  transitoire, avec avertissement ; `scripts/pm-user-conf-migrate.py` le vide (déplacement, fusion
+  des `.env`, conflits signalés, jamais tranchés en silence). `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
 - **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
   **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
 - **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),

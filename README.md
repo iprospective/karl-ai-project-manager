@@ -65,7 +65,7 @@ mmi-pm timesheet --month 2026-08 --apply  # crée les saisies dans Redmine (idem
 ```
 
 Une journée à la fois : `mmi-pm timesheet --day 2026-08-26 [--start 09:30 --end 18:30
---client matnat]`, puis `--apply`. Réglages dans `~/.config/mmi-pm/timesheet.yml`.
+--client matnat]`, puis `--apply`. Réglages dans `<core>/var/users/<user>/timesheet.yml`.
 
 Reconstitue le temps de travail **humain** à partir des traces des agents
 (transcripts, journaux de tickets, bases opencode), le répartit par
@@ -81,7 +81,7 @@ mmi-pm invoice --month 2026-08            # rapport .md + proposition .yml — r
 
 Regroupe le temps saisi dans Redmine par client et par activité, au tarif de la dernière
 facture, avec la note publique habituelle et les mises en production du mois. L'ERP est
-le provider `erp` du registre ; réglages : `invoice.example.yml` → `~/.config/mmi-pm/invoice.yml`.
+le provider `erp` du registre ; réglages : `invoice.example.yml` → `<core>/var/users/<user>/invoice.yml`.
 
 ## Le carnet de réflexion : de la question au ticket
 

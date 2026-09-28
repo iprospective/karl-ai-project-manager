@@ -12012,7 +12012,22 @@ def op_mail_queue(qs: dict) -> dict:
             items.append(item)
     items.sort(key=lambda e: e.get("date") or "", reverse=True)
     pending = sum(1 for e in items if e["state"] in ("à traiter", "proposé"))
-    return {"emails": items, "pending": pending}
+    return {"emails": items, "pending": pending, "bounces": _mail_bounces_open()}
+
+
+def _mail_bounces_open() -> list:
+    """Rejets d'envois de karl encore ouverts (RM3319), lus dans le FIL de notifications — seule
+    source : les marquer « traité » dans le fil suffit à éteindre l'alerte de la boîte aux lettres.
+    Jamais bloquant : un fil illisible rend une liste vide, la file de triage reste servie."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_notify
+        fil = pm_notify.feed(etat="ouvert", origine="mail", limit=50)
+    except Exception:  # noqa: BLE001
+        return []
+    return [{"id": n.get("id"), "msg": n.get("msg"), "level": n.get("level"), "rm": n.get("rm"),
+             "ts": n.get("last") or n.get("ts"), "repeats": n.get("repeats", 1)}
+            for n in fil if n.get("job") == "mail-bounce"]
 
 
 def _mail_script(script: str, args: list, timeout: int = 300) -> dict:

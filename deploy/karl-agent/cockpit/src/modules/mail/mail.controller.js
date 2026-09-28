@@ -18,20 +18,22 @@ export function mountMailPanel(el, ctx = {}) {
   const svc = ctx.service || new MailService();
   const ask = ctx.ask || { confirm: (m) => window.confirm(m), prompt: (m, d) => window.prompt(m, d) };
   const notify = ctx.notify || ((msg, err) => (err ? console.error : console.log)(msg));
-  const state = { done: false, fullBody: false, openKey: null, emails: [], pending: 0, error: null };
+  const state = { done: false, fullBody: false, openKey: null, emails: [], pending: 0, bounces: [], error: null };
 
   const paint = () => handle.update(MailPanel({
     vms: state.emails.map(e => new EmailViewModel(e, { openKey: state.openKey })),
     pending: state.pending, done: state.done, fullBody: state.fullBody, error: state.error,
+    bounces: state.bounces,
   }));
 
   async function refresh() {
     try {
       const q = await svc.queue({ done: state.done, key: state.openKey });
-      Object.assign(state, { emails: q.emails, pending: q.pending, error: null });
+      Object.assign(state, { emails: q.emails, pending: q.pending, bounces: q.bounces || [], error: null });
     } catch (e) { state.error = e.message; }
     paint();
     if (ctx.badge) ctx.badge(state.pending);
+    if (ctx.mailbox) ctx.mailbox({ emails: state.emails, pending: state.pending, bounces: state.bounces });   // RM3319 : 📬
   }
 
   async function run(promise) {
@@ -48,6 +50,7 @@ export function mountMailPanel(el, ctx = {}) {
     fetch:   ()    => run(svc.fetch()),
     route:   ()    => run(svc.route()),
     refresh: ()    => refresh(),
+    ticket:  (rm)  => ctx.showTicket && ctx.showTicket(Number(rm)),   // RM3319 : le ticket du mail rejeté
     toggle:  (key) => { state.openKey = state.openKey === key ? null : key; return refresh(); },
     center:  (key) => ctx.openCenter && ctx.openCenter(key, (state.emails.find(e => e.key === key) || {}).subject || ""),
     // RM3147 — l'expéditeur : sa fiche s'il est connu, sa création sinon.

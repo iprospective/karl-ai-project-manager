@@ -25,6 +25,7 @@ import { Repository } from "./core/Repository.js";
 import { Factory } from "./core/Factory.js";
 import { EntityViewModel, withConso } from "./core/EntityViewModel.js";
 import { mountMailPanel } from "./modules/mail/mail.controller.js";
+import { mailboxState, paintMailbox, readSeen, writeSeen, seenKeys } from "./modules/mail/mailbox.js";   // RM3319
 import { mountGitPanel } from "./modules/git/git.controller.js";
 import { mountDashboard } from "./modules/dashboard/dashboard.controller.js";
 import { mountProjectsPanel } from "./modules/projects/projects.controller.js";
@@ -194,6 +195,9 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
   // référence au niveau module (ce qui, elle, serait une TDZ ; cf. RM2889).
   addContact: (champs) => pmcmd.run("annuaire-add", champs),
   badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
+  // RM3319 : la boîte aux lettres 📬 de l'en-tête suit chaque lecture de la file ; ouvrir le panneau vaut « vu »
+  mailbox: (st) => { if (layout.panel() === "mail") writeSeen(PREFS, seenKeys(st.emails)); paintMailbox(byId("mailbtn"), mailboxState(st, readSeen(PREFS))); },
+  showTicket: (rm) => review.open(rm),
 });
 
 const git = mountGitPanel(document.getElementById("rp-git"), {
@@ -291,7 +295,9 @@ function pollFeed(force) {
   const t = Date.now();
   if (feedBusy || (!force && t - feedAt < 60000)) return;
   feedBusy = true; feedAt = t;
-  Promise.resolve(feedCtl.poll()).catch(() => {}).then(() => { feedBusy = false; });
+  // RM3319 : la file mail suit le même pas — la boîte 📬 s'allume sans ouvrir le panneau
+  Promise.all([Promise.resolve(feedCtl.poll()).catch(() => {}), Promise.resolve(mail.refresh()).catch(() => {})])
+    .then(() => { feedBusy = false; });
 }
 function paintFeedBadge(c) {
   const b = byId("feedbtn"); if (!b) return;
@@ -633,6 +639,7 @@ const commands = mountCommands(document, {
   "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
   "contacts": () => center.openContacts(""),          // RM3146 : l'annuaire, au centre
+  "mailbox": () => { layout.switchPanel("mail"); mail.refresh(); },   // RM3319 : 📬 → le panneau 📧, qui vaut « vu »
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
 // RM3044 : pages du CDC vivant ; RM3045 : onglet projets de la session (prête ses projets au choix du CDC en contexte)

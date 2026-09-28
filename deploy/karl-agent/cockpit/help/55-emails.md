@@ -55,6 +55,15 @@ la cible proposée. Un clic déplie l'email : corps du message, proposition, act
 
 La case **« traités »** ré-affiche les emails déjà créés ou écartés.
 
+## La boîte aux lettres 📬 et les envois rejetés
+
+La boîte est relevée **toutes les 5 minutes** par l'ordonnanceur (job `mail-watch`, lecture seule). Le bouton 📬 de l'en-tête dit ce qui s'y passe, sans ouvrir le panneau :
+
+- **il clignote doucement** : du courrier neuf attend, que tu n'as pas encore vu. Ouvrir le panneau 📧 (ou cliquer sur 📬) le marque comme vu ; le compteur, lui, reste tant que les emails sont à traiter ;
+- **il passe au rouge et clignote, pastille « ! »** : un envoi de karl a été **rejeté** (MAILER-DAEMON). Le destinataire n'a **pas** reçu le mail, même si l'envoi avait été annoncé comme parti. Le panneau 📧 liste les rejets en tête, avec le motif et le ticket concerné ; une note « Envoi rejeté » est aussi posée sur ce ticket, et l'alerte apparaît en `critical` dans le fil 🔔.
+
+Pour éteindre l'alerte : corriger l'adresse (annuaire 👤), renvoyer le mail, puis marquer l'entrée **traitée** dans le fil 🔔. Un simple *retard* de remise (le serveur réessaie) reste orange.
+
 ## Bon à savoir
 
 - La file vit **hors du dépôt** (`~/.local/state/karl-agent/mail/`, accès propriétaire) :

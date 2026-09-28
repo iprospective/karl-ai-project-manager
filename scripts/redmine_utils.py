@@ -240,7 +240,7 @@ def redmine_creds(instance=None):
     """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
 
     Identité par utilisateur (T1/RM2497) : préfère la clé perso du dev
-    (`REDMINE_API_KEY`, typiquement dans `~/.config/mmi-pm/.env`) ; à défaut,
+    (`REDMINE_API_KEY`, typiquement dans `<core>/var/users/<user>/.env`) ; à défaut,
     retombe sur le compte de service karl (`REDMINE_USER_MAIN_API_KEY`) — pour les
     tâches de fond (cron, promote) et la rétrocompat. Résolveur CANONIQUE unique :
     tout script doit l'importer plutôt que relire les variables lui-même.
@@ -260,7 +260,7 @@ def redmine_creds(instance=None):
     if instance is None:
         if not (global_url and global_key):
             sys.exit("ERREUR : REDMINE_URL + une clé API requis "
-                     "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
+                     "(REDMINE_API_KEY perso dans var/users/<user>/.env, ou "
                      "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
         return Creds(global_url, global_key)
 
@@ -276,7 +276,7 @@ def redmine_creds(instance=None):
                  f"(url du registre, {prefix}URL, ou REDMINE_URL)")
     if not key:
         sys.exit(f"ERREUR : clé API manquante pour l'instance Redmine {name!r} — "
-                 f"poser {prefix}API_KEY dans ~/.config/mmi-pm/.env")
+                 f"poser {prefix}API_KEY dans var/users/<user>/.env")
     return Creds(url, key, instance_http_basic(name))
 
 

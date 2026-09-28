@@ -108,6 +108,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
+21. **Conf PM jamais dans le home (RM3318).** Aucun fichier PM — réglage, préférence, clé, état, cache — ne s'écrit dans `~` (`~/.config`, `~/.local`…), **même les réglages personnels** d'un utilisateur. Leur place : **`<core>/var/users/<user>/`** (hors git, dossier `700`, fichiers `600`) — `.env` pour les clés (`REDMINE_API_KEY`, `PM_REPOS_DIR`, `PM_MAIL_*`…), fichiers dédiés à côté (`invoice.yml`, `timesheet.yml`) ; l'état produit en tournant va sous `<core>/var/<outil>/`. Chemin résolu **uniquement** par `pm_paths.user_conf_dir()` / `user_conf_file()` (jamais composé à la main ; `PM_CORE_DIR` depuis un worktree). L'ancien `~/.config/mmi-pm/` n'est lu qu'en repli transitoire ; le vider par `pm-user-conf-migrate.py`. Règle rappelée « une dizaine de fois » par Mathieu avant d'être écrite. → `modules/collaboration.md`
+
 ## Propriété, verrou & journal — tripwires structurels
 
 ### Principe fondamental

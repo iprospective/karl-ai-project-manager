@@ -126,7 +126,7 @@ def source_and_envs(ws: Path, name: str):
 def missing_source_message(layout, src: Path) -> str:
     if layout.source == "per_user":
         return (f"dépôt personnel absent : {src} — clone-le (git.worktree_source=per_user ; "
-                f"dossier réglable par PM_REPOS_DIR dans ~/.config/mmi-pm/.env)")
+                f"dossier réglable par PM_REPOS_DIR dans var/users/<user>/.env)")
     return f"bare absent : {src} (lancer pm-env-init d'abord)"
 
 

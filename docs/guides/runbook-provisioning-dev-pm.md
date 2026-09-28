@@ -12,8 +12,10 @@
   bares en **`core.sharedRepository=group`** → écriture directe multi-`<dev>-pm`, **sans
   sudo**, git multi-user natif. Squelette (racine, `repos/`) en `2750` (non group-writable).
 - **Secrets 3 niveaux** :
-  - **perso** `~/.config/mmi-pm/.env` — **`600`, `<dev>-pm`** — clés API/git personnelles
-    (attribution Redmine/GitLab par dev) ;
+  - **perso** `<core>/var/users/<dev>/.env` — **`600`**, dossier **`700`**, hors git — clés
+    API/git personnelles (attribution Redmine/GitLab par dev) et préférences (`PM_REPOS_DIR`,
+    `PM_MAIL_*`). **Jamais dans le home** (RM3318) ; les autres réglages de l'utilisateur
+    (`invoice.yml`, `timesheet.yml`) vivent dans le même dossier ;
   - **instance** `pm.env` du core — **`640 root:pm`**, NON-secret (URLs, ids de CF, chemins) ;
   - **commun** `.env` du core — **`640 root:pm`**, secrets de service / fallback karl.
     Groupe `pm` car **le PM doit lire config+secrets communs pour tourner** (crons, tooling).
@@ -36,13 +38,16 @@
    (Le dev doit rouvrir sa session pour que l'appartenance au groupe prenne effet.)
 3. **`umask 002`** pour le compte de rôle (écriture de groupe par défaut) — dans son
    `~/.bashrc`/`~/.profile`, ou via le profil PM déjà en place pour `mathieu-pm`.
-4. **Perso `~/.config/mmi-pm/.env`** du dev — ses propres clés (jamais commité, `600`) :
+4. **Dossier de conf du dev : `<core>/var/users/<dev>/`** — ses clés et réglages PM, hors git,
+   **jamais dans son home** (RM3318) :
    ```
-   install -d -m 700 ~<dev>/.config/mmi-pm
-   # y déposer REDMINE_USER_MAIN_API_KEY, GITLAB_*_TOKEN perso, etc.
-   chmod 600 ~<dev>/.config/mmi-pm/.env
-   chown <dev>:<dev> ~<dev>/.config/mmi-pm/.env
+   install -d -m 700 -o <dev> -g <dev> <core>/var/users/<dev>
+   f=<core>/var/users/<dev>/.env
+   [ -e "$f" ] || install -m 600 -o <dev> -g <dev> /dev/null "$f"
+   # y déposer REDMINE_USER_MAIN_API_KEY, GITLAB_*_TOKEN perso, PM_MAIL_*, etc.
    ```
+   Un dev qui avait encore l'ancien `~/.config/mmi-pm/` le vide avec
+   `scripts/pm-user-conf-migrate.py` (lancé en tant que lui, depuis le runtime).
 5. **Appliquer/réparer les perms** (idempotent) — dossiers de chaque workspace projet,
    puis state + fichiers env communs du core :
    ```

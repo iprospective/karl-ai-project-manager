@@ -1,4 +1,4 @@
-# invoice.yml — réglages de `mmi-pm invoice` (RM2891). À copier en ~/.config/mmi-pm/invoice.yml.
+# invoice.yml — réglages de `mmi-pm invoice` (RM2891). À copier en <core>/var/users/<user>/invoice.yml.
 #
 # L'ERP n'est PAS déclaré ici : c'est le provider de l'axe `erp` du registre
 # (pm.config.yml → providers). Son secret : pm-provider-secret --instance dolibarr-ipro --key API_KEY.

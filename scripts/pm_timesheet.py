@@ -1655,18 +1655,20 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
 
 # ── Configuration utilisateur, état local, cache par jour (RM3229 / L0) ──────
 
-#: Les réglages sont ceux d'UNE personne (ses postes, ses clients, ses absences) :
-#: ils vivent chez elle, pas dans le code partagé. Leçon de RM2890 : posés dans un
-#: fichier de travail de session, ils ont disparu avec lui.
-CONF_UTILISATEUR = Path.home() / ".config" / "mmi-pm" / "timesheet.yml"
+#: Les réglages sont ceux d'UNE personne (ses postes, ses clients, ses absences) : ils vivent
+#: dans SON dossier de conf PM, `<core>/var/users/<user>/timesheet.yml` (RM3318), hors git — et
+#: JAMAIS dans son home. Leçon de RM2890 : posés dans un fichier de travail de session, ils ont
+#: disparu avec lui. Résolus par `pm_paths.user_conf_file` (repli transitoire sur l'ancien
+#: `~/.config/mmi-pm/timesheet.yml`).
+CONF_NOM = "timesheet.yml"
 
 #: L'ÉTAT (cache des traces, commits, surcharges de journée, rapports, sauvegardes de
 #: reprise) est une donnée d'EXPLOITATION du PM, pas une préférence personnelle : sa place
 #: est `<core>/var/timesheet`, avec le reste de ce que le PM produit en tournant (RM3229,
 #: arbitrage du 2026-09-22). `var/` est hors git : c'est de l'état, pas du versionné.
 #:
-#: Les RÉGLAGES restent chez l'utilisateur (`~/.config`) : ils décrivent ses clients, ses
-#: absences et ses horaires, et n'ont rien à faire dans un dépôt partagé.
+#: Les RÉGLAGES vont eux aussi sous `var/` (`var/users/<user>/`, RM3318) : propres à
+#: l'utilisateur et hors git, mais jamais dans son home.
 ETAT_HERITE = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
 ETAT = ETAT_HERITE
 
@@ -1702,12 +1704,16 @@ def configurer_etat(cfg=None, migrer=True):
 
 
 def chemin_config(chemin=None, cfg=None):
-    """Le fichier de réglages retenu : explicite > utilisateur > core (historique)."""
+    """Le fichier de réglages retenu : explicite > utilisateur (`var/users/<user>/`) > core
+    (historique). Absent partout → le chemin utilisateur, là où il faut le créer."""
     if chemin:
         return Path(chemin).expanduser()
-    if CONF_UTILISATEUR.is_file():
-        return CONF_UTILISATEUR
-    return Path(cfg.pm_dir) / "timesheet.yml" if cfg is not None else CONF_UTILISATEUR
+    import pm_paths
+    perso = pm_paths.user_conf_file(CONF_NOM, pm_dir=getattr(cfg, "pm_dir", None))
+    if perso.is_file():
+        return perso
+    historique = Path(cfg.pm_dir) / CONF_NOM if cfg is not None else None
+    return historique if historique is not None and historique.is_file() else perso
 
 
 def event_vers_dict(e, rm_tour=None):

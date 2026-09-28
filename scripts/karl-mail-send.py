@@ -97,6 +97,27 @@ VAULT_URI = os.environ.get(
 FROM_NAME = "Karl (iProspective Agent)"
 
 
+def preferences_mail():
+    """Préférences de l'utilisateur qui fait partir le mail (RM3318), lues dans l'environnement —
+    donc dans son `<core>/var/users/<user>/.env`, chargé par `PMConfig.load()` :
+
+      PM_MAIL_FROM_NAME   nom d'affichage de l'expéditeur (défaut : FROM_NAME)
+      PM_MAIL_SIGNATURE   signature ajoutée en fin de corps ; `\\n` = saut de ligne
+
+    L'adresse, elle, reste celle du compte SMTP authentifié (karl) : le serveur l'impose."""
+    sig = os.environ.get("PM_MAIL_SIGNATURE", "").replace("\\n", "\n").strip()
+    nom = os.environ.get("PM_MAIL_FROM_NAME", "").strip() or FROM_NAME
+    return nom, sig
+
+
+def signer(body, signature):
+    """Ajoute la signature, séparée par le délimiteur standard `-- `, sauf si le corps la porte
+    déjà (un agent qui l'a écrite lui-même ne doit pas la voir en double)."""
+    if not signature or signature in body:
+        return body
+    return body.rstrip() + "\n\n-- \n" + signature + "\n"
+
+
 def resolve_secret(uri, field):
     """Appelle resolve-secret.sh. Sys.exit avec un message clair si vault locked."""
     helper = Path(__file__).resolve().parent / "resolve-secret.sh"
@@ -125,7 +146,7 @@ def build_message(args, body, from_addr, html=None):
     if args.rm_id and not subject.startswith(f"[RM{args.rm_id}]"):
         subject = f"[RM{args.rm_id}] {subject}"
     msg["Subject"] = subject
-    msg["From"] = email.utils.formataddr((FROM_NAME, from_addr))
+    msg["From"] = email.utils.formataddr((getattr(args, "from_name", None) or FROM_NAME, from_addr))
     msg["To"] = ", ".join(args.to)
     if args.cc:
         msg["Cc"] = ", ".join(args.cc)
@@ -216,6 +237,8 @@ def main():
     ap.add_argument("--reply-to", help="Reply-To header")
     ap.add_argument("--in-reply-to", help="Message-ID auquel ce mail répond (chainage RFC)")
     ap.add_argument("--dry-run", action="store_true", help="N'envoie pas, affiche le mail formaté")
+    ap.add_argument("--no-signature", action="store_true",
+                    help="N'ajoute pas la signature PM_MAIL_SIGNATURE de l'utilisateur")
     args = ap.parse_args()
     if not (args.to or args.to_ref):
         ap.error("au moins un --to ou --to-ref")
@@ -231,8 +254,11 @@ def main():
     if not body.strip():
         sys.exit("ERREUR : body vide")
 
-    # Charge .env pour permettre éventuels overrides futurs (host/port)
+    # Charge les .env (dont celui de l'utilisateur : préférences PM_MAIL_*, RM3318)
     PMConfig.load()
+    args.from_name, signature = preferences_mail()
+    if not args.no_signature:
+        body = signer(body, signature)
 
     # Résolution credentials (2 calls : username + password).
     # Skip si --dry-run (permet de valider la génération du message sans vault).

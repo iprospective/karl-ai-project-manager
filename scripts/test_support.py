@@ -42,7 +42,7 @@ SCRIPTS = Path(__file__).resolve().parent
 #: core RÉEL — c'est par elles que le verdict d'un test se mettait à dépendre
 #: de l'environnement d'exécution.
 INHERITED = ("PM_CORE_DIR", "PM_DEV_DIR", "PM_CONFIG", "PM_DIR", "PROJECTS_PATH",
-             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV")
+             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV", "PM_USER_DIR")
 
 _CORE = None
 _TMP = None      # référence gardée : sa destruction effacerait le core

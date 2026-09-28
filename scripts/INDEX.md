@@ -222,6 +222,7 @@
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer
 - `pm_lock` — verrous PAR RESSOURCE (flock) + écriture atomique
 - `pm_log` — journal structuré du système PM et de karl-agent
+- `pm_mail_bounce` — reconnaître et lire un avis de non-remise
 - `pm_mail_routing` — de l'expéditeur d'un email au couple client/projet
 - `pm_markdown` — Utilitaires markdown partagés par l'outillage PM
 - `pm_modules` — le registre des MODULES de PM

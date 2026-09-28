@@ -111,6 +111,28 @@ body3 = md3 if isinstance(md3, str) else "\n".join(md3)
 check("un label qui n'est que la référence cède la place au titre de la tâche",
       "le vrai titre" in body3 and "**RM20** — RM20" not in body3)
 
+# — RM3323 : ce qui est COMMENCÉ a sa section, avant « reste à faire » —
+import pm_worklog_states as W  # noqa: E402
+check("classification : en_cours / étude commencée → encours",
+      W.bucket("en_cours") == "encours" and W.bucket("etude_chiffrage_en_cours") == "encours"
+      and W.bucket("en cours") == "encours")
+check("classification : nouveau, a_faire, a_corriger restent « à faire » (RM3228)",
+      {W.bucket(s) for s in ("nouveau", "a_faire", "a_corriger", "etude_chiffrage_a_valider")} == {"todo"})
+check("classification : DOING et TODO disjoints", not (W.DOING & W.TODO))
+data4 = {"session_id": "s4", "updated": "2026-09-28T00:00", "items": [
+    item("RM30", "p", label="pas commencé"), item("RM31", "p", label="commencé", status="en_cours"),
+    item("RM32", "p", label="en pause", status="en_pause")]}
+md4 = pss.render_md(data4, live={})
+body4 = md4 if isinstance(md4, str) else "\n".join(md4)
+i_doing, i_todo = body4.find("## 🔨 En cours"), body4.find("## ⏳ Reste à faire")
+check("rendu : section « 🔨 En cours » AVANT « ⏳ Reste à faire »", 0 <= i_doing < i_todo)
+check("rendu : le ticket commencé est sous « En cours », pas sous « Reste à faire »",
+      i_doing < body4.find("**RM31**") < i_todo and body4.find("**RM30**") > i_todo)
+data5 = {"session_id": "s5", "updated": "2026-09-28T00:00", "items": [item("RM40", "p", label="x")]}
+md5 = pss.render_md(data5, live={})
+check("rendu : pas de section « En cours » vide",
+      "En cours" not in (md5 if isinstance(md5, str) else "\n".join(md5)))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

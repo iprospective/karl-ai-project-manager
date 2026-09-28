@@ -56,6 +56,7 @@ DONE = pm_worklog_states.DONE
 WAITING = pm_worklog_states.WAITING
 TESTING = pm_worklog_states.TESTING
 MEP = pm_worklog_states.MEP
+DOING = pm_worklog_states.DOING   # RM3323 : « en cours » ≠ « reste à faire »
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
@@ -451,6 +452,10 @@ def is_mep(status):
     return (status or "").lower() in MEP
 
 
+def is_doing(status):
+    return (status or "").lower() in DOING
+
+
 def eff_status(it, live):
     """Statut effectif : courant (frontmatter) s'il est résolu, sinon stocké."""
     lv = (live or {}).get(it["ref"])
@@ -545,12 +550,13 @@ def render_md(data, live=None):
         out += doc_lines
         out.append("")
 
-    todo, testing, mep, wait, done = [], [], [], [], []
+    doing, todo, testing, mep, wait, done = [], [], [], [], [], []
     for it in data["items"]:
         st = eff_status(it, live)
         (done if is_done(st) else testing if is_testing(st)
          else mep if is_mep(st)
-         else wait if is_waiting(st) else todo).append(it)
+         else wait if is_waiting(st)
+         else doing if is_doing(st) else todo).append(it)
 
     def line(it):
         st = eff_status(it, live)
@@ -591,6 +597,11 @@ def render_md(data, live=None):
             lines += [line(i) for i in groups[proj]]
         return lines
 
+    # RM3323 : ce qui est COMMENCÉ d'abord, séparé de ce que personne n'a encore pris
+    if doing:
+        out.append("## 🔨 En cours")
+        out += by_project(doing)
+        out.append("")
     out.append("## ⏳ Reste à faire")
     out += by_project(todo) or ["_(rien)_"]
     # RM2930 : avant la MEP — c'est l'étape qui la précède dans le flow.

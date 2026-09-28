@@ -5081,6 +5081,7 @@ WORKLOG_WAITING = pm_worklog_states.WAITING
 WORKLOG_TESTING = pm_worklog_states.TESTING
 WORKLOG_MEP = pm_worklog_states.MEP
 WORKLOG_TODO = pm_worklog_states.TODO
+WORKLOG_DOING = pm_worklog_states.DOING   # RM3323
 # RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
 # ce qui reste est une mise en production — batchée (plusieurs tickets montent
 # ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
@@ -5100,7 +5101,7 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+    out = {"encours": [], "todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
            "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
@@ -5126,6 +5127,8 @@ def worklog_buckets(items) -> dict:
             out["mep"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
+        elif st in WORKLOG_DOING:    # RM3323 : commencé ≠ reste à faire
+            out["encours"].append(entry)
         elif st in WORKLOG_TODO:
             out["todo"].append(entry)
         else:

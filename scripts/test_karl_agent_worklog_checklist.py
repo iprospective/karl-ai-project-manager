@@ -90,7 +90,7 @@ check("statut live sous forme de chaîne encore accepté", old[0]["status"] == "
 
 # — worklog_buckets propage l'avancement jusqu'à l'UI —
 b = ka.worklog_buckets(merged)
-row = next(r for r in b["todo"] + b["waiting"] + b["done"] + b["unknown"] if r["ref"] == "RM1")
+row = next(r for r in b["encours"] + b["todo"] + b["waiting"] + b["done"] + b["unknown"] if r["ref"] == "RM1")
 check("l'avancement arrive dans le bucket", row.get("checklist", {}).get("total") == 5)
 check("les sous-tâches aussi", len(row.get("sub_tasks") or []) == 1)
 row2 = next(r for r in b["todo"] + b["waiting"] + b["done"] + b["unknown"] if r["ref"] == "RM2")

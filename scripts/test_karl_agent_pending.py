@@ -90,15 +90,17 @@ ITEMS = [
 b = ka.worklog_buckets(ITEMS)
 # RM2930 : RM2 (a_tester_demandeur) a quitté « en attente » pour « à tester /
 # valider » — il attend une action, pas un déblocage.
-check("reste à faire / à tester / fait, chacun dans sa section",
-      [len(b["todo"]), len(b["testing"]), len(b["waiting"]), len(b["done"])] == [2, 1, 0, 1])
+# RM3323 : RM1 (en_cours) a quitté « reste à faire » pour « en cours » — commencé ≠ pas encore pris.
+check("en cours / reste à faire / à tester / fait, chacun dans sa section",
+      [len(b["encours"]), len(b["todo"]), len(b["testing"]), len(b["waiting"]), len(b["done"])] == [1, 1, 1, 0, 1])
+check("le ticket commencé est dans « en cours »", b["encours"][0]["ref"] == "RM1")
 check("un statut de livraison compte comme « à tester » (pas comme fait)",
       b["testing"][0]["ref"] == "RM2")
 check("un chantier hors ticket a sa place dans le worklog",
       any(e["ref"] == "chantier-libre" for e in b["todo"]))
 check("dérive signalée quand le statut a bougé depuis l'ouverture",
       b["testing"][0]["drifted"] is True and b["done"][0]["drifted"] is True)
-check("pas de dérive quand rien n'a bougé", b["todo"][0]["drifted"] is False)
+check("pas de dérive quand rien n'a bougé", b["encours"][0]["drifted"] is False)
 check("opened_status vide ne fabrique pas une fausse dérive",
       [e for e in b["todo"] if e["ref"] == "chantier-libre"][0]["drifted"] is False)
 # Un statut hors référentiel n'est PAS « à faire » : le ranger là affirmerait
@@ -109,9 +111,13 @@ check("statut hors référentiel → « statut inconnu », jamais « reste à fa
       len(inc["unknown"]) == 2 and not inc["todo"])
 check("un statut mal orthographié se voit au lieu de se fondre",
       any(e["ref"] == "RM10" for e in inc["unknown"]))
-check("les statuts NORMS actifs restent bien dans « reste à faire »",
-      len(ka.worklog_buckets([{"ref": "RM12", "status": "etude_chiffrage_en_cours"},
-                              {"ref": "RM13", "status": "a_corriger"}])["todo"]) == 2)
+_act = ka.worklog_buckets([{"ref": "RM12", "status": "etude_chiffrage_en_cours"},
+                           {"ref": "RM13", "status": "a_corriger"},
+                           {"ref": "RM15", "status": "nouveau"}])
+# RM3323 : même famille que les listes de tickets du cockpit (core/status.js, RM3228) —
+# une étude commencée est « en cours » ; a_corriger reste « à faire ».
+check("les statuts NORMS actifs : étude commencée → en cours, a_corriger et nouveau → reste à faire",
+      [e["ref"] for e in _act["encours"]] == ["RM12"] and sorted(e["ref"] for e in _act["todo"]) == ["RM13", "RM15"])
 # RM2860 : la MEP a son bucket. Un ticket dont le dev est fini n'a rien à faire
 # parmi ceux qui restent à écrire — et il doit rester ATTEINGNABLE, pas escamoté.
 _mep = ka.worklog_buckets([{"ref": "RM11", "status": "a_mep"},
@@ -124,7 +130,7 @@ check("le statut exact reste lisible dans le bucket MEP (a_mep ≠ en_mep)",
 check("aucun item n'est perdu, quel que soit son statut",
       sum(len(v) for v in ka.worklog_buckets(ITEMS + [{"ref": "RMX", "status": "?"}]).values())
       == len(ITEMS) + 1)
-_vide = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+_vide = {"encours": [], "todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
          "unknown": []}
 check("worklog vide ou absent toléré",
       ka.worklog_buckets([]) == _vide and ka.worklog_buckets(None) == _vide)

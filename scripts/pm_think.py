@@ -545,11 +545,16 @@ def _insere(p: Path, text_: str, sec: dict, cells: list) -> None:
 
 def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
     """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
-    Retourne l'id attribué. Ne committe pas (l'appelant décide)."""
+    Retourne l'id attribué. Ne committe pas (l'appelant décide).
+
+    RM3356 — les cellules sont posées PAR NOM sur l'en-tête réel du fichier. Un carnet pas encore
+    migré (RM3262) a une table plus étroite : aligner les valeurs sur sa largeur, en position,
+    écrivait la signature dans « Question » et le texte dans « Bloque ». Six entrées ont été
+    écrites ainsi le jour du déploiement, entre la mise en place du code et la migration."""
     p = Path(path)
     text_, parsed, sec = _section_prete(p, kind, rm_id, title)
     rid = next_id(parsed, kind, prefix or KINDS[kind][0])
-    _insere(p, text_, sec, row_cells(kind, rid, text, **fields))
+    _insere(p, text_, sec, _apparie(KINDS[kind][2], sec["header"], row_cells(kind, rid, text, **fields)))
     # RM3262 : une décision qui cite Qnnn REND cette question tranchée — on l'inscrit dans sa
     # colonne « Tranchée par ». Ici plutôt que dans le CLI : la moisson écrit aussi des décisions.
     if kind == "decision":
@@ -586,6 +591,50 @@ def find_row(parsed: dict, rid: str):
             if r["id"].upper() == cible:
                 return kind, r
     return None, None
+
+
+#: une cellule qui contient une signature (« 2026-09-21 · Mathieu · s:… ») là où on attend du texte
+_SIGNATURE_CELL = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s·\s")
+
+
+def reparer_decalage(path) -> list:
+    """RM3356 — remet en place les lignes dont le texte a glissé d'une colonne. Rend les ids réparés.
+
+    On ne répare QUE les lignes dont on est sûr : la colonne de signature est VIDE et la colonne du
+    texte contient une signature. Le décalage est alors d'exactement un cran, et le remettre en
+    place est sans ambiguïté. Toute autre forme est laissée telle quelle — une réparation qui
+    devine abîmerait ce qu'elle prétend sauver. Idempotente."""
+    p = Path(path)
+    if not p.is_file():
+        return []
+    parsed = parse(p.read_text(encoding="utf-8"))
+    lines = p.read_text(encoding="utf-8").splitlines()
+    faits = []
+    for kind, sec in parsed.items():
+        if kind not in KINDS:
+            continue
+        i_sig = col_index(sec["header"], SIGNATURE_COL)
+        i_txt = col_index(sec["header"], TEXTE_COL[kind])
+        if i_sig is None or i_txt is None or i_txt <= i_sig:
+            continue
+        for r in sec["rows"]:
+            cells = list(r["cells"])
+            if i_txt >= len(cells) or (cells[i_sig] or "").strip():
+                continue
+            if not _SIGNATURE_CELL.match(cells[i_txt] or ""):
+                continue
+            # la cellule vide en trop saute : tout recule d'un cran, la signature rejoint sa colonne
+            decale = (cells[:i_sig] + cells[i_sig + 1:] + [""] * len(sec["header"]))[:len(sec["header"])]
+            # l'état, lui, a été PERDU à l'écriture (la ligne était tronquée) : on ne l'invente pas,
+            # on rend la ligne à son état de départ — en attente, comme toute entrée non triée.
+            i_etat = col_index(sec["header"], "État")
+            if i_etat is not None and not (decale[i_etat] or "").strip():
+                decale[i_etat] = STATE_ICON["attente"]
+            lines[r["line"]] = "| " + " | ".join(decale) + " |"
+            faits.append(r["id"])
+    if faits:
+        p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return faits
 
 
 def move_row(src, rid: str, dst, *, rm_id=None, title=""):

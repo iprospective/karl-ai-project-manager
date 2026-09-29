@@ -789,6 +789,41 @@ check("cockpit : commentaire vide → confirmation explicite, puis force",
 check("cockpit : écarter garde son motif facultatif",
       "Motif de l'écartement (facultatif)" in _ui)
 
+# ── RM3356 : écrire dans un carnet pas encore migré, et réparer ce qui a glissé ───
+# Six entrées réelles ont été écrites le jour du déploiement de RM3262, entre la mise en place du
+# code (qui écrit 7 cellules) et la migration du carnet (encore à 5) : tronquées, elles ont mis la
+# signature dans « Question » et le texte dans « Bloque ».
+dec = Path(tempfile.mkdtemp(prefix="rm3356-"))
+vieux = dec / "RM70_a.think.md"
+vieux.write_text("# RM70\n\n## Questions ouvertes\n\n"
+                 "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.append(vieux, "question", "Faut-il indexer X ou Y ?", by="M", when="2026-09-29", urgence="haute")
+sv = pm_think.load(vieux)["question"]; rv = sv["rows"][0]
+check("écriture dans un carnet ANCIEN : le texte va dans « Question »",
+      pm_think.texte(sv, rv, "question") == "Faut-il indexer X ou Y ?", str(rv["cells"]))
+check("…l'urgence aussi, et l'état est lisible", pm_think.cell(sv, rv, "Urgence") == "haute" and rv["state"] == "attente")
+check("…la signature est perdue SCIEMMENT (le carnet n'a pas la colonne), jamais décalée",
+      "Mathieu" not in " ".join(rv["cells"]))
+
+casse = dec / "RM71_b.think.md"
+casse.write_text("# RM71\n\n## Questions ouvertes\n\n"
+                 "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n|---|---|---|---|---|---|---|\n"
+                 "| Q001 |  | 2026-09-21 · Mathieu · s:f07acc64 | le vrai texte de la question |  | moyenne |  |  |\n"
+                 "| Q002 | 2026-09-20 · Mathieu | une ligne saine | ce que ça bloque | haute | 🕐 |  |\n", encoding="utf-8")
+faits = pm_think.reparer_decalage(casse)
+pc = pm_think.load(casse)["question"]; q1 = pc["rows"][0]; q2 = pc["rows"][1]
+check("réparation : seule la ligne décalée est touchée", faits == ["Q001"], str(faits))
+check("…le texte revient dans « Question »", pm_think.texte(pc, q1, "question") == "le vrai texte de la question", str(q1["cells"]))
+check("…la signature rejoint sa colonne", "s:f07acc64" in pm_think.cell(pc, q1, "Date · auteur"))
+check("…l'urgence retrouve la sienne", pm_think.cell(pc, q1, "Urgence") == "moyenne")
+check("…l'état perdu à l'écriture est remis « en attente », jamais deviné", q1["state"] == "attente")
+check("…la ligne saine n'a pas bougé", pm_think.texte(pc, q2, "question") == "une ligne saine"
+      and pm_think.cell(pc, q2, "Bloque") == "ce que ça bloque")
+check("réparation idempotente", pm_think.reparer_decalage(casse) == [])
+src_sch = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
+check("la réparation passe AVANT la migration (sinon elle reporte le décalage fidèlement)",
+      src_sch.index("for rid in reparer(f)") < src_sch.index("apres = migrer_texte(avant)"))
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

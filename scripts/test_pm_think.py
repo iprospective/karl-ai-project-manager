@@ -114,7 +114,7 @@ check("4 rubriques", set(p) == {"note", "question", "decision", "feature"})
 check("ligne barrée = fermée", p["question"]["rows"][1]["closed"] and p["question"]["rows"][1]["id"] == "Q002")
 check("état lu dans la colonne État", p["question"]["rows"][0]["state"] == "propose" and p["note"]["rows"][1]["state"] == "attente")
 c = pm_think.counters(p)
-check("compteurs", c == {"questions_open": 1, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
+check("compteurs", c == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
 check("next_id par préfixe", pm_think.next_id(p, "decision", "D") == "D003" and pm_think.next_id(p, "decision", "C") == "C002")
 check("has_text : verbatim avec guillemets retrouvé sans", pm_think.has_text(p, "note", "une autre"))
 check("has_text : texte court exact seulement", not pm_think.has_text(p, "question", "Où"))
@@ -135,7 +135,7 @@ check("barre verticale neutralisée, session courte", "Texte / avec barre" in tx
 check("set_state", pm_think.set_state(th, "N001", "valide", dest="D001") and "| N001 | " in th.read_text() and "| ✅ | D001 |" in th.read_text())
 check("set_state inconnu → False", not pm_think.set_state(th, "Z999", "valide"))
 cnt = pm_think.counters(pm_think.load(th))
-check("compteurs après ajouts", cnt == {"questions_open": 1, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
+check("compteurs après ajouts", cnt == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
 check("set_counters écrit le bloc think:", pm_think.set_counters(sheet43, cnt) and "think:\n  questions_open: 1\n" in sheet43.read_text())
 check("set_counters idempotent", not pm_think.set_counters(sheet43, cnt))
 
@@ -823,6 +823,33 @@ check("réparation idempotente", pm_think.reparer_decalage(casse) == [])
 src_sch = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
 check("la réparation passe AVANT la migration (sinon elle reporte le décalage fidèlement)",
       src_sch.index("for rid in reparer(f)") < src_sch.index("apres = migrer_texte(avant)"))
+
+# ── RM3357 : une question qui attend un TIERS ne bloque pas notre clôture ─────────
+# Sur 140 questions ouvertes, une bonne moitié attendaient MatNat, un client ou un hébergeur —
+# comptées et affichées comme les arbitrages qui, eux, reviennent au demandeur. Le compteur mêlait
+# « ce que je dois trancher » et « ce que j'attends de quelqu'un d'autre ».
+res = Path(tempfile.mkdtemp(prefix="rm3357-")) / "RM80_a.think.md"
+qa = pm_think.append(res, "question", "Faut-il indexer X ou Y ?", by="M", state="attente")
+qr = pm_think.append(res, "question", "Quel est le coût du contrat Wildix ? (attend le client)", by="M", state="reserve")
+qv = pm_think.append(res, "question", "Déjà tranchée", by="M", state="valide")
+pr = pm_think.load(res)
+c3 = pm_think.counters(pr)
+check("une question en réserve ne compte plus parmi les ouvertes",
+      c3["questions_open"] == 1 and c3["questions_reserve"] == 1, str(c3))
+rows = {r["id"]: r for r in pr["question"]["rows"]}
+check("question_ouverte : ni tranchée, ni écartée, ni en réserve",
+      pm_think.question_ouverte(rows[qa]) and not pm_think.question_ouverte(rows[qr]) and not pm_think.question_ouverte(rows[qv]))
+check("question_en_reserve ne vaut que pour la réserve",
+      pm_think.question_en_reserve(rows[qr]) and not pm_think.question_en_reserve(rows[qa]))
+vue = pm_think.questions_text(pr)
+check("le CF 36 la montre, sous son propre intitulé",
+      "en attente d'un tiers" in vue and "Wildix" in vue, vue[:200])
+check("…et distingue les deux comptes", "1 ouverte(s) sur 3" in vue and "1 en attente d'un tiers" in vue, vue[:200])
+check("une question en réserve n'est pas « cochée à la main » à rapporter",
+      pm_think.cochees_a_la_main("- [x] **" + qr + "** — x", pr) == [])
+src_gate = (SCRIPTS / "pm_questions_gate.py").read_text(encoding="utf-8")
+check("la garde de MEP ne bloque plus sur une question en réserve",
+      '_NON_BLOQUANTS = _CLOSES + ("reserve",)' in src_gate and "in _NON_BLOQUANTS" in src_gate)
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

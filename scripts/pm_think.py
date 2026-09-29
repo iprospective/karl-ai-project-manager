@@ -210,7 +210,9 @@ def counters(parsed: dict) -> dict:
     d = parsed.get("decision", {}).get("rows", [])
     f = parsed.get("feature", {}).get("rows", [])
     return {
-        "questions_open": sum(1 for r in q if not r["closed"] and r["state"] not in ("valide", "invalide")),
+        "questions_open": sum(1 for r in q if question_ouverte(r)),
+        # RM3357 : celles qui attendent un tiers, comptées à part — visibles, jamais bloquantes
+        "questions_reserve": sum(1 for r in q if question_en_reserve(r)),
         "notes_pending": sum(1 for r in n if not r["closed"] and r["state"] not in ("valide", "invalide")),
         "decisions": sum(1 for r in d if r["prefix"] == "D" and r["state"] == "valide"),
         "features": sum(1 for r in f if not r["closed"]),
@@ -894,6 +896,21 @@ QUESTIONS_BEGIN = "<!-- questions:begin — section RÉGÉNÉRÉE depuis le .thi
 QUESTIONS_END = "<!-- questions:end -->"
 #: une question est CLOSE quand elle est tranchée (validée) ou écartée (invalidée) ; le reste attend
 _Q_CLOSES = ("valide", "invalide")
+#: RM3357 — « ⏸ réserve » = la question attend un TIERS (un client, un hébergeur, un fournisseur),
+#: pas nous. Elle ne bloque donc plus la clôture et ne compte plus parmi les questions ouvertes —
+#: mais elle reste comptée et listée à part, sous son propre intitulé : on ne la cache pas, on cesse
+#: de la présenter comme un arbitrage en attente de notre décision.
+_Q_TIERS = ("reserve",)
+
+
+def question_ouverte(r) -> bool:
+    """Cette question attend-elle NOTRE arbitrage ? (ni tranchée, ni écartée, ni en réserve)"""
+    return not r["closed"] and r["state"] not in _Q_CLOSES and r["state"] not in _Q_TIERS
+
+
+def question_en_reserve(r) -> bool:
+    """Elle attend un tiers : visible, comptée à part, jamais bloquante."""
+    return not r["closed"] and r["state"] in _Q_TIERS
 
 
 def _decision_liee(parsed: dict, qid: str) -> str:
@@ -957,16 +974,24 @@ def questions_text(parsed: dict) -> str:
     rows = (parsed.get("question", {}) or {}).get("rows", [])
     if not rows:
         return "*Aucune question consignée sur ce ticket.*"
-    ouvertes = [r for r in rows if not r["closed"] and r["state"] not in _Q_CLOSES]
-    L = [f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
-         "en attente. Vue régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : "
-         "trancher se fait là, pas ici.", ""]
+    ouvertes = [r for r in rows if question_ouverte(r)]
+    reserve = [r for r in rows if question_en_reserve(r)]
+    entete = f"**{len(ouvertes)} ouverte(s) sur {len(rows)}**"
+    if reserve:
+        entete += f", plus **{len(reserve)} en attente d'un tiers**"
+    L = [entete + " — un ticket ne se ferme pas avec une question en attente de NOTRE arbitrage ; "
+         "celles qui attendent un tiers (client, hébergeur, fournisseur) ne bloquent pas. Vue "
+         "régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : trancher se fait là, "
+         "pas ici.", ""]
     sec_q = parsed.get("question", {}) or {}
     for r in rows:
         libelle = " ".join(str(texte(sec_q, r, "question")).split())
         tranchee = r["closed"] or r["state"] in _Q_CLOSES
-        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {libelle}"
-        if tranchee:
+        marque = "[x]" if tranchee else "[ ]"
+        ligne = f"- {marque} **{r['id']}** — {libelle}"
+        if question_en_reserve(r):
+            ligne += "  \n  → *⏸ en attente d'un tiers*"
+        elif tranchee:
             rep = _decision_liee(parsed, r["id"])
             ligne += f"  \n  → {rep}" if rep else "  \n  → *(tranchée ; la décision n'est pas reliée)*"
         L.append(ligne)
@@ -996,7 +1021,7 @@ def cochees_a_la_main(texte: str, parsed: dict) -> list:
         bloc = bloc.split(QUESTIONS_BEGIN, 1)[1].split(QUESTIONS_END, 1)[0]
     cochees = {m.group(1) for m in re.finditer(r"- \[x\]\s+\*\*(Q\d{3}[a-z]?)\*\*", bloc, re.I)}
     ouvertes = {r["id"] for r in (parsed.get("question", {}) or {}).get("rows", [])
-                if not r["closed"] and r["state"] not in _Q_CLOSES}
+                if question_ouverte(r)}
     return sorted(cochees & ouvertes)
 
 

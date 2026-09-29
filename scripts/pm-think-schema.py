@@ -24,6 +24,7 @@ Usage :
     pm-think-schema.py --all --check            sort 1 si un carnet n'est pas à jour (CI)
 """
 import argparse
+import pathlib
 import re
 import sys
 from pathlib import Path
@@ -74,6 +75,13 @@ def cellules_migrees(kind: str, header: list, cells: list) -> list:
 
 #: une colonne renommée se retrouve sous son ancien nom
 _SYNONYMES = {"Tranchée par": ("Traitée par",)}
+
+
+def reparer(f: pathlib.Path) -> list:
+    """RM3356 — remet en place les lignes dont le texte a glissé d'une colonne (écriture au nouveau
+    format dans un carnet pas encore migré, puis migration). Délègue à `pm_think`, qui porte la
+    règle ; ici on ne fait que parcourir les carnets."""
+    return pm_think.reparer_decalage(f)
 
 
 def migrer_texte(texte: str) -> str:
@@ -135,6 +143,12 @@ def main():
         except OSError as e:
             pmout.warn(f"{f.name} illisible : {e}"); continue
         vus += 1
+        # RM3356 : la réparation d'abord — une ligne décalée doit être remise d'aplomb AVANT que la
+        # migration ne la reporte fidèlement, décalage compris.
+        if not (a.check or a.dry_run):
+            for rid in reparer(f):
+                pmout.info(f"  {f.name} : {rid} remise en place (décalage RM3356)")
+            avant = f.read_text(encoding="utf-8")
         apres = migrer_texte(avant)
         if apres == avant:
             continue

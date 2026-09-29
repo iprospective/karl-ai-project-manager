@@ -182,20 +182,21 @@ check("--note-on : note posée sur le ticket désigné",
       any("pm-task-comment.py" in str(x) for x in calls[-1]) and "2661" in calls[-1])
 
 # ── RM3317 : projet repris du routage quand la proposition n'en tranche pas ──
-check("routed_project : client + projet", D.routed_project({"routing": {"client": "calyclay", "project": "infra"}}) == "calyclay/infra")
-check("routed_project : client seul → rien (pas de « client/? »)", D.routed_project({"routing": {"client": "calyclay"}}) == "")
+C, P, _ = next(cfg.iter_projects())    # un projet du catalogue factice, quel qu'il soit
+check("routed_project : client + projet", D.routed_project({"routing": {"client": C, "project": P}}) == f"{C}/{P}")
+check("routed_project : client seul → rien (pas de « client/? »)", D.routed_project({"routing": {"client": C}}) == "")
 check("routed_project : sans routage → rien", D.routed_project({}) == "")
 routed = {"key": "rt3317", "from": "a@b.fr", "subject": "Accès SSH", "body": "…",
           "message_id": "<m6@b.fr>", "rm_id": None,
-          "routing": {"client": "calyclay", "project": "infra"},
-          "draft": {"title": "Accès SSH Noé", "project": None, "type": "infrastructure",
+          "routing": {"client": C, "project": P},
+          "draft": {"title": "Accès SSH en lecture", "project": None, "type": "infrastructure",
                     "priority": "normal", "description": "d"}}
 D.write_entry(mail, routed)
 D.cmd_create(cfg, mail, routed, args(), repo)
 check("routage : projet repris quand la proposition n'en a pas",
-      "calyclay/infra" in calls[-1] and routed.get("created_rm") == 9999)
+      f"{C}/{P}" in calls[-1] and routed.get("created_rm") == 9999)
 half = dict(routed, key="rt3317b", created_rm=None, outcome=None,
-            routing={"client": "calyclay", "project": None})
+            routing={"client": C, "project": None})
 D.write_entry(mail, half)
 try:
     D.cmd_create(cfg, mail, half, args(), repo)

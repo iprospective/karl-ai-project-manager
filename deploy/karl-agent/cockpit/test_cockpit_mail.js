@@ -145,6 +145,79 @@ function fakeElement() {
   assert.strictEqual(el.listenerCount, 0, "unmount doit tout retirer");
   console.log("✓ contrôleur : gestes délégués, invites injectées, badge, démontage propre");
 
+  // — RM3317 : « Créer le ticket » sans proposition, projet vide, réponse dans un fil —
+  {
+    const { isProjectRef } = await import(path.join(DIR, "src/modules/mail/Email.js"));
+    assert(isProjectRef("calyclay/infra") && !isProjectRef("") && !isProjectRef("calyclay/?")
+           && !isProjectRef("calyclay") && !isProjectRef("a/b/c"), "isProjectRef : client/projet complet seulement");
+    const nodraft = { key: "n1", subject: "Accès SSH", from: "a@b.fr", state: "à traiter",
+                      routing: { client: "calyclay", project: "infra" } };
+    const noproj = { key: "n2", subject: "Sans projet", from: "a@b.fr", state: "proposé",
+                     routing: { client: "calyclay", project: null },
+                     draft: { title: "T", project: null, priority: "normal" } };
+    const withdraft = { key: "n3", subject: "Proposé", from: "a@b.fr", state: "proposé",
+                        routing: { client: "calyclay", project: "infra" },
+                        draft: { title: "Accès SSH Noé", project: null, priority: "high" } };
+    const reply = { key: "n4", subject: "Re: [RM2661]", from: "a@b.fr", state: "à traiter", rm_id: 2661, routing: {} };
+    const vmR = new EmailViewModel(EmailFactory.one(reply), {});
+    assert.strictEqual(vmR.createPrompt(), "Poser une note sur RM2661 (réponse dans son fil) ?");
+    assert.strictEqual(vmR.actions().find(a => a.id === "create").label, "✓ Note sur RM2661");
+    assert(/rédigée d'abord/.test(new EmailViewModel(EmailFactory.one(nodraft), {}).actions()
+      .find(a => a.id === "create").title), "sans proposition : le bouton dit qu'on rédigera d'abord");
+    assert.strictEqual(new EmailViewModel(EmailFactory.one(withdraft), {}).draftProject, "calyclay/infra",
+                       "proposition sans projet : le routage pré-remplit");
+
+    const calls = []; const notes3 = []; const asked3 = [];
+    let queue = [nodraft, noproj, withdraft, reply];
+    const fsvc = {
+      queue: async () => ({ emails: EmailFactory.many(queue), pending: queue.length }),
+      subscribe: () => () => {},
+      draft: async (key) => { calls.push(["draft", key]);
+        queue = queue.map(e => e.key === key ? Object.assign({}, e, { state: "proposé",
+          draft: { title: "Accès SSH Noé", project: "calyclay/infra", priority: "normal" } }) : e);
+        return { ok: true, message: "proposé" }; },
+      create: async (key, f) => { calls.push(["create", key, f]); return { ok: true, message: "RM9999" }; },
+    };
+    const el3 = fakeElement();
+    const h3 = mountMailPanel(el3, { service: fsvc, notify: (m, e) => notes3.push([m, !!e]),
+      ask: { confirm: (m) => { asked3.push(m); return true; }, prompt: () => null } });
+    await h3.refresh();
+
+    // (1) sans proposition : aucune invite « ? », on rédige et on déplie
+    await el3.click("create", "n1");
+    assert.deepStrictEqual(asked3, [], "sans proposition : AUCUNE invite (fini le « ? »)");
+    assert.deepStrictEqual(calls, [["draft", "n1"]], "sans proposition : rédaction, pas de création");
+    assert.strictEqual(h3.state.openKey, "n1", "la carte reste dépliée sur la proposition");
+    assert(/id="ml-project" value="calyclay\/infra"/.test(el3.innerHTML), "le formulaire apparaît, projet pré-rempli");
+    assert(/vérifie-la/.test(notes3.pop()[0]));
+    // (2) second clic : la création part avec le projet du formulaire
+    await el3.click("create", "n1");
+    assert.strictEqual(asked3.pop(), "Créer le ticket dans « calyclay/infra » ?");
+    // (le faux DOM ne lit que les <input> : la priorité du <select> n'est pas vérifiable ici)
+    const [verb, k1, f1] = calls.pop();
+    assert.deepStrictEqual([verb, k1, f1.project, f1.title], ["create", "n1", "calyclay/infra", "Accès SSH Noé"]);
+
+    // (3) proposition sans projet ni routage complet : refus, sans invite ni appel
+    await el3.click("toggle", "n2"); calls.length = 0;
+    await el3.click("create", "n2");
+    assert.deepStrictEqual([calls, asked3], [[], []], "projet vide : ni invite ni appel réseau");
+    const [msg, err] = notes3.pop();
+    assert(err && /client\/projet/.test(msg), "projet vide : refus explicite avec le remède");
+
+    // (4) proposition sans projet mais routage complet : le routage est repris
+    await el3.click("toggle", "n3");
+    await el3.click("create", "n3");
+    assert.strictEqual(asked3.pop(), "Créer le ticket dans « calyclay/infra » ?");
+    assert.strictEqual(calls.pop()[2].project, "calyclay/infra");
+
+    // (5) réponse dans un fil : l'invite annonce une note, pas une création
+    await el3.click("create", "n4");
+    assert.strictEqual(asked3.pop(), "Poser une note sur RM2661 (réponse dans son fil) ?");
+    assert.deepStrictEqual(calls.pop(), ["create", "n4", {}]);
+    h3.unmount();
+    console.log("✓ créer : rédige d'abord sans proposition, projet vide refusé, routage repris, note annoncée (RM3317)");
+  }
+
   // — RM3319 : la boîte aux lettres 📬 et les rejets —
   const MB = await import(path.join(DIR, "src/modules/mail/mailbox.js"));
   const todo = [{ key: "n1", state: "à traiter" }, { key: "n2", state: "proposé" }, { key: "old", state: "créé" }];

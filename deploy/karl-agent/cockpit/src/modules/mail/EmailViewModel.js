@@ -43,13 +43,25 @@ export class EmailViewModel extends EntityViewModel {
   get priorities()      { return ["low", "normal", "high", "urgent"]; }
   get description()     { return (this.draft.description || "").slice(0, 600); }
   get warnings()        { return this.draft.warnings || []; }
+  /** Ticket auquel l'email répond : « Créer » y pose une note, pas un ticket (CDC D6). */
+  get replyTo()         { return this.e.rm_id || null; }
+  /** L'invite du geste « Créer » — dit ce qui va VRAIMENT se passer (RM3317). */
+  createPrompt(project) {
+    return this.replyTo ? "Poser une note sur RM" + this.replyTo + " (réponse dans son fil) ?"
+                        : "Créer le ticket dans « " + project + " » ?";
+  }
   get dismissedReason() { return this.e.dismissed ? (this.e.dismissed.reason || "") : null; }
+  createAction() {
+    if (this.replyTo) return { label: "✓ Note sur RM" + this.replyTo, title: "Réponse dans un fil : pose une note sur le ticket existant" };
+    if (!this.hasDraft) return { label: "✓ Créer le ticket", title: "Pas encore de proposition : elle sera rédigée d'abord, à valider avant création" };
+    return { label: "✓ Créer le ticket" };
+  }
   /** Actions disponibles une fois déplié — l'ordre est celui de l'écran. */
   actions() {
     return [
       { id: "center",  label: "⤢ au centre",      title: "Afficher cet email dans un onglet du panneau central" },
       { id: "draft",   label: "✎ Rédiger" },
-      { id: "create",  label: "✓ Créer le ticket", primary: true },
+      { id: "create",  primary: true, ...this.createAction() },
       { id: "note",    label: "↩ Note sur…",       title: "Rattacher à un ticket existant : pose une note au lieu de créer" },
       { id: "reroute", label: "🎯 Reclasser",       title: "Corriger le client/projet — la correction est apprise" },
       { id: "dismiss", label: "⊘ Écarter" },

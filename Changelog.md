@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Emails → ticket : fini le « Créer le ticket dans « ? » ? »** (RM3317) : sur un email sans
+  proposition, « ✓ Créer le ticket » lisait un formulaire qui n'était pas affiché. Le premier clic
+  rédige désormais la proposition et la présente à valider ; un projet vide est refusé avec le
+  remède ; le serveur reprend le projet du routage quand la proposition n'en tranche pas ; sur une
+  réponse dans un fil, le bouton annonce la note (« ✓ Note sur RM<id> »).
 - **Suivre les fonctionnalités qu'aucun ticket ne porte** (RM3306) : `pm-cdc-features --sans-ticket`
   les liste, en séparant les soldées (livrées ou écartées — ce sont des traces) de celles qui restent
   à faire, à qui il manque un ticket. Le chapitre généré porte la synthèse, et le cockpit a une

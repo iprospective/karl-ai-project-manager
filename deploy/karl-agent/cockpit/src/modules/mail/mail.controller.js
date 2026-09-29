@@ -12,6 +12,7 @@
 import { mount } from "../../core/dom.js";
 import { MailService } from "./mail.service.js";
 import { EmailViewModel } from "./EmailViewModel.js";
+import { isProjectRef } from "./Email.js";
 import { MailPanel } from "./MailPanel.view.js";
 
 export function mountMailPanel(el, ctx = {}) {
@@ -75,9 +76,26 @@ export function mountMailPanel(el, ctx = {}) {
       await refresh();          // la file se relit : l'expéditeur devient reconnu
     },
     draft:   (key) => run(svc.draft(key, state.fullBody)),
-    create:  (key) => {
-      const fields = { project: field("ml-project"), title: field("ml-title"), priority: field("ml-prio") };
-      if (!ask.confirm("Créer le ticket dans « " + (fields.project || "?") + " » ?")) return;
+    // RM3317 — le formulaire n'existe QUE si l'email a une proposition : sans elle,
+    // on lisait trois champs absents et on demandait « Créer le ticket dans « ? » ? ».
+    create:  async (key) => {
+      const vm = new EmailViewModel(state.emails.find(x => x.key === key) || { key }, {});
+      if (vm.replyTo) {                       // le serveur pose une NOTE, l'invite le dit
+        if (!ask.confirm(vm.createPrompt())) return;
+        return run(svc.create(key, {}));
+      }
+      if (!vm.hasDraft) {                     // rédiger d'abord : la validation reste humaine
+        state.openKey = key;
+        const r = await svc.draft(key, state.fullBody);
+        notify(r.ok ? "proposition rédigée — vérifie-la, puis « ✓ Créer le ticket »" : r.message, !r.ok);
+        return refresh();
+      }
+      const fields = { project: field("ml-project").trim(), title: field("ml-title"), priority: field("ml-prio") };
+      if (!isProjectRef(fields.project)) {
+        notify("projet à choisir avant de créer : client/projet (ou « 🎯 Reclasser »)", true);
+        return;
+      }
+      if (!ask.confirm(vm.createPrompt(fields.project))) return;
       return run(svc.create(key, fields));
     },
     note:    (key) => { const rm = ask.prompt("Rattacher à quel ticket ? (numéro RM)"); if (rm) return run(svc.noteOn(key, rm)); },

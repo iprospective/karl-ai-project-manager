@@ -44,6 +44,11 @@ la cible proposée. Un clic déplie l'email : corps du message, proposition, act
   l'expéditeur et les 500 premiers caractères partent.
 - **✓ Créer le ticket** — crée avec les champs affichés (corrigés si besoin). La
   description gardera la trace de l'email : expéditeur, date, sujet, `Message-ID`.
+  **Pas encore de proposition ?** Le premier clic la **rédige** et l'affiche — rien n'est
+  créé ; vérifie-la, puis reclique. Le projet vient de la proposition, sinon du routage ;
+  s'il reste à choisir (`calyclay/?`), la création est refusée tant que le champ
+  **Projet** n'est pas rempli en `client/projet`. Sur un email qui **répond à un fil**
+  (`↩ RM2661`), le bouton devient **✓ Note sur RM2661** : c'est une note qui est posée.
 - **↩ Note sur…** — l'email prolonge un ticket existant : une **note** y est posée au
   lieu d'ouvrir un doublon. Utile quand le client a réécrit l'objet et que le marqueur
   `[RM<id>]` a disparu.

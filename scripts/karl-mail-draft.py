@@ -113,6 +113,14 @@ def candidate_projects(cfg, entry) -> list:
     return [f"{c}/{p}" for c, p, _ in cfg.iter_projects()]
 
 
+def routed_project(entry) -> str:
+    """« client/projet » quand le routage a tranché les DEUX, sinon "" — jamais
+    « client/? » : un projet non tranché ne se devine pas (RM3317, même règle que
+    `proposedProject` côté cockpit)."""
+    r = entry.get("routing") or {}
+    return f"{r['client']}/{r['project']}" if r.get("client") and r.get("project") else ""
+
+
 def build_payload(entry, args) -> str:
     body = entry.get("body") or ""
     if not args.full_body:
@@ -299,7 +307,9 @@ def cmd_create(cfg, mail, e, args, repo):
         return
 
     title = args.title or d.get("title")
-    project = args.project or d.get("project")
+    # RM3317 : la proposition peut ne pas trancher de projet (aucun ne convenait au
+    # modèle) alors que le routage l'a fait — l'écran le montrait, le serveur l'ignorait.
+    project = args.project or d.get("project") or routed_project(e)
     ttype = args.type or d.get("type") or "autre"
     priority = args.priority or d.get("priority") or "normal"
     if not title:

@@ -181,6 +181,29 @@ D.cmd_create(cfg, mail, orphan, args(note_on="2661"), repo)
 check("--note-on : note posée sur le ticket désigné",
       any("pm-task-comment.py" in str(x) for x in calls[-1]) and "2661" in calls[-1])
 
+# ── RM3317 : projet repris du routage quand la proposition n'en tranche pas ──
+check("routed_project : client + projet", D.routed_project({"routing": {"client": "calyclay", "project": "infra"}}) == "calyclay/infra")
+check("routed_project : client seul → rien (pas de « client/? »)", D.routed_project({"routing": {"client": "calyclay"}}) == "")
+check("routed_project : sans routage → rien", D.routed_project({}) == "")
+routed = {"key": "rt3317", "from": "a@b.fr", "subject": "Accès SSH", "body": "…",
+          "message_id": "<m6@b.fr>", "rm_id": None,
+          "routing": {"client": "calyclay", "project": "infra"},
+          "draft": {"title": "Accès SSH Noé", "project": None, "type": "infrastructure",
+                    "priority": "normal", "description": "d"}}
+D.write_entry(mail, routed)
+D.cmd_create(cfg, mail, routed, args(), repo)
+check("routage : projet repris quand la proposition n'en a pas",
+      "calyclay/infra" in calls[-1] and routed.get("created_rm") == 9999)
+half = dict(routed, key="rt3317b", created_rm=None, outcome=None,
+            routing={"client": "calyclay", "project": None})
+D.write_entry(mail, half)
+try:
+    D.cmd_create(cfg, mail, half, args(), repo)
+    refused = False
+except SystemExit:
+    refused = True
+check("routage client seul : « projet non déterminé », rien de créé", refused and half.get("created_rm") is None)
+
 # ── rien ne se crée sans validation ──────────────────────────────────────────
 before = len(calls)
 pending = {"key": "mno345", "from": "a@b.fr", "subject": "demande", "body": "…",

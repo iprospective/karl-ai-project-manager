@@ -31,3 +31,8 @@ export function proposedProject(e) {
   const r = e.routing || {}, d = e.draft || {};
   return d.project || (r.client && r.project ? r.client + "/" + r.project : "");
 }
+
+/** « client/projet » complet — ni vide, ni « client/? » (RM3317 : rien ne se crée sur un projet deviné). */
+export function isProjectRef(s) {
+  return /^[a-z0-9._-]+\/[a-z0-9._-]+$/i.test(String(s || "").trim());
+}

@@ -43,7 +43,7 @@ export function ticketsOfSession(sid, registry, buckets) {
   const reg = registry || {};
   (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) add(m[1]); });
   (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) add(m[1]); });
-  for (const k of ["encours", "todo", "mep", "waiting", "unknown", "done"])   // RM3323 : « en cours » d'abord
+  for (const k of ["encours", "corriger", "todo", "mep", "waiting", "unknown", "done"])   // RM3323 : « en cours » d'abord
     for (const it of ((buckets || {})[k] || [])) {
       const m = /^RM(\d+)$/i.exec(String((it && it.ref) || ""));
       if (m) add(m[1]);

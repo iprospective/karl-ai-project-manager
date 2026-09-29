@@ -116,21 +116,22 @@ _act = ka.worklog_buckets([{"ref": "RM12", "status": "etude_chiffrage_en_cours"}
                            {"ref": "RM15", "status": "nouveau"}])
 # RM3323 : même famille que les listes de tickets du cockpit (core/status.js, RM3228) —
 # une étude commencée est « en cours » ; a_corriger reste « à faire ».
-check("les statuts NORMS actifs : étude commencée → en cours, a_corriger et nouveau → reste à faire",
-      [e["ref"] for e in _act["encours"]] == ["RM12"] and sorted(e["ref"] for e in _act["todo"]) == ["RM13", "RM15"])
+check("les statuts NORMS actifs : étude commencée → en cours, a_corriger → à corriger, nouveau → reste à faire",
+      [e["ref"] for e in _act["encours"]] == ["RM12"] and [e["ref"] for e in _act["corriger"]] == ["RM13"]
+      and [e["ref"] for e in _act["todo"]] == ["RM15"])
 # RM2860 : la MEP a son bucket. Un ticket dont le dev est fini n'a rien à faire
 # parmi ceux qui restent à écrire — et il doit rester ATTEINGNABLE, pas escamoté.
 _mep = ka.worklog_buckets([{"ref": "RM11", "status": "a_mep"},
                            {"ref": "RM14", "status": "en_mep"},
                            {"ref": "RM13", "status": "a_corriger"}])
 check("a_mep et en_mep vont dans « à mettre en prod », pas dans « reste à faire »",
-      len(_mep["mep"]) == 2 and len(_mep["todo"]) == 1)
+      len(_mep["mep"]) == 2 and len(_mep["corriger"]) == 1 and not _mep["todo"])
 check("le statut exact reste lisible dans le bucket MEP (a_mep ≠ en_mep)",
       sorted(e["status"] for e in _mep["mep"]) == ["a_mep", "en_mep"])
 check("aucun item n'est perdu, quel que soit son statut",
       sum(len(v) for v in ka.worklog_buckets(ITEMS + [{"ref": "RMX", "status": "?"}]).values())
       == len(ITEMS) + 1)
-_vide = {"encours": [], "todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+_vide = {"encours": [], "corriger": [], "todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
          "unknown": []}
 check("worklog vide ou absent toléré",
       ka.worklog_buckets([]) == _vide and ka.worklog_buckets(None) == _vide)

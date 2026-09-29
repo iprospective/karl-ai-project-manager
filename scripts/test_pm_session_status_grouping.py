@@ -116,12 +116,16 @@ import pm_worklog_states as W  # noqa: E402
 check("classification : en_cours / étude commencée → encours",
       W.bucket("en_cours") == "encours" and W.bucket("etude_chiffrage_en_cours") == "encours"
       and W.bucket("en cours") == "encours")
-check("classification : nouveau, a_faire, a_corriger restent « à faire » (RM3228)",
-      {W.bucket(s) for s in ("nouveau", "a_faire", "a_corriger", "etude_chiffrage_a_valider")} == {"todo"})
-check("classification : DOING et TODO disjoints", not (W.DOING & W.TODO))
+check("classification : nouveau, a_faire, étude à valider restent « à faire »",
+      {W.bucket(s) for s in ("nouveau", "a_faire", "etude_chiffrage_a_valider")} == {"todo"})
+check("classification : a_corriger et étude à corriger → « à corriger »",
+      W.bucket("a_corriger") == "corriger" and W.bucket("etude_chiffrage_a_corriger") == "corriger")
+check("classification : DOING, FIX et TODO deux à deux disjoints",
+      not (W.DOING & W.TODO) and not (W.FIX & W.TODO) and not (W.DOING & W.FIX))
 data4 = {"session_id": "s4", "updated": "2026-09-28T00:00", "items": [
     item("RM30", "p", label="pas commencé"), item("RM31", "p", label="commencé", status="en_cours"),
-    item("RM32", "p", label="en pause", status="en_pause")]}
+    item("RM32", "p", label="en pause", status="en_pause"),
+    item("RM33", "p", label="revenu de test", status="a_corriger")]}
 md4 = pss.render_md(data4, live={})
 body4 = md4 if isinstance(md4, str) else "\n".join(md4)
 i_doing, i_todo = body4.find("## 🔨 En cours"), body4.find("## ⏳ Reste à faire")
@@ -130,8 +134,12 @@ check("rendu : le ticket commencé est sous « En cours », pas sous « Reste à
       i_doing < body4.find("**RM31**") < i_todo and body4.find("**RM30**") > i_todo)
 data5 = {"session_id": "s5", "updated": "2026-09-28T00:00", "items": [item("RM40", "p", label="x")]}
 md5 = pss.render_md(data5, live={})
+i_fix = body4.find("## 🔧 À corriger")
+check("rendu : « 🔧 À corriger » entre « En cours » et « Reste à faire »", i_doing < i_fix < i_todo)
+check("rendu : le ticket revenu de test est sous « À corriger »", i_fix < body4.find("**RM33**") < i_todo)
 check("rendu : pas de section « En cours » vide",
-      "En cours" not in (md5 if isinstance(md5, str) else "\n".join(md5)))
+      "En cours" not in (md5 if isinstance(md5, str) else "\n".join(md5))
+      and "À corriger" not in (md5 if isinstance(md5, str) else "\n".join(md5)))
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

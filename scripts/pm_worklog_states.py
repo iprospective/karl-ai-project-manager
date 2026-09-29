@@ -30,10 +30,14 @@ MEP = {"a_mep", "a_mep_prod", "en_mep"}
 #: une étude commencée est du travail commencé ; `a_corriger`, lui, reste « à faire » (RM3228).
 DOING = {"en_cours", "etude_chiffrage_en_cours", "en cours"}
 
+#: RM3323 (extension) — REVENUS après test ou relecture : il faut reprendre ce qui a été livré.
+#: Ni « en cours » (personne ne l'a repris), ni « reste à faire » (ce n'est pas du neuf) : leur
+#: section, sinon un retour de test se perd parmi les tickets jamais commencés.
+FIX = {"a_corriger", "etude_chiffrage_a_corriger", "à corriger"}
+
 #: pas encore commencés : le flow NORMS moins ce qui précède, plus les variantes libres hors ticket
 TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_a_valider",
-        "etude_chiffrage_a_corriger",
-        "a_faire", "à_faire", "a_corriger", "todo", "à faire"}
+        "a_faire", "à_faire", "todo", "à faire"}
 
 #: RM2621/RM2635 — statuts qui sortent une demande du « à traiter » : elle a trouvé sa suite.
 #: `nouveau` est le seul qui appelle encore une décision.
@@ -47,7 +51,7 @@ REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee", "non
 
 
 def bucket(status: str) -> str:
-    """La section d'un statut : done · mep · testing · waiting · encours · todo. Pure.
+    """La section d'un statut : done · mep · testing · waiting · encours · corriger · todo. Pure.
 
     L'ordre des tests est la règle : `mep` et `testing` AVANT `waiting`, sinon un ticket livré qui
     attend un test retomberait dans « bloqué » — l'erreur que RM2930 a corrigée."""
@@ -62,4 +66,6 @@ def bucket(status: str) -> str:
         return "waiting"
     if s in DOING:
         return "encours"
+    if s in FIX:
+        return "corriger"
     return "todo"

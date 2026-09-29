@@ -45,20 +45,57 @@ def erreur(fn, *a, **k):
     return None
 
 
-# — la sonde elle-même : mise en cache, et jamais une exception qui remonte —
-ka._SUDO_CACHE.update({"at": 0.0, "ok": {}})
-appels = []
+# — la sonde elle-même : LECTURE des règles, jamais une tentative d'authentification (RM3341) —
+DEV = """Matching Defaults entries for mathieu on dev:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\\:/usr/bin
+
+User mathieu may run the following commands on dev:
+    (ALL : ALL) ALL
+    (mathieu-www) NOPASSWD: ALL
+    (root) NOPASSWD: /usr/local/sbin/pm-env-helper *
+"""
+OUI = "User karl may run the following commands on box:\n    (ALL) NOPASSWD: ALL\n"
+check("dev réel : mot de passe exigé pour root → False", ka._nopasswd_all(DEV, "root") is False)
+check("NOPASSWD restreint à une commande : ne suffit pas", ka._nopasswd_all(
+    "may run the following commands\n    (root) NOPASSWD: /usr/local/sbin/pm-env-helper *\n", "root") is False)
+check("NOPASSWD: ALL pour un AUTRE compte (mathieu-www) : pas pour root", ka._nopasswd_all(DEV, "root") is False
+      and ka._nopasswd_all(DEV, "mathieu-www") is True)
+check("(ALL) NOPASSWD: ALL → True", ka._nopasswd_all(OUI, "root") is True)
+check("(root) NOPASSWD: SETENV: ALL → True (étiquettes empilées)", ka._nopasswd_all(
+    "may run the following commands\n    (root) NOPASSWD: SETENV: ALL\n", "root") is True)
+check("étiquette qui change en cours de ligne : PASSWD puis NOPASSWD: ALL → True", ka._nopasswd_all(
+    "may run the following commands\n    (root) PASSWD: /bin/ls, NOPASSWD: ALL\n", "root") is True)
+check("…et l'inverse : NOPASSWD: /bin/ls, PASSWD: ALL → False", ka._nopasswd_all(
+    "may run the following commands\n    (root) NOPASSWD: /bin/ls, PASSWD: ALL\n", "root") is False)
+check("un Defaults qui ressemble à une règle n'est pas lu", ka._nopasswd_all(
+    "Matching Defaults entries:\n    (root) NOPASSWD: ALL\n", "root") is False)
+
+
+class _Rep:
+    def __init__(self, rc, out=""):
+        self.returncode, self.stdout, self.stderr = rc, out, ""
+
+
 _vrai_run = ka.subprocess.run
-ka.subprocess.run = lambda cmd, **kw: appels.append(cmd) or _vrai_run(["true"], **kw)
-check("peut_sudo sonde une fois…", ka.peut_sudo("root") is True and len(appels) == 1, str(appels))
+appels = []
+ka._SUDO_CACHE.update({"at": 0.0, "liste": None, "definitif": False})
+ka.subprocess.run = lambda cmd, **kw: appels.append(cmd) or _Rep(0, OUI)
+check("peut_sudo lit les règles (sudo -n -l)…", ka.peut_sudo("root") is True and appels == [["sudo", "-n", "-l"]], str(appels))
+check("…n'EXÉCUTE jamais rien en tant que root (pas de `sudo … true`)", all("true" not in c for c in appels), str(appels))
 check("…puis répond de mémoire (pas un sudo par clic)", ka.peut_sudo("root") is True and len(appels) == 1)
+appels.clear()
+ka._SUDO_CACHE.update({"at": 0.0, "liste": None, "definitif": False})
+ka.subprocess.run = lambda cmd, **kw: appels.append(cmd) or _Rep(1)
+check("liste refusée (mot de passe exigé) → False", ka.peut_sudo("root") is False)
+ka._SUDO_CACHE["at"] = 0.0      # 5 min « écoulées »
+check("…et le refus est DÉFINITIF : aucune nouvelle sonde après le TTL", ka.peut_sudo("root") is False and len(appels) == 1, str(appels))
 ka.subprocess.run = lambda *a, **k: (_ for _ in ()).throw(OSError("sudo absent"))
-ka._SUDO_CACHE.update({"at": 0.0, "ok": {}})
+ka._SUDO_CACHE.update({"at": 0.0, "liste": None, "definitif": False})
 check("sudo absent : False, pas d'exception", ka.peut_sudo("root") is False)
 ka.subprocess.run = _vrai_run
 
 # — secrets : portée globale refusée quand elle ne peut pas aboutir —
-ka._SUDO_CACHE.update({"at": 9e9, "ok": {"root": False}})
+ka._SUDO_CACHE.update({"at": 9e9, "liste": DEV, "definitif": False})
 e = erreur(ka.op_provider_secret, dict(SECRET), ADMIN)
 check("portée globale sans sudo : refus 409 (pas une erreur de sudo au clic)", e and e.code == 409, str(e))
 check("…et le refus donne la commande à taper", e and "sudo mmi-pm provider-secret" in str(e) and "--scope global" in str(e), str(e))
@@ -68,7 +105,7 @@ e = erreur(ka.op_provider_secret, dict(SECRET), {"admin": False})
 check("un non-administrateur est refusé AVANT (403), le motif reste le privilège", e and e.code == 403, str(e))
 
 # — avec la capacité, la portée globale repart vers le script (on n'appelle rien pour de vrai) —
-ka._SUDO_CACHE.update({"at": 9e9, "ok": {"root": True}})
+ka._SUDO_CACHE.update({"at": 9e9, "liste": OUI, "definitif": False})
 vus = []
 ka._secret_cmd = lambda args, valeur=None, cible=None, globale=False: vus.append((args, "root" if globale else cible)) or ""
 r = ka.op_provider_secret(dict(SECRET), ADMIN)
@@ -76,7 +113,7 @@ check("sudo possible : la portée globale passe", r.get("ok") and r.get("scope")
 check("…en visant root, avec --scope global", vus and vus[0][1] == "root" and "global" in vus[0][0], str(vus))
 
 # — moteurs : installation « pour tous » —
-ka._SUDO_CACHE.update({"at": 9e9, "ok": {"root": False}})
+ka._SUDO_CACHE.update({"at": 9e9, "liste": DEV, "definitif": False})
 e = erreur(ka.op_engine_install, {"recipe": "claude", "action": "install", "scope": "system"}, ADMIN)
 check("installer pour toute la machine sans sudo : refus 409 avec la commande terminal",
       e and e.code == 409 and "mmi-pm engine-install" in str(e), str(e))
@@ -85,7 +122,7 @@ check("…et un non-administrateur reste refusé en 403", e and e.code == 403, s
 
 # ── RM3096 : le .env d'un AUTRE développeur passe par root + --user, et l'échec ne s'avale plus ──
 ka._secret_cmd = _VRAI_SECRET_CMD
-ka._SUDO_CACHE.update({"at": 9e9, "ok": {"root": True}})
+ka._SUDO_CACHE.update({"at": 9e9, "liste": OUI, "definitif": False})
 import pwd as _pwd
 moi = _pwd.getpwuid(__import__("os").getuid()).pw_name
 lances = []
@@ -150,4 +187,4 @@ check("personne d'authentifié (mono) : l'acteur est le compte qui exécute, pas
 print()
 if fails:
     print(f"✗ {len(fails)} échec(s) : " + ", ".join(fails)); sys.exit(1)
-print("OK — portées possibles (RM3070 L2) et secrets d'un autre développeur (RM3096)")
+print("OK — sonde silencieuse (RM3341), portées possibles (RM3070 L2) et secrets d'un autre développeur (RM3096)")

@@ -115,6 +115,19 @@ def main(argv=None):
         atexit.register(shutil.rmtree, udir, True)
         env["PM_USER_DIR"] = udir
 
+    # RM3341 — et même leçon pour sudo. Un test qui sonde ou tente une élévation pour de vrai
+    # déclenchait, sans règle NOPASSWD, un refus journalisé puis MAILÉ à root (`mail_badpass`) :
+    # des rafales de « SECURITY information » à chaque passage de la suite. Aucun test n'a à
+    # s'élever — ceux qui parlent de sudo le simulent. Un faux `sudo`, en tête de PATH, échoue
+    # donc sans rien tenter, y compris sous --inherit : ce n'est pas du runtime, c'est un effet.
+    shim = tempfile.mkdtemp(prefix="pm-test-sudo-")
+    atexit.register(shutil.rmtree, shim, True)
+    faux = Path(shim) / "sudo"
+    faux.write_text('#!/bin/sh\necho "mmi-pm test : sudo neutralisé (RM3341) — sudo $*" >&2\nexit 1\n',
+                    encoding="utf-8")
+    faux.chmod(0o755)
+    env["PATH"] = shim + os.pathsep + env.get("PATH", os.defpath)
+
     verts, rouges, ignores = [], [], []
     t0 = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:

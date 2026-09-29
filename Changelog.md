@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Fin des mails « SECURITY information » en rafale** (RM3341). La sonde `peut_sudo` du cockpit
+  (RM3070 L2) exécutait `sudo -n -u root true` : chaque refus était journalisé et mailé à root
+  (`mail_badpass`) — un mail toutes les 5 min cockpit ouvert, des rafales à chaque suite de tests.
+  Elle LIT désormais les règles (`sudo -n -l`, silencieux) au lieu de les essayer, et un refus reste
+  acquis jusqu'au redémarrage. `mmi-pm test` place un faux `sudo` en tête de PATH : aucun test ne
+  s'élève pour de vrai.
 - **Suivre les fonctionnalités qu'aucun ticket ne porte** (RM3306) : `pm-cdc-features --sans-ticket`
   les liste, en séparant les soldées (livrées ou écartées — ce sont des traces) de celles qui restent
   à faire, à qui il manque un ticket. Le chapitre généré porte la synthèse, et le cockpit a une

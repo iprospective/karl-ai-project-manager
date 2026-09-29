@@ -12428,7 +12428,42 @@ def _conf_merged() -> dict:
 
 
 _INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
-_SUDO_CACHE: dict = {"at": 0.0, "ok": {}}
+_SUDO_CACHE: dict = {"at": 0.0, "liste": None, "definitif": False}
+
+
+def _nopasswd_all(liste_sudo: str, comme: str) -> bool:
+    """RM3341 : la sortie de `sudo -l` accorde-t-elle `NOPASSWD: ALL` en tant que `comme` ?
+
+    Fonction pure (testable sans sudo). Seules les lignes de règles, sous l'en-tête « may run
+    the following commands », comptent — les `Defaults` qui les précèdent ont la même
+    indentation. Une règle restreinte (`/usr/local/sbin/pm-env-helper *`) ne suffit pas : les
+    portées du cockpit lancent des commandes arbitraires. Les étiquettes (`NOPASSWD:`,
+    `PASSWD:`, `SETENV:`…) valent jusqu'à la suivante, comme dans sudoers ; sans étiquette,
+    le mot de passe est exigé."""
+    regles = False
+    for ligne in liste_sudo.splitlines():
+        if "may run the following commands" in ligne:
+            regles = True
+            continue
+        ligne = ligne.strip()
+        if not regles or not ligne.startswith("("):
+            continue
+        runas, _, cmds = ligne[1:].partition(")")
+        users = [u.strip() for u in runas.split(":")[0].split(",") if u.strip()]
+        if "ALL" not in users and comme not in users:
+            continue
+        sans_mdp = False
+        for cmd in cmds.split(","):
+            while True:     # étiquettes en tête : `NOPASSWD: SETENV: ALL`
+                m = re.match(r"\s*([A-Z_]+):\s*", cmd)
+                if not m or m.group(1) == "ALL":
+                    break
+                if m.group(1) in ("NOPASSWD", "PASSWD"):
+                    sans_mdp = m.group(1) == "NOPASSWD"
+                cmd = cmd[m.end():]
+            if sans_mdp and cmd.strip() == "ALL":
+                return True
+    return False
 
 
 def peut_sudo(comme: str = "root") -> bool:
@@ -12436,19 +12471,28 @@ def peut_sudo(comme: str = "root") -> bool:
 
     Le cockpit proposait des portées (« global », « pour toute la machine ») qui passent par
     `sudo -n` : sans règle NOPASSWD — et il n'y en a pas, la barrière humaine est voulue (§13a) —
-    elles échouaient au moment du clic, avec un message de sudo. On SONDE donc la capacité, une
-    fois par 5 min, et on ne propose que ce qui peut aboutir. Sonder coûte moins qu'un bouton qui
-    ment."""
+    elles échouaient au moment du clic, avec un message de sudo. On SONDE donc la capacité et on
+    ne propose que ce qui peut aboutir. Sonder coûte moins qu'un bouton qui ment.
+
+    RM3341 — la sonde ne doit PAS s'authentifier. Elle exécutait `sudo -n -u root true` : chaque
+    refus était journalisé et, `mail_badpass` oblige, MAILÉ à root — un mail toutes les 5 min
+    tant qu'un cockpit était ouvert, des rafales à chaque suite de tests (1 253 en neuf jours).
+    On LIT donc les règles (`sudo -n -l`, silencieux quand il aboutit) au lieu de les essayer.
+    Si la liste elle-même exige un mot de passe (aucune règle NOPASSWD), la réponse est non et
+    elle est DÉFINITIVE jusqu'au redémarrage : redemander referait le bruit à chaque tick."""
     now = time.time()
-    if now - _SUDO_CACHE["at"] > 300:
-        _SUDO_CACHE["ok"], _SUDO_CACHE["at"] = {}, now
-    if comme not in _SUDO_CACHE["ok"]:
+    if not _SUDO_CACHE["definitif"] and now - _SUDO_CACHE["at"] > 300:
+        _SUDO_CACHE["at"] = now
         try:
-            _SUDO_CACHE["ok"][comme] = subprocess.run(
-                ["sudo", "-n", "-u", comme, "true"], capture_output=True, timeout=5).returncode == 0
+            r = subprocess.run(["sudo", "-n", "-l"], capture_output=True, text=True, timeout=5,
+                               env={**os.environ, "LC_ALL": "C"})
+            _SUDO_CACHE["liste"] = r.stdout if r.returncode == 0 else None
+            _SUDO_CACHE["definitif"] = r.returncode != 0
+        except subprocess.TimeoutExpired:
+            _SUDO_CACHE["liste"] = None                # passager : on retentera dans 5 min
         except (OSError, subprocess.SubprocessError):
-            _SUDO_CACHE["ok"][comme] = False
-    return _SUDO_CACHE["ok"][comme]
+            _SUDO_CACHE["liste"], _SUDO_CACHE["definitif"] = None, True   # pas de sudo ici
+    return bool(_SUDO_CACHE["liste"]) and _nopasswd_all(_SUDO_CACHE["liste"], comme)
 
 
 def _install_state() -> dict:

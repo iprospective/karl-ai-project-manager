@@ -132,13 +132,17 @@ export class ReviewViewModel extends EntityViewModel {
       // sans date ni auteur ne se relit pas. Vide sur un carnet pas encore migré : on n'invente rien.
       id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·", signature: String(r.signature || ""),
       state: String(r.state || ""), closed: !!r.closed, prefix: String(r.prefix || ""),
-      open: !r.closed && r.state !== "valide" && r.state !== "invalide", rubrique: titre }));
+      // RM3357 : « en réserve » = la question attend un TIERS. Elle n'est pas « ouverte » — ni à
+      // trancher par nous, ni bloquante — mais elle reste affichée, sous sa propre marque.
+      reserve: r.state === "reserve",
+      open: !r.closed && r.state !== "valide" && r.state !== "invalide" && r.state !== "reserve", rubrique: titre }));
     const c = th.counts || {};
     return { file: th.file, counts: c,
       questions: rub(th.questions, "question"), decisions: rub(th.decisions, "decision"),
       notes: rub(th.notes, "note"), features: rub(th.features, "feature"),
       openQuestions: rub(th.questions, "question").filter(q => q.open).length,
       // c'est ce chiffre qui explique le refus de clôture AVANT qu'il ne tombe
+      reserve: c.questions_reserve || 0,
       blocking: (c.questions_open || 0) + (c.notes_pending || 0) };
   }
 

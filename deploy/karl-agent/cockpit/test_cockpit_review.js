@@ -139,6 +139,18 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     assert(/data-action="think-move" data-id="Q001"/.test(pane), "le volet Réflexion offre le déplacement");
     assert(/data-action="think-delete" data-id="Q001"/.test(pane), "…et la suppression");
     assert(!/onclick=/.test(pane), "gestes délégués, aucun on*");
+    // RM3357 : une question qui attend un TIERS n'est ni ouverte ni bloquante, mais reste visible
+    {
+      const th357 = { file: "f", counts: { questions_open: 1, questions_reserve: 2, notes_pending: 0 },
+        questions: [{ id: "Q001", icon: "🕐", text: "à trancher par nous", open: true },
+                    { id: "Q002", icon: "⏸", text: "attend le client", reserve: true }],
+        decisions: [], features: [], notes: [] };
+      const h357 = String(V.ThinkPane(th357));
+      assert(/2 en attente d'un tiers/.test(h357), "le volet distingue les deux comptes");
+      assert(/attend un tiers/.test(h357) && /attend le client/.test(h357), "…et marque la ligne concernée");
+      const bloc = h357.slice(h357.indexOf("Q002"));
+      assert(!/data-action="think-state"/.test(bloc), "une question en réserve n'offre pas ✅/❌ : ce n'est pas à nous de trancher");
+    }
     // RM3262 : la signature accompagne l'entrée, sans voler la vedette à son texte
     const signe = String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
       questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", signature: "2026-09-01 · Mathieu", open: true }] }));

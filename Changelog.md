@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une question qui attend un TIERS ne bloque plus la clôture** (RM3357) : l'état `⏸ réserve`
+  existait mais ne fermait rien. Il vaut désormais « en attente d'un client, d'un hébergeur, d'un
+  fournisseur » : compté à part (`questions_reserve`), affiché sous son propre intitulé dans le CF 36
+  et le volet Réflexion, sans ✅/❌ — ce n'est pas à nous de trancher. La garde de MEP et le refus de
+  clôture ne regardent plus que les arbitrages qui nous reviennent.
 - **Fin des mails « SECURITY information » en rafale** (RM3341). La sonde `peut_sudo` du cockpit
   (RM3070 L2) exécutait `sudo -n -u root true` : chaque refus était journalisé et mailé à root
   (`mail_badpass`) — un mail toutes les 5 min cockpit ouvert, des rafales à chaque suite de tests.

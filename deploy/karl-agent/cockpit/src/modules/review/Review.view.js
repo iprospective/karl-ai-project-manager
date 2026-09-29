@@ -31,13 +31,14 @@ const muted = "color:var(--muted)";
 export function ThinkPane(th) {
   if (!th) return "";
   const sign = (e) => (e.signature ? html`<span class="thk-sig" title="qui a écrit cette entrée, et quand">${e.signature}</span>` : "");
-  const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${sign(e)} ${e.closed
+  const tiers = (e) => (e.reserve ? html`<span class="thk-sig" title="en attente d'un tiers — ne bloque pas la clôture (RM3357)">⏸ attend un tiers</span> ` : "");
+  const ligne = (e, rub) => html`<div class="oline${e.open ? " oq" : ""}" style="white-space:normal">${e.icon} <b>${e.id}</b> ${sign(e)} ${tiers(e)}${e.closed
     ? html`<span style="opacity:.6;text-decoration:line-through">${e.text}</span>` : e.text}${e.open
     ? html` <span class="thk-acts"><button class="mini" title="Trancher : validé (réponse facultative pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="valide">✅</button><button class="mini" title="Écarter : invalidé (le motif reste au carnet ; motif facultatif pour une question)" data-action="think-state" data-id="${e.id}" data-rub="${rub}" data-state="invalide">❌</button><button class="mini" title="Déplacer cette entrée vers le carnet d'un autre ticket (RM3258)" data-action="think-move" data-id="${e.id}" data-rub="${rub}">→</button><button class="mini" title="Supprimer cette entrée pour de bon — elle n'était pas une vraie entrée (RM3064)" data-action="think-delete" data-id="${e.id}" data-rub="${rub}">✕</button></span>` : ""}</div>`;
   const bloc = (titre, rows, rub) => (rows.length
     ? html`<div class="ms"><h4>${titre} (${String(rows.length)})</h4>${rows.map(e => ligne(e, rub))}</div>` : "");
   const c = th.counts || {};
-  return html`<div class="ms"><h4>🧠 Réflexion <span style="${muted};font-weight:normal;font-size:12px">(${th.file})</span></h4><div style="${muted};font-size:11.5px">${String(c.questions_open || 0)} question(s) ouverte(s) · ${String(c.decisions || 0)} décision(s) · ${String(c.features || 0)} fonctionnalité(s) · ${String(c.notes_pending || 0)} note(s) à trier${th.blocking
+  return html`<div class="ms"><h4>🧠 Réflexion <span style="${muted};font-weight:normal;font-size:12px">(${th.file})</span></h4><div style="${muted};font-size:11.5px">${String(c.questions_open || 0)} question(s) ouverte(s)${c.questions_reserve ? " · " + String(c.questions_reserve) + " en attente d'un tiers" : ""} · ${String(c.decisions || 0)} décision(s) · ${String(c.features || 0)} fonctionnalité(s) · ${String(c.notes_pending || 0)} note(s) à trier${th.blocking
     ? html` — <b>la clôture est refusée tant qu'il en reste</b>` : ""}</div></div>${bloc("❓ questions", th.questions, "question")}${bloc("⚖ décisions et conseils", th.decisions, "decision")}${bloc("✳ fonctionnalités", th.features, "feature")}${bloc("📝 notes", th.notes, "note")}`;
 }
 

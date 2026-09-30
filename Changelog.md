@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+
+- **Les critères écrits en liste partent dans le champ dès la création** (RM3373). Neuf jours après la
+  reprise RM3241/RM3285, 63 sections étaient réapparues — 37 sur des tickets créés en trois jours.
+  Cause : la conversion des critères écrits en puces ou en liste numérotée n'existait que dans la
+  purge, pas à la création (RM3320, RM3321) ; et `pm-project-bootstrap`, dont les gabarits portent
+  une section, ne passait pas par le découpage (RM3309). Les deux chemins sont corrigés : cases
+  créées **décochées** — à la création, rien n'est fait — et une section de prose ne fabrique
+  toujours aucun critère.
 - **Trancher une question depuis le cockpit fonctionne enfin** (RM3370) : la réponse saisie devient la
   décision (le cas courant), et la laisser vide propose explicitement de **trancher sans décision** —
   tracé, retrouvable par `--orphans`. Deux défauts se cumulaient : la revue annonçait la réponse comme

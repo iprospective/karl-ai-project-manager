@@ -457,15 +457,27 @@ def cf_text_of_issue(issue):
     return ""
 
 
-def split_for_creation(description):
+def split_for_creation(description, convert=True):
     """RM3241 — à la création, les critères partent dans le champ, pas dans la description.
 
     Rend `(description_sans_section, critères)` ; `critères` vaut None si la description
     ne porte pas de vrais critères — elle est alors rendue telle quelle, gabarit compris
     (c'est le bandeau « À définir » de RM2789 qui doit continuer de le signaler).
     On ne retire la section que si RIEN d'autre n'y vivait (même garde que la purge).
+
+    RM3373 : `convert` reconnaît aussi les critères écrits en **puces ou en liste
+    numérotée**, sans cases. C'était la fuite principale — mesurée neuf jours après la
+    reprise, 37 des 63 sections réapparues venaient de là (RM3320, RM3321) : la
+    conversion existait depuis RM3285, mais seulement dans la purge. Les cases sont
+    créées **décochées** : à la création, rien n'est encore fait.
     """
     crit = adoptable_section(description)
+    if not crit and convert:
+        section = extract_section(description)
+        if section:
+            candidat = convert_bullets(section, False).strip()
+            if parse_items(candidat):
+                crit = candidat
     if not crit:
         return description, None
     action, _ = purge_decision(crit, description)

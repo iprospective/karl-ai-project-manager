@@ -87,7 +87,9 @@ check("aucun journal : on ne devine pas", ST.study_author_uid(1, []) is None)
 check("introuvable ⇒ attribution conservée ET signalée", "auteur de l'étude introuvable" in src)
 
 print("\n[RM3228] le reste du PM le connaît")
-ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+# RM3208/W1 : les tables de lot vivent dans `pm_batch` (partagé cockpit ↔ `pm-session-status batch`),
+# le cockpit les réexporte. Le contrôle porte donc sur le module, source unique.
+ka = (HERE / "pm_batch.py").read_text(encoding="utf-8")
 check("lot « analyser » du cockpit : l'étude renvoyée se reprend", '"etude_chiffrage_a_corriger": ("etudier"' in ka)
 check("lot « à tester » : elle est écartée avec sa raison", '"etude_chiffrage_a_corriger": "étude renvoyée' in ka)
 import pm_worklog_states                           # noqa: E402

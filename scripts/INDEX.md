@@ -196,14 +196,22 @@
 - `pm-snapshot` — point de restauration ZFS pré-MEP, pris sur le bon hyperviseur, depuis…
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
+- `pm-user-add` — créer ou compléter le compte PM d'un utilisateur (idempotent) (RM3208).…
 - `pm-user-conf-migrate` — Sort la conf PM d'un utilisateur de son home
+- `pm-user-disable` — retirer l'accès PM d'un utilisateur (réversible) (RM3208). Implémentati…
+- `pm-user-enable` — rendre l'accès retiré par disable (RM3208). Implémentation : `pm_user_c…
+- `pm-user-list` — comptes PM : registre + état système (RM3208). Implémentation : `pm_use…
+- `pm-user-passwd` — changer le mot de passe cockpit d'un utilisateur (RM3208). Implémentati…
+- `pm-user-remove` — supprimer le compte PM (jamais le compte humain) (RM3208). Implémentati…
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
 - `pm-worklog-merge` — reprendre un worklog de session resté à l'ancien emplacement
 
 ## Bibliothèques (importées, pas lancées)
 
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
+- `pm_accounts` — le registre des comptes PM de l'instance
 - `pm_actor` — QUI agit, quand karl agit pour quelqu'un
+- `pm_batch` — composer un lot de tickets pour un agent : plan et consigne
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP
@@ -254,6 +262,7 @@
 - `pm_think` — le fichier de réflexion d'un ticket (`RM<id>_<slug>.think.md`) et sa fu…
 - `pm_timesheet` — reconstitution du temps de travail HUMAIN à partir des traces d'agents
 - `pm_transcript` — lecture typée d'un transcript claude (JSONL). RM2305.
+- `pm_user_cli` — le compte PM UNIQUE d'un utilisateur : système, cockpit, profil
 - `pm_worklog_states` — comment un worklog de session CLASSE ce qu'il porte. RM3085 (lot L5 de…
 - `pm_worktrees` — d'où partent les worktrees, où vont les envs
 - `pm_ws_skeleton` — pont vers le verbe privilégié `pm-env-helper ws-init`

@@ -27,6 +27,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
+import pm_acceptance                     # RM3373 : critères → champ dédié, dès la création
+import pm_cf_mirror
 
 try:
     import yaml
@@ -183,20 +185,32 @@ def create_redmine_ticket(project_id, tpl):
     """
     tracker_id = NORMS_TYPE_TO_TRACKER.get(tpl["type"], 4)
     priority_id = NORMS_PRIORITY_TO_REDMINE.get(tpl["priority"], 2)
-    return get_task_provider().create_issue(
+    # RM3373 : les gabarits de bootstrap portent une section « Critères d'acceptation »,
+    # et ce chemin de création ne passait pas par le découpage de pm-task-add — les
+    # tickets naissaient donc avec deux copies en germe (RM3309, RM3310, RM3311).
+    description, criteres = pm_acceptance.split_for_creation(tpl["body"].strip())
+    extra = None
+    cid = pm_cf_mirror.resolve_cf_id(pm_acceptance.ENV_VAR, pm_acceptance.CF_NAME)
+    if criteres and cid:
+        extra = [{"id": cid, "value": criteres}]
+    else:
+        description, criteres = tpl["body"].strip(), None   # CF non résolu : on ne perd rien
+    issue_id = get_task_provider().create_issue(
         project_id=project_id,
         tracker_id=tracker_id,
         priority_id=priority_id,
         subject=tpl["title"],
-        description=tpl["body"].strip(),
+        description=description,
+        extra_custom_fields=extra,
     )
+    return issue_id, description, criteres
 
 
 def now_iso():
     return datetime.now().strftime("%Y-%m-%dT%H:%M")
 
 
-def write_task(project_dir, tpl, issue_id, overview):
+def write_task(project_dir, tpl, issue_id, overview, criteres=None):
     slug = slugify(tpl["title"])
     task_filename = f"RM{issue_id}_{slug}.md"
     log_filename = f"RM{issue_id}_{slug}.log.md"
@@ -259,6 +273,8 @@ def write_task(project_dir, tpl, issue_id, overview):
         "tags": tpl["tags"],
     }
 
+    if criteres:
+        fm[pm_acceptance.FM_KEY] = criteres      # miroir local du CF 33 (RM3373)
     write_frontmatter(task_path, fm, tpl["body"].lstrip("\n"))
     log_path.write_text(
         f"# Journal RM{issue_id}\n\n## {iso} — pm-project-bootstrap\nTokens : 0 | Durée : 0 min\n\nTâche créée depuis le template `{tpl['id']}`.\n",
@@ -343,9 +359,12 @@ def main():
     new_done = []
     for tpl in retained:
         print(f"\n[{tpl['id']}] création ticket Redmine …")
-        issue_id = create_redmine_ticket(redmine_project, tpl)
-        print(f"  → ticket #{issue_id} créé")
-        path = write_task(project_dir, tpl, issue_id, overview)
+        issue_id, description, criteres = create_redmine_ticket(redmine_project, tpl)
+        print(f"  → ticket #{issue_id} créé"
+              + (f" · {len(pm_acceptance.parse_items(criteres))} critère(s) dans le champ dédié"
+                 if criteres else ""))
+        path = write_task(project_dir, dict(tpl, body=description), issue_id, overview,
+                          criteres=criteres)
         try:
             print(f"  → {path.relative_to(cfg.projects_root)}")
         except ValueError:

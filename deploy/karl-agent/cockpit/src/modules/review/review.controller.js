@@ -166,20 +166,35 @@ export function mountReview(el, ctx = {}) {
    *  RM3227 : trancher une QUESTION demande un commentaire facultatif — la réponse. Le serveur le
    *  consigne en décision « Qnnn : … », ce qu'affiche la vue Redmine des questions (CF 36). La
    *  saisie tient lieu de confirmation : Annuler n'écrit rien, OK à vide tranche sans réponse. */
+  /** RM3370 — trancher une question depuis la REVUE : avec sa décision (le cas courant), ou sans,
+   *  mais alors explicitement. L'ancien libellé disait « facultatif » ; le serveur, lui, exige la
+   *  décision depuis RM3269 — laisser vide renvoyait donc une erreur brute parlant de `--decide-with`
+   *  et `--force`. Le panneau CDC avait déjà cette conduite ; la revue, où l'on travaille, non. */
   async function thinkState(n) {
     const rm = String(state.current || ""), id = n.dataset.id, etat = n.dataset.state;
     if (!rm || !id) return;
-    let comment = "";
+    let comment = "", force = false;
     if (/^Q/.test(id)) {
-      const verbe = etat === "invalide" ? "Écarter " : "Trancher ";
-      const saisie = prompt(verbe + id + " sur RM" + rm + " (« " + etat + " »)\nRéponse / commentaire (facultatif) :", "");
+      const tranche = etat !== "invalide";
+      const saisie = prompt((tranche ? "Trancher " : "Écarter ") + id + " sur RM" + rm + "\n"
+        + (tranche ? "La DÉCISION qui tranche cette question (elle sera consignée « " + id + " : … ») :"
+                   : "Motif de l'écartement (facultatif) :"), "");
       if (saisie === null) return;
       comment = saisie.trim();
+      if (tranche && !comment) {
+        if (!ask(id + " : trancher SANS consigner de décision ?\n\n"
+                 + "Le pourquoi restera manquant. La question sera retrouvable dans « ce qui manque » "
+                 + "(questions tranchées sans décision).")) return;
+        force = true;
+      }
     } else if (!ask("Marquer " + id + " comme « " + etat + " » sur RM" + rm + " ?")) return;
     n.disabled = true;
     try {
-      await ctx.cdc.thinkEdit(comment ? { rm, id, action: "state", state: etat, comment } : { rm, id, action: "state", state: etat });
-      notify(id + " → " + etat + (comment ? " · réponse consignée" : ""));
+      const body = { rm, id, action: "state", state: etat };
+      if (comment) body.comment = comment;
+      if (force) body.force = true;
+      await ctx.cdc.thinkEdit(body);
+      notify(id + " → " + etat + (comment ? " · décision consignée" : force ? " · SANS décision (à reprendre)" : ""), force);
       T.reload(rm);
     } catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }

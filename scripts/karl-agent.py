@@ -8972,7 +8972,15 @@ def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
     answer = _cdc_think_answer_args(payload, rm, local, str((auth_ctx or {}).get("user") or "M"))
     if answer:
         _pm_script("pm-task-think.py", answer, auth_ctx=auth_ctx)
-    out = _pm_script("pm-task-think.py", args, auth_ctx=auth_ctx)
+    try:
+        out = _pm_script("pm-task-think.py", args, auth_ctx=auth_ctx)
+    except ApiError as e:
+        # RM3370 : le refus de RM3269 parle en options de ligne de commande (--decide-with, --dest,
+        # --force). Dans un cockpit, c'est illisible : on le redit dans les mots du geste.
+        if "exige la decision qui la tranche" in str(getattr(e, "msg", "") or e).replace("é", "e"):
+            raise ApiError(409, "Trancher cette question demande la reponse qui la tranche : saisis-la, "
+                                "ou choisis de trancher sans decision (elle restera a documenter).")
+        raise
     # RM3258 : un déplacement touche DEUX carnets — et, si les tickets ne sont pas du même projet,
     # deux jeux de registres. Refondre le seul projet d'origine laisserait la cible périmée.
     projets = [p for p in (_task_project(rm), _task_project(str(payload.get("to") or "").strip()) if

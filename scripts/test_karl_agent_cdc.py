@@ -79,6 +79,19 @@ check("le panneau rend le texte de la question, pas sa date",
 check("…et sa signature à part", "2026-09-01" in _vue["questions"][0]["signature"])
 check("les notes aussi", _vue["notes"][0]["text"] == "Une note du carnet" and "2026-09-02" in _vue["notes"][0]["signature"])
 
+# RM3370 : « trancher sans décision » n'est envoyé qu'explicitement, et seulement pour une question
+rm_, loc_, args_ = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "valide", "force": True})
+check("force → --force sur une question validée", args_ == ["44", "--set", "Q002", "--state", "valide", "--force"], str(args_))
+check("pas de force sans demande explicite",
+      ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "valide"})[2][-1] != "--force")
+check("écarter n'a jamais besoin de forcer",
+      "--force" not in ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "invalide", "force": True})[2])
+check("une NOTE ne se force pas (la garde ne vise que les questions)",
+      "--force" not in ka._cdc_think_args({"rm": 44, "id": "N002", "action": "state", "state": "valide", "force": True})[2])
+src_ka2 = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("le refus de RM3269 est redit dans les mots du cockpit, sans options de ligne de commande",
+      "Trancher cette question demande la reponse qui la tranche" in src_ka2)
+
 # RM3258 : déplacer une entrée vers un autre ticket — le cockpit dit « à qui », jamais « comment »
 rm, local, args = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "3015"})
 check("_cdc_think_args : move → --move … --to, en inter-projets assumé",

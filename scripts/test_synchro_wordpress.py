@@ -167,6 +167,9 @@ with tempfile.TemporaryDirectory() as td:
     check("recette non indexable (blog_public 0)", any("option update blog_public 0" in l for l in wp), wp)
     check("admin_email → adresse de dev", any("option update admin_email dev@exemple.org" in l for l in wp), wp)
     check("extension active listée : désactivée", any("plugin deactivate crowdsec" in l for l in wp), wp)
+    check("désactivation sans charger les extensions (leur routine de désactivation "
+          "parle aux services de la prod)",
+          any("plugin deactivate crowdsec --skip-plugins --skip-themes" in l for l in wp), wp)
     check("extension inactive listée : laissée telle quelle",
           not any("plugin deactivate wp-fastest-cache" in l for l in wp), wp)
 

@@ -168,10 +168,14 @@ wordpress_adapt_db() {
   wp_cli option update admin_email "$EMAIL" >/dev/null || die "admin_email non mis à jour."
   wp_cli option delete new_admin_email >/dev/null 2>&1 || true
 
+  # --skip-plugins : la routine de désactivation d'une extension appartient au site
+  # qu'elle protège. Celle de CrowdSec appelle une fonction de son interface
+  # d'administration, absente en ligne de commande : l'extension restait active sur la
+  # recette, donc à interroger l'API locale d'une production qui n'est pas là.
   local p
   for p in ${WP_DEACTIVATE_PLUGINS:-}; do
-    if wp_cli plugin is-active "$p" >/dev/null 2>&1; then
-      if wp_cli plugin deactivate "$p" >/dev/null; then
+    if wp_cli plugin is-active "$p" --skip-plugins --skip-themes >/dev/null 2>&1; then
+      if wp_cli plugin deactivate "$p" --skip-plugins --skip-themes >/dev/null; then
         ok "Extension désactivée sur la recette : $p"
       else
         warn "Extension $p non désactivée."

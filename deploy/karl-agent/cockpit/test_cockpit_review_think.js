@@ -68,16 +68,22 @@ import { CdcService } from "./src/modules/cdc/cdc.service.js";
   const svc = new CdcService({ repo: { thinkEdit: async (b) => { sent.push(b); return { ok: true }; } } });
   await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", comment: "copie dédiée" });
   await svc.thinkEdit({ rm: "44", id: "Q003", action: "state", state: "valide", comment: "" });
+  await svc.thinkEdit({ rm: "44", id: "Q004", action: "state", state: "valide", force: true });
   assert.deepStrictEqual(sent[0], { rm: "44", id: "Q002", action: "state", state: "valide", comment: "copie dédiée" },
     "le service transmet le commentaire à la route");
   assert.ok(!("comment" in sent[1]), "sans commentaire, la requête est celle d'avant (pas de champ vide)");
+  assert.strictEqual(sent[2].force, true, "RM3370 : le service transmet `force` — il le laissait tomber, et le geste n'atteignait jamais le serveur");
 }
 assert.ok(/if \(\/\^Q\/\.test\(id\)\)/.test(ctl), "la fiche ne demande une réponse que pour une QUESTION");
 assert.ok(/if \(saisie === null\) return;/.test(ctl), "Annuler la saisie n'écrit rien");
-assert.ok(/comment \? \{ rm, id, action: "state", state: etat, comment \}/.test(ctl), "le commentaire part avec le geste, par la même route");
+// RM3370 : la requête se compose en objet (comment, et force quand on tranche sans décision) —
+// on teste ce qui PART, plus la forme littérale de l'appel.
+assert.ok(/if \(comment\) body\.comment = comment;/.test(ctl), "la réponse part avec le geste, par la même route");
+assert.ok(/if \(force\) body\.force = true;/.test(ctl), "RM3370 : et « trancher sans décision » quand il est demandé");
+assert.ok(/La DÉCISION qui tranche cette question/.test(ctl), "RM3370 : la saisie dit ce qu'elle deviendra — plus « facultatif »");
 assert.ok(/else if \(!ask\(/.test(ctl), "une note garde sa simple confirmation");
 const cdcCtl = fs.readFileSync(new URL("./src/modules/cdc/cdc.controller.js", import.meta.url), "utf8");
 assert.ok(/RM3227/.test(cdcCtl) && /body\.comment = comment/.test(cdcCtl) && /n\.value = ""; return;/.test(cdcCtl),
   "le panneau CDC propose la même réponse, et Annuler remet le sélecteur");
 assert.ok(/def _cdc_think_answer_args/.test(srv) && /--decide/.test(srv), "le serveur consigne la réponse en décision liée");
-console.log("✓ RM3227 : réponse commentée d'une question — saisie facultative, même route, décision liée côté serveur");
+console.log("✓ RM3227/RM3370 : réponse d'une question — saisie EXIGÉE pour trancher, « sans décision » explicite, décision liée côté serveur");

@@ -123,6 +123,12 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.length === 0 || edits.every(e => e[0] !== "think"), "suppression refusée sans confirmation");
   ok = true; await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.some(e => e[0] === "think" && e[1].action === "delete" && e[1].rm === "44" && e[1].id === "D001"), "suppression confirmée → service");
   const n1 = calls.filter(x => x.startsWith("feat:")).length; await ctl3.svc.featureEdit({ id: "F003", etat: "écarté" }); await ctl3.open("cdc-features"); assert(edits.some(e => e[0] === "feature" && e[1].id === "F003" && e[1].etat === "écarté" && e[1].client === "i") && calls.filter(x => x.startsWith("feat:")).length === n1 + 1, "état d'une fonctionnalité → service, registre rechargé");
+  // RM3370 : le drapeau « trancher sans décision » traverse enfin le service — il était déstructuré
+  // et laissé tomber, si bien que le geste de RM3269 n'atteignait jamais le serveur.
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", force: true });
+  assert(edits.some(e => e[0] === "think" && e[1].force === true && e[1].state === "valide"), "le service transmet `force`");
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", comment: "la réponse" });
+  assert(edits.some(e => e[0] === "think" && e[1].comment === "la réponse" && e[1].force === undefined), "…et ne l'invente jamais");
   ctl3.unmount();   // comme ci-dessus : deux contrôleurs sur le même hôte répondraient tous deux au clic
   // RM3258 : déplacer une entrée vers un autre ticket — même route, le front ne dit que la cible
   let cible = "3015"; const ctlMv = mountCdc(F, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, confirm: () => true, prompt: () => cible, notify: () => {}, sessionProjects: () => [] });

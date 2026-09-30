@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Trancher une question depuis le cockpit fonctionne enfin** (RM3370) : la réponse saisie devient la
+  décision (le cas courant), et la laisser vide propose explicitement de **trancher sans décision** —
+  tracé, retrouvable par `--orphans`. Deux défauts se cumulaient : la revue annonçait la réponse comme
+  « facultative » alors que RM3269 l'exige, et le service du cockpit **laissait tomber le drapeau
+  `force`** en le déstructurant, si bien que le geste « sans décision » de la vue CDC n'atteignait
+  jamais le serveur. Le refus, enfin, se dit dans les mots du cockpit au lieu de citer `--decide-with`.
 - **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
   une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
   remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un

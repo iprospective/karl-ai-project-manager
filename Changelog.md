@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **browser-check : mode parcours** (RM3359) : `--scenario <fichier.json>` déroule une suite
+  d'étapes (connexion, saisie, sélection, clic, assertions) au lieu d'un clic unique, avec des
+  paramètres `{{variables}}` fournis en ligne de commande. Les secrets viennent de
+  l'environnement (`--secret-env`) et sont masqués dans les sorties. Le parcours est validé
+  ENTIÈREMENT avant la première étape, et s'arrête à la première qui casse, avec son numéro,
+  son motif et une capture d'écran.
 - **Une question qui attend un TIERS ne bloque plus la clôture** (RM3357) : l'état `⏸ réserve`
   existait mais ne fermait rien. Il vaut désormais « en attente d'un client, d'un hébergeur, d'un
   fournisseur » : compté à part (`questions_reserve`), affiché sous son propre intitulé dans le CF 36

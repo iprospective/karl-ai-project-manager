@@ -48,6 +48,19 @@ jobs:
       7 h du matin : le réveil doit être fait quand la journée commence, pas
       pendant.
 
+  # ── File « à vérifier en prod » (RM3278, lot B de RM2853) ───────────────────
+  mep-watch:
+    schedule: "15 8 * * *"
+    command: ["python3", "scripts/pm-mep-watch.py", "--apply"]
+    description: >
+      Signale au fil de notifications les tickets dont on peut PROUVER que le code est
+      en prod et qui attendent leur vérification finale depuis plus de 3 jours — et
+      ceux restés en `a_mep` alors que leur code y est déjà (statut en retard). Sans
+      lui, la file `en_mep` ne se rappelle à personne : mesuré à 18 tickets déployés
+      dont le plus ancien attendait 71 jours. N'écrit rien sur les tickets ; une entrée
+      par ticket, clé stable (pas de doublon), marquée traitée quand le ticket bouge.
+      8 h 15 : juste après le réveil des récurrents, avant la journée.
+
   # ── Reporting tokens/temps → Redmine (RM2160) ───────────────────────────────
   task-report:
     schedule: "*/30 * * * *"

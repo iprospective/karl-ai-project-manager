@@ -14,6 +14,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 
+- **La file « à vérifier en prod » se rappelle à nous** (RM3278, lot B de l'étude RM2853).
+  `en_mep` veut dire « déployé, dernière vérification avant fermeture » — mais rien ne relançait
+  cette file : 18 tickets déployés en attente le 2026-09-30, le plus ancien depuis 71 jours.
+  `pm-mep-watch` les signale au fil de notifications, **preuve à l'appui** : filiation des commits
+  depuis le checkout de prod, ou merge dans la branche que la prod suit (le pull côté serveur n'est
+  pas supposé, c'est dit). Sans preuve, rien n'est notifié. Signale aussi les tickets restés en
+  `a_mep` dont le code est déjà en prod — statut en retard. Job quotidien du registre de
+  l'ordonnanceur, aucun cron dédié, aucune écriture sur les tickets.
+
 - **Les critères écrits en liste partent dans le champ dès la création** (RM3373). Neuf jours après la
   reprise RM3241/RM3285, 63 sections étaient réapparues — 37 sur des tickets créés en trois jours.
   Cause : la conversion des critères écrits en puces ou en liste numérotée n'existait que dans la

@@ -2378,6 +2378,17 @@ la prise) sont restées dans `status-workflow.md`.
 | `a_mep` | `en_mep` | déployé en **PROD** : **3 branches** MR `preprod`→`prod_branch` / **2 branches** MR `dev`→`prod_branch` + pull prod |
 | `en_mep` | `ferme` | *(RM2893 : `en_mep` = en prod)* vérif **prod** OK — `close_reason: resolu` |
 | `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
+
+**La file `en_mep` se rappelle à nous (RM3278).** `en_mep` est une file d'attente HUMAINE :
+le code est en prod, il reste à jouer la colonne « Prod » du protocole de test, puis à fermer.
+Rien ne la relançait — mesuré le 2026-09-30 : 18 tickets déployés en attente, le plus ancien
+depuis 71 jours. Le job `mep-watch` (registre de l'ordonnanceur) les signale au fil de
+notifications, **à condition de pouvoir prouver** que le code est en prod : filiation des
+commits depuis le checkout de prod, ou merge dans la branche que la prod suit
+(`project/environments.md`, champ `branch`) — jamais une date, jamais un `git log --grep`.
+Sans preuve, rien n'est notifié : un ticket dont la MEP n'a pas eu lieu est un autre problème.
+Un ticket resté en `a_mep` alors que son code est déjà en prod est signalé aussi : son statut
+est en retard. Rapport à la demande : `mmi-pm mep-watch`.
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |

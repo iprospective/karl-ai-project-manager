@@ -9,7 +9,8 @@ Règle, vérifiée par analyse syntaxique de `karl-agent.py` (pas de fenêtre de
 - routes POST/PUT/DELETE/PATCH du dispatch HTTP ; appels suivis sur deux niveaux ;
 - ÉCRIT : `write_text`, `atomic_write`, `_write_json_atomic`, `os.replace`, `open(…, "w")`, `json.dump`… ;
 - DÉLÈGUE : lance un script `pm-*`/`karl-*`/`redmine-*` (`_pm_script`, `_mail_script`, nom de script en
-  littéral), ou appelle un module `pm_*` importé par au moins un script CLI `pm-*.py` ;
+  littéral), ou appelle un module `pm_*` ATTEIGNABLE depuis le CLI en suivant la chaîne d'imports (un verbe
+  passe souvent par un module d'implémentation partagé : `pm-user-add.py` → `pm_user_cli` → `pm_accounts`) ;
 - une route qui ÉCRIT sans DÉLÉGUER doit figurer dans EXCEPTIONS, avec sa raison ou le ticket qui la traite.
 
 Le test échoue aussi sur une exception PÉRIMÉE (route disparue, ou qui délègue désormais) : la liste ne doit
@@ -52,17 +53,31 @@ src = (S / "karl-agent.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 cls_methods = {m.name: m for n in tree.body if isinstance(n, ast.ClassDef) for m in n.body if isinstance(m, ast.FunctionDef)}
-cli_mods = set()
-for f in S.glob("pm-*.py"):
+def _pm_imports(path):
     try:
-        t = ast.parse(f.read_text(encoding="utf-8"))
-    except SyntaxError:
-        continue
+        t = ast.parse(Path(path).read_text(encoding="utf-8"))
+    except (SyntaxError, OSError):
+        return set()
+    out = set()
     for n in ast.walk(t):
         if isinstance(n, ast.Import):
-            cli_mods |= {a.name for a in n.names if a.name.startswith("pm_")}
+            out |= {a.name for a in n.names if a.name.startswith("pm_")}
         if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("pm_"):
-            cli_mods.add(n.module)
+            out.add(n.module)
+    return out
+
+
+#: Modules atteignables DEPUIS le CLI, en suivant la chaîne d'imports (et pas seulement le premier niveau :
+#: un verbe peut passer par un module d'implémentation partagé, ex. pm-user-add.py → pm_user_cli → pm_accounts).
+cli_mods, _vus = set(), set()
+_file = [m for f in S.glob("pm-*.py") for m in _pm_imports(f)]
+while _file:
+    m = _file.pop()
+    if m in _vus:
+        continue
+    _vus.add(m)
+    cli_mods.add(m)
+    _file += list(_pm_imports(S / f"{m}.py"))
 SCRIPT_RE = re.compile(r"(^|/)(pm|karl|redmine)-[\w.-]+(\.py)?$|^mmi-pm$")
 WRITE_ATTR = {"write_text", "write_bytes", "unlink", "mkdir", "chmod", "chown", "symlink_to", "rmtree", "rename", "touch"}
 WRITE_NAME = {"atomic_write", "_write_json_atomic", "_auth_save"}

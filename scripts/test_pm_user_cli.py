@@ -5,10 +5,12 @@ Ce qui doit tenir :
 - les plans sont IDEMPOTENTS : ce qui existe déjà ne se refait pas ;
 - rien ne se passe sans compte humain préexistant (le PM ne crée pas de personnes) ;
 - le mot de passe n'est JAMAIS un argument de ligne de commande (visible dans `ps`) ;
+- chaque verbe a son script composé (`pm-user-<verbe>.py`), pour ne pas disputer le domaine `user` à
+  `pm-user-conf-migrate` (RM3318, garde RM3142) ;
 - `--dry-run` n'écrit rien ;
 - désactiver est réversible : ce qui est retiré est mémorisé et rendu par `enable` ;
 - supprimer ne touche jamais au compte humain, et ne supprime le rôle OS qu'avec `--purge-os` ;
-- le gabarit `~/.config/mmi-pm/.env` est créé en 600 (dossier 700) et jamais écrasé ;
+- le gabarit de conf personnelle (`<core>/var/users/<login>/.env`, RM3318) est créé en 600, dossier 700, jamais écrasé ;
 - le parcours cockpit seul (`--no-os --no-profile`) fonctionne sans root, pour de vrai.
 """
 import io
@@ -24,9 +26,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import importlib.util  # noqa: E402
-_spec = importlib.util.spec_from_file_location("pm_user", HERE / "pm-user.py")
+_spec = importlib.util.spec_from_file_location("pm_user_cli", HERE / "pm_user_cli.py")
 pu = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pu)
+
+
+def cli(verb, *args, inp=None, env=None):
+    """Appel réel d'un verbe, par son script composé (`mmi-pm user <verbe>` → `pm-user-<verbe>.py`)."""
+    return subprocess.run([sys.executable, str(HERE / f"pm-user-{verb}.py"), *args],
+                          capture_output=True, text=True, input=inp, env=env)
 
 FAIL = []
 
@@ -95,13 +103,12 @@ def main():
                                                          s.argv[-1] == "alex-pm" for s in p))
 
     print("mot de passe jamais en argument")
-    r = subprocess.run([sys.executable, str(HERE / "pm-user.py"), "add", "alex", "--password", "secret123"],
-                       capture_output=True, text=True)
+    r = cli("add", "alice", "--password", "secret123")
     check("--password refusé", r.returncode != 0, r.stdout + r.stderr)
 
-    print("gabarit .env personnel")
+    print("gabarit de conf personnelle (hors home, RM3318)")
     with tempfile.TemporaryDirectory() as d:
-        env = Path(d) / ".config" / "mmi-pm" / ".env"
+        env = Path(d) / "var" / "users" / "alice" / ".env"
         check("créé", pu.write_env_template(env) is True)
         check("fichier 600", stat.S_IMODE(env.stat().st_mode) == 0o600, oct(env.stat().st_mode))
         check("dossier 700", stat.S_IMODE(env.parent.stat().st_mode) == 0o700, oct(env.parent.stat().st_mode))
@@ -120,8 +127,7 @@ def main():
     print("parcours réel, cockpit seul, sans root")
     with tempfile.TemporaryDirectory() as d:
         env = {**os.environ, "KARL_AGENT_AUTH_DIR": d}
-        run = lambda *a, inp=None: subprocess.run([sys.executable, str(HERE / "pm-user.py"), *a],
-                                                  capture_output=True, text=True, env=env, input=inp)
+        run = lambda *a, inp=None: cli(a[0], *a[1:], inp=inp, env=env)
         r = run("add", "zoe", "--no-os", "--no-profile", "--dry-run")
         check("dry-run n'écrit rien", r.returncode == 0 and not (Path(d) / "karl-users.json").exists(), r.stdout + r.stderr)
         r = run("add", "zoe", "--no-os", "--no-profile")

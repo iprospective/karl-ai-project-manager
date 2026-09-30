@@ -17,7 +17,8 @@ Ce que « un compte PM » recouvre :
   ET de l'humain au groupe `pm` ;
 - cockpit : l'entrée du registre `var/karl-users.json` (module `pm_accounts`, partagé avec le cockpit) ;
   sans mot de passe, le compte existe mais n'ouvre aucune session ;
-- profil : le gabarit `~/.config/mmi-pm/.env` (600, jamais écrasé), les skills et les hooks Claude Code.
+- conf personnelle : le gabarit `<core>/var/users/<login>/.env` (600, dossier 700, jamais écrasé — RM3318 :
+  la conf PM ne va jamais dans un home), les skills et les hooks Claude Code.
 
 Garde-fous : le compte humain doit exister (le PM ne crée pas de personnes) ; le mot de passe n'est jamais un
 argument (visible dans `ps`) ; tout est idempotent ; `remove` ne touche jamais au compte humain et ne supprime
@@ -38,14 +39,17 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import pm_accounts as acc  # noqa: E402
+import pm_paths  # noqa: E402  RM3318 : la conf d'un utilisateur vit dans <core>/var/users/<login>/
 
 CORE = SCRIPTS.parent
 PM_GROUP = "pm"
-ENV_TEMPLATE = """# ~/.config/mmi-pm/.env — secrets PERSONNELS du PM (RM2497). 600, jamais commité, jamais partagé.
+ENV_TEMPLATE = """# <core>/var/users/<login>/.env — secrets et réglages PERSONNELS du PM (RM2497, RM3318).
+# 600, hors git, jamais partagé — et jamais dans un home.
 # Tes actions Redmine et forge partent sous TON identité : renseigne tes propres clés.
 # REDMINE_API_KEY=
 # GITLAB_WORKER_TOKEN=
 # GOGS_TOKEN=
+# PM_REPOS_DIR=~/repos      # dossier de tes dépôts si git.worktree_source=per_user (RM3209)
 """
 
 
@@ -59,6 +63,11 @@ class Step:
     desc: str
     argv: list = None
     root: bool = True
+
+
+def user_env_path(login: str) -> Path:
+    """Fichier de conf personnel d'un utilisateur : `<core>/var/users/<login>/.env` (RM3318)."""
+    return pm_paths.user_conf_dir(login) / ".env"
 
 
 def role_of(login: str) -> str:
@@ -97,7 +106,7 @@ def plan_add(login: str, st: dict, opts: dict) -> list:
             steps.append(Step("account-passwd", f"changer le mot de passe de {login} (appareils révoqués)", root=False))
     if not opts["no_profile"]:
         if not st["env_file"]:
-            steps.append(Step("env-template", f"gabarit ~{login}/.config/mmi-pm/.env (600)"))
+            steps.append(Step("env-template", f"gabarit {user_env_path(login)} (600, dossier 700)"))
         steps.append(Step("skills", "resynchroniser les skills PM (idempotent)",
                           [py, str(SCRIPTS / "pm-skills-sync.py")]))
         steps.append(Step("hooks", "resynchroniser les hooks Claude Code (idempotent)",
@@ -179,9 +188,8 @@ def write_env_template(path: Path, uid=None, gid=None) -> bool:
         f.write(ENV_TEMPLATE)
     os.chmod(p, 0o600)
     if uid is not None and os.geteuid() == 0:
-        for q in (p.parent.parent, p.parent, p):
-            if q.name in (".config", "mmi-pm", ".env"):
-                os.chown(q, uid, gid)
+        os.chown(p.parent, uid, gid)      # <core>/var/users/<login>/ appartient au dev
+        os.chown(p, uid, gid)
     return True
 
 
@@ -208,12 +216,10 @@ def probe(login: str, no_os: bool) -> dict:
         human = pwd.getpwnam(login)
     except KeyError:
         human = None
-    env_file = False
-    if human:
-        try:
-            env_file = (Path(human.pw_dir) / ".config" / "mmi-pm" / ".env").exists()
-        except PermissionError:
-            env_file = False
+    try:
+        env_file = bool(pm_paths.user_conf_file(".env", user=login))
+    except (OSError, PermissionError):
+        env_file = False
     if no_os:
         return dict(group_pm=True, human=bool(human), role=False, role_in_pm=False, human_in_pm=False,
                     account=account, env_file=env_file)
@@ -287,7 +293,7 @@ def execute(login: str, steps: list, args, password=None) -> int:
             elif s.name == "account-delete":
                 acc.delete_user(users_path, devices_path, login)
             elif s.name == "env-template":
-                write_env_template(Path(human.pw_dir) / ".config" / "mmi-pm" / ".env", human.pw_uid, human.pw_gid)
+                write_env_template(user_env_path(login), human.pw_uid, human.pw_gid)
             elif s.name in ("skills", "hooks"):
                 argv = s.argv if login == me else ["runuser", "-u", login, "--", *s.argv]
                 subprocess.run(argv, check=True, env={**os.environ, "HOME": human.pw_dir} if human else None)
@@ -302,8 +308,12 @@ def execute(login: str, steps: list, args, password=None) -> int:
     return 0
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="mmi-pm user", description=__doc__.split("\n")[0])
+def main(argv=None, verb=None) -> int:
+    """`verb` : imposé par le script appelant (`pm-user-add.py` → « add »)."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if verb:
+        argv = [verb, *argv]
+    ap = argparse.ArgumentParser(prog=f"mmi-pm user {verb or '<verbe>'}", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p, os_flag=True):
@@ -381,7 +391,3 @@ def main(argv=None) -> int:
     except PlanError as e:
         sys.exit(f"pm-user : {e}")
     return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

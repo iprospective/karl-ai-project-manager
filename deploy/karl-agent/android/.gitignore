@@ -1,0 +1,8 @@
+# Sorties de build et état local (RM2331) — la clé de signature vit HORS du repo.
+.gradle/
+build/
+app/build/
+local.properties
+*.jks
+*.keystore
+signing.properties

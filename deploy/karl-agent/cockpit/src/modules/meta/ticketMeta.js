@@ -5,7 +5,9 @@
 // RM3164 : « conso » s'appelle « temps & coût » — l'onglet portait déjà les tokens, le COÛT et
 // les temps IA/humain, mais son nom ne disait que la moitié : on ne l'ouvrait pas pour chercher
 // un temps. La clé ne bouge pas (elle est dans les URL de vue et les préférences).
-export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["impact", "impact"], ["workspace", "workspace"]];
+// RM3175 : critères · implémentation · déploiement, juste après le détail — ce qu'on vient chercher en
+// reprenant un ticket, avant son historique. Débloqués par RM2882, qui a fixé OÙ vivent les critères.
+export const FACETS = [["detail", "détail"], ["criteria", "critères"], ["impl", "implémentation"], ["deploy", "déploiement"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["impact", "impact"], ["workspace", "workspace"]];
 export function facetOf(f) { return FACETS.some(x => x[0] === f) ? f : "detail"; }
 
 export const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };
@@ -41,7 +43,7 @@ export function ticketsOfSession(sid, registry, buckets) {
   const reg = registry || {};
   (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) add(m[1]); });
   (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) add(m[1]); });
-  for (const k of ["todo", "mep", "waiting", "unknown", "done"])
+  for (const k of ["encours", "corriger", "todo", "mep", "waiting", "unknown", "done"])   // RM3323 : « en cours » d'abord
     for (const it of ((buckets || {})[k] || [])) {
       const m = /^RM(\d+)$/i.exec(String((it && it.ref) || ""));
       if (m) add(m[1]);

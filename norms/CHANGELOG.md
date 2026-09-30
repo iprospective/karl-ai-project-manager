@@ -1,5 +1,159 @@
 # Changelog des normes
 
+## [2.61.0] - 2026-09-30
+
+### Ajouté
+- **L'agent a un compte et une boîte de courrier d'essai** (RM3360, module `testing` §9). Un
+  parcours de test s'arrêtait au dernier écran, alors que la moitié de ce qu'une commande promet
+  se passe après : accusé de réception, confirmation, expédition. L'agent dispose d'une identité
+  d'essai (compte boutique dev/test/préprod + boîte lisible), adresse et mot de passe dans sa
+  conf `var/users/<user>/.env`, transmis aux scénarios par l'environnement — jamais sur une ligne
+  de commande, que `ps` rend lisible. Deux règles fermes : jamais en production, et un envoi de
+  test ne part pas chez un tiers. Piège documenté : le catch-all `/.+@.+/` de
+  `/etc/postfix/virtual-regexp` sur le poste de dev redirige tout le courrier local vers
+  l'exploitant.
+
+## [2.60.0] - 2026-09-28
+
+### Modifié
+- **Conf PM jamais dans le home** (RM3318, nouveau tripwire 21 du KERNEL ; détail
+  `collaboration` § Multi-utilisateur). Toute la conf propre à un utilisateur — clés et
+  préférences (`.env` : `REDMINE_API_KEY`, tokens forge, `PM_REPOS_DIR`, `PM_MAIL_*`), réglages
+  d'outils (`invoice.yml`, `timesheet.yml`) — vit sous `<core>/var/users/<user>/`, hors git
+  (`700`/`600`). L'ancien `~/.config/mmi-pm/` (RM2497) n'est plus lu qu'en repli transitoire,
+  avec avertissement, et se vide par `scripts/pm-user-conf-migrate.py`. Résolveur unique :
+  `pm_paths.user_conf_dir()` / `user_conf_file()`. La distinction « état dans var, réglages
+  dans ~/.config » est abandonnée.
+
+### Ajouté
+- `karl-mail-send.py` lit les préférences de l'expéditeur humain : `PM_MAIL_SIGNATURE`
+  (ajoutée en fin de corps, sans doublon ; `--no-signature` pour s'en passer) et
+  `PM_MAIL_FROM_NAME` (nom d'affichage).
+
+## [2.59.0] - 2026-09-19
+
+### Ajouté
+- **Un Redmine tiers en primaire est refusé, plus jamais écrit en silence** (RM2940). Tout
+  l'outillage d'écriture vise l'instance de `redmine.reference.yml`, quel que soit le
+  primaire du projet : `pm-task-status-update` refuse désormais, et `pm-doctor` le
+  signale en erreur. Les secondaires partenaires (mapping RM2746) ne sont pas concernés.
+- **Maintenance des providers depuis le cockpit** : « Vérifier la config Redmine » et
+  « Vérifier la cohérence PM », en lecture seule, dans le catalogue des commandes.
+
+## [2.58.0] - 2026-09-19
+
+### Ajouté
+- **Un module ne contourne aucun garde-fou** (RM3145, nouveau module `modules-pm`, hors
+  précharge ; une ligne-déclencheur au KERNEL). Les tripwires valent dans le code d'un module
+  exactement comme ailleurs : outillage PM pour tout changement d'état, pas de push direct sur une
+  branche protégée, aucun secret en clair (un module DÉCLARE ses secrets), aucune action de
+  production sans consentement, un abonné qui échoue ne casse pas l'émetteur. Ce qui rend un module
+  facile à ajouter est aussi ce qui permet de l'ajouter sans relire les normes : la règle le dit là
+  où l'on regarde quand on écrit un module. Le module porte aussi le contrat : natif ou tiers,
+  l'état d'activation dans la configuration de l'instance, le refus motivé, le forçage sous double
+  sécurité, et `mmi-pm module new`.
+
+## [2.57.0] - 2026-09-19
+
+### Ajouté
+- **Un seuil qui dérive se notifie, il ne se ticket pas** (RM3177, module `scheduler`, hors
+  précharge). Budget de contexte, invariant du doctor, test rouge durable : ce sont des ÉTATS, ils
+  vont au fil de notifications ; seule une action décidée donne lieu à un ticket. Né de trois
+  tickets ouverts pour le même seuil (RM2974, RM2756, RM3035) pendant que la précharge dérivait de
+  91,4 % à 96,7 % sans alerter personne. La section décrit une veille bien faite — job du registre,
+  paliers, message stable et chiffres en champs, tendance — avec `pm-context-budget --notify` pour
+  exemple. Placée dans `scheduler` et non au KERNEL : la précharge est à 98 % de son plafond.
+
+
+## [2.56.0] - 2026-09-19
+
+### Ajouté
+- **`project-modeling-pratique` — l'aspect partagé adossé à un cluster de tickets** (RM1889, RM1856).
+  Quand créer une doc factorisée (C1 CDC, C2 cluster ≥ 2 tickets, C3 transverse durable) et surtout
+  quand NE PAS en créer (défaut : pas d'aspect) ; emplacement `docs/<slug>.md`, slug stable sans
+  RM-id, liaison bidirectionnelle `related_tickets[]` ↔ mention en description, posée par
+  `pm-task-doc`. L'outil et le gabarit existaient (RM1890, RM1891) ; la règle qui dit quand s'en
+  servir n'était écrite nulle part ailleurs que dans le CDC.
+- **`status-workflow-pratique` § Phase d'étude** : quand le critère est rempli, le livrable d'étude
+  EST cet aspect, et la description du ticket y renvoie au lieu de le recopier.
+- **`worker-common`** : le réflexe de qualification « ce sujet mérite-t-il un aspect partagé ? »,
+  en trois lignes (précharge : +76 tokens, rien de plus).
+
+## [2.55.1] - 2026-09-19
+
+### Modifié
+- **`project-creation` — le coffre n'est plus nommé comme s'il était unique** (RM2662). La liste des
+  fondations d'un projet disait « Vaultwarden » ; elle dit désormais « le coffre à secrets », et la
+  ligne du gabarit `001-secrets-vaultwarden` précise « Vaultwarden par défaut, ou celui qu'impose le
+  projet ou son client ». Depuis RM2662, un projet peut en effet utiliser KeePass, 1Password,
+  Nextcloud Passwords ou un fichier age, et la cascade projet → client → défaut est désormais
+  réellement consultée. Aucune règle ajoutée ni retirée : une formulation qui décrivait un seul cas
+  décrit maintenant le cas général. Le NOM du gabarit est conservé, parce que les projets existants
+  le référencent dans leur `bootstrap.done[]`.
+
+## [2.55.0] - 2026-09-19
+
+### Modifié
+- **Tripwire #19 : `pm-task-add` cherche l'antériorité lui-même** (RM3248). La règle et l'outil
+  existaient (RM3130) ; le lien entre les deux passait par la mémoire de l'agent — RM3247 a été
+  créé sans recherche, juste après une compaction. `pm-task-add` affiche désormais les
+  antériorités et **refuse** de créer sur une correspondance forte dans le même projet, sauf
+  `--not-duplicate "<pourquoi>"`, tracé au journal. Calibré sur les 1 578 tickets de l'arbre :
+  1,7 % de créations arrêtées, dont la moitié environ de vrais doublons (titres identiques) ;
+  une date différente fait deux occurrences, pas un doublon. La recherche par mots-clés reste
+  due : la garde ne compare que des titres.
+
+## [2.54.1] - 2026-09-19
+
+### Modifié
+- **Préfixe de vhost des envs de ticket** (RM3247, module `environments`). Le vhost portait
+  toujours le nom du repo : `<repo>-rm<id>.lxc`. Pour un repo au nom générique (`dolibarr`,
+  partagé par tous les clients qui en ont un), l'URL ne disait plus de quel client il
+  s'agissait. `runtime.vhost_prefix` au manifeste le fixe par repo (`client-a-erp`) ; à
+  défaut, rien ne change. Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
+  `post_create` — ; le dossier et le canari gardent le nom du repo.
+
+## [2.54.0] - 2026-09-18
+
+### Ajouté
+- **Pas de mise en prod avec une question non tranchée** (RM3238, modules `git-mep` et `session-tooling` ; plafond de contexte de worker-infra relevé à 30 000 —
+  dette assumée, résorption RM3035).
+  Une question ouverte du `.think.md` refusait la clôture ; elle refuse aussi l'entrée en `a_mep_prod` /
+  `en_mep` (`a_mep` avertit) et le merge vers `main` / `master` par `pm-mr` et `pm-promote`, jamais sur un
+  dépôt `*-core`. Contournement explicite et tracé : `--ignore-think` / `--ignore-questions`. Runtime `git-mep` complété
+  À LA MAIN (même exception que RM3221).
+
+## [2.53.0] - 2026-09-18
+
+### Ajouté
+- **Statut `etude_chiffrage_a_corriger`** (RM3228, Redmine **24** « Etude/CDC à corriger », modules
+  `status-workflow` / `status-workflow-pratique`, énumération du KERNEL). Pendant d'`a_corriger` côté
+  étude : depuis `etude_chiffrage_a_valider`, le demandeur **renvoie** l'étude avec une **note
+  obligatoire** ; le ticket revient à l'**auteur de l'étude** (assigné avant la dernière soumission, lu
+  dans les journaux Redmine), qui la reprend (`→ etude_chiffrage_en_cours`) puis la resoumet. Les
+  runtimes `status-workflow` et `schema` sont complétés À LA MAIN (exception tracée, même motif que
+  RM3221 : générateur par fournisseur, RM3135).
+
+## [2.52.0] - 2026-09-18
+
+### Ajouté
+- **Environnements de recette sous le domaine de test de l'instance** (RM3221, module `environments`).
+  Une recette vit sous `<site>.<TEST_DOMAIN>`, servie par le conteneur de dev ; un dev nominatif sous
+  `<site>-<qui>.<DEV_DOMAIN>`. Les valeurs sont propres à l'instance et vivent dans son `pm.env`, jamais
+  dans le repo ; une conf de synchro écrit `DOMAIN="<site>.${TEST_DOMAIN}"`, jamais un domaine en dur. Le
+  runtime `environments` est complété À LA MAIN (exception tracée : générateur indisponible, RM3135).
+
+## [2.51.0] - 2026-09-17
+
+### Ajouté
+- **D'où partent les worktrees, où vont les envs** (RM3209, module `git-mep`). Deux réglages d'instance,
+  réservés à l'admin et lus dans la configuration seulement : `git.worktree_source` (`central` : dépôt
+  partagé `<ws>/repos/<repo>.git` ; `per_user` : le dépôt de chaque dev, dans son dossier de dépôts
+  `PM_REPOS_DIR`, défaut `~/repos`) et `git.envs_layout` (`project` : `<ws>/envs/<env>` ; `user` :
+  `<ws>/envs/<utilisateur>/<env>`). En `per_user`, une branche de ticket part du dépôt de l'utilisateur
+  courant ; les envs existants se déplacent par `pm-env-relocate`, jamais à la main. Le runtime `git-mep`
+  est complété À LA MAIN (exception tracée : générateur indisponible, RM3135).
+
 ## [2.50.0] - 2026-09-15
 
 ### Ajouté
@@ -49,7 +203,6 @@
     contexte en relecture (~105 k tokens, 52 % de la facture mesurée) : appels
     indépendants dans une seule réponse, appels séquentiels dans une seule commande.
 
-
 ## [2.48.0] - 2026-09-14
 
 ### Modifié
@@ -91,7 +244,6 @@
   des **adresses** et non des domaines (dériver un domaine de la boîte perso
   d'un interne rendrait « nôtre » tout `gmail.com`), et où vivent désormais les
   domaines maison (`pm.config.yml :: mail.own_domains`).
-
 
 ## [2.44.0] - 2026-09-13
 

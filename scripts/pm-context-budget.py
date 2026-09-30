@@ -125,6 +125,99 @@ def load_budget():
     return ((cfg.get("context") or {}).get("budget_tokens") or {})
 
 
+#: Fenêtre sur laquelle la tendance se lit (RM3177). Trois semaines : c'est l'ordre de grandeur
+#: sur lequel la précharge a dérivé de 91,4 % à 96,7 % (20 août → 14 septembre) sans que personne
+#: le voie. Plus court, le bruit d'un seul commit NORMS masque la pente ; plus long, on la voit trop tard.
+TENDANCE_JOURS = 21
+#: Messages des paliers. Un seul seuil faisait passer de « rien » à « alerte » sans étage : la
+#: marge de sécurité existe précisément pour prévenir AVANT, pas pour constater.
+MSG_CRIT = "la précharge NORMS DÉPASSE le plafond de contexte"
+MSG_WARN = "la précharge NORMS a entamé sa marge de sécurité"
+MSG_INFO = "la précharge NORMS approche de sa marge de sécurité"
+#: Le palier « info » se tient à cet écart SOUS le seuil « warn » (0,9 − 0,1 = 0,8 par défaut).
+ECART_INFO = 0.1
+
+
+def _historique():
+    """Fichier de mesures du budget, dans le même state que le fil — donc isolé en test."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_notify
+        return pm_notify._state_dir() / "norms-budget-history.jsonl"
+    except Exception:      # noqa: BLE001
+        return None
+
+
+# >>> tendance — pure (testée par test_pm_context_budget_tendance.py)
+def tendance(mesures, maintenant, jours=TENDANCE_JOURS):
+    """(delta en points de %, jours réellement couverts) — ou (None, 0) si l'on ne peut rien dire.
+
+    Compare la mesure courante à la PLUS ANCIENNE de la fenêtre. Pas de régression linéaire :
+    la question posée est « de combien a-t-on dérivé, et en combien de temps ? », et c'est
+    ce que la phrase doit dire. Moins de deux jours d'écart ne font pas une tendance.
+    """
+    from datetime import datetime, timedelta
+    limite = maintenant - timedelta(days=jours)
+    dans = []
+    for m in mesures or []:
+        try:
+            d = datetime.fromisoformat(m["date"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if d >= limite:
+            dans.append((d, float(m["pct"])))
+    if len(dans) < 2:
+        return None, 0
+    dans.sort()
+    (d0, p0), (d1, p1) = dans[0], dans[-1]
+    couverts = (d1 - d0).days
+    if couverts < 2:
+        return None, 0
+    return round(p1 - p0, 1), couverts
+# <<< tendance
+
+
+# >>> palier — pure
+def palier(frac, warn=0.9):
+    """(niveau, message) du palier franchi par une fraction du plafond, ou None sous le plus bas.
+
+    `warn` est le seuil historique de `--warn-ratio` : il reste celui qui fait passer à
+    « warn », et le palier « info » se cale juste en dessous. Le plafond (1.0) est fixe."""
+    if frac >= 1.0:
+        return "critical", MSG_CRIT
+    if frac >= warn:
+        return "warn", MSG_WARN
+    if frac >= warn - ECART_INFO:
+        return "info", MSG_INFO
+    return None
+# <<< palier
+
+
+def _enregistre(role, tokens, plafond, pct):
+    """Une mesure par JOUR (la dernière du jour gagne) : le job est quotidien, et plusieurs
+    passages le même jour ne doivent pas écraser la pente sous un amas de points identiques."""
+    f = _historique()
+    if f is None:
+        return []
+    from datetime import date
+    import json
+    try:
+        lignes = [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines() if l.strip()] \
+            if f.exists() else []
+    except (OSError, ValueError):
+        lignes = []
+    jour = date.today().isoformat()
+    lignes = [l for l in lignes if l.get("date") != jour]
+    lignes.append({"date": jour, "role": role, "tokens": tokens, "budget": plafond, "pct": round(pct, 1)})
+    lignes = lignes[-400:]                   # un peu plus d'un an : la tendance n'en demande pas plus
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("\n".join(json.dumps(l, ensure_ascii=False) for l in lignes) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return lignes
+
+
 def notifie(ratio: float = 0.9) -> int:
     """Dit dans le FIL que la marge est entamée — et ne casse jamais rien.
 
@@ -136,25 +229,39 @@ def notifie(ratio: float = 0.9) -> int:
     if not defaut:
         print("aucun budget par défaut déclaré (pm.config.yml :: context.budget_tokens)")
         return 0
-    mesures = {r: sum(t for _, _, t in components(r)) for r in ROLES}
-    pire_role = max(mesures, key=lambda r: mesures[r])
-    pire = mesures[pire_role]
-    seuil = int(defaut * ratio)
-    part = pire / defaut * 100
-    if pire <= seuil:
-        print(f"marge saine : {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")
+    # RM3255 : chaque rôle se compare à SON plafond, comme `--check`. Le comparer au plafond PAR
+    # DÉFAUT faisait crier « DÉPASSE » en niveau critique pour un rôle dont le plafond propre avait
+    # été relevé par arbitrage (RM3238) — alors que l'invariant réel passait. Une alerte fausse coûte
+    # plus que son bruit : elle apprend à ignorer celle qui sera vraie.
+    parts = {}
+    for r in ROLES:
+        total = sum(t for _, _, t in components(r))
+        plafond = budgets.get(r, defaut)
+        parts[r] = (total, plafond, total / plafond)
+    pire_role = max(parts, key=lambda r: parts[r][2])
+    pire, plafond_pire, frac = parts[pire_role]
+    part = frac * 100
+    defaut = plafond_pire                    # la suite nomme le plafond DU rôle, pas le défaut
+    # RM3177 — la mesure est enregistrée À CHAQUE passage, saine ou non : une tendance qui ne
+    # commence à s'écrire qu'au franchissement du seuil arrive précisément trop tard.
+    from datetime import datetime
+    delta, jours = tendance(_enregistre(pire_role, pire, plafond_pire, part), datetime.now())
+    pente = (f", {delta:+.1f} pts en {jours} j" if delta is not None else "")
+    p = palier(frac, ratio)                  # `--warn-ratio` reste honoré : c'est le seuil « warn »
+    if p is None:
+        print(f"marge saine : {pire:,} / {plafond_pire:,} ({part:.0f} %){pente}, pire rôle {pire_role}")
         return 0
 
-    depasse = pire > defaut
-    msg = ("la précharge NORMS DÉPASSE le plafond de contexte" if depasse
-           else "la précharge NORMS a entamé sa marge de sécurité")
-    print(f"{msg} — {pire:,} / {defaut:,} ({part:.0f} %), pire rôle {pire_role}")
+    niveau, msg = p
+    print(f"{msg} — {pire:,} / {defaut:,} ({part:.0f} %){pente}, pire rôle {pire_role}")
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import pm_notify
-        pm_notify.add("system", "critical" if depasse else "warn", msg,
+        # Le message reste STABLE, la tendance part en CHAMP : si elle entrait dans le texte, chaque
+        # jour écrirait une entrée neuve (« +5,1 pts », « +5,3 pts »…) et l'anti-répétition tomberait.
+        pm_notify.add("system", niveau, msg,
                       job="norms-budget", role=pire_role, tokens=pire, budget=defaut,
-                      pct=round(part))
+                      pct=round(part), tendance=delta, tendance_jours=jours or None)
     except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas une mesure
         pass
     return 0

@@ -8,8 +8,9 @@
 // les jeux (état + `setWritable`/`setLabel` + gestes ⊖ ⟳ relance), l'attache/le détachement, `titleLink` et les rafraîchissements.
 import { SessionsService } from "./sessions.service.js";
 import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewModel, CountersViewModel, ReviewTileViewModel, SessionTitleViewModel } from "./SessionsViewModel.js";
-import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle } from "./Sessions.view.js";
+import { Tile, Ghost, Group, AttnBand, CtxBanner, ReviewGroup, Empty, Counters, SessionTitle, RTitle, FilterBanner, EmptyFiltered } from "./Sessions.view.js";
 import { contextGauge, contextCrossed } from "./sessions.js";                      // RM3082
+import { unseenIn } from "./unseen.js";                                                  // RM3236
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";           // RM3082
 import { effDisposition, restartTip, approveShortcutVisible, tmuxName, toggleDisposition } from "./sessions.js";
 import { mount, paint } from "../../core/dom.js";
@@ -22,10 +23,15 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const sess = ctx.sess();                                               // store session.registry : rm_id → entrée /sessions (RM2166 ; RM3005)
   const resolve = () => ctx.resolve();                                   // store ticket.resolve
   const attached = () => (ctx.attached ? ctx.attached() : null);
+  // RM3236 : « regarder » une session, c'est l'avoir attachée ET l'onglet du cockpit visible. Attachée dans un onglet
+  // caché, elle peut finir sans qu'on le voie : elle doit clignoter quand on revient.
+  const doc = ctx.document !== undefined ? ctx.document : (typeof document !== "undefined" ? document : null);
+  const visible = ctx.visible || (() => !(doc && doc.hidden));
+  const watching = (rm) => String(attached()) === String(rm) && visible();
   const selection = () => (ctx.selection ? ctx.selection() : { on: false, set: new Set() });
   const sets = () => (ctx.sets ? ctx.sets() : { sets: [], current: "default", view: "set" });
   const lend = { pin: (k, key) => (ctx.pin ? ctx.pin(k, key) : "") || "", titleLink: (rm, t) => (ctx.titleLink ? ctx.titleLink(rm, t) : "") || "" };
-  const state = { ordered: [], groups: {}, byKey: {} };
+  const state = { ordered: [], groups: {}, byKey: {}, last: null };   // RM3236 : `last` = dernière liste reçue, pour repeindre au clic
   const h = hosts.list ? mount(hosts.list, raw(hosts.list.innerHTML || ""), { events: [
     ["click", "[data-action]", (ev, el) => onAction(ev, el)],
     // RM2792 : le menu complet au clic droit — le navigateur, lui, n'a rien d'utile à proposer ici.
@@ -37,6 +43,14 @@ export function mountSessions(hosts = {}, ctx = {}) {
     }]] }) : null;
   const disposers = [];
   const listen = (node, type, fn) => { if (node && node.addEventListener) { node.addEventListener(type, fn); disposers.push(() => node.removeEventListener(type, fn)); } };
+  // RM3236 : revenir sur l'onglet du cockpit, c'est aller voir la session attachée — on repeint sans attendre la cadence.
+  listen(doc, "visibilitychange", () => { if (visible() && attached() && svc.markSeen(attached()) && ctx.refresh) ctx.refresh(); });
+  // RM3302 : les compteurs sont dans un AUTRE hôte que la liste (#hcnt) — la délégation de `mount`
+  // ne les couvre pas. Un clic sur une pastille y est capté ici, et repasse par le même onAction.
+  listen(hosts.counters, "click", (ev) => {
+    const el = ev.target && ev.target.closest ? ev.target.closest("[data-action]") : null;
+    if (el) onAction(ev, el);
+  });
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
   listen(hosts.list, "mouseenter", () => svc.enter()); listen(hosts.list, "mouseleave", () => svc.leave()); listen(hosts.list, "mousemove", () => svc.moved());
 
@@ -45,7 +59,9 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const ctxSeen = new Map(), ctxPulsing = new Set();
   const ctxTh = () => ((ctx.cfg ? ctx.cfg() : {}) || {}).context_thresholds || { warn: 50, high: 75, crit: 90 };
   const gaugeOf = (s) => contextGauge(s, ctxTh(), ctxPct, modelWindow, fmtWin);
-  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
+  // `user` (RM3070 L4) : pour n'étiqueter QUE les sessions des autres — la sienne n'a pas à l'être.
+  const tileCtx = (s) => { const sel = selection(); return { unseen: svc.unseen, resolved: resolve().get(s.rm_id), attached: attached(),
+    user: ctx.user ? ctx.user() : "", stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel, ctxThresholds: ctxTh(), ctxPulsing }; };
   const toggleSel = (s) => { const set = selection().set; set.has(s.rm_id) ? set.delete(s.rm_id) : set.add(s.rm_id); if (ctx.refresh) ctx.refresh(); };
 
   /** Peint la liste depuis le bloc /sessions ; rend les compteurs (la pile /refresh y lit sa cadence — RM2613). */
@@ -55,6 +71,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
       const rcache = resolve().view;   // lecture indexée pour les fonctions pures (computeGroups, sessionInClient)
       const d = svc.compute(sessions, rcache, ctx.clientContext ? ctx.clientContext() : "");   // RM2515 ordre, groupes, RM2639 visibilité
       sessions.forEach(s => sess.set(s.rm_id, s));                                         // RM2166 : registre pour l'encart
+      state.last = sessions;
+      svc.trackUnseen(sessions, watching);                                                     // RM3236 : qui a fini sans qu'on le voie
       if (ctx.composerRefresh) ctx.composerRefresh();                                          // RM2527 : la garde suit l'état live
       const att = attached();
       if (att && !sessions.some(s => s.rm_id === att && !s.ghost) && ctx.detach) ctx.detach();   // kill externe (RM2427 : un fantôme ne compte pas)
@@ -63,6 +81,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
       state.ordered = d.ordered; state.groups = {}; state.byKey = {};
       const reviews = (ctx.review && ctx.review.tabs ? ctx.review.tabs() : []) || [];
       const parts = [];
+      const cvm = new CountersViewModel(d.counts, svc.unseen.size, d.filtre, d.filtres);   // RM3302
       if (!sessions.length && !reviews.length) parts.push(Empty());
       // RM3082 : le palier atteint est relevé AVANT le rendu — la tuile qui vient de franchir un
       // seuil pulse une fois, puis `later` la rend muette. Une session éteinte oublie son palier.
@@ -81,16 +100,18 @@ export function mountSessions(hosts = {}, ctx = {}) {
       parts.push(AttnBand(sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice" || (gaugeOf(s) || {}).level === "crit")).map(s => new AttnChipViewModel(s, rcache[s.rm_id], gaugeOf(s))), lend));
       const cc = ctx.clientContext ? ctx.clientContext() : "";
       if (cc) parts.push(CtxBanner(cc, d.hidden));
+      if (d.filtre) parts.push(FilterBanner(cvm));   // RM3302 : le filtre actif se voit et s'annule — sous le bandeau « à traiter », qui prime toujours
       for (const key of d.visKeys) {
-        const group = d.groups.get(key); state.groups[key] = group;
-        const gvm = new GroupViewModel({ key, sessions: group, folded: svc.isCollapsed(key) });
+        const group = (d.groupsVis || d.groups).get(key); state.groups[key] = group;
+        const gvm = new GroupViewModel({ key, sessions: group, folded: svc.isCollapsed(key), unseen: unseenIn(group, svc.unseen) });
         parts.push(Group(gvm, gvm.folded ? [] : group.map(s => { const vm = s.ghost ? new GhostTileViewModel(s, tileCtx(s)) : new SessionTileViewModel(s, tileCtx(s)); state.byKey[vm.key] = s; return s.ghost ? Ghost(vm) : Tile(vm, lend); })));
       }
+      if (d.filtre && !d.visKeys.length && sessions.length) parts.push(EmptyFiltered(cvm));   // RM3302
       const revCur = ctx.review && ctx.review.current ? ctx.review.current() : null;
       parts.push(ReviewGroup(reviews.map(rm => new ReviewTileViewModel(rm, rcache[rm], revCur === rm && !att)), lend));   // RM2210
       h.update(raw(parts.map(String).join("")));
       if (ctx.announce) ctx.announce(sessions);                                                // RM2329 : mode voix
-      paintCounters(new CountersViewModel(d.counts));
+      paintCounters(cvm);
       if (ctx.renderTitle) ctx.renderTitle();
       return d.counts;
     } catch (e) { console.error("sessions : rendu en erreur", e); return null; }
@@ -100,14 +121,21 @@ export function mountSessions(hosts = {}, ctx = {}) {
     if (hosts.counters) paint(hosts.counters, Counters(cvm));
     if (hosts.navCount) { hosts.navCount.textContent = String(cvm.c.total); show(hosts.navCount, cvm.c.total); }
     if (hosts.navAtt) { hosts.navAtt.textContent = "⚠" + cvm.waiting; show(hosts.navAtt, cvm.waiting); }
+    if (hosts.navSeen) { hosts.navSeen.textContent = "👁" + cvm.unseen; show(hosts.navSeen, cvm.unseen); }   // RM3236
     show(hosts.yesAll, cvm.showYesAll);                                                        // RM2327
     if (ctx.docTitle) ctx.docTitle(cvm.docTitle);                                              // titre du navigateur
   }
   function onAction(ev, el) {
     const a = el.dataset.action, s = el.dataset.k ? state.byKey[el.dataset.k] : null;
-    if (a === "attach") { if (!s) return; selection().on ? toggleSel(s) : (ctx.attach && ctx.attach(s.rm_id)); }
+    if (a === "attach") {
+      if (!s) return;
+      if (selection().on) { toggleSel(s); return; }
+      if (svc.markSeen(s.rm_id) && state.last) render(state.last);                              // RM3236 : le compteur descend au clic
+      if (ctx.attach) ctx.attach(s.rm_id);
+    }
     else if (a === "relaunch") { if (!s) return; selection().on ? toggleSel(s) : (ctx.relaunch && ctx.relaunch(s)); }   // RM2427/RM2448
     else if (a === "approve") approve(s ? s.rm_id : attached());                              // RM2302 : « Oui » direct depuis la liste
+    else if (a === "compact") { if (s) compact(s); }                                          // RM3249
     else if (a === "kill") { if (s && ctx.kill) ctx.kill(s.rm_id); }
     else if (a === "drop") { if (s && ctx.drop) ctx.drop(s); }                                  // RM2446 : ⊖ sort du jeu sans fermer
     // RM2792 : un clic BASCULE (« à traiter » ⇄ « en pause ») — c'est le geste de tous les jours.
@@ -117,6 +145,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
       if (ev && (ev.altKey || ev.shiftKey)) { if (ctx.openDispositionMenu) ctx.openDispositionMenu(s, el); return; }
       if (ctx.setDisposition) ctx.setDisposition(s.rm_id, toggleDisposition(effDisposition(s.state, s.disposition)));
     }
+    else if (a === "filter") { const msg = svc.setFiltre(el.dataset.f); if (state.last) render(state.last); notify(msg); }   // RM3302
+    else if (a === "filter-clear") { const msg = svc.setFiltre(""); if (state.last) render(state.last); notify(msg); }
     else if (a === "restart") { if (s && ctx.toggleRestart) ctx.toggleRestart(s); }
     else if (a === "forget") { if (s && ctx.forget) ctx.forget(s); }
     else if (a === "group") { if (ctx.openProject) ctx.openProject(el.dataset.key); }           // RM2353
@@ -129,6 +159,12 @@ export function mountSessions(hosts = {}, ctx = {}) {
   async function approve(rm) {
     if (!rm) return;
     try { notify(await svc.approve(rm)); later(() => ctx.refresh && ctx.refresh(), 900); }     // laisse le TUI avancer avant de re-peindre
+    catch (e) { notify(e.message, true); }
+  }
+  /** RM3249 : hors repos, le serveur refuserait — on le dit sans aller le lui demander. */
+  async function compact(s) {
+    if (s.state !== "idle") { notify("Session " + (s.state || "?") + " : la compaction attend qu'elle soit au repos", true); return; }
+    try { notify(await svc.compact(s.rm_id)); later(() => ctx.refresh && ctx.refresh(), 900); }
     catch (e) { notify(e.message, true); }
   }
   async function approveAll(btn) {

@@ -12,8 +12,10 @@
   bares en **`core.sharedRepository=group`** → écriture directe multi-`<dev>-pm`, **sans
   sudo**, git multi-user natif. Squelette (racine, `repos/`) en `2750` (non group-writable).
 - **Secrets 3 niveaux** :
-  - **perso** `~/.config/mmi-pm/.env` — **`600`, `<dev>-pm`** — clés API/git personnelles
-    (attribution Redmine/GitLab par dev) ;
+  - **perso** `<core>/var/users/<dev>/.env` — **`600`**, dossier **`700`**, hors git — clés
+    API/git personnelles (attribution Redmine/GitLab par dev) et préférences (`PM_REPOS_DIR`,
+    `PM_MAIL_*`). **Jamais dans le home** (RM3318) ; les autres réglages de l'utilisateur
+    (`invoice.yml`, `timesheet.yml`) vivent dans le même dossier ;
   - **instance** `pm.env` du core — **`640 root:pm`**, NON-secret (URLs, ids de CF, chemins) ;
   - **commun** `.env` du core — **`640 root:pm`**, secrets de service / fallback karl.
     Groupe `pm` car **le PM doit lire config+secrets communs pour tourner** (crons, tooling).
@@ -24,7 +26,8 @@
 ## Étapes — un seul outil (RM3208)
 
 Le compte PM d'un développeur est **un seul objet** : compte de rôle système, groupe `pm`, compte du
-cockpit (les comptes du cockpit sont ceux du CLI) et profil. Tout se fait par `mmi-pm user`, idempotent :
+cockpit (les comptes du cockpit sont ceux du CLI) et conf personnelle. Tout se fait par `mmi-pm user`,
+idempotent :
 
 ```bash
 sudo mmi-pm user add <dev> --dry-run          # le plan : ce qui manque, rien d'écrit
@@ -37,8 +40,10 @@ Ce que fait `add`, dans l'ordre, en sautant ce qui existe déjà :
 2. compte de rôle `<dev>-pm` (`useradd -M -d $WORKSPACES_ROOT -s /bin/bash`) ;
 3. `<dev>-pm` **et** `<dev>` dans le groupe `pm` (le dev doit rouvrir sa session) ;
 4. compte PM au registre `var/karl-users.json` ;
-5. gabarit `~<dev>/.config/mmi-pm/.env` (dossier 700, fichier 600, **jamais écrasé**) : le dev y pose ses
-   propres clés (`REDMINE_API_KEY`, jetons forge) — ses actions partent sous son identité ;
+5. **dossier de conf du dev `<core>/var/users/<dev>/` (700) et son `.env` (600), jamais dans son home**
+   (RM3318), **jamais écrasé** : le dev y pose ses propres clés (`REDMINE_API_KEY`, jetons forge) et ses
+   réglages (`PM_REPOS_DIR`, `PM_MAIL_*`) — ses actions partent sous son identité. Un dev qui avait encore
+   l'ancien `~/.config/mmi-pm/` le vide avec `scripts/pm-user-conf-migrate.py` (lancé en tant que lui) ;
 6. skills PM et hooks Claude Code, sous le compte du dev.
 
 Le compte humain `<dev>` doit exister avant : le PM ne crée pas de personnes. Le mot de passe ne passe
@@ -48,9 +53,15 @@ Retirer l'accès : `sudo mmi-pm user disable <dev>` (compte désactivé, apparei
 `pm` — réversible par `enable`). Supprimer : `sudo mmi-pm user remove <dev>` (le compte de rôle n'est
 supprimé qu'avec `--purge-os` ; le compte humain, jamais). État : `mmi-pm user list`.
 
-Reste à la main, **par workspace** et non par utilisateur : appliquer le modèle de droits
-(`pm-perms.py --apply <workspace>`, `sudo pm-perms.py --apply --var <workspace>`), et le `umask 002` du
-compte de rôle.
+Reste à la main, **par workspace** et non par utilisateur — les droits du modèle :
+
+```
+pm-perms.py --apply <workspace>            # par workspace projet (en pm ou root)
+sudo pm-perms.py --apply --var <workspace> # + var/ (state) + pm.env/.env → root:pm 640
+```
+
+`pm-perms` sans `--apply` = dry-run (liste les écarts, exit 1). Relancer jusqu'à « ✓ conforme ». Reste
+également manuel : le `umask 002` du compte de rôle.
 
 ## Vérifications
 

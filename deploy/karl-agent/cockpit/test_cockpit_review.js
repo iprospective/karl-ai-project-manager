@@ -37,6 +37,10 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(/aucune transition/.test(menu({ status: "ferme", transitions: [] })) && /aucune transition/.test(menu(null)));
   const viewSrc = require("fs").readFileSync(path.join(DIR, "src/modules/review/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/modules/review/review.controller.js"), "utf8");
   for (const s of CFG.statuses) assert(!viewSrc.includes('"' + s + '"'), "aucun statut en dur dans la vue ni le contrôleur : " + s);
+  // RM3238 : MEP prod verrouillée par des questions non tranchées, questions nommées dans l'infobulle
+  const gq = menu({ status: "a_mep", redmine_checked: true, transitions: [{ status: "en_mep", condition: "déployé", redmine_ok: true, blocked_by_questions: ["Q001", "Q003"] }, { status: "en_pause", condition: "blocage", redmine_ok: true, blocked_by_questions: [] }] });
+  assert(/data-st="en_mep"[^>]*disabled/.test(gq) && /Q001, Q003/.test(gq) && /non tranchée/.test(gq), "une MEP bloquée par des questions est verrouillée et dit lesquelles");
+  assert(!/disabled/.test(/data-st="en_pause"[^>]*>/.exec(gq)[0]), "une transition sans question en cause reste ouverte");
   console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus, mode dégradé, zéro règle recopiée");
   // — RM2726 / RM2873 / RM2833 : consignes —
   assert.strictEqual(P.taskPromptText("traiter", "2726", "iprospective", "pm-ai-agents"), "traite la tâche RM2726 du client iprospective projet pm-ai-agents");
@@ -68,7 +72,13 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   const fiche = (over) => String(V.ReviewPane(new VM.ReviewViewModel(Object.assign({ r: R, q: { branch: "b", test_host: "h", env_live: true }, tqLoaded: true, tqSize: 1, mc: { verdict: { level: "ok", headline: "ok" } }, ts: tsData, cfg: Object.assign({ actions: [{ label: "→ en cours", text: "passe RM{id}", ticket_only: true }] }, CFG), pmTarget: { sid: "42", why: "session du ticket" } }, over || {}), { rm: "2726", prompt: { tpl: "traiter", text: "t" }, now: Date.parse("2026-09-05T11:00") }), { md: (s) => "<md>" + s + "</md>", titleLink: (rm, t) => "<i>" + esc(t) + "</i>", mcBanner: (mc) => '<div class="mcbanner">' + mc.verdict.headline + "</div>" }));
   const f = fiche();
   assert(/🧪 RM2726 — <i>Titre<\/i>/.test(f) && /acme\/shop/.test(f) && /version il y a 1 h/.test(f) && /data-action="reload"/.test(f) && /Redmine ↗/.test(f) && /MR ↗/.test(f) && /branche <span class="pill"/.test(f));
-  assert(/\(note de livraison\)/.test(f) && /<md># proto<\/md>/.test(f) && /📝 Description/.test(f) && /🕘 Dernière activité/.test(f) && /🔗 <a href="http:\/\/h\/"/.test(f) && /data-action="env-teardown"/.test(f) && /test_url ticket/.test(f) && /https:\/\/p ↗/.test(f) && /class="mcbanner">ok/.test(f));
+  // RM3256 : les champs du ticket viennent du registre d'entités (une seule description, deux vues) ;
+  // la fiche ne garde que ce qui lui est propre : env de test, cohérence git, verdicts.
+  assert(/data-sec="protocol"[\s\S]*\(note de livraison\)[\s\S]*<h1>proto<\/h1>/.test(f), "protocole : provenance + markdown, depuis le registre");
+  assert(/data-sec="description"[\s\S]*<p>desc<\/p>/.test(f) && /data-sec="log"[\s\S]*log/.test(f), "description (en markdown) et dernière activité aussi");
+  assert(/data-sec="environments"[\s\S]*https:\/\/p/.test(f), "environnements du projet : une seule définition");
+  assert(/🔗 <a href="http:\/\/h\/"/.test(f) && /data-action="env-teardown"/.test(f) && /class="mcbanner">ok/.test(f), "… et l'env de test du ticket reste propre à la fiche");
+  assert(!/<h4>📋 Protocole de test<\/h4>/.test(f) && !/📝 Description du ticket/.test(f), "la fiche ne redécrit plus ces champs");
   assert(/data-action="verdict" data-kind="valider"/.test(f) && /data-action="pm" data-i="0" data-rm="2726"/.test(f) && /title="passe RM2726"/.test(f) && /session du ticket/.test(f) && !/onclick=/.test(f));
   assert(/data-action="env-deploy"/.test(fiche({ q: { test_host: "h", env_reason: "down" } })) && /down/.test(fiche({ q: { test_host: "h", env_reason: "down" } })), "env présent mais indisponible → re-déployer");
   assert(/data-action="env-shared"/.test(fiche({ q: { deployable: true } })) && /hors layout/.test(fiche({ q: {} })) && /n’est plus dans la file de test/.test(fiche({ q: undefined })) && /data-action="close"/.test(fiche({ q: undefined })));
@@ -120,6 +130,76 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   await el.click("spawn", { rm: "42" }); await settle(); assert(ev.some(x => x[0] === "attach" && x[1] === "9"), "une session travaille déjà le ticket → on la rejoint (RM2818)");
   await ctr.openStatusMenu("RM42", { getBoundingClientRect: () => ({ left: 0, bottom: 0 }) }); await settle(); assert(/data-st="a_tester_dev"/.test(el.sub.menu.innerHTML), "le menu est chargé APRÈS ouverture, depuis les transitions du serveur");
   runs.length = 0; await el.sub.menu.click("x", { st: "a_tester_dev" }); await settle(); assert(runs.some(x => x[0] === "task-status" && x[1].status === "a_tester_dev"), "choisir une transition la soumet"); assert(el.sub.menu.sub.removed, "…et referme le menu");
+  // RM3258 — une entrée mal attribuée se déplace, une fausse entrée se supprime, DEPUIS la revue :
+  // c'est là qu'on les voit, et c'est là que la clôture est refusée à cause d'elles.
+  {
+    const th = { file: "RM42_x.think.md", counts: { questions_open: 1 }, blocking: true,
+                 questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", open: true }], decisions: [], features: [], notes: [] };
+    const pane = String(V.ThinkPane(th));
+    assert(/data-action="think-move" data-id="Q001"/.test(pane), "le volet Réflexion offre le déplacement");
+    assert(/data-action="think-delete" data-id="Q001"/.test(pane), "…et la suppression");
+    assert(!/onclick=/.test(pane), "gestes délégués, aucun on*");
+    // RM3357 : une question qui attend un TIERS n'est ni ouverte ni bloquante, mais reste visible
+    {
+      const th357 = { file: "f", counts: { questions_open: 1, questions_reserve: 2, notes_pending: 0 },
+        questions: [{ id: "Q001", icon: "🕐", text: "à trancher par nous", open: true },
+                    { id: "Q002", icon: "⏸", text: "attend le client", reserve: true }],
+        decisions: [], features: [], notes: [] };
+      const h357 = String(V.ThinkPane(th357));
+      assert(/2 en attente d'un tiers/.test(h357), "le volet distingue les deux comptes");
+      assert(/attend un tiers/.test(h357) && /attend le client/.test(h357), "…et marque la ligne concernée");
+      const bloc = h357.slice(h357.indexOf("Q002"));
+      assert(!/data-action="think-state"/.test(bloc), "une question en réserve n'offre pas ✅/❌ : ce n'est pas à nous de trancher");
+    }
+    // RM3262 : la signature accompagne l'entrée, sans voler la vedette à son texte
+    const signe = String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
+      questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", signature: "2026-09-01 · Mathieu", open: true }] }));
+    assert(/class="thk-sig"[^>]*>2026-09-01 · Mathieu</.test(signe), "la question dit qui l'a posée, et quand");
+    assert(signe.indexOf("vraie question ?") > signe.indexOf("thk-sig"), "…après l'id et la signature, le texte");
+    assert(!/thk-sig/.test(String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
+      questions: [{ id: "Q001", icon: "❓", text: "carnet pas encore migré", open: true }] }))), "sans signature connue : rien d'inventé");
+    const closed = String(V.ThinkPane({ file: "f", counts: {}, questions: [{ id: "Q002", icon: "✅", text: "tranchée", closed: true }], decisions: [], features: [], notes: [] }));
+    assert(!/think-move|think-delete/.test(closed), "une entrée déjà tranchée n'offre pas ces gestes");
+  }
+  {
+    const vus = []; let reponse = "3015";
+    const ctr2 = mountReview(fakeElement(), { ticket: T, service: svc, center, notify: (m, e) => ev.push(["toast", m, !!e]),
+      confirm: () => true, prompt: () => reponse, resolve: () => resolve, cfg: () => CFG, show: () => {}, setMeta: () => {}, renderMeta: () => {},
+      noteOpened: () => {}, showRight: () => {}, refreshSessions: () => {}, tq: { entry: () => null, loaded: () => false, size: () => 0, load: () => {} },
+      launcher: () => ({ engine: "claude", model: "" }), popover: () => fakeElement(), place: () => {}, onOutsideClick: () => {},
+      cdc: { thinkEdit: async (body) => { vus.push(body); return { ok: true }; } } });
+    ctr2.open("42"); await settle();
+    ev.length = 0;
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "move", to: "3015" }, "déplacer : le front dit l'entrée et la cible, rien d'autre");
+    reponse = "RM77";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.strictEqual(vus[vus.length - 1].to, "77", "« RM77 » saisi à la main est accepté");
+    reponse = "n'importe quoi"; const n0 = vus.length;
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
+    assert.strictEqual(vus.length, n0, "saisie invalide : rien ne part sur le réseau");
+    assert(ev.some(x => x[0] === "toast" && x[2]), "…et on le dit");
+    // RM3370 — trancher une question depuis la REVUE : avec sa décision, ou sans mais explicitement.
+    // L'ancien libellé disait « facultatif » alors que le serveur exige la décision (RM3269) : laissé
+    // vide, le geste renvoyait une erreur brute parlant de --decide-with et --force.
+    reponse = "on part sur SQLite";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q001", state: "valide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "state", state: "valide", comment: "on part sur SQLite" },
+                           "la réponse saisie part comme la décision qui tranche");
+    reponse = "";   // vide : on propose de trancher SANS décision (confirm → true dans ce montage)
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q001", state: "valide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "state", state: "valide", force: true },
+                           "sans réponse et après accord : trancher sans décision, explicitement");
+    assert(ev.some(x => x[0] === "toast" && /SANS décision/.test(x[1])), "…et on le dit, pour qu'on y revienne");
+    reponse = "";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q002", state: "invalide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q002", action: "state", state: "invalide" },
+                           "écarter n'exige aucune décision — écarter n'est pas trancher");
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-delete", id: "N003" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "N003", action: "delete" }, "supprimer depuis la revue");
+    ctr2.unmount();
+  }
+  console.log("✓ réflexion (RM3258/RM3064) : déplacer vers un autre ticket, supprimer, depuis la revue");
   ctr.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur : ouverture/fermeture/cession, consigne hors DOM, verdict, doublon rejoint, menu de statut");
   console.log("\nTous les tests de la revue passent.");

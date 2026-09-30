@@ -54,7 +54,7 @@ params = {"follow_cap": 10, "write_base": 1, "chars_per_min": 45,
 # même instant ET même horizon (un 3e prompt plus tard) → intervalles identiques
 simultanes = [ev(0, cible=("a", "p1", None)), ev(0, cible=("b", "p2", None)),
               ev(30, cible=("a", "p1", None))]
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(simultanes, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(simultanes, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values())),
         "somme des lignes attribuées = mesure de l'union")
 ivs = W.build_intervals(simultanes, params)
@@ -69,26 +69,26 @@ verifie(part_b > 0 and part_a > part_b,
 
 # série réaliste : 20 prompts entremêlés sur 3 projets
 serie = [ev(i * 3, chars=60 + 10 * i, cible=(f"c{i%3}", "p", None)) for i in range(20)]
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(serie, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(serie, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values()), 1e-6),
         "invariant tenu sur une série entremêlée")
 
 # ── 2. Plafond de suivi ──────────────────────────────────────────────────────
 print("\n2. Plafond de suivi (l'agent travaille seul, l'humain revient plus tard)")
 loin = [ev(0), ev(120)]      # deux heures d'écart
-alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(loin, params), params)
+alloc, periodes, totaux, _ph, _phc, _sg = W.allocate(W.build_intervals(loin, params), params)
 verifie(sum(totaux.values()) < 40,
         f"les 2 h d'absence ne sont pas comptées ({sum(totaux.values()):.0f} min)")
 serre = [ev(0), ev(5)]
-_a, _p, t2, _ph2, _phc2 = W.allocate(W.build_intervals(serre, params), params)
+_a, _p, t2, _ph2, _phc2, _sg = W.allocate(W.build_intervals(serre, params), params)
 verifie(sum(t2.values()) < sum(totaux.values()) or True, "cas resserré calculé")
 
 # ── 3. Les traces d'agent n'étendent pas le temps ────────────────────────────
 print("\n3. Traces d'agent : elles attribuent, elles ne créent pas")
 humain = [ev(0, cible=("a", "p", "111"))]
 avec_agent = humain + [ev(60, cible=("a", "p", "222"), extends=False)]
-_a1, _p1, t_h, _p3, _p3c = W.allocate(W.build_intervals(humain, params), params)
-_a2, _p2, t_a, _p4, _p4c = W.allocate(W.build_intervals(avec_agent, params), params)
+_a1, _p1, t_h, _p3, _p3c, _sg = W.allocate(W.build_intervals(humain, params), params)
+_a2, _p2, t_a, _p4, _p4c, _sg = W.allocate(W.build_intervals(avec_agent, params), params)
 verifie(presque(sum(t_h.values()), sum(t_a.values()), 0.01),
         "une trace d'agent isolée n'ajoute aucune minute")
 
@@ -213,6 +213,152 @@ e1 = W.Event(ts=datetime(2026, 8, 3, 10, 0), chars=10, source="claude-history", 
 e2 = W.Event(ts=datetime(2026, 8, 3, 10, 0), chars=10, source="claude-transcript", text="bonjour")
 e3 = W.Event(ts=datetime(2026, 8, 3, 10, 5), chars=10, source="claude-transcript", text="autre")
 verifie(len(W.dedupe([e1, e2, e3])) == 2, "le même prompt vu par deux sources ne compte qu'une fois")
+
+
+# ── 10. Journée : configuration utilisateur, cache, surcharges (RM3229) ──────
+print("\n10. Journée — configuration, cache, surcharges")
+import tempfile
+with tempfile.TemporaryDirectory() as d:
+    racine = Path(d)
+    e1 = W.Event(ts=datetime(2026, 8, 26, 9, 45), chars=120, source="claude-transcript",
+                 cwd="/zfs/x", session="s1", text="bonjour")
+    e2 = W.Event(ts=datetime(2026, 8, 26, 14, 0), chars=30, source="redmine:matnat",
+                 text="commentaire", cible=("matnat", "infra", "matnat#5588"))
+    W.cache_ecrire("2026-08-26", [(e1, "2553"), (e2, None)], racine=racine)
+    relu = W.cache_lire("2026-08-26", racine=racine)
+    verifie(len(relu) == 2 and relu[0][1] == "2553" and relu[0][0].ts == e1.ts,
+            "cache aller-retour : événement et ticket du tour conservés")
+    verifie(relu[1][0].cible == ("matnat", "infra", "matnat#5588"), "cible certaine conservée")
+    verifie(W.cache_lire("2026-08-27", racine=racine) is None, "journée absente du cache : None")
+    W.surcharges_ecrire("2026-08", {"2026-08-26": {"debut": "09:30", "fin": "18:30", "client": "matnat"}},
+                        racine=racine)
+    verifie(W.surcharges_charger("2026-08", racine=racine)["2026-08-26"]["client"] == "matnat",
+            "surcharges aller-retour")
+
+verifie(W.heures_travaillees("09:30", "18:30") == 8.0, "9 h 30 – 18 h 30 = 8 h (pause d'1 h par défaut)")
+verifie(W.heures_travaillees("09:00", "12:00") == 3.0, "demi-journée : pas de pause")
+verifie(W.heures_travaillees("09:00", "18:00", 0.5) == 8.5, "pause explicite")
+
+reguliere = [{"client": "matnat", "jours": ["mercredi"], "heures": 8, "debut": "09:30", "fin": "18:30"}]
+eff = W.presences_effectives(reguliere, {"2026-08-12": {"debut": "09:00", "fin": "12:00", "client": "matnat"}})
+verifie("2026-08-12" in eff[0]["sauf"], "une journée ajustée sort de la présence régulière")
+verifie(eff[1]["dates"] == ["2026-08-12"] and eff[1]["heures"] == 3.0,
+        "…et devient une présence datée (3 h) — pas deux planchers empilés")
+verifie(W.presences_effectives(reguliere, {"2026-08-12": {"valide_sans_ajout": True}}) == reguliere
+        or W.presences_effectives(reguliere, {"2026-08-12": {"valide_sans_ajout": True}})[0]["sauf"] == [],
+        "une validation sans horaires ne touche pas aux présences")
+verifie(str(W.chemin_config("/tmp/x.yml")) == "/tmp/x.yml", "configuration explicite prioritaire")
+
+# une journée de régie DÉJÀ saisie ne se voit pas re-proposer son complément
+pres = [{"client": "matnat", "projet": "infra", "dates": ["2026-08-26"], "debut": "09:30",
+         "fin": "18:30", "heures": 8, "reunion_h": 1}]
+d0, d1 = datetime(2026, 8, 26), datetime(2026, 8, 27)
+ph = {("2026-08-26", h): 20.0 for h in range(9, 19)}          # 3 h 20 mesurées dans la plage
+aj_vide, _t = W.appliquer_presences({}, pres, d0, d1, ph)
+verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément jusqu'à 8 h")
+aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
+verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
+
+# ── Recouvrement des tours d'agent (RM3229, 2026-09-22) ─────────────────────
+# Le bornage a été demandé, essayé, puis RETIRÉ le jour même : deux agents en parallèle
+# produisent bien deux fois du travail, même si l'horloge n'avance qu'une fois. La
+# fonction reste — elle sert à SIGNALER le recouvrement — mais plus rien ne rabote les
+# durées : le chiffre affiché est celui que les tours déclarent.
+_t = W.ticks_sans_chevauchement([
+    {"heure": "09:00", "minutes": 10.0},     # se termine à 09:10, rien après avant 09:20
+    {"heure": "09:20", "minutes": 30.0},     # déborde sur 09:30 → borné à 10 min
+    {"heure": "09:30", "minutes": 5.0},
+])
+verifie([round(x["minutes_reelles"]) for x in _t] == [10, 10, 5],
+        "le temps d'horloge d'un tour s'arrête au début du suivant")
+verifie([x["borne"] for x in _t] == [False, True, False],
+        "…et le recouvrement est signalé")
+verifie([x["minutes"] for x in _t] == [10.0, 30.0, 5.0],
+        "la durée DÉCLARÉE est intacte : c'est elle qui compte, l'horloge n'est qu'une indication")
+verifie(W.ticks_sans_chevauchement([]) == [], "aucun tour : aucune erreur")
+_solo = W.ticks_sans_chevauchement([{"heure": "14:00", "minutes": 90.0}])
+verifie(_solo[0]["minutes_reelles"] == 90.0 and not _solo[0]["borne"],
+        "le dernier tour de la journée ne recouvre rien")
+_desordre = W.ticks_sans_chevauchement([{"heure": "10:00", "minutes": 60.0},
+                                        {"heure": "09:00", "minutes": 30.0}])
+verifie(_desordre[0]["heure"] == "09:00", "les tours sont remis dans l'ordre avant analyse")
+
+# ── Bandes colorées de la frise ─────────────────────────────────────────────
+_d = lambda h, m: datetime(2026, 9, 18, h, m)          # noqa: E731
+_bandes = W.bandes_par_client([
+    (_d(9, 0), _d(9, 10), {"pisceen": 10}),
+    (_d(9, 10), _d(9, 20), {"pisceen": 10}),           # même client, contigu → fusionné
+    (_d(9, 20), _d(9, 40), {"calicote": 20}),
+    (_d(10, 0), _d(10, 30), {"matnat": 20, "pisceen": 10}),
+])
+verifie(len(_bandes) == 3, "les tranches contiguës d'un même client fusionnent")
+verifie(_bandes[0]["minutes"] == 20 and _bandes[0]["client"] == "pisceen",
+        "…en cumulant leur durée")
+verifie(_bandes[2]["client"] == "matnat" and _bandes[2]["parts"]["pisceen"] == 10,
+        "la bande garde TOUTE sa répartition, pas seulement le dominant")
+verifie(W.bandes_par_client([]) == [], "journée sans tranche : aucune bande")
+_miette = W.bandes_par_client([(_d(9, 0), _d(9, 30), {"pisceen": 30}),
+                               (_d(9, 30), _d(9, 31), {"calicote": 1})])
+verifie(len(_miette) == 1, "une miette d'une minute est absorbée, pas dessinée")
+
+# ── Facturable et pause de midi (RM3229, 2026-09-22) ────────────────────────
+# « ce sont les type self (c'est moi) » : la liste des entités non facturées n'est pas
+# une conf, elle est DÉJÀ dans les manifestes PM.
+_r = W.Regles(types={"pisceen": "client", "iprospective": "self", "lemathou": "self",
+                     "dolibarr": "product"})
+verifie(_r.facturable("pisceen"), "un client se facture")
+verifie(not _r.facturable("iprospective"), "soi-même, non")
+verifie(not _r.facturable("lemathou"), "le perso non plus")
+verifie(not _r.facturable("dolibarr"), "un produit mutualisé non plus")
+verifie(_r.est_soi("iprospective") and not _r.est_soi("pisceen"), "type self reconnu")
+
+# le trou de midi : ce qui permet de dire « la pause n'apparaît pas » sans le deviner
+verifie(W.trou_de_midi([["09:00", "12:15"], ["13:30", "18:00"]])["minutes"] == 75,
+        "un vrai trou de midi est mesuré")
+verifie(W.trou_de_midi([["09:00", "18:00"]]) is None,
+        "journée d'un seul tenant : aucune pause visible")
+verifie(W.trou_de_midi([["09:00", "12:50"], ["13:05", "18:00"]]) is None,
+        "15 min ne font pas une pause de midi")
+verifie(W.trou_de_midi([["09:00", "11:00"], ["14:45", "18:00"]])["debut"] == "11:30",
+        "le trou est borné au créneau du midi, pas à la journée")
+_pc = W.conf_pause({"pause": {"client": "iprospective", "heures": 0.75}})
+verifie(_pc["client"] == "iprospective" and _pc["heures"] == 0.75
+        and _pc["activity_id"] == 27,
+        "la conf de pause complète les défauts sans les perdre")
+verifie(W.conf_pause({})["client"] is None,
+        "sans conf, aucune cible : rien ne se note d'office")
+
+
+# Les données d'exploitation du PM (cache des traces, surcharges, sauvegardes de reprise)
+# appartiennent au core, avec le reste de ce que le PM produit en tournant.
+import tempfile as _tf
+import types as _ty
+
+with _tf.TemporaryDirectory() as _tmp:
+    _core = Path(_tmp) / "core"
+    (_core / "var").mkdir(parents=True)
+    _ancien = Path(_tmp) / "home-state"
+    (_ancien / "cache").mkdir(parents=True)
+    (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: matnat}\n", encoding="utf-8")
+    (_ancien / "cache" / "2026-08-26.jsonl").write_text("{}\n", encoding="utf-8")
+
+    _avant, _herite = W.ETAT, W.ETAT_HERITE
+    try:
+        W.ETAT_HERITE = _ancien
+        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        verifie(_cible == _core / "var" / "timesheet", "l'état pointe sur <core>/var/timesheet")
+        verifie((_cible / "2026-08.days.yml").is_file(), "les surcharges de journée ont suivi")
+        verifie((_cible / "cache" / "2026-08-26.jsonl").is_file(),
+                "le cache des traces a suivi (sinon : tout rejouer)")
+        verifie(not any(_ancien.iterdir()), "l'ancien emplacement est vidé")
+
+        (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: AUTRE}\n", encoding="utf-8")
+        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        verifie("matnat" in (_cible / "2026-08.days.yml").read_text(encoding="utf-8"),
+                "une seconde reprise n'écrase pas l'état déjà en place")
+        verifie(W.configurer_etat(None) == _cible, "sans configuration, l'état ne bouge pas")
+    finally:
+        W.ETAT, W.ETAT_HERITE = _avant, _herite
 
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

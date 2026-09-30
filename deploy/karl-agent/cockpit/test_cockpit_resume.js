@@ -46,6 +46,27 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   const n = calls.length; r = await svc.resume(RS[1], "pas valide!"); assert(!r.ok && /Ancrage invalide/.test(r.message) && calls.length === n, "ancrage invalide : refusé sans appel");
   r = await svc.move(RS[0], "acme/bo", ["acme/bo"]); assert(!r.ok && /tmux vivant/.test(r.message)); r = await svc.move(RS[1], "acme/bo", []); assert(!r.ok && /non chargée/.test(r.message)); r = await svc.move(RS[1], "zz/zz", ["acme/bo"]); assert(!r.ok && /Projet inconnu : zz\/zz/.test(r.message));
   r = await svc.move(RS[1], " acme/bo ", ["acme/bo"]); assert(r.ok && /→ acme\/bo/.test(r.message)); assert.deepStrictEqual(calls[calls.length - 1], ["move", "beef0000-1111", "acme", "bo"]);
+  // RM3265 — reprendre la conversation d'un TICKET, sans saisie d'ancrage : c'est le dernier
+  // recours du clic sur une session épinglée dont le tmux est mort. La session VIVANTE du même
+  // ticket ne doit jamais être « reprise » (elle tourne : on s'y attache).
+  {
+    const RS2 = [{ session_id: "vivante-1", tickets: [{ rm_id: "42" }], live: true },
+                 { session_id: "morte-2", tickets: [{ rm_id: "42" }], live: false },
+                 { session_id: "autre-3", tickets: [{ rm_id: "77" }], live: false }];
+    const vus = []; const repo2 = { async search(qs) { vus.push(["search", qs]); return { resumable: RS2, archived: [] }; },
+                                    async resume(body) { vus.push(["resume", body]); return { tmux: "karl-RM42", rm_id: "42" }; } };
+    const svc2 = new ResumeService({ repo: repo2 });
+    assert.strictEqual((await svc2.resumableOf("42")).session_id, "morte-2", "on reprend la session ÉTEINTE du ticket, pas celle qui tourne");
+    assert.strictEqual(await svc2.resumableOf("999"), null, "ticket sans conversation : rien");
+    assert.strictEqual(await svc2.resumableOf("pas un id"), null, "ancrage non numérique : aucune requête");
+    assert(vus.filter(x => x[0] === "search").every(x => /q=RM/.test(x[1])), "la recherche passe par le ticket");
+    const ok = await svc2.resumeTicket("42");
+    assert(ok.ok && /karl-RM42/.test(ok.message));
+    assert.deepStrictEqual(vus[vus.length - 1], ["resume", { session_id: "morte-2", rm_id: "42" }], "reprise ancrée sur le ticket lui-même");
+    const ko = await svc2.resumeTicket("999");
+    assert(!ko.ok && /aucune conversation/.test(ko.message), "rien à reprendre : dit, et pas d'appel de reprise");
+  }
+  console.log("✓ reprise par ticket (RM3265) : la session éteinte du ticket, ancrée sur lui, sans saisie");
   console.log("✓ vue et service (RM2991/2144/2418) : lignes décorées et échappées, archivées inertes, ancrage validé, déplacement gardé");
   // — contrôleur —
   const card = fakeElement("rescard"), q = fakeElement("rs-q"), deep = Object.assign(fakeElement("rs-deep"), { type: "checkbox", checked: false }), cs = fakeElement("rs-client"), ps = fakeElement("rs-project"), st = Object.assign(fakeElement("rs-status"), { value: "not-done" }), eng = fakeElement("rs-engine"), ul = fakeElement("rs-list");

@@ -19,7 +19,7 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   let histOpen = false; let placeholder = null;
   const ctr = mountCenter(hosts, { repo, storage: store, md: (x) => "<md>" + x + "</md>", resolve: () => mkStore("r"),
     scope: () => ({ filesData: { projects: [{ root: "/w/appli", client: "acme", project: "appli" }] }, attached: attachedSid, projectKey: null }),
-    surfaces: { session: { sessions: () => ({ "42": { rm_id: "42" } }), list: async () => [{ rm_id: "77", ghost: true, session_id: "s77" }], open: (sid) => { attachedSid = sid; ev2.push(["attach", sid]); }, relaunch: (s) => ev2.push(["relaunch", s.session_id]), close: () => { if (attachedSid) { ev2.push(["detach", attachedSid]); attachedSid = null; } } },
+    surfaces: { session: { sessions: () => ({ "42": { rm_id: "42" } }), list: async () => [{ rm_id: "77", ghost: true, session_id: "s77" }], open: (sid) => { attachedSid = sid; ev2.push(["attach", sid]); }, relaunch: (s) => ev2.push(["relaunch", s.session_id]), resume: async (rm) => { ev2.push(["resume", rm]); return rm === "888"; }, close: () => { if (attachedSid) { ev2.push(["detach", attachedSid]); attachedSid = null; } } },
       review: { open: (rm) => { review = rm; ev2.push(["review", rm]); }, close: () => { if (review) { ev2.push(["closeReview", review]); review = null; } } },
       project: { open: (k) => ev2.push(["project", k]), close: () => ev2.push(["closeProject"]) }, newticket: { open: () => ev2.push(["newticket"]), close: () => ev2.push(["closeNewTicket"]) } },
     panels: { pm: { label: "commandes pm", load: () => ev2.push(["load", "pm"]), show: (on) => ev2.push(["cp-pm", on]) }, settings: { label: "réglages", load: () => ev2.push(["load", "settings"]), show: (on) => ev2.push(["cp-settings", on]) } },
@@ -38,7 +38,13 @@ const { esc, fakeElement, RC } = require("./test_cockpit_center.helpers.js");
   assert.deepEqual(ev2.filter(x => x[0] === "attach").length, 1, "…et la réactive par sa surface");
   // activer un onglet de session éteinte relance ; inconnue → on le dit
   ctr.note("session", "77", "RM77", { pin: true }); await ctr.activate("session:77"); assert.deepEqual(ev2.pop(), ["relaunch", "s77"]);
-  ctr.note("session", "999", "RM999", { pin: true }); await ctr.activate("session:999"); assert(/introuvable/.test(ev2.pop()[1]));
+  // RM3265 : ni vivante ni enregistrée — le clic tente la REPRISE du transcript avant de renoncer.
+  // C'est le cas d'une session épinglée dont le tmux est mort : RM2819 ne couvrait que les jeux.
+  ctr.note("session", "888", "RM888", { pin: true }); await ctr.activate("session:888");
+  assert.deepEqual(ev2.pop(), ["resume", "888"], "session éteinte hors jeu : on tente de la reprendre");
+  ctr.note("session", "999", "RM999", { pin: true }); await ctr.activate("session:999");
+  assert(/introuvable/.test(ev2.pop()[1]), "…et si le transcript n'existe plus, on le dit");
+  assert.deepEqual(ev2.pop(), ["resume", "999"], "…après l'avoir tenté, pas à sa place");
   // vue générique : elle fait céder les surfaces, capture la portée, rend, et son échec se dit
   await ctr.openFile("wt", "/w/appli", "docs/a.md", ""); assert.deepEqual(calls.pop(), ["fsFile", "/w/appli", "c:acme/appli;s:42", "docs/a.md"], "la portée est capturée AU clic (session ∪ projet), avant tout detach");
   assert(ev2.some(x => x[0] === "detach"), "la session a cédé la place"); assert.strictEqual(placeholder, false); assert(/<md># x<\/md>/.test(hosts.view.innerHTML)); assert(/📄/.test(hosts.title.innerHTML));

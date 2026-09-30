@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/reload" android:title="Recharger" />
+    <item android:id="@+id/servers" android:title="Serveurs" />
+    <item android:id="@+id/bio" android:title="Déverrouillage biométrique" android:checkable="true" />
+    <item android:id="@+id/logout" android:title="Se déconnecter" />
+</menu>

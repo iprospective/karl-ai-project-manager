@@ -35,3 +35,32 @@ export CLIENT_USER_IP="10.0.3.1"
 # contacter la production. Une conf reste libre de les surcharger.
 export SSH_OPTS="${SSH_OPTS:-}"
 export RSYNC_OPTS="${RSYNC_OPTS:-}"
+
+# ── Paramètres PROPRES À L'INSTANCE — RM3221 ──────────────────────────────────
+# Le domaine des environnements de recette dépend de l'instance qui fait tourner
+# ce framework, pas du framework : le repo PM est fédérable, et une autre instance
+# n'a ni le même domaine ni le même conteneur de dev. Ces valeurs vivent donc dans
+# le `pm.env` de l'instance (racine du repo PM) — la config d'instance NON SECRÈTE et
+# non versionnée qui porte déjà GITLAB_URL, REDMINE_URL, ZABBIX_URL (RM2438). Pas de
+# fichier de conf propre au framework : un troisième emplacement pour la même nature
+# de paramètre serait le suivant qu'on oublie de renseigner.
+#
+# Une conf d'environnement écrit DOMAIN="<site>.${TEST_DOMAIN}", jamais un domaine en
+# dur. Une variable déjà présente dans l'environnement l'emporte sur pm.env.
+#
+# pm.env est LU, pas sourcé : on n'y prend que les trois clés utiles, sans exécuter
+# son contenu ni importer ses autres clés dans l'environnement de la synchro.
+# Chemin surchargeable par SYNCHRO_INSTANCE_ENV (tests, instance atypique).
+SYNCHRO_PM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+SYNCHRO_INSTANCE_ENV="${SYNCHRO_INSTANCE_ENV:-$SYNCHRO_PM_ROOT/pm.env}"
+_pm_env_get() {
+  [ -r "$SYNCHRO_INSTANCE_ENV" ] || return 0
+  sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*[\"']?([^\"'#]*[^\"'#[:space:]])?[\"']?[[:space:]]*(#.*)?\$/\1/p" \
+    "$SYNCHRO_INSTANCE_ENV" | tail -1
+}
+# Défauts vides plutôt qu'absents : sous `set -u`, une conf qui cite ${TEST_DOMAIN}
+# sans valeur échouerait sur « unbound variable », message qui ne dit pas quoi faire.
+# Vide, le domaine se termine par un point et sync.sh l'explique.
+export TEST_DOMAIN="${TEST_DOMAIN:-$(_pm_env_get TEST_DOMAIN)}"
+export TEST_HOST="${TEST_HOST:-$(_pm_env_get TEST_HOST)}"
+export DEV_DOMAIN="${DEV_DOMAIN:-$(_pm_env_get DEV_DOMAIN)}"

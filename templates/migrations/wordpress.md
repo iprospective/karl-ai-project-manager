@@ -44,7 +44,7 @@ Apache + PHP-FPM avec pool dédié `{{fpm_pool}}` — convention `<projet>-<phpv
 
 ### Source (hébergeur actuel)
 - [ ] Credentials récupérés : SSH/SFTP, panel admin (cPanel/Plesk/managed), DB admin (phpMyAdmin / accès direct)
-- [ ] Stockage des credentials dans Vaultwarden (collection client `{{client_slug}}`)
+- [ ] Stockage des credentials dans le coffre du projet (collection client `{{client_slug}}` — Vaultwarden par défaut, ou le coffre qu'impose le client)
 - [ ] Version WordPress : `wp core version` ou `wp-includes/version.php` → `$wp_version`
 - [ ] Version PHP côté source : `php -v` (ou panel) — `{{php_version}}` doit matcher
 - [ ] Version MySQL/MariaDB : `mysql --version`
@@ -98,11 +98,11 @@ Apache + PHP-FPM avec pool dédié `{{fpm_pool}}` — convention `<projet>-<phpv
 - [ ] Créer DB + user :
   ```sql
   CREATE DATABASE {{db_name}} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  CREATE USER '{{db_user}}'@'localhost' IDENTIFIED BY '<password-from-vaultwarden>';
+  CREATE USER '{{db_user}}'@'localhost' IDENTIFIED BY '<password-from-vault>';
   GRANT ALL PRIVILEGES ON {{db_name}}.* TO '{{db_user}}'@'localhost';
   FLUSH PRIVILEGES;
   ```
-- [ ] Password généré + stocké dans Vaultwarden (item `{{client_slug}} — DB MySQL prd`)
+- [ ] Password généré + stocké dans le coffre du projet (item `{{client_slug}} — DB MySQL prd`)
 
 ### Filesystem
 - [ ] `mkdir -p {{app_path}} && chown -R www-data:www-data {{app_path}}`

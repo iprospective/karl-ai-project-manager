@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests RM2809 — pm-promote trace la promotion sur les tickets du lot.
+"""Tests RM2809 / RM3222 — pm-promote trace la promotion sur les tickets du lot.
 
 Un ticket promu restait, dans son suivi, arrêté à `dev` : l'information n'était
 pas perdue, elle n'était jamais produite.
@@ -92,7 +92,16 @@ def seed(tmp):
         "Merge branch '2777-barre-progression-panier' into 'dev'",
         "2777-barre-progression-panier", cwd=work)
 
-    # 3) auto-commit sans ticket : ne doit rien casser
+    # 3) RM3222 — cas de la promotion !1199 : un commit livré qui CITE d'autres
+    #    tickets dans son corps. Seul le ticket du sujet est du lot.
+    (work / "e.txt").write_text("5\n")
+    git("add", "e.txt", cwd=work)
+    git("commit", "-qm",
+        "RM3221 : domaine de recette lu dans pm.env\n\n"
+        "Reprend RM3200 et RM2914 ; exception tracée RM3135 (cf. RM3195, RM3209).",
+        cwd=work)
+
+    # 4) auto-commit sans ticket : ne doit rien casser
     (work / "d.txt").write_text("4\n")
     git("add", "d.txt", cwd=work)
     git("commit", "-qm", "pm(tick): métriques", cwd=work)
@@ -148,7 +157,10 @@ def main():
         check("le commit direct RM<id> est reconnu", 2857 in ids, str(ids))
         check("le commit de MERGE est reconnu par son nom de branche",
               2777 in ids, str(ids))
-        check("aucun id parasite", sorted(ids) == [2777, 2857], str(ids))
+        check("aucun id parasite", sorted(ids) == [2777, 2857, 3221], str(ids))
+        check("RM3222 : un RM-id cité dans le CORPS d'un commit n'est pas du lot (!1199)",
+              not {3200, 2914, 3135, 3195, 3209} & set(ids), str(ids))
+        check("RM3222 : le ticket porté par le sujet reste détecté", 3221 in ids, str(ids))
 
         # ---- le lot est annoncé, y compris en dry-run ----------------------
         out = run_promote(work, "--source", "dev", "--target", "main",

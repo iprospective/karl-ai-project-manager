@@ -106,11 +106,34 @@ def norm(value, is_list):
     return pm_cf_mirror.normalize_text(value) or None
 
 
-def decide_acceptance(local, remote, body):
+def cf_vide_vers_push(action, value, motifs, local, remote, source, remote_de_la_description):
+    """RM3240 — le CF est VIDE et la valeur « Redmine » n'est que la section de la DESCRIPTION.
+
+    `decide_acceptance` compare deux listes ; il ne sait pas que l'une est un repli. Deux sorties
+    y deviennent fausses : « sync » (la section du corps = celle de la description) et « pull »
+    (rien en local) concluaient que Redmine était à jour, et seul le miroir local était écrit —
+    le CF 33 restait vide pour toujours (743 tickets au dry-run du 2026-09-19, dont RM1587).
+    Dans ces deux cas on POUSSE vers le CF ; le miroir local suit (source ≠ frontmatter).
+    Fonction PURE — (action, valeur, source, motifs)."""
+    if not remote_de_la_description or action not in ("sync", "pull"):
+        return action, value, source, motifs
+    if local is not None:
+        return "push", local, source, ["CF vide : critères repris de la section « " + source + " »"]
+    return "push", remote, "description Redmine", [
+        "CF vide : critères repris de la section de la description Redmine"]
+
+
+def decide_acceptance(local, remote, body, remote_from_cf=False):
     """Que faire des critères d'un ticket ? Fonction PURE — (action, valeur, motifs).
 
     `action` ∈ {"sync", "push", "pull", "union", "conflit"} ; `motifs` explique un
     conflit, ou ce que l'union a ajouté. `body` sert au seul verrou des cases errantes.
+
+    `remote_from_cf` dit que la valeur distante vient du CHAMP dédié, pas de la description :
+    le ticket est alors DÉJÀ migré. Le verrou des cases errantes protège contre une bascule
+    de lecture qu'on n'a pas voulue — quand elle a eu lieu et que les deux côtés s'accordent,
+    il n'y a plus rien à protéger, et signaler un conflit ferait du bruit à chaque passage
+    (RM3261 : 16 tickets arbitrés restaient signalés après coup).
 
     On n'écrit une union que lorsqu'une source est incluse dans l'autre : c'est alors
     un complément, pas un arbitrage. Dès qu'il y a de l'exclusif des deux côtés — ou
@@ -120,8 +143,16 @@ def decide_acceptance(local, remote, body):
     errantes = pm_acceptance.stray_checkboxes(body or "")
     if local is None and remote is None:
         return "vide", None, []
+    md_items = pm_acceptance.parse_items(local or "")
+    rm_items = pm_acceptance.parse_items(remote or "")
+    empreinte = lambda its: [(ok, pm_acceptance.norm_label(l)) for ok, l in its]  # noqa: E731
+    deja = (local is not None and remote is not None
+            and empreinte(md_items) == empreinte(rm_items))
+    if deja and remote_from_cf:
+        return "sync", None, []        # migré et d'accord : le verrou n'a plus d'objet
+
     if errantes:
-        # AVANT tout le reste, y compris avant « déjà synchrone » : même quand les deux
+        # AVANT le reste (sauf le cas ci-dessus), y compris avant « déjà synchrone » : même quand les deux
         # côtés portent exactement les mêmes critères, matérialiser le champ ferait
         # basculer la LECTURE dessus alors que `pm-task-description-update --check N`
         # continue d'écrire dans la description — où le Nᵉ item n'est pas le Nᵉ critère.
@@ -130,13 +161,10 @@ def decide_acceptance(local, remote, body):
             "{} case(s) à cocher hors de la section de critères — `--check N` ne "
             "désignerait plus les mêmes lignes (§ 4.2) : migrer à la main".format(len(errantes))]
 
-    md_items = pm_acceptance.parse_items(local or "")
-    rm_items = pm_acceptance.parse_items(remote or "")
-    # Comparaison sur la forme NORMALISÉE des libellés : l'outillage enveloppe à ~95
-    # colonnes et Redmine ré-enveloppe à sa façon. Comparer le texte brut ferait passer
-    # deux versions identiques pour divergentes — donc une réécriture à chaque passage.
-    empreinte = lambda its: [(ok, pm_acceptance.norm_label(l)) for ok, l in its]  # noqa: E731
-    if local is not None and remote is not None and empreinte(md_items) == empreinte(rm_items):
+    # Comparaison sur la forme NORMALISÉE des libellés (RM2882) : l'outillage enveloppe à ~95
+    # colonnes et Redmine ré-enveloppe à sa façon. Comparer le texte brut ferait passer deux
+    # versions identiques pour divergentes — donc une réécriture à chaque passage.
+    if deja:
         return "sync", None, []
 
     if local is None:
@@ -256,6 +284,7 @@ def main():
             raw = next((c.get("value") for c in issue.get("custom_fields", [])
                         if c.get("id") == cid), None)
             remote = norm(raw, is_list)
+            remote_de_la_description = False
             if key == "acceptance" and remote is None:
                 # Côté Redmine aussi la lecture est à DOUBLE SOURCE : le CF vient d'être
                 # créé, il est donc vide partout, et la matière est encore dans la
@@ -264,9 +293,13 @@ def main():
                 # alors que la description porte les vrais critères : sans ceci, ils ne
                 # seraient jamais migrés — et leur matière resterait hors du champ.
                 remote = pm_acceptance.adoptable_section(issue.get("description") or "")
+                remote_de_la_description = remote is not None
 
             if key == "acceptance":
-                action, value, motifs = decide_acceptance(local, remote, m.group(4))
+                action, value, motifs = decide_acceptance(local, remote, m.group(4),
+                                                          remote_from_cf=bool(norm(raw, is_list)))
+                action, value, source, motifs = cf_vide_vers_push(
+                    action, value, motifs, local, remote, source, remote_de_la_description)
                 if action == "sync" and source != "frontmatter":
                     # Le CF porte déjà les bons critères, mais la valeur comparée venait
                     # de la SECTION du corps : le miroir local, lui, est toujours vide.

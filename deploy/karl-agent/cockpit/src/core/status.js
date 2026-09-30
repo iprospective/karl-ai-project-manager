@@ -11,7 +11,7 @@
 /** Ordre de LECTURE, pas alphabétique : ce qui réclame une action d'abord, ce qui est clos en dernier ;
  *  l'inconnu avant « fermé » (il demande un regard, un ticket clos non). */
 export function ticketStatusRank(status) {
-  const ordre = ["a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev", "a_mep",
+  const ordre = ["a_corriger", "etude_chiffrage_a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev", "a_mep",
                  "a_tester_preprod", "a_mep_prod", "en_mep", "a_faire",
                  "etude_chiffrage_a_valider", "etude_chiffrage_en_cours", "a_etudier_chiffrer",
                  "nouveau", "en_pause"];
@@ -31,7 +31,7 @@ export function ticketStatusFamily(status) {
   if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
   if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
   if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider",
-       "a_corriger"].indexOf(s) >= 0) return "todo";
+       "a_corriger", "etude_chiffrage_a_corriger"].indexOf(s) >= 0) return "todo";   // RM3228
   return "autre";
 }
 

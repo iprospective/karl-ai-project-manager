@@ -4,7 +4,10 @@
 Long-polling + commandes info one-shot. Le bot ne raisonne pas — il route
 Telegram ↔ Redmine REST. Couche de sécurité à deux facteurs :
 
-  1. **Whitelist** d'IDs Telegram (TELEGRAM_WHITELIST) — qui peut parler au bot.
+  1. **Whitelist** d'IDs Telegram — qui peut parler au bot. Source : la table
+     `telegram.users` de la conf (qui dit aussi QUI est chaque ID), plus
+     TELEGRAM_WHITELIST (repli historique). **Vide = personne** (fail-secure,
+     RM1777) : seul /whoami répond, pour qu'un nouvel utilisateur trouve son ID.
   2. **Verrouillage applicatif** (mot de passe) — protège même si le téléphone
      est volé déverrouillé. Verrouillé par défaut, auto-lock après inactivité,
      anti-brute-force. Cf. RM1777.
@@ -25,8 +28,21 @@ Commandes (toujours dispo) :
 
 Config (.env à la racine du repo, ou env shell) :
     TELEGRAM_BOT_TOKEN            token @BotFather (jamais loggué)
-    TELEGRAM_WHITELIST           csv d'IDs autorisés (ex: "123456,789012")
-    TELEGRAM_LOCK_PASSWORD_HASH  empreinte PBKDF2 du mdp (cf. --hash-password)
+    TELEGRAM_WHITELIST           csv d'IDs autorisés (repli ; préférer telegram.users)
+    TELEGRAM_LOCK_PASSWORD_HASH  empreinte PBKDF2 du mdp (cf. --hash-password), OU
+                                 une URI de coffre (`secret:telegram/karl-lock`,
+                                 `secret://…`, `vaultwarden://…`) lue au démarrage,
+                                 champ `password`. Coffre fermé ⇒ le bot REFUSE de
+                                 démarrer plutôt que de tourner sans verrou.
+
+Correspondance Telegram → utilisateur (pm.config.local.yml — donnée personnelle,
+propre à l'instance, jamais commitée) :
+    telegram:
+      users:
+        - telegram_id: 123456789   # donné par /whoami
+          pm_user: iprospective    # identifiant PM (team.username)
+          redmine_id: 5            # « /today moi » vise cet utilisateur
+          name: Mathieu
     REDMINE_URL / REDMINE_USER_MAIN_API_KEY   accès Redmine
 
 Outillage :
@@ -52,11 +68,75 @@ from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 from pm_paths import PMConfig
 
 TG_API = "https://api.telegram.org/bot{token}/{method}"
+SECRET_PREFIXES = ("secret:", "vaultwarden://")
 
 AUTO_LOCK_SECONDS = 300   # 5 min d'inactivité → re-verrouillage
 FAIL_THRESHOLD = 3        # nb d'échecs /unlock avant blocage
 LOCKOUT_SECONDS = 300     # durée du blocage après FAIL_THRESHOLD échecs
 PBKDF2_ITERATIONS = 200_000
+
+
+# ── Configuration : correspondance utilisateurs, empreinte au coffre (RM1777) ──
+def load_conf(pm_dir) -> dict:
+    """pm.config.yml fusionné avec pm.config.local.yml (où vit `telegram.users`)."""
+    import yaml
+    from pm_paths import _deep_merge
+    cfg = {}
+    for nom in ("pm.config.yml", "pm.config.local.yml"):
+        f = Path(pm_dir) / nom
+        if f.is_file():
+            cfg = _deep_merge(cfg, yaml.safe_load(f.read_text(encoding="utf-8")) or {})
+    return cfg
+
+
+def load_users(conf: dict) -> dict:
+    """`telegram.users` → {telegram_id: {pm_user, redmine_id, name}}.
+
+    Une entrée sans `telegram_id` entier est ignorée ET signalée : un ID mal saisi
+    qui passerait en silence laisserait croire qu'un utilisateur est autorisé."""
+    users = {}
+    for i, e in enumerate(((conf.get("telegram") or {}).get("users")) or []):
+        tid = (e or {}).get("telegram_id")
+        if not isinstance(tid, int) or isinstance(tid, bool):
+            print(f"  ⚠ telegram.users[{i}] ignorée : telegram_id entier requis (reçu {tid!r})")
+            continue
+        users[tid] = {"pm_user": e.get("pm_user"), "redmine_id": e.get("redmine_id"),
+                      "name": e.get("name") or e.get("pm_user") or str(tid)}
+    return users
+
+
+def build_whitelist(users: dict, raw: str) -> set:
+    """IDs autorisés : ceux de la correspondance + le repli TELEGRAM_WHITELIST."""
+    extra = {int(x) for x in (raw or "").replace(" ", "").split(",") if x.strip().isdigit()}
+    return set(users) | extra
+
+
+def resolve_lock_hash(value, resolver=None):
+    """Empreinte de verrou : valeur brute, ou URI de coffre résolue (champ `password`).
+
+    Rend (empreinte|None, origine). Une URI qui ne se résout pas LÈVE : démarrer sans
+    verrou parce que le coffre est fermé transformerait une panne en faille."""
+    v = (value or "").strip()
+    if not v:
+        return None, "absente"
+    if not v.startswith(SECRET_PREFIXES):
+        return v, ".env"
+    resolver = resolver or _resolve_secret
+    h = (resolver(v, "password") or "").strip()
+    if not h:
+        raise RuntimeError(f"empreinte vide au coffre ({v})")
+    return h, "coffre"
+
+
+def _resolve_secret(uri, field):
+    import subprocess
+    helper = Path(__file__).resolve().parent / "resolve-secret.sh"
+    r = subprocess.run([str(helper), uri, field], capture_output=True, text=True)
+    if r.returncode in (2, 3):
+        raise RuntimeError("coffre verrouillé ou vault-agentd absent — ouvre-le puis relance")
+    if r.returncode != 0:
+        raise RuntimeError(f"resolve-secret ({r.returncode}) sur {uri} : {r.stderr.strip()}")
+    return r.stdout.rstrip("\n")
 
 KARL_ID = 79              # identité agent karl (Redmine) — seul producteur de tokens
 # Entrée de log « Tick IA » écrite par pm-task-tick : `## <date>T.. — …` + `Tokens : N`
@@ -376,6 +456,7 @@ def handle(bot, msg):
     user = msg.get("from") or {}
     uid = user.get("id")
     uname = user.get("username") or user.get("first_name") or "?"
+    ident = bot.get("users", {}).get(uid)   # qui est cet ID côté PM (RM1777)
     text = (msg.get("text") or "").strip()
     parts = text.split()
     cmd = parts[0].split("@")[0].lower() if parts else ""
@@ -383,20 +464,22 @@ def handle(bot, msg):
 
     # /whoami : toujours dispo (sert à se whitelister)
     if cmd == "/whoami":
+        qui = (f"\nReconnu : <b>{html.escape(ident['name'])}</b>" if ident
+               else "\nNon reconnu : donne cet ID à Mathieu pour être ajouté.")
         send(token, chat_id, f"Ton telegram_user_id : <code>{uid}</code>\n"
-                             f"chat_id : <code>{chat_id}</code>")
+                             f"chat_id : <code>{chat_id}</code>{qui}")
         return
 
     # Facteur 1 — whitelist
+    # Liste vide = personne (RM1777) : l'ancien « mode découverte » laissait
+    # n'importe quel compte Telegram interroger Redmine.
     wl = bot["whitelist"]
-    if wl and uid not in wl:
-        print(f"  ⨯ refus whitelist : uid={uid} (@{uname}) — text={text!r}")
+    if uid not in wl:
+        # Pas le texte : il peut contenir un /unlock <mdp> tapé par un inconnu.
+        print(f"  ⨯ refus whitelist : uid={uid} (@{uname}) — commande {cmd!r}")
         send(token, chat_id, "Désolé, tu n'es pas autorisé à interroger karl-pm. "
                              "Demande à Mathieu de t'ajouter (ton ID : /whoami).")
         return
-    if not wl:
-        print(f"  ⚠ mode découverte : uid={uid} (@{uname}) — "
-              f"ajoute-le à TELEGRAM_WHITELIST pour verrouiller")
 
     # Aide : dispo même verrouillé
     if cmd in ("/help", "/start"):
@@ -481,13 +564,16 @@ def handle(bot, msg):
             send(token, chat_id, "Usage : <code>/note 1724 ton message</code>")
             return
         rm_id, note = int(m.group(1)), m.group(2).strip()
-        _safe(token, chat_id, lambda: cmd_note(bot["cfg_pm"], uname, rm_id, note))
+        _safe(token, chat_id, lambda: cmd_note(bot["cfg_pm"], (ident or {}).get("pm_user") or uname, rm_id, note))
         return
 
     if cmd in ("/today", "/jour"):
         m = re.match(r"/(?:today|jour)(?:@\S+)?(?:\s+(.+))?$", text, re.S)
         arg = (m.group(1) or "").strip() if m else ""
-        uid, name, is_agent = resolve_user(arg, bot["manager_id"])
+        moi = (ident or {}).get("redmine_id")
+        uid, name, is_agent = resolve_user(arg, moi or bot["manager_id"])
+        if moi and uid == moi and not is_agent:
+            name = ident["name"]
         if uid is None:
             send(token, chat_id, name)  # name porte le message d'erreur
             return
@@ -553,8 +639,11 @@ def gen_password_hash():
         sys.exit("Trop court (6 caractères minimum).")
     if p1 != getpass.getpass("Confirme : "):
         sys.exit("Les deux saisies diffèrent.")
-    print("\nAjoute cette ligne dans .env (le mdp en clair n'est stocké nulle part) :\n")
-    print(f"TELEGRAM_LOCK_PASSWORD_HASH={hash_password(p1)}")
+    print("\nRange cette empreinte au coffre, champ « password » (ex. entrée telegram/karl-lock),")
+    print("puis pose dans .env :  TELEGRAM_LOCK_PASSWORD_HASH=secret:telegram/karl-lock")
+    print("(à défaut, l'empreinte elle-même en valeur — accepté, mais signalé au démarrage).")
+    print("Le mot de passe en clair n'est stocké nulle part.\n")
+    print(hash_password(p1))
 
 
 def main():
@@ -567,26 +656,34 @@ def main():
     if not token:
         sys.exit("ERREUR : TELEGRAM_BOT_TOKEN absent (.env ou env). "
                  "Crée le bot via @BotFather puis ajoute la ligne dans .env.")
-    wl_raw = os.environ.get("TELEGRAM_WHITELIST", "")
-    whitelist = {int(x) for x in wl_raw.replace(" ", "").split(",") if x.strip().isdigit()}
-    lock = Lock(os.environ.get("TELEGRAM_LOCK_PASSWORD_HASH"))
-
-    # Id Redmine du manager (cf. pm.config.yml :: ia.default_manager) — pour /today moi
-    manager_id = 5
+    conf = {}
     try:
-        import yaml
-        ycfg = yaml.safe_load((Path(cfg_pm.pm_dir) / "pm.config.yml").read_text(encoding="utf-8"))
-        manager_id = ((ycfg.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
-    except Exception:
-        pass
+        conf = load_conf(cfg_pm.pm_dir)
+    except Exception as e:
+        print(f"  ⚠ conf illisible ({e}) — correspondance utilisateurs vide")
+    users = load_users(conf)
+    whitelist = build_whitelist(users, os.environ.get("TELEGRAM_WHITELIST", ""))
+    try:
+        lock_hash, lock_src = resolve_lock_hash(os.environ.get("TELEGRAM_LOCK_PASSWORD_HASH"))
+    except RuntimeError as e:
+        sys.exit(f"ERREUR : empreinte du verrou illisible — {e}. "
+                 "Le bot ne démarre pas sans verrou quand un verrou est configuré.")
+    lock = Lock(lock_hash)
 
-    bot = {"token": token, "whitelist": whitelist, "lock": lock, "cfg_pm": cfg_pm,
+    # Id Redmine du manager (cf. pm.config.yml :: ia.default_manager) — /today moi
+    # quand l'appelant n'a pas de redmine_id dans telegram.users
+    manager_id = ((conf.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
+
+    bot = {"token": token, "whitelist": whitelist, "users": users, "lock": lock, "cfg_pm": cfg_pm,
            "manager_id": manager_id, "start": time.time(), "version": "v0.4"}
 
     me = tg(token, "getMe")["result"]
     print(f"✓ Bot connecté : @{me.get('username')} ({me.get('first_name')})")
-    print(f"  Whitelist : {whitelist or 'VIDE (mode découverte)'}")
+    print(f"  Whitelist : {len(whitelist)} ID(s), dont {len(users)} identifié(s)"
+          if whitelist else "  Whitelist : VIDE — personne n'est autorisé (seul /whoami répond)")
     if lock.enabled:
+        print(f"  Empreinte du verrou : {lock_src}"
+              + ("" if lock_src == "coffre" else " — à migrer au coffre (TELEGRAM_LOCK_PASSWORD_HASH=secret:…)"))
         print(f"  Verrou : ACTIF (auto-lock {AUTO_LOCK_SECONDS // 60} min, "
               f"lockout {FAIL_THRESHOLD} échecs / {LOCKOUT_SECONDS // 60} min)")
     else:

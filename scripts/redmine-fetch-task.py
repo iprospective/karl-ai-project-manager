@@ -210,9 +210,15 @@ def build_frontmatter(issue, author_login):
 
 def render_md(fm, description, redmine_url, issue_id):
     desc = (description or "").strip() or "<!-- Description vide côté Redmine -->"
+    # RM3241 : pas de squelette de critères quand ils existent déjà — dans le champ
+    # dédié (CF 33, miroir `acceptance`) ou dans la description. Le squelette ajouté
+    # par-dessus une vraie section est l'origine des « sections fantômes » (RM2540).
+    from pm_task_md import has_acceptance_criteria
+    squelette = ("" if str(fm.get("acceptance") or "").strip() or has_acceptance_criteria(desc)
+                 else "## Critères d'acceptation\n- [ ]\n- [ ]\n\n")
     body = (
         f"## Contexte\n\n{desc}\n\n"
-        "## Critères d'acceptation\n- [ ]\n- [ ]\n\n"
+        f"{squelette}"
         "## Instructions\n<!-- Étapes, contraintes, accès nécessaires -->\n\n"
         f"## Références\n- Redmine : {redmine_url.rstrip('/')}/issues/{issue_id}\n"
     )
@@ -289,6 +295,10 @@ def main():
     author_login = fetch_user_login(url, key, author_info["id"]) if author_info.get("id") else None
 
     fm = build_frontmatter(issue, author_login)
+    import pm_acceptance                          # RM3241 : critères repris du CF 33
+    _crit = pm_acceptance.cf_text_of_issue(issue)
+    if _crit:
+        fm[pm_acceptance.FM_KEY] = _crit
     slug = args.slug or slugify(fm["title"])
     target = cfg.path("task_file", entity=entity_slug, project=project_slug, id=fm["redmine_id"], slug=slug)
     log_target = cfg.path("task_log_file", entity=entity_slug, project=project_slug, id=fm["redmine_id"], slug=slug)

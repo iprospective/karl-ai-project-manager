@@ -26,8 +26,12 @@ sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
 `target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
 (sauf si `test_url` est explicitement surchargé). Pour les **envs de session par
 ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create`
-écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
-`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
+écrit `http://<préfixe>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
+`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229). Le
+**préfixe** est `runtime.vhost_prefix` au manifeste, et à défaut le nom du repo
+(RM3247) : un repo au nom générique (`dolibarr`) prend un préfixe qui dit le client
+(`client-a-erp`). Il ne gouverne que ce qui se voit — vhost, URL, `{host}` des étapes
+`post_create` ; le dossier `envs/<repo>-rm<id>` et le canari gardent le nom du repo.
 
 > **Résolution du worktree : PAR BRANCHE, jamais par chemin deviné (RM2394).**
 > Le vhost et l'`env_name` restent l'**identité stable** du ticket
@@ -42,6 +46,28 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 > (idempotent, le helper réécrit le `DocumentRoot`), au lieu d'échouer en `rc=128`.
 > Résolveur partagé : `pm-env-session.worktree_for_branch()`.
 
+
+### Environnements de recette — domaine de test (RM3221)
+
+**Règle.** Un environnement de **recette** — site cloné de la prod pour faire valider
+une livraison, par le client ou en interne — est servi par le conteneur de dev de
+l'instance, sous un **sous-domaine du domaine de test** : `<site>.<TEST_DOMAIN>`. Un
+environnement de **dev nominatif** (un intervenant, une branche longue) vit sous
+`<site>-<qui>.<DEV_DOMAIN>`. On ne crée pas de domaine ad hoc, et on ne devine pas la
+convention : elle se lit.
+
+**Où lire la valeur.** Ces domaines sont propres à l'instance — le repo PM est
+fédérable — et ne sont donc **pas** dans le repo : ils vivent dans le **`pm.env`** de
+l'instance, la config d'instance non secrète et non versionnée qui porte déjà
+`GITLAB_URL` ou `REDMINE_URL` (RM2438) ; clés `TEST_DOMAIN`, `TEST_HOST`, `DEV_DOMAIN`.
+Le framework de synchro les lit seul. Une conf d'environnement écrit
+`DOMAIN="<site>.${TEST_DOMAIN}"`, jamais un domaine en dur ; si la clé manque,
+`sync.sh` s'arrête avant tout accès à la prod, avec la marche à suivre.
+
+**Pourquoi une convention et non un choix par recette.** Le garde-fou de
+`guard_local_target` reconnaît alors le domaine de test réel au lieu de deviner par
+motif, et un domaine de recette se repère au premier coup d'œil — dans un vhost, un
+log ou une URL envoyée au client.
 
 ### Gestion des secrets — vaults déclarés
 
@@ -65,7 +91,7 @@ providers:
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
-identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+identifiants d'accès sont **par développeur**, dans `<core>/var/users/<user>/.env`, nommés
 par slug **normalisé** (majuscules, non-alphanum → `_`) :
 `SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
 
@@ -163,7 +189,7 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
    défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
 
-**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+**Identifiants** — par dev, dans `<core>/var/users/<user>/.env`, nommés par slug d'instance
 (`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
 `BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
 

@@ -7,6 +7,7 @@ Usage :
     pm-task-status-update.py 1670 en_cours --no-assign        # désactive l'auto-assign
     pm-task-status-update.py 1670 en_cours --assign-to 5      # assigne à user 5 explicitement
     pm-task-status-update.py 1670 etude_chiffrage_a_valider   # étude/CDC finie → validation par le demandeur
+    pm-task-status-update.py 1670 etude_chiffrage_a_corriger  # le demandeur renvoie l'étude → son auteur la reprend
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
@@ -14,12 +15,15 @@ Usage :
     pm-task-status-update.py 1670 --list-next --json     # idem, sortie machine (cockpit, RM2888)
 
 Statuts NORMS valides (source : redmine.reference.yml) :
-    a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
+    a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider
+    etude_chiffrage_a_corriger | a_faire | en_cours
     a_tester_dev | a_tester_demandeur | a_mep | en_mep | en_pause | a_corriger | ferme
     (alias déprécié accepté : a_tester_verifier → a_tester_demandeur)
 
 Réattribution au demandeur (author ; author==karl → Manager IA) :
     etude_chiffrage_a_valider et a_tester_demandeur soumettent le ticket au demandeur.
+Réattribution à l'auteur de l'étude (RM3228) :
+    etude_chiffrage_a_corriger rend le ticket à qui l'avait avant sa dernière soumission.
 
 close_reason (si --status ferme) :
     resolu | abandonne | wont_fix | hors_perimetre | invalide | doublon
@@ -216,15 +220,34 @@ def _git_out(repo, *args, timeout=20):
         return ""
 
 
+def _git_ok(repo, *args, timeout=15) -> bool:
+    """Code retour de git (True = 0) ; toute erreur d'exécution ⇒ False."""
+    try:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              timeout=timeout).returncode == 0
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return False
+
+
 def unmerged_ticket_branches(md_path, rm_id):
     """RM2319 : branches du ticket non mergées dans la branche d'intégration.
 
     Cherche par PRÉFIXE `<rm_id>-` (locales + distantes) dans le repo du
     workspace co-localisé — le frontmatter git.branch peut être tronqué/périmé
-    (cas RM2238). Retourne (repo, integration, [branches non mergées]) ou None
-    si rien à vérifier (pas de workspace/repo résoluble, aucune branche).
+    (cas RM2238). Retourne (repo, integration, [branches non mergées], infos)
+    ou None si rien à vérifier (pas de workspace/repo résoluble, aucune branche,
+    tout est mergé). `infos` = {"fresh": le fetch a réussi}.
     Best-effort : toute résolution impossible ⇒ None (on ne bloque jamais sur
-    un problème d'infra), le réseau n'est pas requis (fetch tenté, non exigé).
+    un problème d'infra).
+
+    RM3173 — LE DISTANT FAIT FOI. La branche locale du dépôt central reste sur
+    ses anciens commits quand la branche a été rebasée et poussée depuis un
+    autre worktree : ses SHA ne sont jamais entrés dans `dev`, alors que le
+    code, lui, y est. Juger la locale donnait un refus sur du code en
+    production (RM3091, RM3059). Une locale n'est donc jugée QUE si elle n'a
+    pas de version distante (jamais poussée). Un patch-id (`git cherry`) ne
+    suffirait pas : un rebase avec résolution de conflit change le patch
+    (constaté sur RM3059). Mergée dans `main` compte aussi : c'est la prod.
     """
     try:
         real = md_path.resolve()
@@ -236,35 +259,37 @@ def unmerged_ticket_branches(md_path, rm_id):
         if len(repos) != 1:   # multi-repo : ambigu → hors garde (comme le hook env)
             return None
         integration = repos[0].get("integration_branch") or "dev"
-        bare = ws / "repos" / f"{repos[0].get('name')}.git"
+        import pm_worktrees   # RM3209 : dépôt central ou de l'utilisateur
+        bare = pm_worktrees.resolve_source(ws, repos[0].get("name"))
         repo = bare if bare.is_dir() else (ws if (ws / ".git").exists() else None)
         if repo is None:
             return None
-        # refs fraîches si le réseau le permet (silencieux sinon)
-        _git_out(repo, "fetch", "origin", "--prune", timeout=25)
+        # refs fraîches : sans elles on ne peut pas conclure « non mergée » (RM3173)
+        fresh = _git_ok(repo, "fetch", "origin", "--prune", timeout=25)
         refs = _git_out(repo, "for-each-ref", "--format=%(refname:short)",
                         f"refs/heads/{rm_id}-*", f"refs/remotes/origin/{rm_id}-*")
         branches = [r for r in refs.splitlines() if r.strip()]
         if not branches:
             return None
-        target = (f"origin/{integration}"
-                  if _git_out(repo, "rev-parse", "--verify", "--quiet",
-                              f"refs/remotes/origin/{integration}") else integration)
+        remotes = {b.removeprefix("origin/") for b in branches if b.startswith("origin/")}
+        targets = []
+        for name in dict.fromkeys((integration, "main")):
+            if _git_out(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}"):
+                targets.append(f"origin/{name}")
+            elif _git_out(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}"):
+                targets.append(name)
+        if not targets:
+            return None
         unmerged = []
         for br in branches:
-            ok = subprocess.run(
-                ["git", "-C", str(repo), "merge-base", "--is-ancestor", br, target],
-                capture_output=True, timeout=20).returncode == 0
-            if not ok:
+            if not br.startswith("origin/") and br in remotes:
+                continue          # sa version distante est jugée à sa place
+            if not any(_git_ok(repo, "merge-base", "--is-ancestor", br, tg, timeout=20)
+                       for tg in targets):
                 unmerged.append(br)
-        # une même branche vue en local ET en origin/ : dédoublonner par nom court
-        seen, uniq = set(), []
-        for br in unmerged:
-            short = br.removeprefix("origin/")
-            if short not in seen:
-                seen.add(short)
-                uniq.append(br)
-        return (repo, integration, uniq) if uniq else None
+        if not unmerged:
+            return None
+        return (repo, integration, unmerged, {"fresh": fresh})
     except Exception:  # noqa: BLE001 — garde best-effort
         return None
 
@@ -310,13 +335,24 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
             out.warn(f"env de session non créé pour RM{rm_id} : le premier `repos:` "
                      f"du manifeste n'a pas de `name`")
             return
-        if not (ws / "repos" / f"{name}.git").is_dir():
-            out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
-                     f"({ws}/repos/{name}.git) — workspace hors layout RM1993 ?")
+        import pm_worktrees   # RM3209 : dépôt central ou de l'utilisateur, disposition des envs
+        try:
+            source = pm_worktrees.resolve_source(ws, name)
+            env_path = pm_worktrees.resolve_env_dir(ws, f"{name}-rm{rm_id}")
+        except pm_worktrees.LayoutError as e:
+            out.warn(f"env de session non créé pour RM{rm_id} : {e}")
+            return
+        if not source.is_dir():
+            if pm_worktrees.read_layout().source == "per_user":
+                out.warn(f"env de session non créé pour RM{rm_id} : dépôt personnel absent "
+                         f"({source}) — à cloner (git.worktree_source=per_user, PM_REPOS_DIR)")
+            else:
+                out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
+                         f"({source}) — workspace hors layout RM1993 ?")
             return
         if new_status == "en_cours":
             verb = "create"
-        elif new_status == "ferme" and (ws / "envs" / f"{name}-rm{rm_id}").is_dir():
+        elif new_status == "ferme" and env_path.is_dir():
             verb = "teardown"
         else:
             return
@@ -471,6 +507,35 @@ def resolve_assign_value(value, issue):
         return None
 
 
+def study_author_uid(rm_id, journals=None):
+    """RM3228 — l'auteur d'une étude : l'assigné AVANT sa dernière soumission à validation.
+
+    La soumission (→ etude_chiffrage_a_valider) réattribue au demandeur ; le journal Redmine de
+    ce changement porte l'ancien assigné (`assigned_to_id.old_value`). Si ce journal ne touche pas
+    l'assignation, on remonte aux journaux précédents jusqu'au dernier changement d'assigné.
+    `journals` injectable (tests)."""
+    sub_id = str((redmine_utils.status_ids() or {}).get("etude_chiffrage_a_valider", 21))
+    if journals is None:
+        try:
+            issue = redmine_utils.fetch_issue(rm_id, include="journals")
+        except (Exception, SystemExit):  # noqa: BLE001 — Redmine illisible : on ne devine pas
+            return None
+        journals = issue.get("journals") or []
+    for i in range(len(journals) - 1, -1, -1):
+        details = journals[i].get("details") or []
+        if not any(d.get("name") == "status_id" and str(d.get("new_value")) == sub_id for d in details):
+            continue
+        for j in range(i, -1, -1):                   # le journal de soumission, puis ceux d'avant
+            for d in journals[j].get("details") or []:
+                if d.get("name") == "assigned_to_id" and d.get("old_value"):
+                    try:
+                        return int(d["old_value"])
+                    except (TypeError, ValueError):
+                        return None
+        return None
+    return None
+
+
 # ── Transitions NORMS (source : module status-workflow, § « Transitions valides ») ──
 # {statut courant: [(cible, condition), ...]}. S'ajoutent les règles génériques :
 # tout état actif → en_pause ; tout état → ferme (close_reason requis) ;
@@ -489,7 +554,12 @@ NORMS_TRANSITIONS = {
     ],
     "etude_chiffrage_a_valider": [
         ("a_faire", "validé par le demandeur → prêt à coder"),
+        ("etude_chiffrage_a_corriger", "renvoyée par le demandeur : note obligatoire (ce qui est à reprendre) ; réattribuée à l'auteur de l'étude"),
         ("etude_chiffrage_en_cours", "retour demandeur (ajustements)"),
+    ],
+    # RM3228 : pendant d'a_corriger côté étude — la balle revient à l'auteur de l'étude.
+    "etude_chiffrage_a_corriger": [
+        ("etude_chiffrage_en_cours", "reprise de l'étude selon les retours du demandeur"),
     ],
     "a_faire": [
         ("en_cours", "création branche <RMid>-<desc> + CF GIT Branche (pm-branch-start)"),
@@ -590,6 +660,9 @@ def next_transitions(rm_id, check_redmine=True):
             allowed_ids = None
     sids = redmine_utils.status_ids()
 
+    import pm_questions_gate as _gate
+    _open_qs = _gate.open_questions_of_sheet(md_path) if any(
+        t in _gate.GATED_STATUSES for t, _ in nexts) else []
     seen, transitions = set(), []
     for tgt, cond in nexts:
         if tgt in seen:          # `en_pause`/`ferme` génériques peuvent doubler une règle
@@ -606,6 +679,8 @@ def next_transitions(rm_id, check_redmine=True):
             # La condition est écrite dans NORMS_TRANSITIONS, juste au-dessus — ce
             # n'est pas un contrat externe qu'on parserait à l'aveugle.
             "needs_note": "note obligatoire" in cond,
+            # RM3238 : MEP prod refusée tant qu'une question est ouverte — l'UI le montre AVANT
+            "blocked_by_questions": [q for q, _ in _open_qs] if tgt in _gate.GATED_STATUSES else [],
         })
     return {"rm_id": int(rm_id), "status": cur, "transitions": transitions,
             "redmine_checked": allowed_ids is not None,
@@ -625,6 +700,8 @@ def list_next(rm_id, as_json=False):
         mark = ""
         if t["redmine_ok"] is not None:
             mark = "  [Redmine OK]" if t["redmine_ok"] else "  [Redmine REFUSERA pour ce compte]"
+        if t.get("blocked_by_questions"):
+            mark += f"  [🔒 questions ouvertes : {', '.join(t['blocked_by_questions'])} — RM3238]"
         print(f"  → {t['status']:<26} {t['condition']}{mark}")
     if not data["redmine_checked"]:
         print("  (vérification live Redmine indisponible — transitions NORMS seules)")
@@ -645,7 +722,9 @@ def main():
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--ignore-think", action="store_true",
-                    help="RM3053 : fermer malgré des questions ouvertes / notes à trier dans le .think.md")
+                    help="RM3053 : fermer malgré des questions ouvertes / notes à trier dans le .think.md ; "
+                         "RM3238 : entrer en MEP prod (a_mep_prod, en_mep) malgré une question ouverte "
+                         "— le contournement est tracé dans la note Redmine")
     ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
@@ -724,6 +803,9 @@ def main():
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
     pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-status-update")
+    refus = pm_scope.primary_write_refusal(md_path, cfg)          # RM2940 : jamais un no-op silencieux
+    if refus:
+        sys.exit(refus)
 
     # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
     # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les
@@ -771,6 +853,27 @@ def main():
     # RM2285 : réouverture d'un ticket fermé — uniquement vers a_faire (retour
     # backlog, la reprise suit le flow normal), note motivée obligatoire,
     # close_reason purgé. status_history conserve le cycle précédent.
+    # RM3238 : pas de MEP prod avec une question en suspens. La clôture (ci-dessus) arrive APRÈS la
+    # prod : c'est ici, à l'entrée en file de MEP prod ou en prod, que la réponse peut encore compter.
+    # `a_mep` (préprod) avertit seulement — la préprod sert justement à trancher.
+    import pm_questions_gate as _qg
+    _gate_note = None
+    if args.status != old_status and args.status in _qg.GATED_STATUSES + _qg.WARN_STATUSES:
+        _qs = _qg.open_questions_of_sheet(md_path)
+        if _qs:
+            _bm = {int(args.rm_id): _qs}
+            if args.status in _qg.GATED_STATUSES and not args.ignore_think:
+                sys.exit(_qg.refusal(_bm, f"passage en {args.status}", "--ignore-think"))
+            _lst = ", ".join(q for q, _ in _qs)
+            if args.status in _qg.GATED_STATUSES:
+                out.warn(f"RM{args.rm_id} : {args.status} malgré {len(_qs)} question(s) ouverte(s) "
+                         f"({_lst}) — --ignore-think, tracé dans la note")
+                _gate_note = (f"⚠ Passage en {args.status} malgré {len(_qs)} question(s) non tranchée(s) "
+                              f"({_lst}) — garde RM3238 levée par --ignore-think.")
+            else:
+                out.warn(f"RM{args.rm_id} : {len(_qs)} question(s) encore ouverte(s) ({_lst}) — "
+                         f"la MEP prod sera refusée tant qu'elles ne sont pas tranchées (RM3238)")
+
     reopening = (old_status == "ferme" and args.status != "ferme")
     if reopening:
         if args.status != "a_faire":
@@ -780,6 +883,10 @@ def main():
             sys.exit("ERREUR : --note obligatoire pour rouvrir un ticket fermé "
                      "(motiver la réouverture)")
         out.info("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
+
+    # RM3228 : une étude renvoyée sans dire quoi reprendre renvoie son auteur à la devinette.
+    if args.status == "etude_chiffrage_a_corriger" and old_status != args.status and not args.note:
+        sys.exit("ERREUR : --note obligatoire pour renvoyer une étude (ce qui est à reprendre)")
 
     fm["status"] = args.status
     if args.close_reason:
@@ -822,7 +929,7 @@ def main():
     # Lignes ajoutées à la note par les gardes elles-mêmes (RM2884 : le motif d'un
     # --allow-unchecked doit rester dans le ticket, sinon le contournement ne laisse
     # aucune trace et redevient indiscernable d'un oubli).
-    extra_notes = []
+    extra_notes = [_gate_note] if _gate_note else []
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).
@@ -902,7 +1009,17 @@ def main():
     if merge_gate and not args.allow_unmerged:
         found = unmerged_ticket_branches(md_path, args.rm_id)
         if found:
-            repo, integration, branches = found
+            repo, integration, branches, infos = found
+            if not infos["fresh"]:
+                # RM3173 : sans fetch, les refs distantes peuvent être périmées — on ne
+                # sait pas, et on le dit, plutôt que d'affirmer « non mergée ».
+                sys.exit(
+                    f"ERREUR : impossible de conclure pour RM{args.rm_id} — le fetch de "
+                    f"{repo} a échoué, les refs locales disent {', '.join(branches)} "
+                    f"non mergée(s) dans '{integration}' mais elles peuvent être périmées.\n"
+                    f"  → Rétablir l'accès au dépôt distant et relancer ;\n"
+                    f"  → ou, si tu as vérifié ailleurs que le code est livré : "
+                    f"relance avec --allow-unmerged.")
             sys.exit(
                 f"ERREUR : branche(s) du ticket RM{args.rm_id} non mergée(s) dans "
                 f"'{integration}' : {', '.join(branches)} — passer en "
@@ -990,6 +1107,17 @@ def main():
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
         out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
+    elif args.status == "etude_chiffrage_a_corriger":
+        # RM3228 : l'étude renvoyée retourne à son AUTEUR — l'assigné juste avant la dernière
+        # soumission (→ etude_chiffrage_a_valider), lu dans les journaux Redmine : la soumission
+        # a réattribué au demandeur, le journal garde l'ancien assigné. Introuvable ⇒ on ne
+        # devine pas : attribution conservée, et on le dit.
+        _auteur = study_author_uid(args.rm_id)
+        if _auteur:
+            assign_override_value = str(_auteur)
+        else:
+            out.warn(f"RM{args.rm_id} : auteur de l'étude introuvable dans les journaux — "
+                     f"attribution conservée (--assign-to <id> pour la rendre à quelqu'un)")
     elif args.status in ("a_tester_demandeur", "a_tester_preprod", "etude_chiffrage_a_valider", "a_mep", "en_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
         #         a_tester_preprod (RM2893)   → responsable recette préprod (défaut demandeur/author).

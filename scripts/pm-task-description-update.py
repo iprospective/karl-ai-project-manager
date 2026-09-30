@@ -283,6 +283,16 @@ def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all, ad
     return new_desc, total, checked, changed, note_bits, desc_changed
 
 
+def _acceptance_of(md_path):
+    """Le champ `acceptance` de la fiche (miroir du CF 33), "" si vide ou illisible."""
+    try:
+        import pm_acceptance
+        from pm_markdown import read_frontmatter
+        return str((read_frontmatter(md_path) or {}).get(pm_acceptance.FM_KEY) or "").strip()
+    except Exception:  # noqa: BLE001 — sans lecture possible, on garde le comportement d'avant
+        return ""
+
+
 def parse_idx(spec):
     if not spec:
         return set()
@@ -356,6 +366,30 @@ def main():
                          f"n'y sera pas lu. → pm-task-acceptance.py {args.rm_id} --check N")
         except Exception as e:  # noqa: BLE001 — un avertissement ne fait jamais échouer
             out.warn(f"lecture du champ `acceptance` impossible ({e}) — avertissement omis")
+
+    # RM3241 — un ticket migré a ses critères dans le CF 33. Les réécrire dans la
+    # description, c'est recréer le doublon que la purge retire : deux copies, dont
+    # une que plus rien ne lit ni ne coche. Deux chemins y menaient.
+    _acc = _acceptance_of(md_path)
+    if _acc:
+        import pm_acceptance
+        if args.add_criterion:
+            sys.exit(f"ERREUR : RM{args.rm_id} a ses critères dans le champ dédié — un critère "
+                     f"ajouté à la description n'y serait lu par personne.\n"
+                     f"  → pm-task-acceptance.py {args.rm_id} --append \"- [ ] …\"")
+        if file_text is not None and pm_acceptance.extract_sections(file_text):
+            action, motifs = pm_acceptance.purge_decision(_acc, file_text)
+            if action == "retire":
+                file_text = pm_acceptance.strip_sections(file_text)
+                out.info(f"  · section « Critères d'acceptation » retirée du fichier : le champ "
+                         f"dédié la couvre déjà (pm-task-acceptance {args.rm_id})")
+            else:
+                sys.exit(f"ERREUR : RM{args.rm_id} a ses critères dans le champ dédié, et la "
+                         f"section de ce fichier en diffère :\n    · "
+                         + "\n    · ".join(motifs)
+                         + f"\n  Les critères se modifient dans leur champ, pas dans la description :\n"
+                         f"  → pm-task-acceptance.py {args.rm_id} --set - < critères.md   (ou --append)\n"
+                         f"  puis retire la section « Critères d'acceptation » du fichier.")
 
     # RM2789 — le retrait des gabarits s'applique AVANT le reste, et se compose avec
     # --set-from-file (sur le nouveau texte) comme sans lui (sur la description courante).

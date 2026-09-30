@@ -58,6 +58,7 @@ BATCH_ACTIONS = {
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "etude_chiffrage_a_corriger": ("etudier", "reprendre l'étude selon les retours du demandeur, puis la resoumettre à validation"),
     "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
     "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
     "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
@@ -99,6 +100,7 @@ BATCH_ATESTER_SKIP = {
     "a_etudier_chiffrer": "à étudier : une étude se rend en validation, pas en test",
     "etude_chiffrage_en_cours": "étude en cours : elle se rend en validation, pas en test",
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+    "etude_chiffrage_a_corriger": "étude renvoyée : elle se reprend et se revalide, pas en test",
 }
 
 # RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
@@ -109,6 +111,7 @@ BATCH_ETUDIER = {
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "etude_chiffrage_a_corriger": ("etudier", "reprendre l'étude selon les retours du demandeur, puis la resoumettre à validation"),
 }
 BATCH_ETUDIER_SKIP = {
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",

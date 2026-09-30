@@ -75,7 +75,11 @@ export function mountCenter(hosts, ctx = {}) {
     if (acte.action !== "attach" && s.list) { try { acte = sessionTabAction(sid, await s.list()); } catch (e) { /* réseau : on s'en tient au cache */ } }
     if (acte.action === "attach") return s.open && s.open(sid);
     if (acte.action === "relaunch") return s.relaunch && s.relaunch(acte.session);
-    if (ctx.notifyAction) ctx.notifyAction("session " + sid + " introuvable — ni vivante, ni enregistrée", "fermer l'onglet", () => closeTab("session:" + String(sid)));
+    // RM3265 : ni vivante, ni enregistrée dans un jeu — il reste son TRANSCRIPT. C'est le cas
+    // d'une session épinglée dont le tmux est mort : le clic la REPREND, au lieu de ne proposer
+    // que de fermer l'onglet. RM2819 l'avait fait pour les sessions d'un jeu, pas pour celles-là.
+    if (s.resume && await s.resume(sid)) return;
+    if (ctx.notifyAction) ctx.notifyAction("session " + sid + " introuvable — ni vivante, ni enregistrée, aucune conversation à reprendre", "fermer l'onglet", () => closeTab("session:" + String(sid)));
   }
   function activate(id) {
     const t = state.tabs.find(x => tabId(x.kind, x.key) === id);

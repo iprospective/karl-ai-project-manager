@@ -21,12 +21,30 @@ Contrat commun :
 
 Le PUT du CF n'est JAMAIS fatal : une écriture locale réussie ne doit pas être
 perdue parce que Redmine est injoignable.
+
+**Mais il ne doit pas non plus être MUET** (RM3366). Le PUT partait sans délai
+d'attente : quand l'API traînait, il restait pendant jusqu'au délai système. Or
+les appelants écrivent le miroir local AVANT de pousser ; un script interrompu
+entre les deux (un `timeout` de shell, un Ctrl-C, un cron tué) laissait le
+frontmatter affirmer « coché » et le champ dire « non coché », sans que personne
+ne soit prévenu. L'écart ne se voyait qu'au prochain garde-fou de statut, sous
+une forme incompréhensible : « aucun critère coché » sur un ticket complet
+(constaté sur RM3330 et RM3346, chantier RM3217).
+
+D'où trois garde-fous ici : un délai explicite, une RELECTURE après écriture, et
+une divergence qui se dit à voix haute avec la commande pour la réparer.
 """
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
+
+# Délai d'attente des appels API, en secondes. Un PUT sans délai peut rester
+# pendant plusieurs minutes sur une instance lente : le script paraît figé, et
+# l'appelant finit par le tuer — au pire moment, entre l'écriture locale et le
+# push. Surchargeable par PM_HTTP_TIMEOUT pour les instances lentes.
+HTTP_TIMEOUT = int(os.environ.get("PM_HTTP_TIMEOUT", "20"))
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -113,8 +131,13 @@ def resolve_cf_id(env_var: str, cf_name: str):
         return None
 
 
-def push_text_cf(rm_id: int, text: str, *, env_var: str, cf_name: str) -> bool:
-    """PUT du CF texte. True si poussé ; False si non configuré / échec (non fatal)."""
+def push_text_cf(rm_id: int, text: str, *, env_var: str, cf_name: str, verify: bool = True) -> bool:
+    """PUT du CF texte. True si poussé ET relu conforme ; False sinon (non fatal).
+
+    La relecture n'est pas un luxe : sans elle, une écriture perdue ne se découvre
+    qu'au prochain garde-fou de statut, des heures plus tard et sous une forme
+    trompeuse (RM3366). Elle coûte une requête GET ; l'écart coûtait une enquête.
+    """
     cid = resolve_cf_id(env_var, cf_name)
     if cid is None:
         print(f"⚠ CF « {cf_name} » non résolu ({env_var} absent du .env et nom absent de "
@@ -130,21 +153,39 @@ def push_text_cf(rm_id: int, text: str, *, env_var: str, cf_name: str) -> bool:
                                  headers={"X-Redmine-API-Key": key,
                                           "Content-Type": "application/json"})
     try:
-        urllib.request.urlopen(req)
-        return True
+        urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
     except urllib.error.HTTPError as e:
         print(f"⚠ PUT CF {cid} « {cf_name} » → HTTP {e.code} (non fatal)", file=sys.stderr)
         return False
     except urllib.error.URLError as e:
         print(f"⚠ PUT CF {cid} « {cf_name} » → {e.reason} (non fatal)", file=sys.stderr)
         return False
+    except OSError as e:  # délai dépassé, socket coupée…
+        print(f"⚠ PUT CF {cid} « {cf_name} » → {e} (non fatal)", file=sys.stderr)
+        return False
+
+    if not verify:
+        return True
+
+    # Relecture : le champ doit maintenant porter ce qu'on vient d'écrire.
+    relu = pull_text_cf(rm_id, env_var=env_var, cf_name=cf_name, verbose=False)
+    if normalize_text(relu) == normalize_text(text):
+        return True
+
+    print(f"⚠ CF {cid} « {cf_name} » : l'écriture n'a pas pris côté Redmine — le miroir "
+          f"local et le champ DIVERGENT.\n"
+          f"  → Réparer : pm-task-cf-resync.py {rm_id}", file=sys.stderr)
+
+    return False
 
 
-def pull_text_cf(rm_id: int, *, env_var: str, cf_name: str):
+def pull_text_cf(rm_id: int, *, env_var: str, cf_name: str, verbose: bool = True):
     """Valeur actuelle du CF côté Redmine, ou None (CF non résolu, ticket illisible).
 
     Sert au sens REDMINE → PM : un humain peut saisir le champ directement dans
-    l'UI web, et le miroir local doit pouvoir le rattraper.
+    l'UI web, et le miroir local doit pouvoir le rattraper. Sert aussi à VÉRIFIER
+    ce qu'on vient d'écrire (RM3366) — d'où `verbose`, pour ne pas crier deux fois
+    sur la même panne.
     """
     cid = resolve_cf_id(env_var, cf_name)
     if cid is None:
@@ -152,7 +193,8 @@ def pull_text_cf(rm_id: int, *, env_var: str, cf_name: str):
     try:
         issue = redmine_utils.fetch_issue(rm_id)
     except Exception as e:  # noqa: BLE001 — lecture d'appoint, jamais fatale
-        print(f"⚠ lecture RM{rm_id} impossible ({e}) — CF non relu.", file=sys.stderr)
+        if verbose:
+            print(f"⚠ lecture RM{rm_id} impossible ({e}) — CF non relu.", file=sys.stderr)
         return None
     for cf in (issue or {}).get("custom_fields", []):
         if cf.get("id") == cid:

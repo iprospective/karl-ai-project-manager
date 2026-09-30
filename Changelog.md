@@ -13,6 +13,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Miroirs de champs : plus de divergence muette** (RM3366) : le PUT des CF partait
+  sans délai d'attente. Sur une instance lente il restait pendant, et comme les
+  appelants écrivent le frontmatter AVANT de pousser, un script interrompu entre les
+  deux laissait le miroir affirmer « coché » et le champ dire « non coché » — sans un
+  mot. L'écart ne se voyait qu'au prochain garde-fou de statut, sous une forme
+  trompeuse (« aucun critère coché » sur un ticket terminé : constaté sur RM3330 et
+  RM3346). Désormais : délai explicite (`PM_HTTP_TIMEOUT`, 20 s par défaut),
+  **relecture après écriture** — une valeur qui n'a pas pris est un échec, pas un
+  succès — et `pm-task-cf-resync` pour dire où ça diverge et remettre d'accord, par
+  ticket ou par projet. L'outil distingue aussi un champ **non activé** sur le projet
+  d'une panne d'API : le premier se corrige dans l'administration de Redmine, pas en
+  réessayant (cas trouvé en balayant : RM3224 chez calicote).
+
 - **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
   une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
   remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un

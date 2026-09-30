@@ -183,6 +183,7 @@
 
 - `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
+- `pm-core-gitignore` — garantit qu'un dépôt de données PM n'emporte pas de secret
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
 - `pm-karl-service` — une instance de karl-agent par développeur

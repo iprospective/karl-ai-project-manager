@@ -48,6 +48,7 @@ export class RefreshService {
     if ((x = take("dashboard"))) on.dashboard(x.data);
     if ((x = take("vault"))) on.env("vault", x.data);
     if ((x = take("envcheck"))) on.env("envcheck", x.data);
+    if ((x = take("pmhealth"))) on.pmhealth(x.data);
     if ((x = take("coreupdate"))) on.coreupdate(x.data);
     if ((x = take("sessions"))) {
       seedBriefs(x.data.briefs, this.stores.resolve);

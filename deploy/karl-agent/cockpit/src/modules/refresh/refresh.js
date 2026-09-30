@@ -2,12 +2,12 @@
 // et la MAJ du core (RM2571). Fonctions PURES : aucun DOM, aucun réseau. RM2889.
 
 /** RM2763 : période propre de chaque bloc (0 = à chaque tick). */
-export const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000, pending: 45000, dashboard: 30000, vault: 60000, envcheck: 300000, coreupdate: 300000 };
+export const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000, pending: 45000, dashboard: 30000, vault: 60000, envcheck: 300000, pmhealth: 300000, coreupdate: 300000 };
 
 /** RM2613 : cadence du poll quand l'onglet est visible — 3 s si une session attend une réponse, 7 s au calme.
  *  RM3006 : quand le canal de push est vivant, le tick n'est plus qu'une réconciliation — 6 s / 30 s. */
 export function pollDelay(hot, pushed) { return pushed ? (hot ? 6000 : 30000) : (hot ? 3000 : 7000); }
-export const ALL_BLOCKS = ["sessions", "health", "pending", "dashboard", "vault", "envcheck", "coreupdate", "worklog"];
+export const ALL_BLOCKS = ["sessions", "health", "pending", "dashboard", "vault", "envcheck", "pmhealth", "coreupdate", "worklog"];
 
 /** RM2598 : rm_ids des sessions avec une question laissée SANS RÉPONSE (kind « stale ») ; les « live » sont déjà signalées ⚠/❓. */
 export function pendStaleSet(entries) {
@@ -36,6 +36,7 @@ export function buildSpecs({ hashes, at, includes, now, dashboardVisible, attach
   if (dashboardVisible && due("dashboard")) specs.push("dashboard:" + (h.dashboard || ""));
   if (due("vault")) specs.push("vault:" + (h.vault || ""));
   if (due("envcheck")) specs.push("envcheck:" + (h.envcheck || ""));
+  if (due("pmhealth")) specs.push("pmhealth:" + (h.pmhealth || ""));   // RM3369 : lecture d'un fichier, pas un calcul
   if (due("coreupdate")) specs.push("coreupdate:" + (h.coreupdate || ""));
   let resetWorklogHash = false, sid = worklogSid;
   if (attached && worklogVisible && due("worklog")) {

@@ -33,6 +33,8 @@ export function mountRefresh(hosts = {}, ctx = {}) {
     worklog: (d) => { if (ctx.onWorklog) ctx.onWorklog(d); },
     dashboard: (d) => { if (ctx.onDashboard) ctx.onDashboard(d); },
     env: (k, d) => { if (ctx.onEnv) ctx.onEnv(k, d); },
+    pmhealth: (d) => { if (ctx.onPmHealth) ctx.onPmHealth(d); },   // RM3369
+
   };
   /** Un composite ; `includes` force des blocs hors période (après une action : spawn, kill, move…). */
   function fetch(includes) { return svc.fetch(includes, env, on); }

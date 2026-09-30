@@ -30,6 +30,7 @@ import { mountGitPanel } from "./modules/git/git.controller.js";
 import { mountDashboard } from "./modules/dashboard/dashboard.controller.js";
 import { mountProjectsPanel } from "./modules/projects/projects.controller.js";
 import { mountEnv } from "./modules/env/env.controller.js";
+import { mountHealth } from "./modules/health/health.controller.js";
 import { mountPmCommands } from "./modules/pmcmd/pmcmd.controller.js";
 import { mountSettings } from "./modules/settings/settings.controller.js";
 import { mountVoice } from "./modules/voice/voice.controller.js";
@@ -245,6 +246,17 @@ const env = mountEnv(document.getElementById("doccontent"), {
     if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
   badge: (h) => { const el = document.getElementById("envwarn"); if (el) { paint(el, h); el.style.display = String(h || "") ? "" : "none"; } },
   lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
+});
+
+// RM3369 : santé du système PM — même paire de surfaces que le poste (un badge
+// d'en-tête, la modale partagée), mais ce qui est surveillé est la DONNÉE : des
+// champs Redmine non activés jetaient les écritures en silence (RM3366/RM3367).
+const health = mountHealth(document.getElementById("doccontent"), {
+  notify: notify.toast, clip: (txt) => terminal.writeClip(txt),
+  pull: (block) => refreshCtl.fetch([block]),
+  modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
+    if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
+  badge: (h) => { const el = document.getElementById("pmhealthwarn"); if (el) { paint(el, h); el.style.display = String(h || "") ? "" : "none"; } },
 });
 
 const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
@@ -612,7 +624,7 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
   stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   // RM2792 : le compte du fil suit le tick qui existe déjà — pas de minuterie de plus.
-  onSessions: (list) => { sessionsCtl.render(list); pollFeed(); }, onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
+  onSessions: (list) => { sessionsCtl.render(list); pollFeed(); }, onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d), onPmHealth: (d) => health.setBlock(d),
   token: () => auth.token(),   // RM3006 : le canal de push (EventSource) porte le jeton en query
   onTopics: (topics) => { if (topics.includes("mail")) mail.refresh(); if (topics.includes("sets") && setsCtl) setsCtl.refreshSets(); },   // sujets sans bloc /refresh
   onPush: () => layout.refreshMobileNav(),
@@ -636,7 +648,7 @@ const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
   "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "cdc": () => { center.openPanel("cdc"); cdc.open(); },
-  "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
+  "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(), "pm-health": () => health.openStatus(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
   "contacts": () => center.openContacts(""),          // RM3146 : l'annuaire, au centre
   "mailbox": () => { layout.switchPanel("mail"); mail.refresh(); },   // RM3319 : 📬 → le panneau 📧, qui vaut « vu »
@@ -690,6 +702,7 @@ window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
   safe("voix", () => { voice.boot(); try { speechSynthesis.onvoiceschanged = () => voice.paint(); } catch (e) { /* pas de synthèse */ } });   // RM2329/2350/2532
   safe("jeux", () => { setsCtl.refreshSets(); setsCtl.refreshSet(); });                      // RM2442 / RM2395
   safe("tableau de bord", () => dashboard.refresh()); safe("poste", () => env.boot());       // RM2697 / RM2722-2748
+  safe("santé PM", () => health.boot());                                     // RM3369
   safe("compte-rendu client", () => clientnotify.refresh());                                 // RM3052 : combien d'évolutions livrées attendent d'être annoncées
   refreshCtl.start();                                                                        // pile /refresh : premier tick (tous les blocs dus), cadence adaptative
 })();

@@ -160,6 +160,11 @@ if (window.matchMedia) {
   <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
        git/GitLab). Rien ne s'affiche quand tout va bien. -->
   <span id="envwarn" style="display:none" data-cmd="env-status"></span>
+  <!-- RM3369 : santé du SYSTÈME PM (champs Redmine activés par projet, miroirs
+       locaux sans champ en face, cohérence des projets, normes). Le badge compte
+       les soucis MAJEURS, et rien ne s'affiche quand il n'y en a pas. -->
+  <button class="mini" id="pmhealthbtn" data-cmd="pm-health" title="Santé du système PM : champs Redmine par projet, contenus écrits en local que Redmine n'a pas pu recevoir, cohérence des projets, normes — avec la commande exacte pour réparer">🩺 PM</button>
+  <span id="pmhealthwarn" style="display:none" data-cmd="pm-health"></span>
   <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
        (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
   <button class="mini" id="lockbtn" style="display:none" data-cmd="env-vault"></button>

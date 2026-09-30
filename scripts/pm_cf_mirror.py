@@ -120,6 +120,11 @@ def push_text_cf(rm_id: int, text: str, *, env_var: str, cf_name: str) -> bool:
         print(f"⚠ CF « {cf_name} » non résolu ({env_var} absent du .env et nom absent de "
               f"redmine.reference.yml) — miroir frontmatter seul.", file=sys.stderr)
         return False
+    # RM3368 : un champ que le tracker du ticket ne porte pas est ACCEPTÉ par
+    # l'API puis jeté. On refuse avant, plutôt que de perdre le contenu (RM3224).
+    import pm_cf_scope
+    if not pm_cf_scope.check_write(rm_id, cid, cf_name):
+        return False
     base = os.environ.get("REDMINE_URL", "").rstrip("/")
     key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not base or not key:

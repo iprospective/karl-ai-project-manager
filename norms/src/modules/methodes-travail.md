@@ -16,10 +16,42 @@ quatre protocoles d'entrée.
 | une demande claire, une surface connue, quelques jours au plus | **ticket ordinaire** | protocole worker (KERNEL) | branche, MR, note, tests |
 | « regarde comment c'est », « est-ce que c'est sain », sécurité, conformité | **audit** | `modules/audits.md` | findings dans `iprospective/audits`, remédiation chez le propriétaire |
 | du code qui tourne et qu'il faut reprendre, migrer, remplacer | **reprise d'existant** | ci-dessous | inventaire mesuré, plan par lots, matrice de compatibilité |
+| « explique-moi », « ça ne marche pas chez moi », « sors-moi cette donnée », une formation | **assistance** | ci-dessous | une réponse, une manipulation, une donnée — **jamais du code livré** |
 
 Un doute entre deux natures se tranche par une question : **qu'est-ce qui sera faux dans six
 mois si on se trompe ?** Un ticket traité comme un CDC coûte du temps ; un projet traité comme
 un ticket coûte une réécriture.
+
+## Assistance → répondre, pas livrer
+
+Une assistance accompagne : elle explique, dépanne, extrait une donnée, forme. **Elle ne
+livre pas de code.** Pas de branche, pas de MR, pas de proposition d'implémentation, pas
+d'actions de déploiement — et ce n'est pas une préférence de style : l'instance Redmine ne
+propose pas ces champs au tracker « Assistance ».
+
+Ce que ça donnait tant que rien ne le vérifiait : l'API acceptait l'écriture, **la jetait**,
+et répondait « succès ». RM3224 a porté **2 459 caractères de proposition d'implémentation**
+absents de la fiche web pendant neuf jours. Le travail était fait, enregistré en local, et
+invisible pour quiconque ne lisait pas le dépôt PM.
+
+**Quand une assistance débouche sur du développement**, il y a deux issues, jamais une
+troisième :
+
+1. **Requalifier le ticket** — la demande était mal rangée au départ (`pm-task-type-update`,
+   qui change le tracker Redmine autant que le `type` local). À préférer quand tout le
+   ticket est en réalité du développement.
+2. **Créer un ticket lié** — l'accompagnement était réel, et il a révélé un travail à faire.
+   L'assistance reste ce qu'elle est et se clôt ; le développement vit dans son ticket
+   (`pm-task-add --parent` ou `pm-task-link`, cf. `modules/task-links.md`). À préférer quand
+   les deux temps sont distincts et se facturent différemment.
+
+**Ce qui n'en fait pas du développement** : versionner un script d'analyse jetable dans le
+dépôt PM pour répondre à la question posée. Le livrable reste la réponse. La frontière est
+le **code applicatif livré au client** — celui qui se teste, se met en production et se
+maintient.
+
+**Le garde-fou** : l'outillage refuse d'écrire un champ que le tracker du ticket ne propose
+pas, et dit laquelle des deux issues prendre. Il ne perd plus le contenu en silence.
 
 ## Projet neuf → le CDC complet
 

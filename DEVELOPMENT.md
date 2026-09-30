@@ -46,6 +46,12 @@ onboarding agent), voir d'abord [README.md](README.md).
   plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
   Valeurs dans `pm.config.yml` (`sessions.memory_{high,max,swap}_gib`, éditables
   depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `_MAX` / `_SWAP` du `.env`
+- **Portée des champs par tracker (RM3368).** `scripts/pm_cf_scope.py` sait quels CF
+  un tracker porte (`/custom_fields.json`, mémorisé 24 h dans `var/cf-scope.json`,
+  repli sur `redmine.reference.yml`). `push_text_cf` et `update_issue_fields` le
+  consultent : un champ de code sur un tracker qui n'en veut pas lève
+  `FieldNotOnTracker`, un autre champ indisponible est seulement signalé. Ne jamais
+  contourner par un PUT direct — c'est ainsi qu'on reperd du contenu en silence.
 - **Santé du système PM (RM3369).** `scripts/pm_health.py` agrège quatre familles
   (champs Redmine activés par projet, miroirs locaux sans champ en face, cohérence
   des manifestes, invariants NORMS) ; `pm-health-report.py` écrit `var/pm-health.json`

@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Une assistance ne livre pas de code : la règle, le garde-fou, l'alerte** (RM3368) :
+  l'outillage refuse désormais d'écrire un champ que le tracker du ticket ne porte pas
+  (`pm_cf_scope`, branché sur `push_text_cf` et `update_issue_fields`) au lieu de laisser
+  l'API l'accepter puis le jeter — le message dit laquelle des deux issues prendre.
+  Nouvel outil `pm-task-type-update` pour requalifier un ticket (type + tracker + CF
+  « Task type »), avec son propre garde-fou : il refuse une requalification qui ferait
+  disparaître des champs remplis, en les chiffrant. La norme entre dans `methodes-travail`
+  (NORMS 2.62.0) et le contrôle de santé gagne une famille « Assistances ». Distinction
+  assumée : les champs de code sont refusés, les autres champs indisponibles (ROI, Task
+  type) sont seulement signalés — une assistance a bien un ROI, et bloquer là casserait
+  une estimation légitime.
+
 - **Santé du système PM, visible au démarrage** (RM3369) : à côté de « 🩺 poste », qui
   surveille la machine, un bouton **« 🩺 PM »** surveille la donnée — champs personnalisés
   activés projet par projet, contenus écrits en local que Redmine n'a pas pu recevoir,

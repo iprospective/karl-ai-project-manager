@@ -34,6 +34,11 @@ regardait pas cette question-là.
   vs `docs/` est-elle tenue, les dépôts déclarés pointent-ils une seule forge.
 - **Normes** — les invariants de la structure NORMS : fraîcheur du document
   assemblé, index à jour, aucun marqueur de conflit resté dans une source.
+- **Assistances** — des tickets d'assistance qui portent une branche, une MR, des
+  actions de déploiement ? Une assistance ne livre pas de code (le tracker ne porte
+  même pas ces champs) : le ticket se requalifie, ou le développement part dans un
+  ticket lié. Signalé en avertissement : c'est un arbitrage à faire, pas une perte
+  en cours.
 - **Rapport** — l'âge du diagnostic lui-même (voir plus bas).
 
 ## Lire le détail

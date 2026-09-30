@@ -161,6 +161,40 @@ check("chk rend les quatre clés attendues",
       set(H.chk("l", "ok")) == {"label", "level", "detail", "fix"})
 check("chk n'ajoute `section` que si elle existe", "section" in H.chk("l", "ok", section="s"))
 
+# ── assistances portant du code (RM3368) ────────────────────────────────────
+check("aucune assistance suspecte = ok", H.assistance_check([])["level"] == "ok")
+susp = H.assistance_check([{"task": "RM3224", "project": "calicote/dolibarr",
+                            "markers": ["branche", "MR"]}])
+check("une assistance avec branche et MR est signalée", susp["level"] == "warn")
+check("elle n'est PAS un souci majeur : c'est un arbitrage, pas une perte en cours",
+      susp["level"] != "error")
+check("le détail nomme le ticket et ses marqueurs",
+      "RM3224" in susp["detail"] and "branche" in susp["detail"])
+check("la ligne donne les DEUX issues de la norme",
+      "pm-task-type-update" in susp["fix"] and "--parent" in susp["fix"])
+beaucoup = H.assistance_check([{"task": f"RM{i}", "project": "p", "markers": ["branche"]}
+                               for i in range(9)])
+check("une longue liste reste lisible", "(+4)" in beaucoup["detail"])
+
+with tempfile.TemporaryDirectory() as td:
+    proj = Path(td) / "clients" / "x" / "projects" / "y"
+    (proj / "tasks").mkdir(parents=True)
+    (proj / "tasks" / "RM100_aide.md").write_text(
+        "---\ntype: assistance\ngit:\n  branch: 100-truc\n  mr_url: null\n---\n", encoding="utf-8")
+    (proj / "tasks" / "RM101_aide.md").write_text(
+        "---\ntype: assistance\ngit:\n  branch: null\n  mr_url: null\n---\n", encoding="utf-8")
+    (proj / "tasks" / "RM102_dev.md").write_text(
+        "---\ntype: feature\ngit:\n  branch: 102-truc\n---\n", encoding="utf-8")
+    vrai = H.pm_projects
+    H.pm_projects = lambda: [("x", "y", proj, "x-y")]
+    try:
+        c = H.family_assistances()[0]
+        check("le collecteur TROUVE l'assistance qui porte une branche", c["level"] == "warn")
+        check("et ne nomme qu'elle", "RM100" in c["detail"] and "RM101" not in c["detail"])
+        check("une tâche avec branche n'est pas concernée", "RM102" not in c["detail"])
+    finally:
+        H.pm_projects = vrai
+
 # ── le COLLECTEUR, pas seulement la fonction pure ───────────────────────────
 # La fonction pure prouve qu'on sait classer ; ce bloc prouve qu'on sait
 # TROUVER. Sans lui, un collecteur qui ne lirait rien du tout resterait vert.

@@ -1,5 +1,22 @@
 # Changelog des normes
 
+## [2.62.0] - 2026-09-30
+
+### Ajouté
+- **Une assistance ne livre pas de code** (RM3368, module `methodes-travail`). L'assistance entre
+  au tableau des natures de travail comme une cinquième nature, avec sa règle : elle explique,
+  dépanne, extrait une donnée, forme — jamais de branche, de MR, de proposition d'implémentation
+  ni d'actions de déploiement. Ce n'est pas un choix de style : l'instance Redmine ne propose pas
+  ces champs au tracker « Assistance », et l'API accepte l'écriture puis la **jette** en répondant
+  « succès ». RM3224 a ainsi porté 2 459 caractères de proposition d'implémentation absents de la
+  fiche web pendant neuf jours. Quand une assistance débouche sur du développement, deux issues et
+  pas une troisième : **requalifier** le ticket (`pm-task-type-update`, créé par le même lot), ou
+  **porter le développement dans un ticket lié**. Ce qui n'en fait pas du développement : un
+  script d'analyse jetable versionné dans le dépôt PM pour répondre à la question posée — la
+  frontière est le code applicatif livré au client. L'outillage refuse désormais d'écrire un champ
+  que le tracker ne porte pas (`pm_cf_scope`) et le contrôle de santé signale les assistances
+  portant des marqueurs de développement.
+
 ## [2.61.0] - 2026-09-30
 
 ### Ajouté

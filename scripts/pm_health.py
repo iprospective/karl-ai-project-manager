@@ -37,7 +37,8 @@ LEVEL_RANK = {"ok": 0, "info": 1, "warn": 2, "error": 3}
 # compte que ce qui demande un geste : un compteur qui affiche un chiffre tous
 # les jours ne se regarde plus (même raison qui tient « Repos » et « PM » hors
 # de `ENV_ALERT_FAMILIES` côté poste).
-ALERT_FAMILIES = ("Champs Redmine", "Miroirs de champs", "Cohérence des projets", "Normes")
+ALERT_FAMILIES = ("Champs Redmine", "Miroirs de champs", "Cohérence des projets",
+                  "Normes", "Assistances")
 
 # Au-delà, le rapport lui-même est un souci : personne ne regarde plus.
 STALE_AFTER = 6 * 3600          # warn — le rapport a vieilli
@@ -431,6 +432,67 @@ def _doctor_family(script, label, args=()):
     return checks
 
 
+# Ce qui, dans une fiche, DIT qu'on a livré du code. (chemin frontmatter, libellé)
+CODE_MARKERS = (
+    ("git.branch", "branche"),
+    ("git.mr_url", "MR"),
+    ("deploy_actions", "actions de déploiement"),
+    ("target_env", "environnement de test"),
+)
+
+
+def assistance_check(entries):
+    """Les assistances qui portent des marqueurs de développement (RM3368).
+
+    Une assistance ne livre pas de code : le tracker « Assistance » ne porte
+    même pas les champs correspondants, donc ce qui y est écrit est perdu. Une
+    assistance qui a une branche et une MR est un ticket mal rangé — il se
+    requalifie, ou le développement part dans un ticket lié.
+
+    `entries` : [{task, project, markers[]}]. Avertissement, pas erreur : le
+    ticket existe, son contenu local est intact, et le geste est un arbitrage
+    humain — pas une perte en cours.
+    """
+    items = list(entries or [])
+    if not items:
+        return chk("assistances sans code", "ok",
+                   "aucune assistance ne porte de marqueur de développement")
+    lignes = ", ".join(f"{e['task']} ({', '.join(e['markers'])})" for e in items[:5])
+    if len(items) > 5:
+        lignes += f" … (+{len(items) - 5})"
+    return chk("assistances portant du code", "warn",
+               f"{len(items)} assistance(s) : {lignes}",
+               "requalifier (pm-task-type-update.py <id> --type feature) ou porter le "
+               "développement dans un ticket lié (pm-task-add.py --parent <id>) — "
+               "NORMS, module methodes-travail")
+
+
+def family_assistances():
+    """Assistances portant des marqueurs de développement. Lecture locale seule."""
+    entries = []
+    lues = 0
+    for ent, proj, path, _rid in pm_projects():
+        tasks_dir = Path(path) / "tasks"
+        if not tasks_dir.is_dir():
+            continue
+        for tf in sorted(tasks_dir.glob("RM*.md")):
+            if tf.name.endswith((".log.md", ".think.md")):
+                continue
+            fm = _read_frontmatter(tf)
+            if not fm:
+                continue
+            lues += 1
+            if str(fm.get("type") or "") != "assistance":
+                continue
+            marks = [label for chemin, label in CODE_MARKERS if mirror_is_filled(dig(fm, chemin))]
+            if marks:
+                m = re.search(r"RM(\d+)_", tf.name)
+                entries.append({"task": "RM" + (m.group(1) if m else "?"),
+                                "project": f"{ent}/{proj}", "markers": marks})
+    return [assistance_check(entries),
+            chk("fiches examinées", "info", f"{lues} fiche(s) de tâche lues")]
+
+
 def family_projects():
     """Cohérence des manifestes de projets (pm-doctor)."""
     return _doctor_family("pm-doctor.py", "cohérence des projets", ("--quiet",))
@@ -446,6 +508,7 @@ FAMILIES = [
     ("Miroirs de champs", family_cf_mirrors),
     ("Cohérence des projets", family_projects),
     ("Normes", family_norms),
+    ("Assistances", family_assistances),      # RM3368
 ]
 
 

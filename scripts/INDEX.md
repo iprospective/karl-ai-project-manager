@@ -41,6 +41,7 @@
 - `pm-task-take` — prise d'un ticket en UN appel
 - `pm-task-think` — consigner dans le fichier de réflexion d'un ticket (`RM<id>_<slug>.thin…
 - `pm-task-tick` — Incrémente tokens/coût/temps sur le frontmatter d'une tâche PM.
+- `pm-task-type-update` — requalifie un ticket : type NORMS + tracker Redmine
 - `pm-think-classify` — classe les tours d'une conversation par un LLM LÉGER, au lieu d'une heu…
 - `pm-think-harvest` — moisson automatique du transcript vers le `.think.md` du ticket courant…
 - `pm-think-merge` — fusionne les `.think.md` des tickets vers les fichiers du projet. RM301…
@@ -205,6 +206,7 @@
 - `pm_actor` — QUI agit, quand karl agit pour quelqu'un
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
+- `pm_cf_scope` — quels champs personnalisés un tracker accepte VRAIMENT
 - `pm_client_notify` — cœur de la notification client à la MEP
 - `pm_concurrent` — qui travaille DÉJÀ sur ce ticket. RM3086 (lot L3 de RM3015).
 - `pm_contacts` — l'annuaire de contacts, cœur partagé

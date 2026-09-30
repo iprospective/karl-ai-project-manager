@@ -117,6 +117,19 @@ def cf_id_by_name(name):
     return None
 
 
+def cf_name_by_id(cf_id):
+    """Nom du custom field d'id `cf_id` d'après la référence, ou None.
+
+    Le sens inverse de `cf_id_by_name`. Sert au garde-fou de portée (RM3368) :
+    un appelant passe `{"id": 3, "value": …}` sans nom, et un refus qui dit
+    « CF 3 » n'aide personne — il doit dire « GIT Branche ».
+    """
+    if cf_id is None:
+        return None
+    spec = (load_reference().get("custom_fields") or {}).get(int(cf_id))
+    return spec.get("name") if isinstance(spec, dict) else None
+
+
 # Fallback si la référence est absente/incomplète (cf. redmine.reference.yml ::
 # type_to_activity, source de vérité). Garde la convention vivante hors-fichier.
 #   31 Developpement/Feature · 16 Développement/Debug · 30 Développement/Refacto/Clean
@@ -546,7 +559,8 @@ def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=No
 
 
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
-                        notes=None, timeout=20, creds=None):
+                        notes=None, timeout=20, creds=None, tracker=None,
+                        check_scope=True):
     """PUT générique sur une issue : custom_fields + estimated_hours + note.
 
     `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
@@ -556,7 +570,24 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
     ⚠ Piège permissions (cf. knowledge/redmine/api.md) : sans « Edit issues »,
     Redmine renvoie 204 mais *drop* silencieusement les attributs ≠ notes. Ce
     helper ne re-vérifie pas ; l'appelant le fait s'il a besoin de la garantie.
+
+    ⚠ Piège portée par tracker (RM3368) : un CF que le tracker du ticket ne porte
+    pas est accepté puis jeté, sans erreur. `check_scope` (défaut) écarte ces
+    champs AVANT le PUT — et refuse tout net quand c'est un champ de code sur un
+    tracker qui n'en veut pas (`pm_cf_scope.FieldNotOnTracker`). `tracker` évite
+    une lecture si l'appelant connaît déjà le tracker ; `check_scope=False` sort
+    du garde-fou pour un appelant qui sait ce qu'il fait.
     """
+    if custom_fields and check_scope:
+        import pm_cf_scope
+        gardes = []
+        for cf in custom_fields:
+            nom = cf.get("name") or cf_name_by_id(cf.get("id")) or f"CF {cf.get('id')}"
+            if pm_cf_scope.check_write(issue_id, cf.get("id"), nom, tracker):
+                gardes.append(cf)
+        if not gardes:
+            return True, ""      # rien d'écrivable : le refus a déjà été dit
+        custom_fields = gardes
     creds = creds or redmine_creds()
     url, key = creds
     _basic = getattr(creds, "basic", None)

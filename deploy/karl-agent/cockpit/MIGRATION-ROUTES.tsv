@@ -31,6 +31,8 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /engines/options	L5	pm	/api/pm/engine-options	2	loadEngineOptions, saveEngineOptions
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck
 /env-status	L5	env	/api/env/env-status	1	openEnvStatus
+/pm-health	L5	health	/api/health/pm-health	1	openPmHealth
+/pm-health/check	L5	health	/api/health/pm-health-check	1	pmHealthBadge
 /events	L8	refresh	/api/session/events	1	push.service
 /events/publish	L8	refresh	/api/session/events/publish	1	pm_events
 /file	L4,L5	files	/api/file/file	2	openCenterFile;openDoc

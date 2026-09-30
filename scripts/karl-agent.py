@@ -102,6 +102,11 @@ API (JSON, localhost:9876)
                                  surveillées (SSH, secrets, outils, git/GitLab) et
                                  uniquement ce qui est en défaut ; mémorisé 5 min
                                  (les sondes coûtent réseau)  (RM2722)
+  GET  /pm-health              → santé du SYSTÈME PM (champs Redmine par projet,
+                                 miroirs sans champ en face, cohérence des projets,
+                                 normes) : le dernier rapport + sa fraîcheur (RM3369)
+  GET  /pm-health/check        → ce que porte le badge : les lignes en défaut et le
+                                 nombre de soucis MAJEURS (RM3369)
   GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
@@ -5520,6 +5525,8 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 client_hash = rest[0] if rest else ""
             elif name == "envcheck":    # RM2722 : sondes sous mémorisation serveur (5 min)
                 data = op_env_check({})
+            elif name == "pmhealth":    # RM3369 : lecture du dernier rapport de santé PM
+                data = op_pm_health_check({})
                 client_hash = rest[0] if rest else ""
             elif name == "vault":       # RM2748 : verrous (coffre, agent SSH)
                 data = op_vault_status()
@@ -11674,6 +11681,62 @@ def op_env_check(qs: dict | None = None) -> dict:
     return out
 
 
+# ── Santé du SYSTÈME PM : données, champs Redmine, normes (RM3369) ──────────
+# Le pendant de la santé du poste, un cran plus loin : ce qui est surveillé
+# n'est plus la machine mais le PM lui-même. Motif : RM3366/RM3367 — des
+# écritures acceptées par l'API puis jetées, pendant des semaines, sans que rien
+# ne le dise. Le calcul vit dans `scripts/pm_health.py` et s'exécute EN TÂCHE DE
+# FOND (`pm-health-report.py`) : il interroge l'API Redmine et balaie le parc de
+# tâches, ce qui n'a pas sa place dans le temps d'affichage d'une page. Le
+# serveur ne fait que lire le dernier rapport — et en dire l'âge, parce qu'un
+# badge à zéro faute de calcul ment plus qu'il n'informe.
+
+
+def _pm_health():
+    """Le module de santé PM, chargé à la demande (jamais au démarrage)."""
+    import importlib
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    return importlib.import_module("pm_health")
+
+
+def op_pm_health_status() -> dict:
+    """RM3369 : le dernier rapport de santé PM, familles et lignes de remédiation.
+
+    La fraîcheur est ajoutée ICI, comme une famille de plus : c'est une
+    propriété du rapport lu, pas de celui qui l'a écrit."""
+    try:
+        H = _pm_health()
+    except Exception as exc:  # noqa: BLE001 — l'absence du module se dit, ne casse pas
+        return {"groups": [], "summary": {"counts": {}, "worst": "warn"},
+                "error": f"module de santé PM indisponible ({exc.__class__.__name__})"}
+    report = H.read_report() or {}
+    groups = list(report.get("groups") or [])
+    groups.append({"name": "Rapport", "checks": [H.report_age(report.get("generated_at"))]})
+    return {"generated_at": report.get("generated_at"),
+            "generated_label": report.get("generated_label") or "",
+            "groups": groups, "summary": H.health_summary(groups)}
+
+
+def op_pm_health_check(qs: dict | None = None) -> dict:
+    """RM3369 : ce que porte le badge — le nombre de soucis MAJEURS.
+
+    Lecture d'un fichier : aucune mémorisation à prévoir, et le rapport périmé
+    compte lui-même pour un souci majeur (sinon le silence passerait pour une
+    bonne nouvelle)."""
+    try:
+        H = _pm_health()
+    except Exception as exc:  # noqa: BLE001
+        return {"items": [], "count": 0, "major": 0, "worst": "ok",
+                "error": f"module de santé PM indisponible ({exc.__class__.__name__})"}
+    report = H.read_report() or {}
+    groups = list(report.get("groups") or [])
+    groups.append({"name": "Rapport", "checks": [H.report_age(report.get("generated_at"))]})
+    out = H.health_alerts(groups, families=tuple(H.ALERT_FAMILIES) + ("Rapport",))
+    out["generated_at"] = report.get("generated_at")
+    out["generated_label"] = report.get("generated_label") or ""
+    return out
+
+
 # ── Vault & clés SSH : déverrouiller depuis le cockpit (RM2748) ──────────────
 # Tout ce qui suit manipule un secret SAISI PAR UN HUMAIN. La règle, sans
 # exception (tripwire 11) : le mot de passe arrive dans le corps JSON d'une
@@ -13891,6 +13954,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/env-check":               # RM2722 : contrôle de démarrage
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_env_check(qs))
+            if path == "/pm-health":               # RM3369 : santé du système PM
+                return self._send_json(200, op_pm_health_status())
+            if path == "/pm-health/check":         # RM3369 : le badge de démarrage
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_pm_health_check(qs))
             if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_triage(qs))

@@ -43,6 +43,8 @@ TARGET_TO_CURRENT = {
     "/api/git/show": "/git/show",
     "/api/glossary/help": "/help",
     "/api/glossary/project": "/project",
+    "/api/health/pm-health": "/pm-health",
+    "/api/health/pm-health-check": "/pm-health/check",
     "/api/layout/outline": "/outline",
     "/api/log/historical": "/log/historical",
     "/api/log/tail": "/log/tail",

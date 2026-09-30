@@ -188,6 +188,7 @@
 - `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
 - `pm-karl-service` — une instance de karl-agent par développeur
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
+- `pm-mep-watch` — la file « à vérifier en prod » se rappelle à nous
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM

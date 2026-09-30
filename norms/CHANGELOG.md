@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.61.0] - 2026-09-30
+
+### Ajouté
+- **L'agent a un compte et une boîte de courrier d'essai** (RM3360, module `testing` §9). Un
+  parcours de test s'arrêtait au dernier écran, alors que la moitié de ce qu'une commande promet
+  se passe après : accusé de réception, confirmation, expédition. L'agent dispose d'une identité
+  d'essai (compte boutique dev/test/préprod + boîte lisible), adresse et mot de passe dans sa
+  conf `var/users/<user>/.env`, transmis aux scénarios par l'environnement — jamais sur une ligne
+  de commande, que `ps` rend lisible. Deux règles fermes : jamais en production, et un envoi de
+  test ne part pas chez un tiers. Piège documenté : le catch-all `/.+@.+/` de
+  `/etc/postfix/virtual-regexp` sur le poste de dev redirige tout le courrier local vers
+  l'exploitant.
+
 ## [2.60.0] - 2026-09-28
 
 ### Modifié

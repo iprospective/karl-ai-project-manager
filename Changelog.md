@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
+  une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
+  remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un
+  mu-plugin de recette que `--delete` ne supprime pas, extensions listées désactivées,
+  `wp-config.php` et compte MySQL propres à la recette (mot de passe jamais en argument).
+  Nouvelle stratégie de dump `remote-mysqldump-socket` : aucun mot de passe de prod à détenir.
+  Le framework gagne un README.
 - **browser-check : mode parcours** (RM3359) : `--scenario <fichier.json>` déroule une suite
   d'étapes (connexion, saisie, sélection, clic, assertions) au lieu d'un clic unique, avec des
   paramètres `{{variables}}` fournis en ligne de commande. Les secrets viennent de

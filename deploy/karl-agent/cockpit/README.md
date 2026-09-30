@@ -17,10 +17,14 @@ cockpit/
     boot.js             câblage : CFG, stores, montage des domaines, window.karl, init
     core/               socle sans DOM métier : html (gabarits sûrs), dom (mount/on, stats par module), store (LRU+TTL+abonnés),
                         probe (sonde mémoire), entities (registre des types, quatre niveaux), api (transport, 401),
-                        endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv),
+                        endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv), checks (présentation d'un rapport
+                        « familles → lignes », partagée par la santé du poste et celle du PM — RM3369),
                         errors, markdown, log (journal du front), version, Repository / Factory / EntityViewModel
     modules/<domaine>/  un dossier par domaine, une couche par SUFFIXE (voir ci-dessous)
     styles/             _tokens.scss (couleurs, thèmes), _base.scss, _entities.scss (niveaux .e-row/.e-card/.e-panel/.e-full), main.scss
+  src/modules/health/    santé du SYSTÈME PM (RM3369) : badge « 🩺 PM » de l'en-tête (les soucis MAJEURS,
+                         poussés par le bloc `pmhealth`) et page de détail par famille ; le rapport est
+                         calculé en tâche de fond côté serveur, le front le LIT et en dit l'âge
   src/modules/monitor/   panneau Supervision (RM3112) : alertes de l'observateur situées chez un client, association hôte → projet, ticket depuis une alerte
   src/modules/setnav/    onglets des réglages (RM3081) : répartit les cartes du panneau par sujet et ne charge qu'à l'ouverture
   src/modules/engines/   panneau Moteurs des réglages (RM3069) : installer / mettre à jour / tester, par recette connue du serveur,

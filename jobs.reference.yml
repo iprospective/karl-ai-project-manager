@@ -185,6 +185,21 @@ jobs:
       invariant rouge est un ÉTAT : il se notifie, il ne produit pas de ticket. La
       liste des invariants part en champ, donc une panne qui dure fait UNE entrée.
 
+  # ── Santé du système PM : le rapport que lit le cockpit (RM3369) ───────────
+  pm-health:
+    schedule: "25 */3 * * *"
+    command: ["python3", "scripts/pm-health-report.py"]
+    timeout: 600
+    description: >
+      Calcule la santé du SYSTÈME PM — champs personnalisés activés projet par
+      projet, contenus écrits en local que Redmine n'a pas pu recevoir, cohérence
+      des manifestes, invariants NORMS — et l'écrit dans var/pm-health.json, que
+      le cockpit lit pour son badge « 🩺 PM ». Sans lui le badge reste à zéro, et
+      un badge à zéro faute de calcul ment plus qu'il n'informe : passé six heures
+      sans rapport le cockpit le dit lui-même, passé vingt-quatre il compte ça
+      pour un souci majeur. Toutes les trois heures : ces défauts naissent d'une
+      configuration changée à la main, pas d'une minute à l'autre.
+
   # ── Bus d'événements : les modules réagissent (RM3145, lot 2) ───────────────
   bus-drain:
     schedule: "*/5 * * * *"

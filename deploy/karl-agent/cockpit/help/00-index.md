@@ -80,6 +80,9 @@ Au doigt, l'écran utile passe avant le décor :
 - **❓ aide** (en-tête) ouvre cette documentation.
 - **📜 journal** (en-tête) ouvre le [journal](journal) ; son badge compte les
   avertissements et erreurs survenus depuis la dernière ouverture.
+- **🩺 poste** (en-tête) diagnostique ta machine ; **🩺 PM** diagnostique le
+  système de gestion lui-même — voir [Santé du système PM](sante-pm). Son badge
+  compte les **soucis majeurs** : ceux où de la donnée se perd.
 - Un **`?`** près d'un panneau ouvre directement la page qui le concerne.
 
 ## L'en-tête, de gauche à droite

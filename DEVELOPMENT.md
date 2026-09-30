@@ -46,6 +46,11 @@ onboarding agent), voir d'abord [README.md](README.md).
   plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
   Valeurs dans `pm.config.yml` (`sessions.memory_{high,max,swap}_gib`, éditables
   depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `_MAX` / `_SWAP` du `.env`
+- **Santé du système PM (RM3369).** `scripts/pm_health.py` agrège quatre familles
+  (champs Redmine activés par projet, miroirs locaux sans champ en face, cohérence
+  des manifestes, invariants NORMS) ; `pm-health-report.py` écrit `var/pm-health.json`
+  (job `pm-health`, toutes les 3 h) ; `/pm-health` et `/pm-health/check` le servent au
+  cockpit, qui en montre le badge et l'âge. Le serveur ne calcule rien à l'ouverture.
   priment et figent le réglage. Piège : sur `swap`, `0` est un plafond réel
   (aucun swap, le défaut) et c'est `-1` qui lève la limite.
 - **De l'email au ticket (chantier RM2666).** Quatre scripts, quatre gestes, aucune

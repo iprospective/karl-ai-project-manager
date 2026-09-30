@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Santé du système PM, visible au démarrage** (RM3369) : à côté de « 🩺 poste », qui
+  surveille la machine, un bouton **« 🩺 PM »** surveille la donnée — champs personnalisés
+  activés projet par projet, contenus écrits en local que Redmine n'a pas pu recevoir,
+  cohérence des manifestes, invariants NORMS. Son badge compte les **soucis majeurs** et
+  ne montre rien quand il n'y en a pas. Motif : un champ non activé fait accepter puis
+  jeter l'écriture, sans erreur — 2 459 caractères d'étude sont restés invisibles des
+  semaines (RM3224), le contrôle de configuration répondant « aucun drift ». Le rapport
+  est produit en tâche de fond (`pm-health-report`, job `pm-health` toutes les 3 h) et le
+  cockpit en affiche l'âge : passé 24 h sans calcul, c'est compté pour un souci majeur —
+  un badge à zéro faute de calcul ment plus qu'il n'informe.
+
 - **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
   une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
   remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un

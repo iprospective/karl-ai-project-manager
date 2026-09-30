@@ -91,7 +91,7 @@ providers:
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
-identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+identifiants d'accès sont **par développeur**, dans `<core>/var/users/<user>/.env`, nommés
 par slug **normalisé** (majuscules, non-alphanum → `_`) :
 `SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
 
@@ -189,7 +189,7 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
    défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
 
-**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+**Identifiants** — par dev, dans `<core>/var/users/<user>/.env`, nommés par slug d'instance
 (`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
 `BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
 

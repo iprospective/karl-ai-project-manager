@@ -15,6 +15,7 @@
 import { html, raw, isSafe, attrs } from "./core/html.js";
 import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
 import { createProbe } from "./core/probe.js";
+import { createPrefs } from "./core/prefs.js";
 import { mountMemory } from "./modules/memory/memory.controller.js";
 import { mount, on, domStats, domStatsByModule, paint } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
@@ -24,6 +25,7 @@ import { Repository } from "./core/Repository.js";
 import { Factory } from "./core/Factory.js";
 import { EntityViewModel, withConso } from "./core/EntityViewModel.js";
 import { mountMailPanel } from "./modules/mail/mail.controller.js";
+import { mailboxState, paintMailbox, readSeen, writeSeen, seenKeys } from "./modules/mail/mailbox.js";   // RM3319
 import { mountGitPanel } from "./modules/git/git.controller.js";
 import { mountDashboard } from "./modules/dashboard/dashboard.controller.js";
 import { mountProjectsPanel } from "./modules/projects/projects.controller.js";
@@ -64,6 +66,7 @@ import { mountCdc } from "./modules/cdc/cdc.controller.js";                 // R
 import { mountClientNotify } from "./modules/clientnotify/clientnotify.controller.js";   // RM3052
 import { mountSessProj } from "./modules/sessproj/sessproj.controller.js";   // RM3045
 import { mountProviders } from "./modules/providers/providers.controller.js"; // RM3068
+import { mountBilling } from "./modules/billing/billing.controller.js";      // RM3229
 import { mountEngines } from "./modules/engines/engines.controller.js";
 import { mountModules } from "./modules/modules/modules.controller.js";       // RM3145
 import { mountSetnav } from "./modules/setnav/setnav.controller.js";          // RM3081
@@ -91,6 +94,11 @@ import { FileBody, centerBtnHtml } from "./modules/center/Center.view.js";
 const CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
 const stores = appStores();   // RM3005 : les caches partagés sont des stores nommés et bornés (core/store.js), visibles dans karl.stats()
 let auth = null, attachCtl = null;
+// RM3070 L2 : les préférences de ce navigateur sont cloisonnées par utilisateur (`u:<user>:<clé>`),
+// et purgées à la déconnexion. Sans utilisateur connecté (mono), le préfixe est vide : rien ne change.
+// L'authentification garde le stockage NU — ses clés désignent la session du navigateur, pas des goûts.
+const RAW_STORAGE = (typeof localStorage !== "undefined") ? localStorage : null;
+const PREFS = createPrefs(RAW_STORAGE, () => (auth ? auth.user() : ((RAW_STORAGE && RAW_STORAGE.getItem("karlUser")) || "")));
 // RM3011 : le journal du front — mêmes sévérités et catégories que le serveur ; warn/error remontés par POST /api/log/write ; les exceptions
 // non rattrapées et les promesses rejetées y tombent. Créé AVANT tout montage : le premier domaine qui trébuche est déjà consigné.
 const log = createLog({ remote: (rec) => post(route("log.write"), rec), version: VERSION, ua: (typeof navigator !== "undefined" ? navigator.userAgent : "") });
@@ -148,13 +156,17 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
 // domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
 // les contrôleurs à l'appel, jamais au montage).
-const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
+const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"),
+  // RM3270 : la barre du haut (condensée au doigt) et son bouton de débordement
+  header: document.querySelector("header"), hdrmore: byId("hdrmore"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
   // RM3051 : les surfaces de la zone centrale — la disposition les montre ou les masque selon l'option de split
   reviewpane: byId("reviewpane"), viewpane: byId("viewpane"), panelpane: byId("panelpane"),
   centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  storage: PREFS, root: document,
   // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
-  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null, search: (typeof location !== "undefined" ? location.search : ""),
+  media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null,
+  // RM3270 : le clavier logiciel ne rétrécit QUE le viewport visible — c'est lui qui déclenche le plein écran
+  viewport: (typeof window !== "undefined" && window.visualViewport) ? window.visualViewport : null, search: (typeof location !== "undefined" ? location.search : ""),
   attention: () => stores.sess.values().filter(s => s && !s.ghost && (s.state === "attention" || s.state === "choice")).length, attached: () => (attachCtl ? attachCtl.current() : null),
   onApply: (r, visible) => {
     const att = attachCtl.current();
@@ -183,6 +195,9 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
   // référence au niveau module (ce qui, elle, serait une TDZ ; cf. RM2889).
   addContact: (champs) => pmcmd.run("annuaire-add", champs),
   badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
+  // RM3319 : la boîte aux lettres 📬 de l'en-tête suit chaque lecture de la file ; ouvrir le panneau vaut « vu »
+  mailbox: (st) => { if (layout.panel() === "mail") writeSeen(PREFS, seenKeys(st.emails)); paintMailbox(byId("mailbtn"), mailboxState(st, readSeen(PREFS))); },
+  showTicket: (rm) => review.open(rm),
 });
 
 const git = mountGitPanel(document.getElementById("rp-git"), {
@@ -236,7 +251,7 @@ const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), run: (n, a, o) => pm.run(n, a, o),
 });
 const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard") }, {
-  probe, storage: localStorage, notify: notify.toast, help: (t) => doc.openHelp(t),
+  probe, storage: PREFS, notify: notify.toast, help: (t) => doc.openHelp(t),
   download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
 });
 // RM3068 : le panneau Fournisseurs vit dans les réglages ; il charge à la première ouverture du panneau
@@ -251,6 +266,8 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   applyClientCtx: (on) => { const el = document.getElementById("clientctx"); if (el) el.style.display = on ? "inline-block" : "none"; },
   // RM3094 : les commandes de panes tmux, montrées ou masquées d'un bloc — les gestes restent câblés
   applyMonitor: (on) => { const el = document.getElementById("monbox"); if (el) el.style.display = on ? "" : "none"; },
+  // RM3270 : le second formulaire sous le terminal — masqué par défaut en mobile (la disposition porte la règle CSS)
+  applyComposer: (on) => { if (layout && layout.applyComposer) layout.applyComposer(on); },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
   // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)
@@ -260,7 +277,7 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
 // RM3112 : la supervision du parc. Le cockpit ne parle jamais à l'observateur : il demande au serveur,
 // qui sait lequel répond et détient sa clé.
 const monitor = mountMonitor(byId("monitorcard"), {
-  notify: notify.toast, confirm: (m) => window.confirm(m), storage: localStorage,
+  notify: notify.toast, confirm: (m) => window.confirm(m), storage: PREFS,
   showTicket: (rm) => { if (meta) meta.showTicket(rm); },   // lambda : `meta` est monté plus bas
 });
 
@@ -278,7 +295,9 @@ function pollFeed(force) {
   const t = Date.now();
   if (feedBusy || (!force && t - feedAt < 60000)) return;
   feedBusy = true; feedAt = t;
-  Promise.resolve(feedCtl.poll()).catch(() => {}).then(() => { feedBusy = false; });
+  // RM3319 : la file mail suit le même pas — la boîte 📬 s'allume sans ouvrir le panneau
+  Promise.all([Promise.resolve(feedCtl.poll()).catch(() => {}), Promise.resolve(mail.refresh()).catch(() => {})])
+    .then(() => { feedBusy = false; });
 }
 function paintFeedBadge(c) {
   const b = byId("feedbtn"); if (!b) return;
@@ -294,7 +313,7 @@ function paintFeedBadge(c) {
 // RM3081 : les réglages en onglets. Chaque onglet dit ce qu'il faut charger pour lui, et rien d'autre
 // ne part au serveur tant qu'on ne l'ouvre pas — un onglet n'est chargé qu'une fois.
 const setnav = mountSetnav(byId("setnav"), {
-  document, storage: localStorage,
+  document, storage: PREFS,
   loaders: {
     instance: () => { settings.load(); memory.render(); },
     providers: () => providers.load(),
@@ -306,7 +325,7 @@ const setnav = mountSetnav(byId("setnav"), {
 // la voix : les moteurs du navigateur sont fournis ICI, au seul endroit qui les connaît
 const synth = () => (typeof speechSynthesis !== "undefined" ? speechSynthesis : null);
 const voice = mountVoice(document.getElementById("voicecard"), {
-  notify: notify.toast, storage: localStorage,
+  notify: notify.toast, storage: PREFS,
   attached: () => attachCtl.current(), resolve: () => stores.resolve,
   voiceBtn: (on) => { const b = document.getElementById("voicebtn"); if (b) { b.style.color = on ? "var(--ok)" : ""; b.style.borderColor = on ? "var(--ok)" : ""; } },
   mic: (s) => { const b = document.getElementById("micbtn"); if (b) { b.style.color = s.color; b.textContent = s.text; } },
@@ -333,14 +352,17 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let journal = null, cdc = null, clientnotify = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let journal = null, billing = null, cdc = null, clientnotify = null, sessproj = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
-  storage: localStorage, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
+  storage: PREFS, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
   resolve: () => stores.resolve,
   scope: () => ({ filesData: files.data(), attached: attachCtl.current(), projectKey: project ? project.current() : null }),
   surfaces: {
     session:   { sessions: () => stores.sess.view, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
-                 open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
+                 open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s),
+                 // RM3265 : dernier recours du clic sur une session éteinte — reprendre sa conversation.
+                 // `resume` est monté plus bas : la référence n'est lue qu'au clic, jamais au chargement.
+                 resume: (rm) => resume.resumeTicket(rm), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
@@ -353,6 +375,8 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     feed:     { label: "fil",          load: () => feedCtl.open(),    show: (on) => show("cp-feed", on) },     // RM2792
     cdc:      { label: "CDC",          load: () => cdc.open(),          show: (on) => show("cp-cdc", on) },                      // RM3044 : un menu, trois onglets dedans
     clientnotify: { label: "compte-rendu", load: () => clientnotify.open(), show: (on) => show("cp-clientnotify", on) },                 // RM3052 : ce qui est livré et pas encore annoncé
+    // RM3229 : le temps de travail d'une journée, à valider en le regardant — jamais un mois en bloc
+    billing:  { label: "facturation",  load: () => billing.open(),    show: (on) => show("cp-billing", on) },
   },
   // RM3115 : une vue ou un panneau est une surface centrale comme un ticket — c'est la disposition qui
   // décide s'il remplace la session ou s'affiche sous elle, pas un `display` posé à la main.
@@ -442,7 +466,7 @@ files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: docu
 // le panneau 🎫 tickets (RM1952 triage, RM2606 tickets ouverts, RM2619 infobulles) : le monolithe prête les résolutions,
 // la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
 tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
-  ticket, notify: notify.toast, storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  ticket, notify: notify.toast, storage: PREFS, root: document,
   resolve: () => stores.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
   clientContext: () => launcher.clientContext(), spawnBatch: (items, btn, opts) => worklogCtl.spawnBatch(items, btn, opts),
 });
@@ -488,7 +512,7 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 // le terminal de la session attachée (RM2522 client maison opt-in / iframe ttyd, RM2700 cookie de gate, RM2807 sonde) et le composer
 // (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => CFG, notify: notify.toast,
+  storage: PREFS, win: window, cfg: () => CFG, notify: notify.toast,
   attached: () => attachCtl.current(), sess: () => stores.sess, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
   copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
@@ -525,7 +549,7 @@ center.register("review", { open: review.open, close: () => { if (review.current
 // le lanceur (§1 résolution, RM1941 modèles, RM2873 consigne, RM2818 garde, spawn), la saisie éclair d'un ticket (§8) et le contexte
 // client (RM2639) : CFG, la consigne et la garde (revue), le runner PM, l'attache et les suites sont prêtés ; le contexte prévient le reste
 launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), clientctx: byId("clientctx") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), cfg: () => CFG, notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), run: (n, a, o) => pm.run(n, a, o),
+  storage: PREFS, cfg: () => CFG, notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), run: (n, a, o) => pm.run(n, a, o),
   promptText: taskPromptText, promptFill: promptFillOnChange, confirmSecondSession: (rm) => review.confirmSecondSession(rm), warnSpawn: (r) => setsCtl.warnSpawn(r),
   afterSpawn: async () => { await refreshCtl.refreshSessions(); refreshCtl.refreshHealth(); }, attach: (rm) => attachCtl.attach(rm), switchPanel: (n) => layout.switchPanel(n),
   afterStatus: async (rm) => { await ticket.ensureResolved(rm, true); if (meta && meta.ticketIs(rm)) meta.render(); if (review.current() === rm) review.render(); },   // RM2229 : re-résout partout
@@ -543,7 +567,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   resolve: () => stores.resolve, sess: () => stores.sess, usage: () => stores.usage,
   attached: () => attachCtl.current(), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
   attachSession: (sid) => attachCtl.attach(sid),   // RM3164 : retourner à la session depuis la fiche
-  showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: (rm) => launcher.goto(rm), reopen: (rm) => launcher.reopen(rm),
+  showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: (rm) => launcher.goto(rm), estimateTicket: (rm) => launcher.prepare(rm, "chiffrer"), reopen: (rm) => launcher.reopen(rm),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
 });
@@ -558,9 +582,10 @@ const testqueue = testqueueRef = mountTestQueue({ card: byId("tqcard"), badge: b
 // le titre de la session attachée et l'en-tête droit (RM2894) : le registre live est PARTAGÉ par référence (sessCache) ; le monolithe prête
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
 sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), navSeen: byId("ln-seen"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
+  storage: PREFS, notify: notify.toast, ticket,
   cfg: () => CFG,                                                                          // RM3082 : paliers de la jauge de contexte (context_thresholds)
   sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
+  user: () => (auth ? auth.user() : ""),      // RM3070 L4 : les sessions des AUTRES portent leur nom
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),
   clientContext: () => launcher.clientContext(), setClientContext: (c) => launcher.setClientContext(c),
@@ -575,7 +600,7 @@ sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), nav
 // les jeux de sessions (RM2395/2442/2445/2446/2448/2449/2451/2452/2673/2741/2955) : barre du panneau « en cours » et carte « Sessions enregistrées » ;
 // la liste migrée prête les sessions AFFICHÉES, le monolithe le toast (simple et avec action), confirm/prompt, l'attache et la pile /refresh
 setsCtl = mountSets({ bar: byId("setbar"), card: byId("sessions-set-card") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, notifyAction: notify.toastAction,
+  storage: PREFS, notify: notify.toast, notifyAction: notify.toastAction,
   confirm: (m) => window.confirm(m), prompt: (m, d) => window.prompt(m, d),
   ordered: () => sessionsCtl.ordered(), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm),
 });
@@ -595,7 +620,7 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
 // l'authentification (RM2334) : écran de login plein-cadre, cadenas, carte de session et appareils, comptes (superadmin). L'init du monolithe
 // appelle `boot` une fois CFG connu ; une connexion relance la santé et les sessions et ramène au panneau « en cours »
 auth = mountAuth({ gate: byId("authgate"), card: byId("authcard"), users: byId("userscard"), lock: byId("lock") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), cfg: () => CFG, notify: notify.toast,
+  storage: RAW_STORAGE, onLogout: (qui) => PREFS && PREFS.purge(qui), cfg: () => CFG, notify: notify.toast,
   confirm: (m) => window.confirm(m), prompt: (m) => window.prompt(m), ua: (typeof navigator !== "undefined" ? navigator.userAgent : ""),
   afterAuth: () => { refreshCtl.refreshHealth(); refreshCtl.refreshSessions(); }, switchPanel: (n) => layout.switchPanel(n),
 });
@@ -606,7 +631,7 @@ attachCtl = mountAttach({ placeholder: byId("placeholder"), tabactions: byId("ta
 });
 // les boutons statiques de la page (en-tête, aides des panneaux, barre du terminal) : `data-cmd` → geste
 // RM3075 : les repères « ? » sur les zones du cockpit (registre unique, préférence de ce navigateur)
-helpSpotsCtl = mountHelpSpots(document, { storage: (typeof localStorage !== "undefined" ? localStorage : null), openHelp: (topic) => doc.openHelp(topic) });
+helpSpotsCtl = mountHelpSpots(document, { storage: PREFS, openHelp: (topic) => doc.openHelp(topic) });
 const commands = mountCommands(document, {
   "voice-toggle": () => voice.toggle(), "voice-dictate": () => voice.dictate(), "voice-read": () => voice.readQuestion(),
   "nav": (arg) => center.navGo(Number(arg)), "hist": () => center.histToggle(), "panel": (arg) => center.openPanel(arg),
@@ -614,6 +639,7 @@ const commands = mountCommands(document, {
   "clientnotify": (arg, el) => clientnotify.openMenu(el), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
   "contacts": () => center.openContacts(""),          // RM3146 : l'annuaire, au centre
+  "mailbox": () => { layout.switchPanel("mail"); mail.refresh(); },   // RM3319 : 📬 → le panneau 📧, qui vaut « vu »
 });
 // le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
 // RM3044 : pages du CDC vivant ; RM3045 : onglet projets de la session (prête ses projets au choix du CDC en contexte)
@@ -622,13 +648,13 @@ sessproj = mountSessProj(byId("rp-projects"), {
   openCdc: (key, page) => { cdc.select(key); center.openPanel("cdc"); cdc.open(page); },
 });
 cdc = mountCdc(byId("cdccard"), {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), md: mdToHtml, notify: notify.toast,
+  storage: PREFS, md: mdToHtml, notify: notify.toast,
   openPanel: () => center.openPanel("cdc"), showTicket: (rm) => review.open(rm), sessionProjects: () => sessproj.keys(), confirm: (m) => window.confirm(m),
 });
 // RM3052 : compte-rendu client — menu déroulant au bandeau (un client par ligne, avec son reste à annoncer),
 // page centrale cochable, aperçu de l'email, envoi. Le badge dit combien d'évolutions livrées attendent d'être annoncées.
 clientnotify = mountClientNotify(byId("clientnotifycard"), {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast,
+  storage: PREFS, notify: notify.toast,
   openPanel: () => center.openPanel("clientnotify"),
   badge: (txt) => { const b = byId("ln-clientnotify"); if (b) { b.textContent = txt || ""; b.style.display = txt ? "" : "none"; } },
   popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "cnmenu"; document.body.appendChild(m); return m; },
@@ -636,7 +662,10 @@ clientnotify = mountClientNotify(byId("clientnotifycard"), {
   onOutsideClick: (fn) => setTimeout(() => document.addEventListener("click", fn, { once: true }), 0),
   clear: (id) => clearTimeout(id),
 });
-journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
+journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: PREFS, notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
+// RM3229 : l'écran de facturation — une journée, sa frise humain/IA, sa proposition, sa validation. L'écriture passe par le
+// catalogue PM (`pm.run`), avec confirmation : c'est le même chemin que la CLI, et il est journalisé.
+billing = mountBilling({ card: byId("billingcard") }, { run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, storage: PREFS, showTicket: (id) => meta.showTicket(id) });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
 // une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
@@ -645,7 +674,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, clientnotify, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, clientnotify, billing, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

@@ -70,8 +70,9 @@ check("défaut d'axe posé", yaml.safe_load((ka.REPO_ROOT / "pm.config.local.yml
 
 print("\n[RM3068] secrets : écriture seule")
 # comportement, pas texte : on pose une vraie clé dans un .env isolé, et on regarde ce que l'API en dit
-home = pathlib.Path(tmp) / "home"; (home / ".config" / "mmi-pm").mkdir(parents=True)
-(home / ".config" / "mmi-pm" / ".env").write_text("SECRET__VW__CLIENTID=valeur-tres-secrete\nSECRET__VW__CLIENTSECRET=\n")
+home = pathlib.Path(tmp) / "home"; udir = pathlib.Path(tmp) / "var-users-demon"; udir.mkdir(parents=True)
+(udir / ".env").write_text("SECRET__VW__CLIENTID=valeur-tres-secrete\nSECRET__VW__CLIENTSECRET=\n")
+os.environ["PM_USER_DIR"] = str(udir)       # RM3318 : conf du dev dans var/users/<user>/, isolée ici
 ka.op_provider_save({"name": "vw", "type": "vaultwarden", "fields": {"url": "https://v.example"}})
 os.environ["HOME"] = str(home)
 vue = ka.op_providers({"user": "zzz-inexistant", "admin": False})     # user inconnu → le compte du démon, HOME isolé

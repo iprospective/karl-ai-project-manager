@@ -42,16 +42,59 @@ export class ReviewViewModel extends EntityViewModel {
       data-action="open-contact" data-value="${d.ref}"
       title="Fiche de ${d.ref}">${nom}</span>${pastille}`;
   }
+  /** RM3256 — les relations du ticket, une ligne par nature. Rendues en texte : le clic vers un
+   *  autre ticket appartient à la vue qui sait où l'ouvrir, pas au registre. */
+  get relationLines() {
+    const r = this.r || {}, out = [];
+    const add = (label, ids) => { const l = (ids || []).map(String).filter(Boolean); if (l.length) out.push([label, l.join(" · ")]); };
+    if (r.parent_task) add("parent", [r.parent_task]);
+    add("sous-tâches", r.sub_tasks); add("dépend de", r.depends_on); add("bloque", r.blocks); add("liés", r.relates);
+    return out;
+  }
   sections() {
     const r = this.r || {};
-    return [{ id: "links", title: "liens", summary: true, body: () => this.links.map(l => html`<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`), empty: "aucun lien" },
+    return [
+      // RM3256 : l'identité du ticket — ce que le panneau de droite écrivait de son côté, et que
+      // le centre redisait autrement. Une seule définition, deux vues.
+      { id: "identite", title: "identité", summary: true, body: () => {
+        const out = [];
+        if (r.type) out.push(["type", r.type]);
+        if (r.status) out.push(["phase", r.status]);
+        if (r.priority) out.push(["priorité", r.priority]);
+        if (r.completion_pct != null) out.push(["avancement", r.completion_pct + " %"]);
+        return out;
+      }, empty: "ticket non résolu" },
+      { id: "git", title: "git", body: () => { const g = r.git || {}; const out = [];
+        if (g.branch) out.push(["branche", g.branch]);
+        if (g.mr_url) out.push(["MR", html`<a href="${g.mr_url}" target="_blank" rel="noopener">↗</a>`]);
+        return out; }, empty: "aucune branche de ticket" },
+      { id: "relations", title: "relations", body: () => this.relationLines, empty: "aucune relation" },
+      { id: "links", title: "liens", summary: true, body: () => this.links.map(l => html`<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`), empty: "aucun lien" },
             { id: "tags", title: "étiquettes", summary: true, body: () => this.tags.join(" · ") },
             // RM3149 : qui a demandé. Cliquable vers sa fiche quand l'annuaire le
             // connaît ; sinon lisible tel quel — un demandeur hors annuaire ne
             // doit pas disparaître de la fiche.
             { id: "requester", title: "demandeur", summary: true, body: () => this.requester, empty: "inconnu" },
-            { id: "environments", title: "environnements", body: () => { const e = this.environments; return e ? (e.test_url ? [["test", e.test_url]] : []).concat(e.list.map(x => [x.name || "env", x.url])) : null; }, empty: "aucun environnement" },
-            { id: "protocol", title: "protocole de test", body: () => (this.protocol ? html`<pre>${this.protocol.text}</pre>` : null), empty: "pas de protocole" },
+            // RM3256 : l'environnement ACTIF selon la phase du ticket vient en tête, marqué — c'est
+            // lui qu'on ouvre, les autres sont du contexte. Le panneau de droite portait seul cette
+            // distinction ; elle vaut pour toute vue qui montre les environnements.
+            { id: "environments", title: "environnements", body: () => {
+              const r = this.r || {}, e = this.environments, out = [];
+              const a = r.active_env;
+              if (a && a.name) out.push([html`<span class="pill ok">${a.name}</span>`, a.url ? html`<a href="${a.url}" target="_blank" rel="noopener">ouvrir ↗</a>` : "—"]);
+              if (e && e.test_url) out.push(["test_url", html`<a href="${e.test_url}" target="_blank" rel="noopener">↗</a>`]);
+              for (const x of (e ? e.list : []).filter(x => x.url && !(a && x.name === a.name)))
+                out.push([x.name || "env", html`<a href="${x.url}" target="_blank" rel="noopener">↗</a>`]);
+              return out;
+            }, empty: "aucun environnement" },
+            // RM3256 : en markdown, et AVEC sa provenance (champ dédié, note de livraison, description).
+            // Rendu en <pre>, un protocole écrit en tableau devenait illisible — la fiche du centre le
+            // rendait déjà correctement, de son côté ; c'est cette version-là qui devient la seule.
+            { id: "protocol", title: "protocole de test", level: "full",
+              body: () => (this.protocol
+                ? html`<div class="e-src">(${this.protocol.source})</div><div class="mdview">${raw(mdToHtml(this.protocol.text))}</div>`
+                : null),
+              empty: "aucune section « À tester » dans la note de livraison ni la description (norme RM2229 : toute livraison devrait en inclure une)" },
             // RM3137 : la description est du MARKDOWN, et elle est repliée à la source vers 80 colonnes
             // (c'est la convention d'écriture des fiches). Rendue dans un <pre>, ces retours à la ligne
             // étaient préservés tels quels : le texte se coupait vers 82 caractères quelle que soit la
@@ -85,15 +128,21 @@ export class ReviewViewModel extends EntityViewModel {
     if (!th || !th.file) return null;
     const ICON = { valide: "✅", invalide: "❌", propose: "🟡", attente: "🕐", reserve: "⏸" };
     const rub = (rows, titre) => (rows || []).map(r => ({
-      id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·",
+      // RM3262 : la signature (« 2026-09-01 · Mathieu ») accompagne chaque entrée — une question
+      // sans date ni auteur ne se relit pas. Vide sur un carnet pas encore migré : on n'invente rien.
+      id: String(r.id || ""), text: String(r.text || ""), icon: ICON[r.state] || "·", signature: String(r.signature || ""),
       state: String(r.state || ""), closed: !!r.closed, prefix: String(r.prefix || ""),
-      open: !r.closed && r.state !== "valide" && r.state !== "invalide", rubrique: titre }));
+      // RM3357 : « en réserve » = la question attend un TIERS. Elle n'est pas « ouverte » — ni à
+      // trancher par nous, ni bloquante — mais elle reste affichée, sous sa propre marque.
+      reserve: r.state === "reserve",
+      open: !r.closed && r.state !== "valide" && r.state !== "invalide" && r.state !== "reserve", rubrique: titre }));
     const c = th.counts || {};
     return { file: th.file, counts: c,
       questions: rub(th.questions, "question"), decisions: rub(th.decisions, "decision"),
       notes: rub(th.notes, "note"), features: rub(th.features, "feature"),
       openQuestions: rub(th.questions, "question").filter(q => q.open).length,
       // c'est ce chiffre qui explique le refus de clôture AVANT qu'il ne tombe
+      reserve: c.questions_reserve || 0,
       blocking: (c.questions_open || 0) + (c.notes_pending || 0) };
   }
 

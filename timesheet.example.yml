@@ -1,7 +1,8 @@
 # timesheet.yml — configuration de la feuille de temps (RM2890).
 #
-# Copier en `timesheet.yml` à la racine du core PM et adapter : ce fichier décrit
-# UNE instance (ses postes, ses clients, ses absences), il n'est pas portable.
+# Copier en `<core>/var/users/<user>/timesheet.yml` et adapter : ce fichier décrit UNE personne
+# (ses postes, ses clients, ses absences). Il vit chez elle, pas dans le code partagé —
+# un `timesheet.yml` à la racine du core reste lu en dernier recours (historique).
 # Sans lui, la feuille de temps tourne avec les défauts et les sources de cette machine.
 #
 # Détail des règles : docs/cdc-rm2890-timesheet-heures-humaines.md (pm-ai-agents).
@@ -13,7 +14,7 @@
 sources:
   - {kind: claude-transcripts, path: "~/.claude/projects"}
   - {kind: claude-history,     path: "~/.claude/history.jsonl"}
-  - {kind: opencode-db,        path: "~/.local/share/opencode/opencode.db"}
+  - {kind: opencode-db,        path: "~/.local/share/opencode/opencode.db"}   # une seule base si montée hôte ↔ conteneur
   # base opencode de l'hôte, exportée par : sqlite3 <db> ".backup <cible>"
   # - {kind: opencode-db, path: "/zfs/workspaces/var/opencode-host.db"}
   #

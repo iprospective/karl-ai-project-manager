@@ -49,6 +49,12 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   ev.length = 0; clientctx.value = "acme"; await clientctx.fire("change", clientctx); assert(store2.d.karlClientCtx === "acme" && ntProject.value === "acme/site" && ev.some(x => x[0] === "context" && x[1] === "acme" && x[2] === "acme/site" && x[3] === false), "RM2639 : contexte retenu, formulaires suivent, reste prévenu"); ctr.setClientContext(""); assert.strictEqual(ctr.clientContext(), "");
   ntTitle.value = " "; ev.length = 0; await ntcard.click("create"); assert(ev.some(x => x[0] === "toast" && /Titre requis/.test(x[1]))); ntTitle.value = "Nouveau"; ntTags.value = "ci"; ntDesc.value = "d"; ntProject.value = "acme/site"; ev.length = 0; await ntcard.click("create"); await settle();
   assert(calls.some(c => c[0] === "create" && c[1].title === "Nouveau" && c[1].project === "acme/site" && c[1].type === "bug" && c[1].tags === "ci") && ev.some(x => x[0] === "toast" && /RM77 créé/.test(x[1])) && rm.value === "77" && ntTitle.value === "" && ntTags.value === "" && ntDesc.value === "" && ntcard.open === false && ev.includes("afterCreate"), "§8 : créé, lanceur pré-rempli, formulaire vidé et replié, recherche prévenue");
+  // RM1838 : « 💰 chiffrer » prépare le lanceur — ticket ET gabarit « chiffrer » — sans lancer ni attacher, même si la session tourne
+  ev.length = 0; await ctr.prepare("42", "chiffrer");
+  assert(rm.value === "42" && card.querySelector("#ptpl").value === "chiffrer", "RM1838 : ticket et gabarit « chiffrer » posés");
+  assert(/chiffrer/.test(prompt.value) && /42/.test(prompt.value), "RM1838 : la consigne est rédigée avec le gabarit « chiffrer » (" + prompt.value + ")");
+  assert(ev.some(x => x[0] === "panel" && x[1] === "sessions") && !ev.some(x => x[0] === "attach") && !ev.some(x => x[0] === "spawn"), "RM1838 : panneau du lanceur ouvert, rien d'attaché ni de lancé");
+  card.querySelector("#ptpl").value = "traiter";
   ev.length = 0; await ctr.goto("42"); assert(rm.value === "42" && ev.some(x => x[0] === "panel" && x[1] === "sessions") && ev.some(x => x[0] === "attach" && x[1] === "42"), "RM2173/2427 : aller au ticket rattache si la session tourne"); ev.length = 0; await ctr.goto("1"); assert(!ev.some(x => x[0] === "attach"));
   ctr.unmount(); assert.strictEqual(card.listenerCount + ntcard.listenerCount + clientctx.listenerCount, 0);
   console.log("✓ contrôleur : résolution amortie, modèles, consigne partagée, réouverture, garde RM2818 + spawn, projets et contexte, saisie éclair, aller au ticket");

@@ -114,7 +114,7 @@ check("4 rubriques", set(p) == {"note", "question", "decision", "feature"})
 check("ligne barrée = fermée", p["question"]["rows"][1]["closed"] and p["question"]["rows"][1]["id"] == "Q002")
 check("état lu dans la colonne État", p["question"]["rows"][0]["state"] == "propose" and p["note"]["rows"][1]["state"] == "attente")
 c = pm_think.counters(p)
-check("compteurs", c == {"questions_open": 1, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
+check("compteurs", c == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
 check("next_id par préfixe", pm_think.next_id(p, "decision", "D") == "D003" and pm_think.next_id(p, "decision", "C") == "C002")
 check("has_text : verbatim avec guillemets retrouvé sans", pm_think.has_text(p, "note", "une autre"))
 check("has_text : texte court exact seulement", not pm_think.has_text(p, "question", "Où"))
@@ -135,7 +135,7 @@ check("barre verticale neutralisée, session courte", "Texte / avec barre" in tx
 check("set_state", pm_think.set_state(th, "N001", "valide", dest="D001") and "| N001 | " in th.read_text() and "| ✅ | D001 |" in th.read_text())
 check("set_state inconnu → False", not pm_think.set_state(th, "Z999", "valide"))
 cnt = pm_think.counters(pm_think.load(th))
-check("compteurs après ajouts", cnt == {"questions_open": 1, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
+check("compteurs après ajouts", cnt == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
 check("set_counters écrit le bloc think:", pm_think.set_counters(sheet43, cnt) and "think:\n  questions_open: 1\n" in sheet43.read_text())
 check("set_counters idempotent", not pm_think.set_counters(sheet43, cnt))
 
@@ -174,7 +174,8 @@ for name in pm_think.PROJECT_FILES:
 dec = (docs / "cdc-decisions.md").read_text(encoding="utf-8")
 check("hors marqueurs conservé", "décision projet historique" in dec)
 check("ids préfixés RM43-", "| RM43-D001 | RM43 |" in dec and "| RM43-C001 |" in dec)
-check("questions fusionnées", "| RM43-Q001 | RM43 | Pourquoi ?" in (docs / "cdc-questions.md").read_text())
+check("questions fusionnées", "| RM43-Q001 | RM43 |" in (docs / "cdc-questions.md").read_text()
+      and "Pourquoi ?" in (docs / "cdc-questions.md").read_text())
 check("features par domaine × version", "### consignation" in (docs / "cdc-features.md").read_text() and "**V1**" in (docs / "cdc-features.md").read_text())
 check("INDEX complété", "cdc-questions.md" in (docs / "INDEX.md").read_text())
 check("--check vert après fusion", run(SCRIPTS / "pm-think-merge.py", "--docs-dir", docs, "--tasks-dir", tasks, "--project", "t/p", "--check").returncode == 0)
@@ -329,6 +330,26 @@ for txt, exp in [
     ok, motif = pm_think.note_pertinente(txt)
     check(f"{'garde' if exp else 'écarte'} « {txt[:46]}… » ({motif})", ok == exp)
 
+print("\n[RM3281] deux familles nommées par le demandeur : ordre d'exécution, fragment sans référent")
+for txt, exp in [
+        # l'ordre en TÊTE, y compris à l'infinitif après « go » — « go faire 3108 » passait
+        ("go faire 3108, 3110 (il faudra faire en sorte que le doctor le mette à jour), puis continue", False),
+        ("ok, continuer sur la refonte du front, il faudra reprendre les tests plus tard", False),
+        # l'ordre en FIN : il pilote le tour en cours, il ne se relira pas
+        ("On a un souci de cache multi-utilisateur, il faudra le traiter avec un user dédié. Consigne tout ça dans le ticket maintenant.", False),
+        ("Le worktree partagé pose un problème de droits, il faudra le reprendre. Fais ça maintenant stp.", False),
+        # un impératif AU MILIEU d'un raisonnement n'est pas un ordre : on ne coupe pas trop large
+        ("Il faudra revoir la stratégie de cache des tickets : regarde comme les repos core la démultiplient, des conflits sont probables.", True),
+        # le fragment sans référent : hors de sa conversation, il ne se rattache à rien
+        ("on verra plus tard pour la suite, il faudra trancher entre les deux", False),
+        ("pour l'instant on laisse comme ça, il faudra le reprendre un jour ou l'autre", False),
+        # …et ce qui EST rattachable passe, même sans majuscule ni ticket
+        ("il faudra aussi gérer la config des connecteurs par défaut : matnat utilise nextcloud passwords et gogs", True),
+        ("Il faudra revoir la précharge NORMS plus tard, worker-infra est à 98 % de son plafond", True),
+]:
+    ok, motif = pm_think.note_pertinente(txt)
+    check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
+
 print("\n[RM3062] signatures, moisson, élagage")
 for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
                  ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),
@@ -406,8 +427,10 @@ with tempfile.TemporaryDirectory() as td:
     check("une décision s'amende", ok and "d'origine" in ancien)
     ligne = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)][0]
     check("le nouveau texte est là", "trois mots plus juste" in ligne)
+    # RM3262 : la signature n'est plus collée au libellé, elle a sa colonne — l'amendement ne
+    # doit donc pas la toucher non plus, mais on la cherche là où elle vit désormais.
     check("la SIGNATURE survit — l'amendement corrige les mots, pas la paternité",
-          "· Mathieu)" in ligne, ligne)
+          "· Mathieu" in ligne and "trois mots plus juste |" in ligne, ligne)
     check("l'état n'est pas touché par un amendement seul", "🟡" in ligne, ligne)
 
     ok, _ = pm_think.set_text(f, nid, "Note corrigée")
@@ -425,7 +448,7 @@ with tempfile.TemporaryDirectory() as td:
     pm_think.set_text(f, did, "Texte | avec | des | barres")
     lignes = [l for l in f.read_text(encoding="utf-8").splitlines() if l.startswith("| " + did)]
     check("un texte qui contient des barres ne casse pas la ligne du tableau",
-          len(lignes) == 1 and lignes[0].count("|") == 4, str(lignes))
+          len(lignes) == 1 and lignes[0].count("|") == len(pm_think.KINDS["decision"][2]) + 1, str(lignes))
 
     pm_think.set_state(f, did, "valide")
     ok, _ = pm_think.set_text(f, did, "Amendée après validation")
@@ -473,12 +496,21 @@ for texte, attendu in [
 check("un tour de l'AGENT n'est jamais une question du demandeur",
       C.type_heuristique("A", "et si on faisait autrement ?") == "dette")
 
-lignes = [json.dumps({"type": "user", "message": {"content": "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"}}),
+Q_OUVERTE = "est-ce que les demandes du worklog sont reliées aux questions ouvertes ?"
+# RM3259 : la MÊME question, selon ce que le demandeur en fait ensuite.
+# Suivie d'une approbation, elle est tranchée — la consigner « ouverte » bloquerait la clôture
+# d'un ticket sur un point que le demandeur considère réglé (mesuré sur RM2881 : 20 sur 21).
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
           json.dumps({"type": "user", "message": {"content": "ok super"}}),
           json.dumps({"type": "user", "message": {"content": "fais la MR et merge"}})]
+check("question approuvée par le demandeur (« ok ») → PAS de question ouverte",
+      [k for k, _t, _e in harv.harvest_items(lignes)] == [], str(harv.harvest_items(lignes)))
+# Restée sans suite du demandeur, elle reste ouverte — c'est ce qui la distingue.
+lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
+          json.dumps({"type": "assistant", "message": {"content": "Voici ce que je vois : les deux vues lisent le même carnet."}})]
 items = harv.harvest_items(lignes)
 check("la moisson en fait une QUESTION, signée du demandeur",
-      [(k, e.get("by")) for k, _t, e in items] == [("question", "M")], str(items))
+      [(k, e.get("by")) for k, _t, e in items if k == "question"] == [("question", "M")], str(items))
 
 # elle ne passe PAS par le critère de la note : une question ne porte pas de dette
 check("le critère de la note l'aurait écartée — c'est bien pour ça qu'on la teste avant",
@@ -524,6 +556,300 @@ check("NORMS dit ce qu'il faut consigner avant une compaction",
 kernel = (SCRIPTS.parent / "norms/src/NORMS-KERNEL.md").read_text(encoding="utf-8")
 check("…et le KERNEL le déclenche quand le contexte se remplit",
       "une compaction approche" in kernel)
+
+# ── RM3258 : déplacer une entrée vers le carnet d'un autre ticket ─────────────────
+# Une question consignée au mauvais ticket bloque la clôture de celui-ci et manque à celui
+# qu'elle concerne. La supprimer perd le verbatim ; la réécrire perd sa date et sa signature.
+mv = Path(tempfile.mkdtemp(prefix="rm3258-"))
+src_th, dst_th = mv / "RM10_a.think.md", mv / "RM20_b.think.md"
+pm_think.append(src_th, "question", "Faut-il un index sur le champ X ?", by="M", when="2026-09-01", urgence="haute")
+pm_think.append(src_th, "note", "Une note qui reste sur le ticket d'origine", by="A", when="2026-09-02")
+pm_think.append(dst_th, "question", "Une question déjà là", by="M", when="2026-09-03")
+avant_src = pm_think.load(src_th)
+check("find_row trouve l'entrée, et rend sa rubrique", pm_think.find_row(avant_src, "q001")[0] == "question")
+check("find_row : id inconnu → (None, None)", pm_think.find_row(avant_src, "Q404") == (None, None))
+res = pm_think.move_row(src_th, "Q001", dst_th, rm_id=20, title="Ticket B")
+check("move_row rend (rubrique, ancien id, nouvel id)", res == ("question", "Q001", "Q002"), str(res))
+src_p, dst_p = pm_think.load(src_th), pm_think.load(dst_th)
+check("l'entrée a quitté le carnet d'origine", not any(r["id"] == "Q001" for r in src_p["question"]["rows"]))
+check("…et ses autres entrées n'ont pas bougé", [r["id"] for r in src_p["note"]["rows"]] == ["N001"])
+arrivee = [r for r in dst_p["question"]["rows"] if r["id"] == "Q002"][0]
+check("le verbatim arrive intact", "index sur le champ X" in " ".join(arrivee["cells"]))
+check("…avec sa date et son urgence", "haute" in arrivee["cells"] and "🕐" in " ".join(arrivee["cells"]))
+check("le nouvel id suit la numérotation de la CIBLE (ids locaux, jamais réattribués)", arrivee["id"] == "Q002")
+check("déplacer une ligne absente ne fait rien", pm_think.move_row(src_th, "Q404", dst_th, rm_id=20) is None)
+try:
+    pm_think.move_row(src_th, "N001", src_th, rm_id=10); check("même fichier → refus", False)
+except ValueError:
+    check("même fichier source et cible → refus", True)
+# une note porte, elle, son auteur et sa session : le déplacement doit les garder aussi
+pm_think.append(src_th, "note", "Note signée à déplacer", by="M", when="2026-09-04", sid="abcd1234ef")
+pm_think.move_row(src_th, "N002", dst_th, rm_id=20)
+n = [r for r in pm_think.load(dst_th)["note"]["rows"] if r["id"] == "N001"][0]
+check("une note déplacée garde son auteur et sa session", "s:abcd1234" in " ".join(n["cells"]) and "2026-09-04" in " ".join(n["cells"]))
+# le CLI : --move exige --to, refuse le même ticket, et trace des deux côtés
+src_cli = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --move exige --to", '"--move exige --to' in src_cli or "--move exige --to" in src_cli)
+check("CLI : le déplacement est tracé dans les DEUX journaux",
+      src_cli.count("_log_deplacement(") == 3)
+check("CLI : les compteurs sont refaits des deux côtés", "for feuille, chemin in ((sheet, think), (cible, think_cible))" in src_cli)
+check("CLI : la garde de périmètre RM2274 couvre le ticket destinataire",
+      "pm_scope.assert_task_scope(a.to, cible, a.cross_project" in src_cli)
+
+# ── RM3262 : colonnes qualifiantes, lecture par NOM, migration des carnets ────────
+# Ce qui casserait en silence : un lecteur qui dit `cells[1]` lit la DATE au lieu de la question
+# dès qu'un carnet est migré — la garde de clôture afficherait « 2026-09-01 · Mathieu » comme
+# libellé, et la moisson ne reconnaîtrait plus ses doublons.
+import importlib.util as _ilu
+_sp = _ilu.spec_from_file_location("pm_think_schema", SCRIPTS / "pm-think-schema.py")
+SCH = _ilu.module_from_spec(_sp); _sp.loader.exec_module(SCH)
+
+col = Path(tempfile.mkdtemp(prefix="rm3262-")) / "RM50_x.think.md"
+qid = pm_think.append(col, "question", "Faut-il un index ?", by="M", when="2026-09-01", urgence="haute")
+did = pm_think.append(col, "decision", "Q001 : oui, un index partiel", by="M", when="2026-09-02", state="valide")
+parsed = pm_think.load(col)
+secq, secd = parsed["question"], parsed["decision"]
+rq = secq["rows"][0]; rd = secd["rows"][0]
+check("une question porte sa date et son auteur", "2026-09-01" in pm_think.cell(secq, rq, "Date · auteur")
+      and "Mathieu" in pm_think.cell(secq, rq, "Date · auteur"))
+check("une décision aussi…", "2026-09-02" in pm_think.cell(secd, rd, "Date · auteur"))
+check("…et ne les a plus collées dans son libellé", "(2026-09-02" not in pm_think.cell(secd, rd, "Objet"))
+check("« Tranchée par » est rempli par la décision qui cite la question",
+      pm_think.cell(secq, rq, "Tranchée par") == did, pm_think.cell(secq, rq, "Tranchée par"))
+check("le texte se lit par son nom, quelle que soit la rubrique",
+      pm_think.texte(secq, rq, "question").startswith("Faut-il")
+      and pm_think.texte(secd, rd, "decision").startswith("Q001"))
+check("questions_citees rend les ids cités, sans doublon", pm_think.questions_citees("Q001 et Q001 puis Q007") == ["Q001", "Q007"])
+check("col_index ignore la casse et les accents (carnet écrit à la main)",
+      pm_think.col_index(["#", "Etat"], "État") == 1)
+check("une colonne absente rend le défaut, jamais la voisine",
+      pm_think.cell(secq, rq, "Colonne qui n'existe pas", "—") == "—")
+
+# migration d'un carnet d'AVANT : la signature d'une décision quitte le libellé
+vieux = ("# RM9 — Réflexion\n\n## Questions ouvertes\n\n"
+         "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n"
+         "| Q001 | Pourquoi ? | la suite | haute | 🕐 |\n| ~~Q002~~ | Déjà tranchée | — | basse | ✅ |\n\n"
+         "## Décisions\n\n| # | Objet | État |\n|---|---|---|\n"
+         "| D001 | On part sur PostgreSQL (2026-09-14 · Mathieu) | ✅ |\n\n"
+         "## Notes — vrac\n\n| # | Date · auteur | Verbatim | État | Traitée par |\n|---|---|---|---|---|\n"
+         "| N001 | 2026-09-01 · Mathieu | Une note | 🕐 | D001 |\n")
+mig = SCH.migrer_texte(vieux)
+check("migration : l'en-tête des questions passe à la grammaire courante",
+      "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |" in mig)
+check("migration : le contenu est reporté dans les BONNES colonnes",
+      "| Q001 |  | Pourquoi ? | la suite | haute | 🕐 |" in mig, mig)
+check("migration : une ligne barrée le reste", "| ~~Q002~~ |" in mig)
+check("migration : la signature d'une décision passe dans sa colonne",
+      "| D001 | 2026-09-14 · Mathieu | On part sur PostgreSQL | ✅ |" in mig, mig)
+check("migration : les notes, déjà à la grammaire, ne bougent pas",
+      "| N001 | 2026-09-01 · Mathieu | Une note | 🕐 | D001 |" in mig)
+check("migration idempotente : deux passes donnent le même texte", SCH.migrer_texte(mig) == mig)
+p_mig = pm_think.parse(mig)
+check("après migration, le texte se lit toujours par son nom",
+      pm_think.texte(p_mig["question"], p_mig["question"]["rows"][0], "question") == "Pourquoi ?")
+check("…et la garde de clôture lirait la question, pas la date",
+      "2026" not in pm_think.texte(p_mig["question"], p_mig["question"]["rows"][0], "question"))
+src_cu = (SCRIPTS / "pm-core-update.py").read_text(encoding="utf-8")
+check("la migration est greffée sur le core update (APRÈS le déploiement du code)",
+      "migrate_think_schema(core_dir, dry)" in src_cu and "pm-think-schema.py" in src_cu)
+
+# ── RM3264 : déplacer ENTRE DEUX GRAMMAIRES — par nom, jamais par position ────────
+# Le défaut vivait dix minutes en production : RM3258 recopiait les cellules par position,
+# RM3262 a élargi la table. Un déplacement d'un carnet non migré vers un carnet migré écrivait
+# le texte de la question dans la colonne « Date · auteur », et tout était décalé d'un cran.
+gx = Path(tempfile.mkdtemp(prefix="rm3264-"))
+ancien = gx / "RM60_a.think.md"
+ancien.write_text("# RM60\n\n## Questions ouvertes\n\n"
+                  "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n"
+                  "| Q001 | Faut-il relancer au clic ? | la suite | moyenne | 🕐 |\n", encoding="utf-8")
+neuf = gx / "RM61_b.think.md"          # créé au gabarit courant par le déplacement lui-même
+pm_think.move_row(ancien, "Q001", neuf, rm_id=61, title="B")
+pn = pm_think.load(neuf); sq = pn["question"]; rq2 = sq["rows"][0]
+check("ancien → migré : la question est dans « Question »", pm_think.texte(sq, rq2, "question") == "Faut-il relancer au clic ?",
+      str(rq2["cells"]))
+check("…« Bloque » et « Urgence » suivent", pm_think.cell(sq, rq2, "Bloque") == "la suite" and pm_think.cell(sq, rq2, "Urgence") == "moyenne")
+check("…l'état est préservé", rq2["state"] == "attente")
+check("…et la colonne neuve naît vide, sans rien inventer", pm_think.cell(sq, rq2, "Date · auteur") == "")
+retour = gx / "RM62_c.think.md"
+retour.write_text("# RM62\n\n## Questions ouvertes\n\n"
+                  "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.move_row(neuf, "Q001", retour, rm_id=62)
+pr = pm_think.load(retour); sr = pr["question"]; rr = sr["rows"][0]
+check("migré → ancien : rien n'est perdu du texte ni de l'état",
+      pm_think.texte(sr, rr, "question") == "Faut-il relancer au clic ?" and rr["state"] == "attente", str(rr["cells"]))
+check("…et la ligne garde la largeur de SA table", len(rr["cells"]) == 5, str(rr["cells"]))
+check("_apparie : en-têtes identiques → la ligne passe telle quelle",
+      pm_think._apparie(["#", "Question"], ["#", "Question"], ["Q001", "x"]) == ["Q001", "x"])
+
+# ── 9. RM3269 : trancher une question appelle sa décision ────────────────────
+print("· RM3269 trancher = décider")
+_d3269 = Path(tempfile.mkdtemp(prefix="pm-think-3269-"))
+_c3269 = _d3269 / "RM3269t_x.think.md"
+_c3269.write_text(
+    "# RM3269t — Réflexion\n\n## Questions ouvertes\n\n"
+    "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n"
+    "|---|---|---|---|---|---|---|\n"
+    "| Q001 | 2026-09-21 · M | orpheline |  | moyenne | ✅ |  |\n"
+    "| Q002 | 2026-09-21 · M | reliée colonne |  | moyenne | ✅ | D001 |\n"
+    "| Q003 | 2026-09-21 · M | reliée citation |  | moyenne | ✅ |  |\n"
+    "| Q004 | 2026-09-21 · M | ouverte |  | moyenne | 🕐 |  |\n"
+    "| Q005 | 2026-09-21 · M | écartée |  | moyenne | ❌ |  |\n"
+    "\n## Décisions\n\n| # | Date · auteur | Objet | État |\n|---|---|---|---|\n"
+    "| D001 | 2026-09-21 · M | tranche un truc | ✅ |\n"
+    "| D002 | 2026-09-21 · M | Q003 : on fait comme ça | ✅ |\n", encoding="utf-8")
+_p3269 = pm_think.load(_c3269)
+check("decision_liante : orpheline → rien", pm_think.decision_liante(_p3269, "Q001") == "")
+check("decision_liante : colonne « Tranchée par »", pm_think.decision_liante(_p3269, "Q002") == "D001")
+check("decision_liante : décision qui CITE la question", "Q003" in pm_think.decision_liante(_p3269, "Q003"))
+check("decision_liante : --dest l'emporte sur tout", pm_think.decision_liante(_p3269, "Q001", "D002") == "D002")
+_orph = [q for q, _ in pm_think.questions_orphelines(_p3269)]
+check("questions_orphelines : seule la tranchée sans lien", _orph == ["Q001"], str(_orph))
+check("…une question OUVERTE n'est pas orpheline", "Q004" not in _orph)
+check("…une question ÉCARTÉE (❌) n'est pas tranchée", "Q005" not in _orph)
+_src3269 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --decide-with pose la décision et tranche en un appel", "--decide-with" in _src3269)
+check("CLI : --orphans liste les tranchées sans décision", "--orphans" in _src3269)
+check("CLI : le garde-fou ne vise QUE valide (écarter n'est pas trancher)",
+      'a.state == "valide"' in _src3269 and "decision_liante" in _src3269)
+
+# ── 10. RM3290 : requalifier, rouvrir, déplacer une question tranchée ────────
+print("· RM3290 requalification")
+_d90 = Path(tempfile.mkdtemp(prefix="pm-think-3290-"))
+def _carnet90():
+    f = _d90 / "RM90_x.think.md"
+    f.write_text("# RM90\n\n## Notes — vrac verbatim, jamais reformulé\n\n"
+        "| # | Date · auteur | Verbatim | État | Traitée par | Origine |\n|---|---|---|---|---|---|\n"
+        "\n## Questions ouvertes\n\n"
+        "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par | Origine |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| Q001 | 2026-08-01 · Mathieu | This session is being continued from a previous | X | haute | ✅ | D007 |  |\n"
+        "\n## Décisions\n\n| # | Date · auteur | Objet | État | Origine |\n|---|---|---|---|---|\n"
+        "| D001 | 2026-08-01 · Mathieu | un arbitrage | ✅ |  |\n", encoding="utf-8")
+    return f
+_f90 = _carnet90()
+_r90 = pm_think.requalify_row(_f90, "Q001", "note", rm_id=90)
+check("requalifier : Q001 → N001", _r90 == ("question", "Q001", "note", "N001"), str(_r90))
+_p90 = pm_think.load(_f90)
+check("…la question quitte sa table (ne bloque plus la clôture)", not _p90["question"]["rows"])
+_n90 = _p90["note"]["rows"][0]
+check("…le texte suit, malgré le changement de NOM de colonne",
+      pm_think.texte(_p90["note"], _n90, "note").startswith("This session"))
+check("…« Date · auteur » d'origine préservés",
+      pm_think.cell(_p90["note"], _n90, "Date · auteur") == "2026-08-01 · Mathieu")
+check("…l'état est préservé", _n90["state"] == "valide")
+check("…la piste « ex-Q001 » est écrite en Origine",
+      pm_think.cell(_p90["note"], _n90, "Origine") == "ex-Q001")
+check("…et le lien « Tranchée par » ne suit PAS (il ne veut plus rien dire hors question)",
+      "D007" not in " ".join(_n90["cells"]))
+pm_think.requalify_row(_f90, "N001", "question", rm_id=90)
+_q90 = pm_think.load(_f90)["question"]
+check("aller-retour : les pistes s'EMPILENT, rien n'est écrasé",
+      pm_think.cell(_q90, _q90["rows"][0], "Origine") == "ex-Q001 ex-N001")
+try:
+    pm_think.requalify_row(_f90, "Q001", "question", rm_id=90); check("même rubrique refusée", False)
+except ValueError as _e: check("requalifier vers sa PROPRE rubrique est refusé", "déjà" in str(_e))
+_f90b = _carnet90()
+_rc = pm_think.requalify_row(_f90b, "D001", "decision", prefix="C", rm_id=90)
+check("une décision peut être ravalée en conseil (même rubrique, préfixe différent)",
+      _rc == ("decision", "D001", "decision", "C001"), str(_rc))
+# déplacement d'une question tranchée : le lien devient inter-tickets
+_f90c = _carnet90(); _dst90 = _d90 / "RM91_y.think.md"
+_dst90.write_text("# RM91\n\n## Questions ouvertes\n\n"
+    "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par | Origine |\n"
+    "|---|---|---|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.move_row(_f90c, "Q001", _dst90, rm_id=91)
+_qd = pm_think.load(_dst90)["question"]; _rd = _qd["rows"][0]
+check("déplacer une question TRANCHÉE : le lien devient inter-tickets",
+      pm_think.cell(_qd, _rd, "Tranchée par") == "RM90-D007",
+      pm_think.cell(_qd, _rd, "Tranchée par"))
+check("…et l'origine dit d'où elle vient", "RM90-Q001" in pm_think.cell(_qd, _rd, "Origine"))
+_src90 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("CLI : --requalify / --as existent", "--requalify" in _src90 and '"--as"' in _src90)
+check("CLI : rouvrir retire le lien et dit ce que devient la décision",
+      "rouverte" in _src90 and "set_dest" in _src90)
+check("grammaire : « Origine » est généralisée aux quatre rubriques",
+      all("Origine" in pm_think.KINDS[k][2] for k in ("note", "question", "decision", "feature")))
+
+# ── 11. RM3269 (correction) : le garde-fou est un filet, pas un mur ──────────
+print("· RM3269 échappatoire")
+_s69 = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("--force existe : trancher sans décision reste POSSIBLE", '"--force"' in _s69)
+check("…le refus PROPOSE l'échappatoire (sinon on la cherche)", "--force " in _s69 and "orphans" in _s69)
+check("…et le forçage est TRACÉ au journal", "_log_force" in _s69 and "SANS décision" in _s69)
+check("écarter (invalide) n'a jamais eu besoin de --force",
+      'a.state == "valide"' in _s69)
+_srv = (SCRIPTS / "karl-agent.py").read_text(encoding="utf-8")
+check("serveur : le cockpit peut relayer force sur une question validée",
+      'payload.get("force")' in _srv and '"--force"' in _srv)
+_ui = (SCRIPTS.parent / "deploy" / "karl-agent" / "cockpit" / "src" / "modules" / "cdc" / "cdc.controller.js").read_text(encoding="utf-8")
+check("cockpit : la décision est RÉCLAMÉE à la validation (plus « facultatif »)",
+      "La DÉCISION qui tranche" in _ui)
+check("cockpit : commentaire vide → confirmation explicite, puis force",
+      "SANS consigner de décision" in _ui and "body.force = true" in _ui)
+check("cockpit : écarter garde son motif facultatif",
+      "Motif de l'écartement (facultatif)" in _ui)
+
+# ── RM3356 : écrire dans un carnet pas encore migré, et réparer ce qui a glissé ───
+# Six entrées réelles ont été écrites le jour du déploiement de RM3262, entre la mise en place du
+# code (qui écrit 7 cellules) et la migration du carnet (encore à 5) : tronquées, elles ont mis la
+# signature dans « Question » et le texte dans « Bloque ».
+dec = Path(tempfile.mkdtemp(prefix="rm3356-"))
+vieux = dec / "RM70_a.think.md"
+vieux.write_text("# RM70\n\n## Questions ouvertes\n\n"
+                 "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.append(vieux, "question", "Faut-il indexer X ou Y ?", by="M", when="2026-09-29", urgence="haute")
+sv = pm_think.load(vieux)["question"]; rv = sv["rows"][0]
+check("écriture dans un carnet ANCIEN : le texte va dans « Question »",
+      pm_think.texte(sv, rv, "question") == "Faut-il indexer X ou Y ?", str(rv["cells"]))
+check("…l'urgence aussi, et l'état est lisible", pm_think.cell(sv, rv, "Urgence") == "haute" and rv["state"] == "attente")
+check("…la signature est perdue SCIEMMENT (le carnet n'a pas la colonne), jamais décalée",
+      "Mathieu" not in " ".join(rv["cells"]))
+
+casse = dec / "RM71_b.think.md"
+casse.write_text("# RM71\n\n## Questions ouvertes\n\n"
+                 "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n|---|---|---|---|---|---|---|\n"
+                 "| Q001 |  | 2026-09-21 · Mathieu · s:f07acc64 | le vrai texte de la question |  | moyenne |  |  |\n"
+                 "| Q002 | 2026-09-20 · Mathieu | une ligne saine | ce que ça bloque | haute | 🕐 |  |\n", encoding="utf-8")
+faits = pm_think.reparer_decalage(casse)
+pc = pm_think.load(casse)["question"]; q1 = pc["rows"][0]; q2 = pc["rows"][1]
+check("réparation : seule la ligne décalée est touchée", faits == ["Q001"], str(faits))
+check("…le texte revient dans « Question »", pm_think.texte(pc, q1, "question") == "le vrai texte de la question", str(q1["cells"]))
+check("…la signature rejoint sa colonne", "s:f07acc64" in pm_think.cell(pc, q1, "Date · auteur"))
+check("…l'urgence retrouve la sienne", pm_think.cell(pc, q1, "Urgence") == "moyenne")
+check("…l'état perdu à l'écriture est remis « en attente », jamais deviné", q1["state"] == "attente")
+check("…la ligne saine n'a pas bougé", pm_think.texte(pc, q2, "question") == "une ligne saine"
+      and pm_think.cell(pc, q2, "Bloque") == "ce que ça bloque")
+check("réparation idempotente", pm_think.reparer_decalage(casse) == [])
+src_sch = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
+check("la réparation passe AVANT la migration (sinon elle reporte le décalage fidèlement)",
+      src_sch.index("for rid in reparer(f)") < src_sch.index("apres = migrer_texte(avant)"))
+
+# ── RM3357 : une question qui attend un TIERS ne bloque pas notre clôture ─────────
+# Sur 140 questions ouvertes, une bonne moitié attendaient MatNat, un client ou un hébergeur —
+# comptées et affichées comme les arbitrages qui, eux, reviennent au demandeur. Le compteur mêlait
+# « ce que je dois trancher » et « ce que j'attends de quelqu'un d'autre ».
+res = Path(tempfile.mkdtemp(prefix="rm3357-")) / "RM80_a.think.md"
+qa = pm_think.append(res, "question", "Faut-il indexer X ou Y ?", by="M", state="attente")
+qr = pm_think.append(res, "question", "Quel est le coût du contrat Wildix ? (attend le client)", by="M", state="reserve")
+qv = pm_think.append(res, "question", "Déjà tranchée", by="M", state="valide")
+pr = pm_think.load(res)
+c3 = pm_think.counters(pr)
+check("une question en réserve ne compte plus parmi les ouvertes",
+      c3["questions_open"] == 1 and c3["questions_reserve"] == 1, str(c3))
+rows = {r["id"]: r for r in pr["question"]["rows"]}
+check("question_ouverte : ni tranchée, ni écartée, ni en réserve",
+      pm_think.question_ouverte(rows[qa]) and not pm_think.question_ouverte(rows[qr]) and not pm_think.question_ouverte(rows[qv]))
+check("question_en_reserve ne vaut que pour la réserve",
+      pm_think.question_en_reserve(rows[qr]) and not pm_think.question_en_reserve(rows[qa]))
+vue = pm_think.questions_text(pr)
+check("le CF 36 la montre, sous son propre intitulé",
+      "en attente d'un tiers" in vue and "Wildix" in vue, vue[:200])
+check("…et distingue les deux comptes", "1 ouverte(s) sur 3" in vue and "1 en attente d'un tiers" in vue, vue[:200])
+check("une question en réserve n'est pas « cochée à la main » à rapporter",
+      pm_think.cochees_a_la_main("- [x] **" + qr + "** — x", pr) == [])
+src_gate = (SCRIPTS / "pm_questions_gate.py").read_text(encoding="utf-8")
+check("la garde de MEP ne bloque plus sur une question en réserve",
+      '_NON_BLOQUANTS = _CLOSES + ("reserve",)' in src_gate and "in _NON_BLOQUANTS" in src_gate)
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

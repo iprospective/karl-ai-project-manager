@@ -145,5 +145,51 @@ function fakeElement() {
   assert.strictEqual(el.listenerCount, 0, "unmount doit tout retirer");
   console.log("✓ contrôleur : gestes délégués, invites injectées, badge, démontage propre");
 
+  // — RM3319 : la boîte aux lettres 📬 et les rejets —
+  const MB = await import(path.join(DIR, "src/modules/mail/mailbox.js"));
+  const todo = [{ key: "n1", state: "à traiter" }, { key: "n2", state: "proposé" }, { key: "old", state: "créé" }];
+  const rejet = { id: "b1", msg: "Mail de karl rejeté : x@y — 5.1.1", level: "critical", rm: 1839 };
+  let st = MB.mailboxState({ emails: todo, pending: 2, bounces: [] }, []);
+  assert.deepStrictEqual([st.count, st.fresh, st.alert], [2, 2, ""], "deux à traiter, jamais vus : neufs, sans alerte");
+  st = MB.mailboxState({ emails: todo, pending: 2, bounces: [] }, MB.seenKeys(todo));
+  assert.strictEqual(st.fresh, 0, "vus à l'ouverture du panneau : plus neufs (le compte reste)");
+  assert.deepStrictEqual(MB.seenKeys(todo), ["n1", "n2"], "seuls les mails à traiter sont retenus comme vus");
+  st = MB.mailboxState({ emails: todo, pending: 2, bounces: [rejet] }, []);
+  assert.strictEqual(st.alert, "critical", "un rejet ouvert met la boîte en alerte");
+  assert(/rejeté/.test(st.title) && /fil 🔔/.test(st.title), "le titre dit quoi faire");
+  assert.strictEqual(MB.mailboxState({ bounces: [{ level: "warn" }] }).alert, "warn", "un simple retard reste orange");
+  assert.strictEqual(MB.mailboxState({}).title, "Courrier de karl — rien de neuf");
+  // stockage : absent, abîmé, puis aller-retour
+  assert.deepStrictEqual(MB.readSeen(null), []);
+  const mem = { v: {}, getItem(k) { return this.v[k] ?? null; }, setItem(k, x) { this.v[k] = x; } };
+  mem.setItem(MB.SEEN_KEY, "{abîmé"); assert.deepStrictEqual(MB.readSeen(mem), [], "JSON abîmé → vide, sans lever");
+  MB.writeSeen(mem, ["n1"]); assert.deepStrictEqual(MB.readSeen(mem), ["n1"]);
+  // peinture du bouton : classes exclusives, pastille « ! » sur rejet
+  const classes = new Set(); const badgeEl = { textContent: "" };
+  const btn = { title: "", querySelector: () => badgeEl,
+    classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) } };
+  MB.paintMailbox(btn, MB.mailboxState({ emails: todo, pending: 2 }, []));
+  assert(classes.has("has-new") && !classes.has("has-critical") && badgeEl.textContent === "2", "neuf : clignote doucement, compte affiché");
+  MB.paintMailbox(btn, MB.mailboxState({ emails: todo, pending: 2, bounces: [rejet] }, []));
+  assert(classes.has("has-critical") && !classes.has("has-new") && badgeEl.textContent === "!", "rejet : rouge, prime sur le neuf");
+  MB.paintMailbox(btn, MB.mailboxState({}, []));
+  assert(classes.size === 0 && badgeEl.textContent === "", "rien : éteinte");
+  // vue : les rejets en tête du panneau, avec le lien vers le ticket
+  const htmlRejets = String(MailPanel({ vms: [], pending: 0, done: false, fullBody: false, error: null, bounces: [rejet] }));
+  assert(/mail-bounces/.test(htmlRejets) && /data-action="ticket" data-key="1839"/.test(htmlRejets), "rejet listé, lien ticket");
+  assert(!/mail-bounces/.test(String(MailPanel({ vms: [], pending: 0, bounces: [] }))), "aucun rejet : aucun bandeau");
+  // contrôleur : la file lue informe la boîte ; le geste « ticket » ouvre la fiche
+  const el2 = fakeElement(); const vus = []; const ouverts = [];
+  const h2 = mountMailPanel(el2, {
+    service: { queue: async () => ({ emails: es, pending: 2, bounces: [rejet] }), subscribe: () => () => {} },
+    mailbox: (x) => vus.push(x), showTicket: (rm) => ouverts.push(rm),
+  });
+  await h2.refresh();
+  assert(vus.length === 1 && vus[0].bounces.length === 1 && vus[0].pending === 2, "la boîte reçoit file + rejets");
+  await el2.click("ticket", "1839");
+  assert.deepStrictEqual(ouverts, [1839], "le lien RM ouvre la fiche du ticket");
+  h2.unmount();
+  console.log("✓ boîte aux lettres : neuf / vu / rejet, stockage tolérant, peinture, bandeau, geste ticket (RM3319)");
+
   console.log("\nTous les tests du domaine mail passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

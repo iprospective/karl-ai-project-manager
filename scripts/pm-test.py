@@ -26,6 +26,9 @@ import concurrent.futures
 import os
 import subprocess
 import sys
+import atexit
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -35,12 +38,20 @@ SKIP_RC = 77          # convention Unix (automake) : test non applicable ici
 #: Variables qui ramèneraient un test vers le runtime réel. Alignées sur
 #: `test_support.INHERITED` — un test hermétique ne doit dépendre d'aucune.
 INHERITED = ("PM_CORE_DIR", "PM_DEV_DIR", "PM_CONFIG", "PM_DIR", "PROJECTS_PATH",
-             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV")
+             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV", "PM_USER_DIR")
 
 
 def discover(motifs):
-    """Fichiers de test du dépôt, filtrés par sous-chaîne (motifs = OU)."""
-    files = sorted(set(SCRIPTS.glob("test_*.py")) | set(SCRIPTS.glob("test-*.py")))
+    """Fichiers de test du dépôt, filtrés par sous-chaîne (motifs = OU).
+
+    Python ET shell (RM2947) : les garde-fous du helper privilégié s'écrivent en
+    bash — ils extraient ses fonctions du fichier de PRODUCTION, faute de quoi ils
+    testeraient une réécriture du helper au lieu du helper. Trois suites vivaient
+    ainsi hors de toute collecte, donc hors de `mmi-pm test` : un test que personne
+    ne lance est un décor. Elles sont ici, avec le reste."""
+    files = sorted(set(SCRIPTS.glob("test_*.py")) | set(SCRIPTS.glob("test-*.py"))
+                   | set(SCRIPTS.glob("test_*.sh")) | set(SCRIPTS.glob("test-*.sh"))
+                   | set((SCRIPTS.parent / "tools" / "env-runtime").glob("test-*.sh")))
     files = [f for f in files if f.name != "test_support.py"]
     if motifs:
         files = [f for f in files if any(m in f.name for m in motifs)]
@@ -50,7 +61,8 @@ def discover(motifs):
 def run_one(path, env, timeout):
     t0 = time.monotonic()
     try:
-        r = subprocess.run([sys.executable, str(path)], env=env, cwd=str(SCRIPTS),
+        argv = ["bash", str(path)] if path.suffix == ".sh" else [sys.executable, str(path)]
+        r = subprocess.run(argv, env=env, cwd=str(SCRIPTS),
                            capture_output=True, text=True, timeout=timeout)
         rc, out = r.returncode, (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:
@@ -86,6 +98,35 @@ def main(argv=None):
         for k in INHERITED:
             env.pop(k, None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # RM3206 — PURGER N'EST PAS ISOLER. Sans `PM_NOTIFY_DIR`, `pm_notify` retombe sur sa
+    # résolution par défaut, c'est-à-dire le fil de PRODUCTION. Constaté le 2026-09-19 : à
+    # chaque passage de la suite, cinq fausses alertes y atterrissaient — dont un « secret vu
+    # dans un log » —, en `neuf`, comptées comme attendant une réponse. Le fil est désormais
+    # un répertoire jetable, pour TOUS les tests, présents et futurs : corriger chaque test
+    # un par un laisserait le prochain recommencer.
+    fil = tempfile.mkdtemp(prefix="pm-test-notify-")
+    atexit.register(shutil.rmtree, fil, True)      # jetable, y compris sur interruption
+    env["PM_NOTIFY_DIR"] = fil
+    # RM3318 — même leçon pour la conf UTILISATEUR : purgée de PM_USER_*, la résolution
+    # retombait sur la vraie conf de la personne qui lance la suite (et, en transition, sur son
+    # ancien ~/.config/mmi-pm/.env). Un dossier vide et jetable, qui isole complètement.
+    if not a.inherit:
+        udir = tempfile.mkdtemp(prefix="pm-test-user-")
+        atexit.register(shutil.rmtree, udir, True)
+        env["PM_USER_DIR"] = udir
+
+    # RM3341 — et même leçon pour sudo. Un test qui sonde ou tente une élévation pour de vrai
+    # déclenchait, sans règle NOPASSWD, un refus journalisé puis MAILÉ à root (`mail_badpass`) :
+    # des rafales de « SECURITY information » à chaque passage de la suite. Aucun test n'a à
+    # s'élever — ceux qui parlent de sudo le simulent. Un faux `sudo`, en tête de PATH, échoue
+    # donc sans rien tenter, y compris sous --inherit : ce n'est pas du runtime, c'est un effet.
+    shim = tempfile.mkdtemp(prefix="pm-test-sudo-")
+    atexit.register(shutil.rmtree, shim, True)
+    faux = Path(shim) / "sudo"
+    faux.write_text('#!/bin/sh\necho "mmi-pm test : sudo neutralisé (RM3341) — sudo $*" >&2\nexit 1\n',
+                    encoding="utf-8")
+    faux.chmod(0o755)
+    env["PATH"] = shim + os.pathsep + env.get("PATH", os.defpath)
 
     verts, rouges, ignores = [], [], []
     t0 = time.monotonic()

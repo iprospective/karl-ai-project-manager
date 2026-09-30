@@ -70,7 +70,9 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   const card = String(V.ModulesCard(vm));
   assert(/🧩 Modules/.test(card) && /4 décrit\(s\)/.test(card) && /2 à voir/.test(card));
   assert(/Noyau 3\.0\.0/.test(card) && /\/pm\/modules/.test(card), "d'où viennent les modules, et pour quel noyau");
-  assert(/ce panneau LIT/.test(card), "le panneau dit qu'il ne charge rien — c'est le lot 3, pas le lot 1");
+  // RM3145 lot 1 : le panneau n'est plus en lecture seule — il dit ce qu'éteindre fait, et ne fait pas
+  assert(/ne supprime rien/.test(card) && /est refusé/.test(card),
+    "le panneau dit qu'éteindre ne supprime rien, et que casser une dépendance est refusé");
   assert(/description manquante/.test(card) && /dépendance absente/.test(card), "les motifs sont rendus");
   assert(/llm\/ollama/.test(card), "l'écart est visible, pas seulement compté");
   assert(/abonné : code 3/.test(card), "un abonné en échec se voit — sinon le module semble branché");
@@ -97,8 +99,62 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert.strictEqual(ctr.state.open, "", "un second clic referme — on compare deux modules tour à tour");
   assert.deepStrictEqual(calls, ["load"], "ouvrir un détail ne redemande rien au serveur");
 
+  // ── RM3145 lot 1 : les GESTES — allumer, éteindre, forcer sous double sécurité ──────────────
+  const d1 = JSON.parse(JSON.stringify(data));
+  d1.modules[0].native = true; d1.modules[0].breaks = ["task-gogs-issues"];
+  const vRefus = new VM.ModulesViewModel({ data: d1, open: "forge-gogs", refus: { "forge-gogs": "refusé : task-gogs-issues dépend de forge-gogs" } });
+  const g = vRefus.rows()[0];
+  assert(g.canDisable && !g.canEnable, "un module actif s'éteint, il ne s'allume pas");
+  assert(g.native, "natif : il s'éteint, il ne se retire pas (Q001)");
+  assert.deepStrictEqual(g.breaks, ["task-gogs-issues"], "ce qu'on casserait MAINTENANT est connu avant de cliquer");
+  assert(g.refus && !g.canForce, "Q003 : forçage NON offert tant que l'instance ne le permet pas");
+  const vPermis = new VM.ModulesViewModel({ data: Object.assign({}, d1, { allow_force: true }), open: "forge-gogs",
+                                            refus: { "forge-gogs": "refusé" } });
+  assert(vPermis.rows()[0].canForce, "réglage posé + refus : le forçage devient possible");
+  const vConf = new VM.ModulesViewModel({ data: Object.assign({}, d1, { allow_force: true }), open: "forge-gogs",
+                                          refus: { "forge-gogs": "refusé" }, confirming: "forge-gogs", confirmText: "forge-go" });
+  assert(vConf.rows()[0].confirming && !vConf.rows()[0].confirmOk, "confirmation forte : un nom incomplet ne suffit pas");
+  const vConfOk = new VM.ModulesViewModel({ data: Object.assign({}, d1, { allow_force: true }), open: "forge-gogs",
+                                            refus: { "forge-gogs": "refusé" }, confirming: "forge-gogs", confirmText: "forge-gogs" });
+  assert(vConfOk.rows()[0].confirmOk, "… le nom exact, oui");
+  const cardConf = String(V.ModulesCard(vConfOk));
+  assert(/Recopiez le nom du module/.test(cardConf) && /task-gogs-issues/.test(cardConf) && /reste en place/.test(cardConf),
+    "la boîte dit ce qui cessera de fonctionner, et que rien n'est perdu");
+  assert(!/forcer l'extinction<\/button>[^]*disabled/.test(cardConf.split("forcer l'extinction")[0] + "x"),
+    "rendu cohérent");
+  const off = JSON.parse(JSON.stringify(data)); off.modules[0].state = "éteint (forcé)"; off.modules[0].forced = true;
+  const gOff = new VM.ModulesViewModel({ data: off }).rows()[0];
+  assert(gOff.canEnable && !gOff.canDisable && gOff.forced, "un module éteint en forçant se rallume, et le dit");
+  assert.strictEqual(gOff.icone, "⊘", "« éteint (forcé) » a sa propre marque — ce n'est pas un simple désactivé");
+
+  // le contrôleur : refus → motif affiché ; forçage → confirmation ; nom exact → envoi
+  const envois = []; let refuser = true;
+  const svc2 = { data: Object.assign({}, d1, { allow_force: true }), error: null,
+    async load() { return this.data; },
+    async setState(b) { envois.push(b); if (refuser && !b.force && !b.enabled) throw new Error("refusé : task-gogs-issues dépend de forge-gogs"); return { etat: "eteint", casses: b.force ? ["task-gogs-issues"] : [] }; },
+    async setPolicy() { return { allow_force: true }; } };
+  const el2 = fakeEl("modulescard"); const notes = [];
+  const c2 = mountModules(el2, { service: svc2, notify: (m) => notes.push(m) });
+  await c2.open(); await el2.click("open", { name: "forge-gogs" });
+  await el2.click("disable", { name: "forge-gogs" });
+  assert(/dépend de forge-gogs/.test(c2.state.refus["forge-gogs"] || ""), "le refus du serveur est AFFICHÉ, pas avalé");
+  await el2.click("force", { name: "forge-gogs" });
+  assert.strictEqual(c2.state.confirming, "forge-gogs", "forcer… ouvre la confirmation, n'envoie rien");
+  assert.strictEqual(envois.filter(b => b.force).length, 0, "rien n'est parti avant la confirmation");
+  c2.state.confirmText = "forge-go"; await el2.click("force-confirm", { name: "forge-gogs" });
+  assert.strictEqual(envois.filter(b => b.force).length, 0, "un nom incomplet n'envoie rien — la garde tient aussi côté client");
+  c2.state.confirmText = "forge-gogs"; await el2.click("force-confirm", { name: "forge-gogs" });
+  const forcé = envois.find(b => b.force);
+  assert(forcé && forcé.confirm === "forge-gogs", "le nom exact part avec la demande de forçage");
+  assert(notes.some(n => /FORÇANT/.test(n) && /task-gogs-issues/.test(n)), "et le retour dit ce qui a cessé de fonctionner");
+  assert.strictEqual(c2.state.confirming, "", "la confirmation se referme après l'envoi");
+
   const src = fs.readFileSync(path.join(DIR, "src/modules/modules/modules.controller.js"), "utf8");
-  assert(!/enable|disable|activer/i.test(src), "RM3145 lot 3 : ce panneau LIT — l'activation est le lot 1");
+  // RM3145 lot 1 : le panneau ACTIVE désormais. Ce qui doit rester vrai : il n'importe aucun code de
+  // module, et le forçage ne part jamais sans que le nom ait été recopié.
+  assert(/enable/.test(src) && /disable/.test(src), "lot 1 : allumer et éteindre sont des gestes du panneau");
+  assert(/confirmText !== name/.test(src), "la confirmation forte est vérifiée côté client aussi");
+  assert(!/import\(.*modules\/[a-z-]+\//.test(src), "le panneau ne charge toujours aucun code de module");
 
   // ── câblage : un onglet des réglages, pas un bouton de plus dans l'en-tête ──
   const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
@@ -109,5 +165,5 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/modules: \(\) => modulesPane\.open\(\)/.test(boot), "chargé seulement quand on l'ouvre");
   assert(!/id="modulesbtn"/.test(html), "RM3150 : pas un bouton de plus dans l'en-tête qu'on vient d'alléger");
 
-  console.log("✓ panneau Modules (RM3145 lot 3) : état, dépendances dans les deux sens, écart, bus, lecture seule");
+  console.log("✓ panneau Modules (RM3145 lots 3+1) : état, dépendances, écart, bus, gestes, refus motivé, forçage sous double sécurité");
 })().catch(e => { console.error(e); process.exit(1); });

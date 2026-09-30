@@ -44,16 +44,26 @@ LEGEND = {
     "feature":  "F fonctionnalité — une feature atomique qui donne lieu à un ticket, le complète, ou reste à faire.",
 }
 #: kind → (préfixe d'id, titre de section, en-tête de table)
+#: RM3262 — chaque rubrique porte « Date · auteur » comme les notes : une question sans date ni
+#: signataire ne se relit pas, et une décision portait les siennes COLLÉES dans son libellé.
+#: La colonne TEXTE change de nom selon la rubrique (c'est elle qu'on lit partout) : `TEXTE_COL`.
+#: RM3290 — « Origine » est généralisée aux quatre rubriques (elle n'existait que sur les
+#: fonctionnalités). Elle porte d'où vient l'entrée : `ex-Q004` après une REQUALIFICATION, ou
+#: `RM2881-Q004` après un déplacement (RM3258). Sans elle, requalifier revenait à supprimer puis
+#: réécrire — on perdait l'id, la date et l'auteur, et la piste de ce qui avait été requalifié.
 KINDS = {
     "note":     ("N", "Notes — vrac verbatim, jamais reformulé",
-                 ["#", "Date · auteur", "Verbatim", "État", "Traitée par"]),
+                 ["#", "Date · auteur", "Verbatim", "État", "Traitée par", "Origine"]),
     "question": ("Q", "Questions ouvertes",
-                 ["#", "Question", "Bloque", "Urgence", "État"]),
+                 ["#", "Date · auteur", "Question", "Bloque", "Urgence", "État", "Tranchée par", "Origine"]),
     "decision": ("D", "Décisions",
-                 ["#", "Objet", "État"]),
+                 ["#", "Date · auteur", "Objet", "État", "Origine"]),
     "feature":  ("F", "Fonctionnalités à implémenter",
-                 ["#", "Fonctionnalité", "Domaine", "Version", "Origine", "État", "Lot"]),
+                 ["#", "Date · auteur", "Fonctionnalité", "Domaine", "Version", "Origine", "État", "Lot"]),
 }
+#: le nom de la colonne qui porte le texte de l'entrée, par rubrique
+TEXTE_COL = {"note": "Verbatim", "question": "Question", "decision": "Objet", "feature": "Fonctionnalité"}
+SIGNATURE_COL = "Date · auteur"
 #: Un conseil de l'agent est une ligne de la section Décisions, préfixée C.
 PREFIX_KIND = {"N": "note", "Q": "question", "D": "decision", "C": "decision", "F": "feature"}
 SECTION_RE = {
@@ -200,7 +210,9 @@ def counters(parsed: dict) -> dict:
     d = parsed.get("decision", {}).get("rows", [])
     f = parsed.get("feature", {}).get("rows", [])
     return {
-        "questions_open": sum(1 for r in q if not r["closed"] and r["state"] not in ("valide", "invalide")),
+        "questions_open": sum(1 for r in q if question_ouverte(r)),
+        # RM3357 : celles qui attendent un tiers, comptées à part — visibles, jamais bloquantes
+        "questions_reserve": sum(1 for r in q if question_en_reserve(r)),
         "notes_pending": sum(1 for r in n if not r["closed"] and r["state"] not in ("valide", "invalide")),
         "decisions": sum(1 for r in d if r["prefix"] == "D" and r["state"] == "valide"),
         "features": sum(1 for r in f if not r["closed"]),
@@ -314,13 +326,27 @@ _COLLAGE = re.compile(r"(^|\s)(?:[\w.-]+@[\w.-]+:[~/][^\s]*[$#]|root@|Traceback 
                       r"|This session is being continued|^\s*https?://\S+\s*$", re.I | re.M)
 #: une réponse à une question outillée (« Q42 : … », « D114 : … », « q20 : oui ») est une DÉCISION, pas une note
 _REPONSE_Q = re.compile(r"^\W*[QDCF]\s?0?\d{2,3}\s*[:.)]", re.I)
-#: un ordre adressé à l'agent — même long, même s'il contient « il faudra »
+#: un ordre adressé à l'agent — même long, même s'il contient « il faudra ».
+#: RM3281 : les formes qui passaient encore — « go faire 3108 », « ok, continuer sur … », et l'ordre
+#: posé en FIN de note (« … . Consigne tout ça dans le ticket maintenant »), qui pilote le tour en
+#: cours et ne dit rien de réutilisable. L'infinitif compte autant que l'impératif.
+_VERBES_ORDRE = (r"fais|faire|fait|refais|refaire|prends|prendre|prend|étudie|etudie|étudier|etudier|chiffre|chiffrer|"
+                 r"lance|lancer|relance|relancer|merge|merger|mergez|ferme|fermer|passe|passer|continue|continuer|"
+                 r"reprends|reprendre|reprend|corrige|corriger|teste|tester|test|regarde|regarder|montre|montrer|"
+                 r"liste|lister|crée|cree|créer|creer|ajoute|ajouter|mets|mettre|met|pousse|pousser|push|commit|"
+                 r"committe|déploie|deploie|déployer|deployer|supprime|supprimer|vire|virer|consigne|consigner|"
+                 r"consignes|note|noter|notes|traite|traiter|livre|livrer|réponds|reponds|répondre|repondre|donne|"
+                 r"donner|envoie|envoyer|applique|appliquer|renomme|renommer|migre|migrer|analyse|analyser|documente|"
+                 r"documenter|génère|genere|générer|generer|core update|attends|attendre|stoppe|stopper|arrête|arrete|arrêter|arreter")
 _ORDRE = re.compile(r"^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go\b|vas-y|nickel|parfait|merci|super|top|c'est bon|bien reçu|bien recu)?\s*"
                     r"(?:peux-tu|pourrais-tu|je veux que tu|il faut que tu|merci de)\b"
-                    r"|^\W*(?:fais|fait|refais|prends|prend|étudie|etudie|chiffre|lance|relance|merge|mergez|ferme|passe|continue|reprends|reprend|"
-                    r"corrige|teste|test|regarde|montre|liste|crée|cree|ajoute|mets|met|pousse|push|commit|committe|déploie|deploie|supprime|vire|"
-                    r"consigne|consignes|note|notes|traite|livre|réponds|reponds|donne|envoie|applique|renomme|migre|analyse|documente|génère|genere|"
-                    r"core update|attends|stoppe|arrête|arrete)\b", re.I)
+                    r"|^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go|vas-y|nickel|parfait|merci|super|top)?[,.\s]*"
+                    rf"(?:{_VERBES_ORDRE})\b", re.I)
+#: le même ordre, mais en dernière phrase : « tout ça », « maintenant », « et enchaîne » — il pilote
+#: le tour, il ne se relira pas. On ne regarde QUE la fin : au milieu d'un raisonnement, un impératif
+#: peut appartenir à l'explication.
+_ORDRE_FINAL = re.compile(rf"(?:^|[.!?;]\s+)(?:et\s+)?(?:{_VERBES_ORDRE})\b[^.!?]*"
+                          r"(?:maintenant|tout (?:ç|c)a|tout cela|d'abord|stp|s'il te pla[îi]t)[^.!?]*[.!?]?\s*$", re.I)
 #: le RESTE À FAIRE — report, manque, intention différée. PAS les contraintes (« doit », « devra ») : ce sont des décisions.
 _DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a terme|en attendant|provisoire|temporaire|"
                     r"(?:un|second|deuxième|deuxieme) (?:premier )?temps|dans un premier temps|il faudra(?:it)?|"
@@ -329,6 +355,25 @@ _DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a t
                     r"faute de mieux|en dur pour|quick ?fix|bricol|rustine|dette technique|plus propre|un jour|"
                     r"on pourrait|on devrait|ce serait (?:bien|mieux)|il serait (?:bon|utile)|serait (?:bien|utile) de)", re.I)
 _MOT = re.compile(r"[^\W\d_]{2,}", re.U)
+#: RM3281 — le RÉFÉRENT. Une note doit dire DE QUOI elle parle : hors de sa conversation, « on verra
+#: plus tard pour la suite, il faudra trancher » ne se rattache à rien et ne peut que faire du bruit.
+#: Deux formes d'ancrage, l'une suffit : un identifiant qu'on peut chercher (ticket, chemin, terme
+#: entre accents graves, nom composé, mot à majuscule interne), ou assez de mots PORTEURS.
+_ANCRE = re.compile(r"\bRM\s?\d{3,5}\b|`[^`]+`|[\w.-]+\.(?:py|js|md|yml|yaml|json|sh|css|scss|service)\b"
+                    r"|(?:^|\s)/[\w./-]{3,}|\b\w+[_-]\w+\b|\b\w+[a-zà-ÿ][A-ZÀ-Þ]\w*\b|\b[A-ZÀ-Þ][\w-]{2,}\b"
+                    r"|(?:^|\s)-{1,2}[A-Za-z][\w-]*\b", re.U)   # une option de commande (« ssh -A », « --dry-run ») désigne quelque chose
+_PORTEUR = re.compile(r"\b[^\W\d_]{6,}\b", re.U)
+#: mots longs mais vides de référent : ils ne désignent rien qu'on puisse retrouver
+_CREUX = {"faudrait", "pourrait", "devrait", "vraiment", "beaucoup", "toujours", "jamais", "quelque",
+          "quelques", "certains", "certaines", "plusieurs", "pendant", "ensuite", "maintenant",
+          "trancher", "vérifier", "verifier", "regarder", "attendre", "continuer", "terminer",
+          "faudra", "instant", "reprendre", "laisser", "laisse", "commencer", "essayer", "penser"}
+
+
+def _ancrage(s: str) -> bool:
+    if _ANCRE.search(s):
+        return True
+    return len({m.group(0).lower() for m in _PORTEUR.finditer(s)} - _CREUX) >= 3
 
 
 def note_pertinente(text: str):
@@ -345,10 +390,14 @@ def note_pertinente(text: str):
         return True, "explicite"
     if _ORDRE.search(s):
         return False, "ordre à l'agent"
+    if _ORDRE_FINAL.search(s):
+        return False, "ordre à l'agent (en fin de note) — pilote le tour, ne se relira pas"
     if not _DETTE.search(s):
         return False, "rien à faire plus tard (constat, contrainte, opinion)"
     if len(s) < 45 or len(_MOT.findall(s)) < 7:
         return False, "trop courte pour être auto-suffisante"
+    if not _ancrage(s):
+        return False, "aucun référent — rien à quoi la rattacher hors de sa conversation"
     return True, "dette"
 
 
@@ -366,16 +415,54 @@ def _norm(s: str) -> str:
     return s.strip(" «»\"'“”‘’").strip()[:200]
 
 
+def col_index(header, nom: str):
+    """Index de la colonne `nom` dans cet en-tête, ou None. Insensible à la casse et aux accents
+    d'usage : un `.think.md` ancien peut écrire « Etat » là où la grammaire dit « État »."""
+    def norm(s):
+        s = " ".join(str(s or "").split()).lower()
+        for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("à", "a"), ("ç", "c")):
+            s = s.replace(a, b)
+        return s
+    cible = norm(nom)
+    for i, h in enumerate(header or []):
+        if norm(h) == cible:
+            return i
+    return None
+
+
+def cell(sec: dict, row: dict, nom: str, defaut: str = "") -> str:
+    """RM3262 — la cellule `nom` d'une ligne, LUE PAR LE NOM DE SA COLONNE.
+
+    Les lecteurs disaient `cells[1]`, `c[3]`… : ajouter une colonne les cassait tous en silence,
+    et un carnet non encore migré n'a pas la même largeur que la grammaire courante. Le nom, lui,
+    ne bouge pas. Colonne absente ⇒ `defaut` : un vieux carnet rend une chaîne vide, jamais la
+    valeur d'une colonne voisine."""
+    i = col_index((sec or {}).get("header"), nom)
+    cells = (row or {}).get("cells") or []
+    return cells[i] if i is not None and i < len(cells) else defaut
+
+
+def texte(sec: dict, row: dict, kind: str) -> str:
+    """Le texte d'une entrée, quelle que soit la rubrique (et quelle que soit la largeur du carnet)."""
+    val = cell(sec, row, TEXTE_COL[kind])
+    if val:
+        return val
+    # carnet d'avant RM3262 (pas de colonne « Date · auteur ») : le texte est en 2ᵉ position
+    cells = (row or {}).get("cells") or []
+    return cells[1] if len(cells) > 1 else ""
+
+
 def has_text(parsed: dict, kind: str, text: str) -> bool:
     """Déjà consigné ? (dédoublonnage des moissons automatiques)."""
     key = _norm(text)[:120]
     if not key:
         return False
-    col = {"note": 2, "question": 1, "decision": 1, "feature": 1}[kind]
-    for r in parsed.get(kind, {}).get("rows", []):
-        if col >= len(r["cells"]):
+    sec = parsed.get(kind, {})
+    for r in sec.get("rows", []):
+        cell_ = _norm(texte(sec, r, kind))
+        if not cell_:
             continue
-        cell = _norm(r["cells"][col])
+        cell = cell_
         # sous-chaîne (un verbatim consigné à la main porte ses guillemets, une moisson non) ;
         # un texte court doit matcher exactement pour ne pas absorber ses voisins
         if (key in cell) if len(key) >= 12 else (cell == key):
@@ -421,18 +508,20 @@ def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, 
     by = signature(by, sid)                       # RM3062 : auteur nommé, jamais un code
     who = f"{when} · {by}" + (f" · s:{str(sid)[:8]}" if sid else "")
     if kind == "note":
-        return [rid, who, _clean(text), icon, _clean(dest)]
+        return [rid, who, _clean(text), icon, _clean(dest), _clean(origine)]
     if kind == "question":
-        return [rid, _clean(text), _clean(bloque), _clean(urgence), icon]
+        # RM3262 : « Tranchée par » est le miroir du « Traitée par » des notes — l'id de la
+        # décision qui y répond, écrit quand elle arrive (`--dest`), sinon vide.
+        return [rid, who, _clean(text), _clean(bloque), _clean(urgence), icon, _clean(dest), _clean(origine)]
     if kind == "decision":
-        return [rid, _clean(text) + (f" ({when} · {by})" if by else ""), icon]
-    return [rid, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
+        # RM3262 : la signature était COLLÉE au libellé (« … (2026-09-01 · Mathieu) ») — donc
+        # recopiée dans chaque registre fusionné, et intriable. Elle a sa colonne.
+        return [rid, who, _clean(text), icon, _clean(origine)]
+    return [rid, who, _clean(text), _clean(domaine), _clean(version), _clean(origine), icon, _clean(lot)]
 
 
-def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
-    """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
-    Retourne l'id attribué. Ne committe pas (l'appelant décide)."""
-    p = Path(path)
+def _section_prete(p: Path, kind: str, rm_id=None, title=""):
+    """Le fichier et la section existent (créés au besoin) ; rend (texte, parsed, sec)."""
     if not p.is_file():
         rid_ = rm_id or rm_id_of(p) or 0
         p.write_text(gabarit(rid_, title), encoding="utf-8")
@@ -443,17 +532,214 @@ def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **f
         block = ["", f"## {titre}", "", "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
         text_ = text_.rstrip("\n") + "\n" + "\n".join(block) + "\n"
         parsed = parse(text_)
-    sec = parsed[kind]
-    pfx = prefix or KINDS[kind][0]
-    rid = next_id(parsed, kind, pfx)
-    cells = row_cells(kind, rid, text, **fields)
-    # aligner sur la largeur réelle de la table du fichier (un think plus ancien peut différer)
+    return text_, parsed, parsed[kind]
+
+
+def _insere(p: Path, text_: str, sec: dict, cells: list) -> None:
+    """Écrit `cells` en fin de table, alignées sur la largeur RÉELLE du fichier
+    (un think plus ancien peut avoir une table plus étroite)."""
     width = len(sec["header"])
     cells = (cells + [""] * width)[:width]
     lines = text_.splitlines()
     lines.insert(sec["line_end"], "| " + " | ".join(cells) + " |")
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
+    """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
+    Retourne l'id attribué. Ne committe pas (l'appelant décide).
+
+    RM3356 — les cellules sont posées PAR NOM sur l'en-tête réel du fichier. Un carnet pas encore
+    migré (RM3262) a une table plus étroite : aligner les valeurs sur sa largeur, en position,
+    écrivait la signature dans « Question » et le texte dans « Bloque ». Six entrées ont été
+    écrites ainsi le jour du déploiement, entre la mise en place du code et la migration."""
+    p = Path(path)
+    text_, parsed, sec = _section_prete(p, kind, rm_id, title)
+    rid = next_id(parsed, kind, prefix or KINDS[kind][0])
+    _insere(p, text_, sec, _apparie(KINDS[kind][2], sec["header"], row_cells(kind, rid, text, **fields)))
+    # RM3262 : une décision qui cite Qnnn REND cette question tranchée — on l'inscrit dans sa
+    # colonne « Tranchée par ». Ici plutôt que dans le CLI : la moisson écrit aussi des décisions.
+    if kind == "decision":
+        for qid in questions_citees(text):
+            set_dest(p, qid, rid)
     return rid
+
+
+def _apparie(src_header: list, dst_header: list, cells: list) -> list:
+    """RM3264 — les cellules d'une ligne, portées d'une table à l'autre PAR NOM DE COLONNE.
+
+    Deux carnets n'ont pas forcément la même grammaire : celui d'un ticket ancien n'a pas encore
+    « Date · auteur » (RM3262), celui d'un ticket neuf l'a. Recopier par position mettait alors le
+    texte de la question dans la colonne de la date. Une colonne que la cible n'a pas est perdue
+    sciemment ; une colonne qu'elle a en plus naît vide. En-têtes identiques (le cas courant) :
+    la ligne passe telle quelle."""
+    if not src_header or not dst_header or src_header == dst_header:
+        return list(cells)
+    val = {}
+    for i, nom in enumerate(src_header):
+        val[nom] = cells[i] if i < len(cells) else ""
+    out = []
+    for nom in dst_header:
+        j = col_index(list(val), nom)
+        out.append(list(val.values())[j] if j is not None else "")
+    return out
+
+
+def find_row(parsed: dict, rid: str):
+    """(kind, row) de la ligne `rid`, ou (None, None). Pure."""
+    cible = str(rid or "").strip().upper()
+    for kind, sec in parsed.items():
+        for r in sec["rows"]:
+            if r["id"].upper() == cible:
+                return kind, r
+    return None, None
+
+
+#: une cellule qui contient une signature (« 2026-09-21 · Mathieu · s:… ») là où on attend du texte
+_SIGNATURE_CELL = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s·\s")
+
+
+def reparer_decalage(path) -> list:
+    """RM3356 — remet en place les lignes dont le texte a glissé d'une colonne. Rend les ids réparés.
+
+    On ne répare QUE les lignes dont on est sûr : la colonne de signature est VIDE et la colonne du
+    texte contient une signature. Le décalage est alors d'exactement un cran, et le remettre en
+    place est sans ambiguïté. Toute autre forme est laissée telle quelle — une réparation qui
+    devine abîmerait ce qu'elle prétend sauver. Idempotente."""
+    p = Path(path)
+    if not p.is_file():
+        return []
+    parsed = parse(p.read_text(encoding="utf-8"))
+    lines = p.read_text(encoding="utf-8").splitlines()
+    faits = []
+    for kind, sec in parsed.items():
+        if kind not in KINDS:
+            continue
+        i_sig = col_index(sec["header"], SIGNATURE_COL)
+        i_txt = col_index(sec["header"], TEXTE_COL[kind])
+        if i_sig is None or i_txt is None or i_txt <= i_sig:
+            continue
+        for r in sec["rows"]:
+            cells = list(r["cells"])
+            if i_txt >= len(cells) or (cells[i_sig] or "").strip():
+                continue
+            if not _SIGNATURE_CELL.match(cells[i_txt] or ""):
+                continue
+            # la cellule vide en trop saute : tout recule d'un cran, la signature rejoint sa colonne
+            decale = (cells[:i_sig] + cells[i_sig + 1:] + [""] * len(sec["header"]))[:len(sec["header"])]
+            # l'état, lui, a été PERDU à l'écriture (la ligne était tronquée) : on ne l'invente pas,
+            # on rend la ligne à son état de départ — en attente, comme toute entrée non triée.
+            i_etat = col_index(sec["header"], "État")
+            if i_etat is not None and not (decale[i_etat] or "").strip():
+                decale[i_etat] = STATE_ICON["attente"]
+            lines[r["line"]] = "| " + " | ".join(decale) + " |"
+            faits.append(r["id"])
+    if faits:
+        p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return faits
+
+
+def move_row(src, rid: str, dst, *, rm_id=None, title=""):
+    """RM3258 — DÉPLACE une entrée vers le carnet d'un autre ticket.
+
+    Une question consignée au mauvais ticket bloque la clôture de celui-ci et manque à
+    celui qu'elle concerne : la supprimer perdrait le verbatim, la réécrire perdrait sa
+    date, son auteur et sa session. On déplace donc les CELLULES telles quelles ; seul
+    l'id change, parce qu'il est local au ticket et jamais réattribué (RM3053).
+    Rend (kind, ancien_id, nouvel_id) ou None si la ligne est introuvable.
+    """
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        raise ValueError("source et destination identiques")
+    kind, row = find_row(load(src), rid)
+    if not kind:
+        return None
+    src_header = (load(src).get(kind) or {}).get("header") or []
+    text_, parsed, sec = _section_prete(dst, kind, rm_id, title)
+    neuf = next_id(parsed, kind, row["prefix"] or KINDS[kind][0])
+    cells = _apparie(src_header, sec["header"], row["cells"])
+    cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
+    # RM3290 — une question TRANCHÉE qui déménage laisse sa décision derrière elle : la décision
+    # appartient au ticket où l'arbitrage a eu lieu. Le lien devient donc inter-tickets
+    # (« RM2316-D004 ») au lieu de pointer un « D004 » qui, dans le carnet d'arrivée, désigne
+    # une autre décision — ou aucune.
+    src_rm = rm_id_of(src)
+    j = col_index(sec["header"], "Tranchée par")
+    if kind == "question" and j is not None and j < len(cells):
+        lien = str(cells[j] or "").strip()
+        if lien and src_rm and not lien.upper().startswith("RM"):
+            cells[j] = f"RM{src_rm}-{lien}"
+    # l'origine dit d'où l'entrée vient, sans écraser une piste déjà présente (requalif + déplacement)
+    o = col_index(sec["header"], "Origine")
+    if o is not None:
+        cells = (cells + [""] * (o + 1))[:max(len(cells), o + 1)]
+        piste = f"RM{src_rm}-{row['id']}" if src_rm else str(row["id"])
+        cells[o] = _clean((cells[o] + " " if cells[o] else "") + piste)
+    _insere(dst, text_, sec, cells)
+    remove_rows(src, [row["id"]])
+    return kind, row["id"], neuf
+
+
+def requalify_row(path, rid: str, new_kind: str, *, prefix=None, rm_id=None, title=""):
+    """RM3290 — CHANGE UNE ENTRÉE DE RUBRIQUE, dans le même carnet.
+
+    `move_row` change de TICKET, `requalify_row` change de RUBRIQUE : c'est le même geste dans
+    l'autre dimension, et il repose sur le même appariement par nom de colonne.
+
+    Pourquoi il manquait : une capture du harvest rangée en QUESTION bloque la clôture du ticket
+    (`pm_questions_gate` refuse tant qu'une question est ouverte). Les deux seules sorties étaient
+    mauvaises — `--delete` (on perd le verbatim, la date, l'auteur, et l'id, que la règle du carnet
+    dit « jamais réattribué ») ou trancher une non-question (on écrit un arbitrage qui n'a jamais
+    eu lieu). On requalifie donc, sans rien détruire.
+
+    Ce qui est préservé : « Date · auteur » (même nom dans les quatre rubriques, donc reporté par
+    `_apparie`), l'état, et le TEXTE — dont la colonne, elle, CHANGE de nom selon la rubrique
+    (« Verbatim », « Question », « Objet », « Fonctionnalité ») : `_apparie` ne peut pas l'apparier,
+    on le repose donc explicitement. L'origine (`ex-Q004`) part dans la colonne « Origine ».
+
+    Rend (ancien_kind, ancien_id, nouveau_kind, nouveau_id), ou None si la ligne est introuvable.
+    Lève ValueError si la rubrique d'arrivée est celle de départ (rien à faire, et le dire).
+    """
+    p = Path(path)
+    if new_kind not in KINDS:
+        raise ValueError(f"rubrique inconnue : {new_kind} (attendu : {', '.join(KINDS)})")
+    parsed = load(p)
+    kind, row = find_row(parsed, rid)
+    if not kind:
+        return None
+    # le préfixe VISÉ, défaut de la rubrique compris : sans ça, D→C (même rubrique « decision »,
+    # préfixe différent) serait refusé à tort, et Q→Q accepté à tort.
+    vise = (prefix or KINDS[new_kind][0]).upper()
+    actuel = (row["prefix"] or KINDS[kind][0]).upper()
+    if kind == new_kind and vise == actuel:
+        raise ValueError(f"{rid} est déjà une entrée de la rubrique « {new_kind} »")
+
+    src_header = (parsed.get(kind) or {}).get("header") or []
+    texte_ = texte(parsed[kind], row, kind)          # lu par le nom de SA colonne
+    text_, parsed2, sec = _section_prete(p, new_kind, rm_id, title)
+    neuf = next_id(parsed2, new_kind, vise)
+    cells = _apparie(src_header, sec["header"], row["cells"])
+    cells[0] = (f"~~{neuf}~~" if row["closed"] else neuf)
+
+    col_txt = col_index(sec["header"], TEXTE_COL[new_kind])
+    if col_txt is not None:
+        cells = (cells + [""] * (col_txt + 1))[:max(len(cells), col_txt + 1)]
+        cells[col_txt] = _clean(texte_)
+    col_org = col_index(sec["header"], "Origine")
+    if col_org is not None:
+        cells = (cells + [""] * (col_org + 1))[:max(len(cells), col_org + 1)]
+        # on n'écrase pas une origine déjà là : une entrée déplacée PUIS requalifiée garde sa piste
+        cells[col_org] = _clean((cells[col_org] + " " if cells[col_org] else "") + f"ex-{row['id']}")
+    # « Tranchée par » n'a de sens que pour une question : une question requalifiée en note
+    # emporterait sinon un lien vers une décision dans une colonne qui ne veut plus dire ça.
+    if kind == "question" and new_kind != "question":
+        for mort in ("Tranchée par",):
+            j = col_index(sec["header"], mort)
+            if j is not None and j < len(cells):
+                cells[j] = ""
+    _insere(p, text_, sec, cells)
+    remove_rows(p, [row["id"]])
+    return kind, row["id"], new_kind, neuf
 
 
 def remove_rows(path, ids) -> int:
@@ -484,8 +770,14 @@ def set_state(path, rid: str, state: str, dest: str = "") -> bool:
                 old = cells[st_col]
                 cells[st_col] = icon + (old[1:] if old and old[0] in STATES else "")
                 cells[st_col] = cells[st_col].strip() or icon
-            if dest and kind == "note" and len(cells) >= 5:
-                cells[4] = _clean(dest)
+            # RM3262 : « Traitée par » (note) et « Tranchée par » (question) — par nom, et pour
+            # les deux rubriques : trancher une question disait où, sans jamais l'écrire.
+            if dest:
+                dc = col_index(sec["header"], "Traitée par")
+                if dc is None:
+                    dc = col_index(sec["header"], "Tranchée par")
+                if dc is not None and dc < len(cells):
+                    cells[dc] = _clean(dest)
             lines[r["line"]] = "| " + " | ".join(cells) + " |"
             p.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return True
@@ -510,16 +802,20 @@ def set_text(path, rid: str, texte: str) -> tuple:
             if r["id"] != rid:
                 continue
             cells = list(r["cells"])
-            # La colonne du texte est la deuxième pour toutes les rubriques sauf les notes, où la
-            # première porte la date et l'auteur. `_clean` échappe les barres verticales : un texte
-            # qui en contiendrait casserait la ligne du tableau, et donc la lecture de tout le carnet.
-            col = 2 if kind == "note" and len(cells) > 2 else 1
+            # RM3262 : la colonne du texte se trouve PAR SON NOM (« Verbatim », « Question »,
+            # « Objet », « Fonctionnalité »), pas par une position qui dépend de la rubrique et de
+            # l'ancienneté du carnet. `_clean` échappe les barres verticales : un texte qui en
+            # contiendrait casserait la ligne du tableau, et donc la lecture de tout le carnet.
+            col = col_index(sec["header"], TEXTE_COL[kind])
+            if col is None:
+                col = 2 if kind == "note" and len(cells) > 2 else 1
             if col >= len(cells):
                 return False, ""
             ancien = cells[col]
-            # Une DÉCISION porte sa signature à la fin de son texte — « … (2026-09-14 · Mathieu) ».
-            # L'amendement corrige les mots, pas la paternité : effacer la signature ferait perdre
-            # QUI a décidé, ce qui est justement ce qu'on veut savoir d'une décision.
+            # Une décision d'AVANT RM3262 porte sa signature à la fin de son texte — « … (2026-09-14
+            # · Mathieu) ». L'amendement corrige les mots, pas la paternité : effacer la signature
+            # ferait perdre QUI a décidé. Depuis RM3262, elle est dans sa colonne et ce cas ne se
+            # présente plus que sur les carnets pas encore migrés.
             m = re.search(r"\s*\((\d{4}-\d{2}-\d{2} · [^()]+)\)\s*$", ancien)
             cells[col] = _clean(texte) + (f" ({m.group(1)})" if m else "")
             lines[r["line"]] = "| " + " | ".join(cells) + " |"
@@ -600,6 +896,21 @@ QUESTIONS_BEGIN = "<!-- questions:begin — section RÉGÉNÉRÉE depuis le .thi
 QUESTIONS_END = "<!-- questions:end -->"
 #: une question est CLOSE quand elle est tranchée (validée) ou écartée (invalidée) ; le reste attend
 _Q_CLOSES = ("valide", "invalide")
+#: RM3357 — « ⏸ réserve » = la question attend un TIERS (un client, un hébergeur, un fournisseur),
+#: pas nous. Elle ne bloque donc plus la clôture et ne compte plus parmi les questions ouvertes —
+#: mais elle reste comptée et listée à part, sous son propre intitulé : on ne la cache pas, on cesse
+#: de la présenter comme un arbitrage en attente de notre décision.
+_Q_TIERS = ("reserve",)
+
+
+def question_ouverte(r) -> bool:
+    """Cette question attend-elle NOTRE arbitrage ? (ni tranchée, ni écartée, ni en réserve)"""
+    return not r["closed"] and r["state"] not in _Q_CLOSES and r["state"] not in _Q_TIERS
+
+
+def question_en_reserve(r) -> bool:
+    """Elle attend un tiers : visible, comptée à part, jamais bloquante."""
+    return not r["closed"] and r["state"] in _Q_TIERS
 
 
 def _decision_liee(parsed: dict, qid: str) -> str:
@@ -616,22 +927,71 @@ def _decision_liee(parsed: dict, qid: str) -> str:
     return trouvee
 
 
+def decision_liante(parsed: dict, qid: str, dest: str = "") -> str:
+    """RM3269 — CE QUI TRANCHE la question `qid`, ou "" si rien ne la tranche.
+
+    Trois sources, de la plus explicite à la plus implicite :
+      1. `dest` — la décision que l'appelant désigne à l'instant (`--dest D004`) ;
+      2. la colonne « Tranchée par » de la question, si elle est déjà renseignée (RM3262) ;
+      3. une décision NON invalidée qui cite `Qnnn` dans son texte (`_decision_liee`).
+
+    Sert au garde-fou : trancher une question sans qu'aucune des trois n'existe, c'est clore le
+    sujet en perdant le pourquoi — le défaut vécu sur RM2316-Q004, marquée ✅ sans aucune décision,
+    dont il a fallu rouvrir l'antériorité trois jours plus tard pour reconstituer l'arbitrage.
+    """
+    if str(dest or "").strip():
+        return str(dest).strip()
+    sec = parsed.get("question", {}) or {}
+    _, row = find_row(parsed, qid)
+    if row is not None:
+        deja = cell(sec, row, "Tranchée par").strip()
+        if deja:
+            return deja
+    return _decision_liee(parsed, qid)
+
+
+def questions_orphelines(parsed: dict) -> list:
+    """RM3269 — les questions TRANCHÉES (✅) que rien ne relie à une décision.
+
+    Le garde-fou n'agit qu'au moment de trancher : les carnets d'avant lui en portent déjà.
+    Les rendre listables est ce qui permet de les reprendre au lieu de les découvrir par hasard.
+    Rend [(qid, libellé), …]. Pure.
+    """
+    sec = parsed.get("question", {}) or {}
+    out = []
+    for r in sec.get("rows", []):
+        if r.get("state") != "valide":
+            continue                      # seul « tranchée » est concerné : écartée ≠ tranchée
+        if decision_liante(parsed, r["id"]):
+            continue
+        out.append((r["id"], " ".join(str(texte(sec, r, "question")).split())))
+    return out
+
+
 def questions_text(parsed: dict) -> str:
     """Le contenu du CF 36 : une case par question, cochée si elle est tranchée. Jamais vide — un PUT
     de CF à vide EFFACE le champ, et « aucune question » est une information."""
     rows = (parsed.get("question", {}) or {}).get("rows", [])
     if not rows:
         return "*Aucune question consignée sur ce ticket.*"
-    ouvertes = [r for r in rows if not r["closed"] and r["state"] not in _Q_CLOSES]
-    L = [f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
-         "en attente. Vue régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : "
-         "trancher se fait là, pas ici.", ""]
+    ouvertes = [r for r in rows if question_ouverte(r)]
+    reserve = [r for r in rows if question_en_reserve(r)]
+    entete = f"**{len(ouvertes)} ouverte(s) sur {len(rows)}**"
+    if reserve:
+        entete += f", plus **{len(reserve)} en attente d'un tiers**"
+    L = [entete + " — un ticket ne se ferme pas avec une question en attente de NOTRE arbitrage ; "
+         "celles qui attendent un tiers (client, hébergeur, fournisseur) ne bloquent pas. Vue "
+         "régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : trancher se fait là, "
+         "pas ici.", ""]
+    sec_q = parsed.get("question", {}) or {}
     for r in rows:
-        cells = r.get("cells", [])
-        texte = " ".join(str(cells[1] if len(cells) > 1 else "").split())
+        libelle = " ".join(str(texte(sec_q, r, "question")).split())
         tranchee = r["closed"] or r["state"] in _Q_CLOSES
-        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {texte}"
-        if tranchee:
+        marque = "[x]" if tranchee else "[ ]"
+        ligne = f"- {marque} **{r['id']}** — {libelle}"
+        if question_en_reserve(r):
+            ligne += "  \n  → *⏸ en attente d'un tiers*"
+        elif tranchee:
             rep = _decision_liee(parsed, r["id"])
             ligne += f"  \n  → {rep}" if rep else "  \n  → *(tranchée ; la décision n'est pas reliée)*"
         L.append(ligne)
@@ -661,13 +1021,44 @@ def cochees_a_la_main(texte: str, parsed: dict) -> list:
         bloc = bloc.split(QUESTIONS_BEGIN, 1)[1].split(QUESTIONS_END, 1)[0]
     cochees = {m.group(1) for m in re.finditer(r"- \[x\]\s+\*\*(Q\d{3}[a-z]?)\*\*", bloc, re.I)}
     ouvertes = {r["id"] for r in (parsed.get("question", {}) or {}).get("rows", [])
-                if not r["closed"] and r["state"] not in _Q_CLOSES}
+                if question_ouverte(r)}
     return sorted(cochees & ouvertes)
 
 
 def cite_question(texte: str) -> bool:
     """Ce texte (une décision) répond-il à une question ? — `Q001` cité quelque part."""
     return bool(re.search(r"\bQ\d{3}[a-z]?\b", texte or ""))
+
+
+def questions_citees(texte: str) -> list:
+    """Les ids de questions cités par une décision, dans l'ordre. Pure."""
+    return list(dict.fromkeys(re.findall(r"\bQ\d{3}[a-z]?\b", texte or "")))
+
+
+def set_dest(path, rid: str, dest: str) -> bool:
+    """RM3262 — renseigne « Traitée par » / « Tranchée par » SANS toucher à l'état.
+
+    Le lien décision → question existait déjà, mais calculé à la lecture (`_decision_liee`) : la
+    table, elle, restait muette. L'écrire quand la décision arrive rend le carnet lisible sans
+    outil, et c'est le pendant du « Traitée par » des notes."""
+    p = Path(path)
+    parsed = load(p)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    for sec in parsed.values():
+        for r in sec["rows"]:
+            if r["id"] != rid:
+                continue
+            col = col_index(sec["header"], "Tranchée par")
+            if col is None:
+                col = col_index(sec["header"], "Traitée par")
+            if col is None:
+                return False               # carnet pas encore migré : rien à écrire
+            cells = (list(r["cells"]) + [""] * (col + 1))[:max(len(r["cells"]), col + 1)]
+            cells[col] = _clean(dest)
+            lines[r["line"]] = "| " + " | ".join(cells) + " |"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return True
+    return False
 
 
 def render_merged(kind: str, thinks: dict) -> str:
@@ -700,9 +1091,13 @@ def render_features_by_version(thinks: dict) -> str:
     jamais une copie dans la roadmap)."""
     groups = {}
     for rid, parsed in thinks.items():
-        for r in parsed.get("feature", {}).get("rows", []):
-            c = (r["cells"] + [""] * 7)[:7]
-            dom = c[2] or "Autre"; ver = c[3] or "—"
+        sec = parsed.get("feature", {})
+        for r in sec.get("rows", []):
+            # RM3262 : par NOM — un carnet migré a une colonne de plus que l'ancien, et la version
+            # se serait lue dans la case du domaine.
+            c = {k: cell(sec, r, k) for k in ("Domaine", "Version", "Origine", "État", "Lot")}
+            c["texte"] = texte(sec, r, "feature")
+            dom = c["Domaine"] or "Autre"; ver = c["Version"] or "—"
             groups.setdefault(dom, {}).setdefault(ver, []).append((rid, r, c))
     L = [MERGE_BEGIN, ""]
     if not groups:
@@ -712,8 +1107,8 @@ def render_features_by_version(thinks: dict) -> str:
         for ver in sorted(groups[dom], key=lambda v: (v == "—", v)):
             L += [f"**{ver}**", "", "| # | Ticket | Fonctionnalité | Origine | État | Lot |", "|---|---|---|---|---|---|"]
             for rid, r, c in groups[dom][ver]:
-                idc = f"~~RM{rid}-{c[0]}~~" if r["closed"] else f"RM{rid}-{c[0]}"
-                L.append(f"| {idc} | RM{rid} | {c[1]} | {c[4]} | {c[5]} | {c[6]} |")
+                idc = f"~~RM{rid}-{r['id']}~~" if r["closed"] else f"RM{rid}-{r['id']}"
+                L.append(f"| {idc} | RM{rid} | {c['texte']} | {c['Origine']} | {c['État']} | {c['Lot']} |")
             L.append("")
     L += [f"*régénéré le {datetime.now().strftime('%Y-%m-%d %H:%M')} par `pm-think-merge`.*", "", MERGE_END]
     return "\n".join(L)

@@ -84,6 +84,81 @@ check("hors workspace → None", tsu.unmerged_ticket_branches(loose, 9999) is No
     "repos:\n- name: demo\n- name: autre\n")
 check("multi-repo → None", tsu.unmerged_ticket_branches(md, 9999) is None)
 
+# — RM3173 : un dépôt central RÉEL a des refs distantes (refspec origin/*) ; le distant fait foi —
+# Incidents RM3091 / RM3059 : branche rebasée et poussée depuis un autre worktree, mergée ;
+# la branche LOCALE du dépôt central restait sur les commits d'avant rebase → refus à tort.
+t2 = pathlib.Path(tempfile.mkdtemp(prefix="rm3173-"))
+up = t2 / "upstream.git"                       # le GitLab
+sh("git", "init", "-q", "--bare", "-b", "dev", str(up))
+w = t2 / "w"                                   # un worktree « ailleurs »
+sh("git", "clone", "-q", str(up), str(w))
+(w / "f.txt").write_text("base\n")
+sh("git", "-C", str(w), "add", "f.txt")
+sh("git", "-C", str(w), "commit", "-qm", "base")
+sh("git", "-C", str(w), "push", "-q", "origin", "HEAD:dev", "HEAD:main")
+sh("git", "-C", str(w), "checkout", "-qb", "4242-feature")
+(w / "g.txt").write_text("v1\n")
+sh("git", "-C", str(w), "add", "g.txt")
+sh("git", "-C", str(w), "commit", "-qm", "RM4242 v1")
+sh("git", "-C", str(w), "push", "-q", "origin", "4242-feature")
+
+ws2 = t2 / "ws"
+(ws2 / "repos").mkdir(parents=True)
+central = ws2 / "repos" / "demo.git"
+sh("git", "clone", "-q", "--bare", str(up), str(central))
+sh("git", "-C", str(central), "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+sh("git", "-C", str(central), "fetch", "-q", "origin")
+(ws2 / ".mmi-pm" / "tasks").mkdir(parents=True)
+(ws2 / ".mmi-pm" / "meta.yml").write_text("repos:\n- name: demo\n  integration_branch: dev\n")
+md2 = ws2 / ".mmi-pm" / "tasks" / "RM4242_feature.md"
+md2.write_text("---\nredmine_id: 4242\n---\n")
+check("RM3173 : branche poussée non mergée → détectée (par sa version distante)",
+      (f := tsu.unmerged_ticket_branches(md2, 4242)) is not None and f[2] == ["origin/4242-feature"] and f[3]["fresh"])
+
+# rebase + push forcé depuis le worktree, puis merge dans dev : la locale du central reste périmée
+sh("git", "-C", str(w), "commit", "-q", "--amend", "-m", "RM4242 v1 (rebasée)")
+sh("git", "-C", str(w), "push", "-q", "-f", "origin", "4242-feature")
+sh("git", "-C", str(w), "checkout", "-q", "dev")
+sh("git", "-C", str(w), "merge", "-q", "--no-ff", "-m", "merge 4242", "4242-feature")
+sh("git", "-C", str(w), "push", "-q", "origin", "dev")
+stale = subprocess.run(["git", "-C", str(central), "merge-base", "--is-ancestor", "4242-feature", "origin/dev"]).returncode
+check("…la locale du central est bien périmée (précondition du cas réel)", stale != 0)
+check("RM3173 : mergée côté distant, locale périmée → PAS de refus", tsu.unmerged_ticket_branches(md2, 4242) is None)
+
+# mergée dans main seulement (la prod) → pas de refus non plus
+sh("git", "-C", str(w), "checkout", "-qb", "4243-hotfix", "origin/main")
+(w / "h.txt").write_text("fix\n")
+sh("git", "-C", str(w), "add", "h.txt")
+sh("git", "-C", str(w), "commit", "-qm", "RM4243 fix")
+sh("git", "-C", str(w), "push", "-q", "origin", "4243-hotfix")
+sh("git", "-C", str(w), "checkout", "-qB", "main", "origin/main")
+sh("git", "-C", str(w), "merge", "-q", "--no-ff", "-m", "merge 4243", "4243-hotfix")
+sh("git", "-C", str(w), "push", "-q", "origin", "main")
+check("RM3173 : mergée dans main (la prod) → pas de refus", tsu.unmerged_ticket_branches(md2, 4243) is None)
+
+# jamais poussée : seule la locale existe → elle est jugée
+sh("git", "-C", str(w), "checkout", "-qb", "4244-local", "dev")
+(w / "l.txt").write_text("local\n")
+sh("git", "-C", str(w), "add", "l.txt")
+sh("git", "-C", str(w), "commit", "-qm", "RM4244 local")
+sh("git", "-C", str(w), "push", "-q", str(central), "4244-local")   # dans le central, jamais sur le distant
+check("RM3173 : branche jamais poussée → jugée sur la locale, détectée",
+      (f := tsu.unmerged_ticket_branches(md2, 4244)) is not None and f[2] == ["4244-local"])
+
+# distant injoignable : on ne peut pas conclure, et on le dit (fresh=False)
+sh("git", "-C", str(w), "checkout", "-qb", "4245-x", "dev")
+(w / "x.txt").write_text("x\n")
+sh("git", "-C", str(w), "add", "x.txt")
+sh("git", "-C", str(w), "commit", "-qm", "RM4245")
+sh("git", "-C", str(w), "push", "-q", "origin", "4245-x")
+sh("git", "-C", str(central), "fetch", "-q", "origin")
+sh("git", "-C", str(central), "remote", "set-url", "origin", str(t2 / "disparu.git"))
+f = tsu.unmerged_ticket_branches(md2, 4245)
+check("RM3173 : fetch en échec → refs signalées non fraîches", f is not None and f[3]["fresh"] is False)
+src_tsu = (HERE / "pm-task-status-update.py").read_text(encoding="utf-8")
+check("…et le refus a son propre message (« impossible de conclure »)",
+      'if not infos["fresh"]:' in src_tsu and "impossible de conclure" in src_tsu)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

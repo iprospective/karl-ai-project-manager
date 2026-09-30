@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,6 +146,116 @@ def _visibles(entrees: list, viewer: str | None) -> list:
     return [e for e in entrees if not e.get("private") or (qui and e.get("user") == qui)]
 
 
+def _ctx_projet(depart=None) -> dict:
+    """Client et projet du workspace courant, lus au `meta.yml` du dossier PM (RM3206).
+
+    Source DÉCLARÉE, pas devinée : `meta.yml` porte `client` et `slug`, et il est là dans les
+    deux cas de figure — workspace de code (`.mmi-pm` est un lien vers le dossier PM) comme
+    dépôt de données (`.mmi-pm` est un vrai dossier). Une première version déduisait le couple
+    du CHEMIN résolu ; elle marchait pour les liens et rendait vide sur un dépôt de données,
+    dont le chemin ne contient ni « clients » ni « projects ».
+
+    Parse volontairement minimal — deux clés au premier niveau d'un fichier généré — pour que
+    `pm_notify` reste importable sans PyYAML : il est chargé par des scripts isolés et par le
+    serveur, et une notification ne doit jamais dépendre d'une bibliothèque tierce.
+    """
+    d = Path(depart).resolve() if depart else Path.cwd()
+    for base in [d] + list(d.parents):
+        meta = base / ".mmi-pm" / "meta.yml"
+        if not meta.is_file():
+            continue
+        try:
+            texte = meta.read_text(encoding="utf-8")
+        except OSError:
+            return {}
+        out = {}
+        for cle_yaml, sortie in (("client", "client"), ("slug", "projet")):
+            m = re.search(rf"^{cle_yaml}:\s*(\S.*?)\s*$", texte, re.M)
+            if m:
+                out[sortie] = m.group(1).strip("'\"")
+        return out
+    return {}
+
+
+def _ctx_ticket(depart=None):
+    """Le ticket courant, lu à la sentinelle `<workspace>/.mmi-pm/CURRENT_TASK`.
+
+    Même source que `pm-task-tick` (son repli), volontairement : deux définitions du « ticket
+    courant » finiraient par diverger. On ne lit PAS le transcript ici — trop lourd pour un
+    chemin qui doit rester muet et rapide.
+    """
+    d = Path(depart).resolve() if depart else Path.cwd()
+    for base in [d] + list(d.parents):
+        s = base / ".mmi-pm" / "CURRENT_TASK"
+        if s.is_file():
+            try:
+                v = s.read_text(encoding="utf-8").strip()
+            except OSError:
+                break
+            if v.isdigit():
+                return v
+            break
+    # Repli : la BRANCHE de travail. Une branche de ticket s'appelle `<RMid>-<slug>` (norme
+    # git-mep), donc elle dit le ticket même là où la sentinelle n'est pas posée — typiquement
+    # un worktree de ticket, c'est-à-dire précisément là où l'on travaille.
+    for base in [d] + list(d.parents):
+        if not (base / ".git").exists():
+            continue
+        try:
+            import subprocess
+            r = subprocess.run(["git", "-C", str(base), "branch", "--show-current"],
+                               capture_output=True, text=True, timeout=3)
+        except Exception:      # noqa: BLE001
+            return None
+        m = re.match(r"^(\d{3,6})-", (r.stdout or "").strip())
+        return m.group(1) if m else None
+    return None
+
+
+def _ctx_session():
+    """L'identifiant de la session d'agent, si l'on tourne dans une."""
+    for var in ("CLAUDE_SESSION_ID", "KARL_SESSION_ID"):
+        v = (os.environ.get(var) or "").strip()
+        if v:
+            return v
+    try:
+        import pm_session
+        return pm_session.claude_session_id() or None
+    except Exception:      # noqa: BLE001 — sans session, une notification reste valide
+        return None
+
+
+def contexte_auto(depart=None) -> dict:
+    """Où l'on se trouve, au moment d'émettre : ticket, session, projet, client (RM3206).
+
+    **Pourquoi enrichir par défaut plutôt qu'ajouter des paramètres.** Le champ `rm` était déjà
+    accepté, déjà rendu, déjà cliquable dans le fil — et AUCUN des quatre émetteurs ne le
+    passait. Un paramètre optionnel qu'il faut penser à remplir ne se remplit pas. Le contexte
+    se prend donc ici, et l'appelant n'a rien à faire pour en bénéficier.
+
+    Chaque source échoue seule et en silence : une notification mal située vaut mieux qu'une
+    notification perdue.
+    """
+    out = {}
+    try:
+        rm = _ctx_ticket(depart)
+        if rm:
+            out["rm"] = rm
+    except Exception:      # noqa: BLE001
+        pass
+    try:
+        sid = _ctx_session()
+        if sid:
+            out["sid"] = sid
+    except Exception:      # noqa: BLE001
+        pass
+    try:
+        out.update(_ctx_projet(depart))
+    except Exception:      # noqa: BLE001
+        pass
+    return out
+
+
 def add(origine: str, niveau: str, message: str, user: str | None = None,
         private: bool = False, **champs) -> dict | None:
     """Ajoute une notification, ou fait REMONTER celle qui dit déjà la même chose.
@@ -170,6 +281,19 @@ def add(origine: str, niveau: str, message: str, user: str | None = None,
                 e["repeats"] = int(e.get("repeats", 1)) + 1
                 e["last"] = maintenant
                 e["level"] = n if NIVEAUX.index(n) > NIVEAUX.index(e.get("level", "info")) else e.get("level")
+                # RM3177 — la remontée RAFRAÎCHIT ce qui a été mesuré. Sans cela une alerte qui
+                # dure gardait les chiffres de son premier jour : le fil affichait 96 % quand on en
+                # était à 98 %, et jamais la tendance — une veille qui ment précisément là où elle
+                # sert. Les champs de la clé (job, rm, sid, ref, user) sont identiques par
+                # construction ; seuls les autres changent. Une valeur absente (None) ne remplace
+                # pas une valeur connue : on ne perd pas une mesure faute de l'avoir reprise.
+                for cl, v in champs.items():
+                    if v is None:
+                        continue
+                    try:
+                        json.dumps(v); e[cl] = v
+                    except TypeError:
+                        e[cl] = str(v)
                 _ecrire(_taille(entrees))
                 return e
         entree = {"id": k, "ts": maintenant, "last": maintenant, "origin": o, "level": n,
@@ -184,6 +308,14 @@ def add(origine: str, niveau: str, message: str, user: str | None = None,
                     json.dumps(v); entree[cl] = v
                 except TypeError:
                     entree[cl] = str(v)
+        # RM3206 — contexte pris sur place (ticket, session, projet, client). Deux règles :
+        #   · `setdefault` : ce que l'appelant a dit explicitement gagne TOUJOURS ;
+        #   · le contexte auto n'entre PAS dans `cle()` — elle est calculée plus haut, sur les
+        #     seuls champs explicites. C'est capital : `cle()` intègre `sid`, donc enrichir la
+        #     clé ferait de la même alerte émise depuis deux sessions DEUX entrées, et
+        #     l'anti-répétition — la raison d'être de cette empreinte — tomberait.
+        for cl, v in contexte_auto().items():
+            entree.setdefault(cl, v)
         entrees.append(entree)
         return entree if _ecrire(_taille(entrees)) else None
 

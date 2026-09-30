@@ -176,6 +176,21 @@ check("et sait le marquer", "def op_notifications_mark(" in ka and '"/notificati
 check("marquer exige un état connu", 'raise ApiError(400, "état inconnu' in ka)
 check("le serveur lit le fil AU NOM de celui qui regarde", "viewer=" in ka.split("def op_notifications(")[1][:1200])
 check("et ne laisse pas marquer le privé d'autrui", "viewer=" in ka.split("def op_notifications_mark(")[1][:1400])
+# RM3300 : deux gestes de lot distincts. « tout lire » ne doit porter QUE sur le non-lu —
+# sinon le compte rendu annonce des entrées qu'il n'a pas changées.
+_mark = ka.split("def op_notifications_mark(")[1][:1800]
+check("« tout lire » ne vise que les entrées neuves",
+      'source = "neuf" if etat == "lu" else "ouvert"' in _mark)
+check("un lot de marquage respecte le filtre de personne de la vue", "user=str(payload.get(" in _mark)
+check("un lot vide n'est pas une erreur", '"marked": 0' in _mark)
+
+# et le geste existe bien des deux côtés du fil
+_feed_vue = (HERE.parent / "deploy/karl-agent/cockpit/src/modules/feed/Feed.view.js").read_text(encoding="utf-8")
+_feed_ctl = (HERE.parent / "deploy/karl-agent/cockpit/src/modules/feed/feed.controller.js").read_text(encoding="utf-8")
+check("le cockpit propose « tout lire »", 'data-action="lu-all"' in _feed_vue and '"lu-all"' in _feed_ctl)
+check("et ne l'affiche que s'il y a du non-lu", "vm.counts.neuf ?" in _feed_vue)
+check("les deux boutons de lot disent leur effet",
+      "tout lire" in _feed_vue and "tout traiter" in _feed_vue)
 mailer = HERE / "pm-notify-mail.py"
 check("le canal mail existe", mailer.is_file())
 if mailer.is_file():

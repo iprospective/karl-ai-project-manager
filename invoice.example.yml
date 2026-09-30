@@ -1,0 +1,47 @@
+# invoice.yml — réglages de `mmi-pm invoice` (RM2891). À copier en <core>/var/users/<user>/invoice.yml.
+#
+# L'ERP n'est PAS déclaré ici : c'est le provider de l'axe `erp` du registre
+# (pm.config.yml → providers). Son secret : pm-provider-secret --instance dolibarr-ipro --key API_KEY.
+
+user_id: 5                    # l'utilisateur Redmine dont on facture le temps
+
+# Client PM → nom du tiers dans l'ERP. Sans entrée, le tiers est cherché par nom ou alias
+# (calicote → Calicote, pisceen → DERCYA via l'alias pisceen.com) et signalé comme déduit.
+tiers:
+  matnat: JLL DIFFUSION
+  pisceen: DERCYA
+
+# Projets Redmine hors PM → client (ou projet mutualisé, éclaté par multi_client).
+redmine_projects:
+  sfy-gestion: sfy
+  dolibarr: sfy
+  reseau: sfy
+  prestashop: sfy
+  synchro-prestashop-dolibarr: sfy
+
+multi_client:
+  sfy:
+    - {client: pisceen,  weight: 70}
+    - {client: calicote, weight: 30}
+
+# Activité Redmine (id) → service du catalogue ERP (réf). Sans service : ligne libre.
+services:
+  9:  SRV000003    # Développement
+  31: SRV000003    # Developpement/Feature
+  30: SRV000003    # Développement/Refacto/Clean
+  16: SRV000024    # Développement/Debug → Développement - Debuggage
+  10: SRV000023    # Audit/Analyse
+  8:  SRV000023    # Conception/Qualification
+  13: SRV000025    # SysAdmin/Conf/Debug
+  15: SRV000025    # Maintenance hard
+  22: SRV000025    # Maintenance soft
+  12: SRV000028    # Réunion/Suivi projet → Gestion de projet
+  29: SRV000028    # Gestion/Suivi projet
+  14: SRV000030    # Paramétrage/Configuration → Application - Paramétrage
+  19: SRV000011    # Intégration/Install/Update
+  17: SRV000032    # Formation/Explication
+  11: SRV000037    # Assistance
+
+# Regroupement des lignes, par client : activite (défaut, pratique historique) | tache
+clients:
+  # pisceen: {groupement: tache}

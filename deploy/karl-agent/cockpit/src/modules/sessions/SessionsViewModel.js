@@ -1,7 +1,7 @@
 // viewmodels/sessions/SessionsViewModel — ce que la liste « en cours » PRÉSENTE : tuiles vivantes et grises, en-têtes de groupe,
 // bandeau « à traiter », compteurs, titre de la session attachée. Inerte : ni réseau ni DOM. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
-import { effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge, DISP_LABEL, toggleDisposition } from "./sessions.js";
+import { FILTRE_LABEL, effDisposition, autoYesLeft, ago, quietInfo, displayId, tmuxName, tabTip, ghostTip, restartTip, approveShortcutVisible, contextGauge, DISP_LABEL, toggleDisposition } from "./sessions.js";
 import { ctxPct, modelWindow, fmtWin } from "../ticket/ticketFormat.js";   // RM3082 : la règle de fenêtre est écrite une fois, pour l'encart méta ET la tuile
 import { bindEntity } from "../../core/entities.js";
 
@@ -25,9 +25,16 @@ export class SessionTileViewModel extends EntityViewModel {
     const t = this.s.tickets;
     return (t && t.total) ? { open: t.open || 0, total: t.total } : null;
   }
-  get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); return out; }
+  /** RM3070 L4 : la session de QUELQU'UN D'AUTRE. En multi, un administrateur voit toutes les
+   *  sessions — sans le nom de leur propriétaire, il les verrait sans savoir à qui elles sont.
+   *  La sienne n'est pas étiquetée : l'évidence n'a pas besoin d'être dite. */
+  get owner() {
+    const o = this.s.owner || "";
+    return (o && o !== (this.ctx.user || "")) ? o : "";
+  }
+  get badges() { const st = this.s.state; const out = st ? [{ text: st, cls: st === "attention" || st === "choice" ? "warn" : st === "working" ? "accent" : "" }] : []; if (this.disp && this.disp !== "a_traiter") out.push({ text: this.disp }); if (this.owner) out.push({ text: "👤 " + this.owner, cls: "" }); return out; }
   sections() {
-    return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["depuis", this.age]].filter(([, v]) => v) },
+    return [{ id: "session", title: "session", summary: true, body: () => [["id", this.idLabel], ["état", this.s.state || ""], ["moteur", this.s.engine || ""], ["à", this.owner], ["depuis", this.age]].filter(([, v]) => v) },
             { id: "ticket", title: "ticket", body: () => (this.r && this.r.found ? [["statut", this.r.status || ""], ["client", this.r.client || ""], ["projet", this.r.project || ""]].filter(([, v]) => v) : null), empty: "pas de fiche de ticket" }];
   }
   get r() { return this.ctx.resolved; }
@@ -138,7 +145,12 @@ export class AttnChipViewModel {
 
 /** RM2283 : compteurs globaux — panneau, badges de l'onglet « en cours », « ✔ tout », titre du navigateur. */
 export class CountersViewModel {
-  constructor(counts, unseen = 0) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; this.unseen = unseen; }
+  constructor(counts, unseen = 0, filtre = "", masquees = 0) { this.c = counts || { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 }; this.unseen = unseen; this.filtre = filtre || ""; this.masquees = masquees; }
+  /** RM3302 : la pastille cliquée est ENFONCÉE — sans ça, rien ne dit laquelle filtre. */
+  actif(f) { return this.filtre === f; }
+  get filtreLabel() { return FILTRE_LABEL[this.filtre] || ""; }
+  /** Le libellé d'un compteur cliquable : ce que fera le clic, pas ce que le compteur vaut. */
+  tip(f, base) { return base + "\n(clic : ne montrer que ces sessions" + (this.actif(f) ? " — second clic pour tout revoir)" : ")"); }
   get waiting() { return this.c.attention + this.c.choice; }   // RM2327 : ❓ compte aussi
   get showYesAll() { return this.c.attention > 1; }           // RM2327 : dès 2 sessions en attention
   /** RM3236 : le compteur « à voir » passe dans le titre — c'est lui qu'on aperçoit depuis un autre onglet. */

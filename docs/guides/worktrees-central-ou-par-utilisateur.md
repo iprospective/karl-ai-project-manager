@@ -9,7 +9,7 @@
 |---|---|---|---|
 | `git.worktree_source` | admin, `pm.config.local.yml` | `central` : `<workspace>/repos/<repo>.git` · `per_user` : le dépôt du dev | `central` |
 | `git.envs_layout` | admin, `pm.config.local.yml` | `project` : `<workspace>/envs/<env>` · `user` : `<workspace>/envs/<utilisateur>/<env>` | `project` |
-| dossier des dépôts | chaque dev, `PM_REPOS_DIR` dans `~/.config/mmi-pm/.env` | un dossier ; le dépôt est `<dossier>/<repo>` | `~/repos` |
+| dossier des dépôts | chaque dev, `PM_REPOS_DIR` dans `<core>/var/users/<user>/.env` | un dossier ; le dépôt est `<dossier>/<repo>` | `~/repos` |
 
 Les deux premiers sont des réglages **d'instance** : ils ne se lisent que dans les fichiers de configuration,
 jamais dans l'environnement (sinon chacun pourrait les contourner), et le cockpit les réserve à l'admin. Une valeur

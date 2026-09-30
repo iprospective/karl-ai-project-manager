@@ -76,8 +76,13 @@ au même endroit : les deux vues ne doivent pas raconter deux histoires.
 Dans chaque statut, les tickets sont **groupés par client / projet**, avec le
 compte de chaque groupe. Une session touche souvent deux chantiers : à plat, on
 ne voyait plus à quoi on touchait. Le groupement est un rendu, pas un tri —
-l'ordre des tickets dans un groupe reste celui de la session, et l'ordre des
-groupes celui de leur première apparition ; « hors projet » ferme la marche.
+l'ordre des tickets dans un groupe reste celui de la session.
+
+L'ordre des **groupes**, lui, suit la proximité avec la session (RM2852) : le
+projet de la session d'abord, puis les autres projets du même client, puis le
+reste ; « hors projet » ferme la marche. À proximité égale, c'est l'ordre de
+première apparition qui départage — et si le projet de la session n'est pas
+résolu, on retrouve exactement l'ordre d'avant.
 Quand tout appartient au même projet, aucun en-tête n'apparaît : il coûterait une
 ligne pour ne rien dire.
 

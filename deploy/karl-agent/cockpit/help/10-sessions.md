@@ -6,7 +6,19 @@ attaché à un ticket ou à un dossier de travail.
 ## Panneau « ▶ en cours »
 
 Liste les sessions ouvertes. Les compteurs de l'en-tête indiquent : sessions
-ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
+ouvertes · à voir (👁) · enregistrées (⏸) · en **attention** (⚠ elles attendent
+une réponse) · en travail (⚙) · au repos (💤).
+
+**Les compteurs filtrent la liste** : un clic sur l'un d'eux ne montre que ces
+sessions-là, un second clic revient à tout. Le compteur cliqué reste enfoncé, un
+bandeau rappelle le filtre en cours et dit combien de sessions il masque ; « tout
+✕ » l'annule. Les compteurs eux-mêmes gardent toujours leur total, filtre ou pas,
+pour rester le chemin vers un autre filtre. Le filtre est propre à ce navigateur
+et retenu d'une visite à l'autre.
+
+Un filtre ne fait jamais disparaître un appel : le bandeau « à traiter », en tête
+de liste, continue d'afficher les sessions qui attendent une réponse, même quand
+le filtre en cours les exclut.
 
 - **⚠ suivante ➜** : attache la prochaine session qui attend une réponse (cycle
   s'il y en a plusieurs).
@@ -201,4 +213,7 @@ marque sert à dire), et l'absence de session. Une session **🔖 parké** ou
 
 La colonne de droite affiche le terminal de la session attachée (client maison
 xterm.js). Il passe par un **WebSocket même origine** derrière le vhost HTTPS ;
-un repli sur le port dédié `:7681` existe si le bundle xterm.js n'est pas chargé.
+ce WebSocket exige ta session (cookie posé par le cockpit) : sans elle, refus 403.
+Si le bundle xterm.js ne se charge pas, le cockpit le signale : le repli sur l'UI
+ttyd native n'est possible qu'en accès direct depuis le conteneur (plus de port
+`:7681` exposé sur le réseau, RM2146).

@@ -4,7 +4,7 @@
 import { html } from "../../core/html.js";
 import { mount } from "../../core/dom.js";
 import { CdcService } from "./cdc.service.js";
-import { CdcHeaderViewModel, FeaturesViewModel, ChaptersViewModel } from "./CdcViewModel.js";
+import { CdcHeaderViewModel, FeaturesViewModel, ChaptersViewModel, SANS_TICKET } from "./CdcViewModel.js";
 import { FeaturesPage, ChaptersPage } from "./Cdc.view.js";
 
 export function mountCdc(el, ctx = {}) {
@@ -20,6 +20,7 @@ export function mountCdc(el, ctx = {}) {
     ["change", "[data-action=\"think-state\"]", (ev, n) => onThinkState(n)], ["change", "[data-action=\"feature-state\"]", (ev, n) => onFeatureState(n)],
     ["change", "[data-action=\"feature-version\"]", (ev, n) => onFeatureVersion(n)]] });
   const confirm = ctx.confirm || (() => true);
+  const demande = ctx.prompt || ((m, d) => window.prompt(m, d));      // RM3258 : injectable, donc testable
   const head = (page) => new CdcHeaderViewModel({ cdcs: svc.cdcs || [], current: svc.current, page, path: state.chapter, error: svc.error });
   const sessionProjects = () => (ctx.sessionProjects ? ctx.sessionProjects() : []);
 
@@ -55,9 +56,12 @@ export function mountCdc(el, ctx = {}) {
     if (a === "page") { if (isPage(el.dataset.page)) { setPage(el.dataset.page); state.sec = null; render(); } }
     else if (a === "select") { svc.select(el.dataset.key); state.chapter = null; render(); }
     else if (a === "sort") { const k = el.dataset.key; if (state.sort === k) state.desc = !state.desc; else { state.sort = k; state.desc = false; } try { if (ctx.storage) ctx.storage.setItem("karlCdcSort", state.sort + ":" + (state.desc ? 1 : 0)); } catch (e) { /* */ } renderFeatures(); }
+    // RM3306 : bascule du filtre « sans ticket » — l'isoler, puis revenir à tout d'un second clic.
+    else if (a === "sans-ticket") { state.q = state.q === SANS_TICKET ? "" : SANS_TICKET; renderFeatures(); }
     else if (a === "chapter") { setPage("chap:" + el.dataset.path); state.sec = null; renderChapters(); }
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
     else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }
+    else if (a === "think-move") { thinkMove(el.dataset.rm, el.dataset.id); }
     else if (a === "version-save") { versionSave(); }
     else if (a === "version-drop") { versionDrop(); }
   }
@@ -83,6 +87,15 @@ export function mountCdc(el, ctx = {}) {
     catch (e) { notify("retrait impossible : " + e.message, true); }
   }
   // RM3064 : édition d'une entrée depuis le panneau — le geste part vers le script (pm-task-think / pm-cdc-features), jamais vers le fichier
+  // RM3258 : mal attribuée plutôt qu'illégitime — elle se déplace, elle ne se perd pas.
+  async function thinkMove(rm, id) {
+    const saisie = demande("Déplacer " + id + " de RM" + rm + " vers quel ticket ?\nNuméro RM :", "");
+    if (saisie === null) return;
+    const to = String(saisie).trim().replace(/^RM/i, "");
+    if (!/^\d+$/.test(to)) { notify("numéro de ticket attendu", true); return; }
+    try { await svc.thinkEdit({ rm, id, action: "move", to }); notify(id + " déplacée vers RM" + to + ", registres régénérés"); await renderChapters(); }
+    catch (e) { notify("déplacement impossible : " + e.message, true); }
+  }
   async function thinkDelete(rm, id) {
     if (!confirm("Supprimer l'entrée " + id + " du think de RM" + rm + " ? (définitif)")) return;
     try { await svc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée, registres régénérés"); await renderChapters(); }
@@ -90,17 +103,41 @@ export function mountCdc(el, ctx = {}) {
   }
   // RM3227 : trancher une QUESTION (valide / invalide) propose un commentaire facultatif — sa réponse,
   // consignée en décision « Qnnn : … » par le serveur. Annuler n'écrit rien (et remet le sélecteur).
+  // RM3269 : TRANCHER une question appelle sa décision — l'outil la réclame désormais. Le cockpit
+  // doit donc pouvoir la POSER (le commentaire devient la décision « Qnnn : … ») et, quand elle
+  // n'est pas encore mûre, FORCER en connaissance de cause plutôt que de laisser l'UI bloquée :
+  // une transition qu'on ne peut pas faire depuis l'écran n'est pas livrée. Écarter (invalide)
+  // n'exige rien — écarter n'est pas trancher.
   async function onThinkState(n) {
     const state = n.value; if (!state) return;
-    let comment = "";
-    if (/(^|-)Q\d/.test(n.dataset.id || "") && (state === "valide" || state === "invalide")) {
-      const saisie = window.prompt(n.dataset.id + " → " + state + "\nRéponse / commentaire (facultatif) :", "");
+    const estQuestion = /(^|-)Q\d/.test(n.dataset.id || "");
+    let comment = "", force = false;
+    if (estQuestion && (state === "valide" || state === "invalide")) {
+      const tranche = state === "valide";
+      const saisie = window.prompt(
+        n.dataset.id + " → " + state + "\n"
+        + (tranche ? "La DÉCISION qui tranche cette question (elle sera consignée « "
+                     + n.dataset.id + " : … ») :"
+                   : "Motif de l'écartement (facultatif) :"), "");
       if (saisie === null) { n.value = ""; return; }
       comment = saisie.trim();
+      if (tranche && !comment) {
+        if (!confirm(n.dataset.id + " : trancher SANS consigner de décision ?\n\n"
+                     + "Le pourquoi restera manquant. La question sera retrouvable dans "
+                     + "« ce qui manque » (questions tranchées sans décision).")) { n.value = ""; return; }
+        force = true;
+      }
     }
     const body = { rm: n.dataset.rm, id: n.dataset.id, action: "state", state };
     if (comment) body.comment = comment;
-    try { await svc.thinkEdit(body); notify(n.dataset.id + " → " + state + (comment ? " · réponse consignée" : "")); await renderChapters(); }
+    if (force) body.force = true;
+    try {
+      await svc.thinkEdit(body);
+      notify(n.dataset.id + " → " + state
+             + (comment ? " · décision consignée" : force ? " · SANS décision (à reprendre)" : ""),
+             force);
+      await renderChapters();
+    }
     catch (e) { notify("changement d'état impossible : " + e.message, true); }
   }
   async function onFeatureState(n) {

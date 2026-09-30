@@ -91,7 +91,10 @@ ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
 check("lot « analyser » du cockpit : l'étude renvoyée se reprend", '"etude_chiffrage_a_corriger": ("etudier"' in ka)
 check("lot « à tester » : elle est écartée avec sa raison", '"etude_chiffrage_a_corriger": "étude renvoyée' in ka)
 import pm_worklog_states                           # noqa: E402
-check("worklog : elle compte dans le « à faire »", NOM in pm_worklog_states.TODO)
+# RM3323 : un retour a sa propre section, « à corriger » — toujours du travail à reprendre, visible,
+# mais plus noyé parmi ce que personne n'a encore commencé.
+check("worklog : elle compte dans « à corriger » (travail à reprendre)",
+      NOM in pm_worklog_states.FIX and pm_worklog_states.bucket(NOM) == "corriger")
 check("registre des fonctionnalités : ticket « prévu »", NOM in load("pcf", "pm-cdc-features.py").PREVUS)
 wf = (HERE.parent / "workflow.reference.yml").read_text(encoding="utf-8")
 check("workflow.reference.yml porte la transition observée dans Redmine", NOM in wf)

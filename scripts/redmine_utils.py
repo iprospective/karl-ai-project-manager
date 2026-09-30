@@ -74,6 +74,41 @@ def load_reference():
     return _REFERENCE_CACHE
 
 
+def reference_instance_url():
+    """URL de l'instance sur laquelle `redmine.reference.yml` est bindé, sans « / » final ("" si inconnue)."""
+    return str(load_reference().get("instance") or "").strip().rstrip("/")
+
+
+def primary_write_problem(instance, ref_url=None):
+    """Pourquoi l'outillage d'écriture ne peut PAS servir ce primaire ; None s'il le peut (RM2940).
+
+    Les scripts qui écrivent l'état d'un ticket (statut, création, description, temps)
+    visent tous l'instance par défaut, avec les ids de `redmine.reference.yml`. Ils
+    ignorent le primaire déclaré par le projet. Pour un primaire qui n'est PAS cette
+    instance, le résultat n'est pas une erreur : c'est un PUT vers le mauvais serveur,
+    ou avec des ids d'un autre Redmine — accepté en HTTP 204 et sans effet. Cette
+    fonction transforme ce silence en motif lisible.
+
+    Mesuré le 2026-09-19 : aucun projet n'est dans ce cas (les secondaires partenaires
+    passent par le mapping de RM2746, qui a ses propres ids). La garde attend le jour
+    où quelqu'un déclarera un Redmine tiers en primaire — elle doit alors crier, pas
+    laisser écrire ailleurs.
+    """
+    if instance is None:
+        return None
+    if getattr(instance, "type", "") != "redmine":
+        return (f"le primaire « {instance.name} » est de type {instance.type or '?'} : "
+                f"l'outillage d'écriture ne sait servir qu'un Redmine")
+    ref = (ref_url if ref_url is not None else reference_instance_url()).rstrip("/")
+    url = str(getattr(instance, "url", "") or "").rstrip("/")
+    if ref and url and url != ref:
+        return (f"le primaire « {instance.name} » ({url}) n'est pas l'instance de "
+                f"redmine.reference.yml ({ref}) : statuts, créations et temps partiraient "
+                f"vers {ref}, avec ses ids — un no-op silencieux côté {instance.name}. "
+                f"Mapping par instance non implémenté (RM2940, périmètre réduit)")
+    return None
+
+
 def cf_id_by_name(name):
     """ID du custom field nommé `name` d'après la référence, ou None."""
     for cid, spec in (load_reference().get("custom_fields") or {}).items():
@@ -205,7 +240,7 @@ def redmine_creds(instance=None):
     """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
 
     Identité par utilisateur (T1/RM2497) : préfère la clé perso du dev
-    (`REDMINE_API_KEY`, typiquement dans `~/.config/mmi-pm/.env`) ; à défaut,
+    (`REDMINE_API_KEY`, typiquement dans `<core>/var/users/<user>/.env`) ; à défaut,
     retombe sur le compte de service karl (`REDMINE_USER_MAIN_API_KEY`) — pour les
     tâches de fond (cron, promote) et la rétrocompat. Résolveur CANONIQUE unique :
     tout script doit l'importer plutôt que relire les variables lui-même.
@@ -225,7 +260,7 @@ def redmine_creds(instance=None):
     if instance is None:
         if not (global_url and global_key):
             sys.exit("ERREUR : REDMINE_URL + une clé API requis "
-                     "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
+                     "(REDMINE_API_KEY perso dans var/users/<user>/.env, ou "
                      "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
         return Creds(global_url, global_key)
 
@@ -241,7 +276,7 @@ def redmine_creds(instance=None):
                  f"(url du registre, {prefix}URL, ou REDMINE_URL)")
     if not key:
         sys.exit(f"ERREUR : clé API manquante pour l'instance Redmine {name!r} — "
-                 f"poser {prefix}API_KEY dans ~/.config/mmi-pm/.env")
+                 f"poser {prefix}API_KEY dans var/users/<user>/.env")
     return Creds(url, key, instance_http_basic(name))
 
 

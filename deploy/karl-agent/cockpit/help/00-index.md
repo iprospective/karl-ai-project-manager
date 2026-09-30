@@ -28,6 +28,7 @@ centre, en [onglet](onglets) :
 | 📜 **journal** | ce que le serveur et le navigateur ont consigné (sévérité, catégorie) | [Journal](journal) |
 | 🔔 **fil** | ce qui demande ton attention, toutes sources confondues — une file qui se vide | [Fil de notifications](fil) |
 | 📋 **CDC** | le cahier des charges vivant du projet en contexte : onglets fonctionnalités · CDC · feuille de route (modèle POC AtomBox) | [CDC vivant](cdc) |
+| 💶 **facturation** | valider son temps de travail, une journée à la fois : plages mesurées, travail de l'IA en face, écriture des saisies Redmine | [Facturation](facturation) |
 | ✉ **compte-rendu** | ce qui est parti en production et n'a pas encore été annoncé au client : cocher, relire l'email, envoyer | [Compte-rendu client](compte-rendu) |
 
 Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte est un
@@ -54,6 +55,23 @@ session attachée). Attacher une session, ouvrir un ticket ou un fichier bascule
 ouvrir un onglet de droite bascule sur la colonne de droite. Rien n'est différent des mêmes
 panneaux au bureau : c'est la même page, disposée autrement. `?layout=mobile` dans l'adresse
 force cette disposition sur un grand écran, `?layout=desktop` l'inverse.
+
+Au doigt, l'écran utile passe avant le décor :
+
+- **⛶ plein écran** (barre du bas) ne laisse que le **terminal** : ni barre du haut, ni
+  onglets, ni options du terminal (dicter, lire…), ni réponses possibles. Il s'enclenche
+  **tout seul quand le clavier monte** — et se retire quand il redescend, sauf si on
+  l'a demandé à la main ; **↙** revient à la vue normale.
+- **Glisser le doigt sur le terminal fait défiler l'historique** : le geste est traduit
+  en molette, donc il défile ce que la molette défilerait au bureau — l'historique de
+  tmux quand une session y tourne, le tampon du terminal sinon. Un appui simple garde
+  le clavier, le pincer-zoomer reste au navigateur.
+- La **barre du haut se réduit aux icônes**, les moins courantes passant sous **…**.
+  Un **premier appui affiche le nom** du bouton, le **second déclenche** son action :
+  au doigt, on ne lance rien à l'aveugle.
+- Deux affichages sont **masqués par défaut** et se rendent dans les réglages
+  (Thème & affichage) : les **commandes de moniteur tmux** et le **second formulaire
+  sous le terminal**.
 
 ## Les boutons d'aide
 

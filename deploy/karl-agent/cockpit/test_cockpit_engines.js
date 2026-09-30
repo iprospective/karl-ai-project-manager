@@ -25,6 +25,11 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
             { id: "opencode", installed: false, path: "", scope: "", version: "", latest: "", update_available: false, sessions: [] },
             { id: "ollama", installed: true, path: "/usr/local/bin/ollama", scope: "system", version: "0.5.1", latest: "", update_available: false, sessions: [], service: "active" }] };
 
+  // RM3097 : présent sur la machine, mais dans le home d'un AUTRE développeur
+  const dataAilleurs = { ...data, etats: [{ id: "claude", installed: false, installed_elsewhere: true, owner: "bob",
+    path: "/home/bob/.local/bin/claude", scope: "other", version: "", latest: "", update_available: false, sessions: [] },
+    ...data.etats.slice(1)] };
+
   const vm = new VM.EnginesViewModel({ data });
   const [gEng, gSrv] = vm.groupes;
   assert.deepStrictEqual(gEng.rows.map(r => r.id), ["claude", "opencode"], "les moteurs de session");
@@ -44,7 +49,14 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/à jour/.test(ol.state) && /pour tous/.test(ol.state) && ol.service === "active", "un serveur montre sa portée et l'état de son service");
   assert(ol.actions.length === 0, "à jour et sans autre portée possible : rien à proposer");
   assert.strictEqual(vm.count, "2 installé(s) sur 3");
-  console.log("✓ ViewModel : deux familles, deux portées, où c'est installé, ce qu'on peut y faire");
+  // RM3097 : « installé » n'a de sens que pour quelqu'un — un binaire du home d'un autre ne compte pas
+  const vmA = new VM.EnginesViewModel({ data: dataAilleurs });
+  const clA = vmA.groupes[0].rows[0];
+  assert(/installé par bob/.test(clA.state) && /pas pour vous/.test(clA.state), "on nomme celui pour qui c'est installé : " + clA.state);
+  assert(clA.elsewhere === true && clA.installed === false, "présent sur la machine, mais pas installé POUR VOUS");
+  assert(clA.actions.some(a => a.act === "install" && a.scope === "user"), "…donc on propose de l'installer pour soi");
+  assert(/pour un autre utilisateur/.test(vmA.count), "le compteur le dit aussi : " + vmA.count);
+  console.log("✓ ViewModel : deux familles, deux portées, installé POUR QUI, où c'est installé, ce qu'on peut y faire");
 
   const s = String(V.EnginesCard(vm, "journal de sortie"));
   assert(!/\son\w+=/.test(s), "aucun on* dans la vue");

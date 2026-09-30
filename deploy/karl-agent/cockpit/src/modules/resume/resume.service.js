@@ -13,6 +13,22 @@ export class ResumeService {
     const r = await this.repo.resume(body);
     return { ok: true, message: "Session reprise dans " + r.tmux, r };
   }
+  /** RM3265 — la session REPRENABLE ancrée sur ce ticket, ou null.
+   *  Une session épinglée qu'on clique après la mort de son tmux n'est ni vivante ni « enregistrée
+   *  dans un jeu » : le seul fil qui reste est son TRANSCRIPT. On le cherche par le ticket, on
+   *  écarte celles qui tournent encore, et on rend la plus récente (l'ordre du serveur). */
+  async resumableOf(rm) {
+    const id = String(rm == null ? "" : rm).trim();
+    if (!/^\d+$/.test(id)) return null;
+    const { resumable } = await this.search({ q: "RM" + id });
+    return (resumable || []).find(s => !s.live && (s.tickets || []).some(t => String(t.rm_id) === id)) || null;
+  }
+  /** RM3265 : reprend la conversation d'un ticket, sous le même ancrage. */
+  async resumeTicket(rm) {
+    const s = await this.resumableOf(rm);
+    if (!s) return { ok: false, message: "RM" + rm + " : aucune conversation à reprendre (transcript introuvable)" };
+    return this.resume(s, String(rm));
+  }
   /** RM2418 : déplace une session À L'ARRÊT vers un projet CONNU. */
   async move(s, target, knownValues) {
     if (s.live) return { ok: false, message: "Session à tmux vivant : ferme-la d'abord" };

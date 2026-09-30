@@ -32,6 +32,7 @@ sys.path.insert(0, str(HERE))
 
 import yaml  # noqa: E402
 import pm_client_notify as pcn  # noqa: E402
+import pm_acceptance  # noqa: E402
 import pm_markdown as pmd  # noqa: E402
 from pm_think import is_task_sheet  # noqa: E402  la FICHE d'un ticket, jamais un frère (.log.md, .think.md)
 from pm_paths import PMConfig  # noqa: E402
@@ -118,7 +119,9 @@ def _queued_tickets(cfg, project_dir, with_protocol=True):
             "id": rid,
             "title": fm.get("title") or "",
             "url": f"{base}/issues/{rid}" if base and rid else "",
-            "criteria": _clean_criteria(body),
+            # RM3241 : par la lecture unique — une fois la section retirée de la
+            # description, les critères ne vivent plus que dans `acceptance`.
+            "criteria": _clean_criteria(pm_acceptance.criteria_text(fm, body)[0]),
             # RM3052 : le protocole de test est inclus si l'option projet `protocole` est
             # active (défaut oui) — « comment le vérifier » côté client. Coupable par projet
             # quand le protocole est trop interne.

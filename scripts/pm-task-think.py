@@ -8,12 +8,39 @@ Une ligne normée par appel (id auto, date, auteur, session), dans la rubrique v
   pm-task-think <id> --advise "…"                            → C  (conseil de l'agent, 🟡)
   pm-task-think <id> --feature "…" [--domaine D] [--version V1] [--origine N003] [--lot L1]  → F
   pm-task-think <id> --set N003 --state valide [--dest "D002"]   change l'état d'une ligne
+  pm-task-think <id> --set Qnnn --state valide --decide-with "…"  RM3269 : POSE la décision ET tranche, en un appel
+  pm-task-think <id> --orphans                     RM3269 : questions tranchées que rien ne relie à une décision
   pm-task-think <id> --show                                  résumé : Q ouvertes, D récentes, F
   pm-task-think <id> --counters                              compteurs → frontmatter de la fiche (D007)
 
   pm-task-think <id> --delete Dnnn                 supprime une ligne incohérente (RM3064)
+  pm-task-think <id> --move Qnnn --to <autre-id>   déplace l'entrée vers le carnet d'un autre ticket (RM3258)
+  pm-task-think <id> --requalify Qnnn --as note    RM3290 : change de RUBRIQUE sans détruire (note|question|decision|conseil|feature)
 Options communes : --by M|A|<nom> (défaut : A = agent), --sid <session> (défaut : $CLAUDE_CODE_SESSION_ID),
 --when AAAA-MM-JJ, --dedupe (ne rien écrire si le texte est déjà consigné), --no-commit, --dry-run.
+
+LA CHAÎNE (RM3266) : Q (pas tranché) → D (l'arbitrage, tracé TICKETÉ OU NON) → *parfois* F → ticket(s).
+Une décision ne donne une F que si elle implique une CAPACITÉ NOUVELLE — un arbitrage de méthode ou de
+politique se trace et s'arrête là. Et une F n'est PAS un ticket : une fonctionnalité est ce que le système
+sait faire, elle cite 0, 1 ou plusieurs tickets (RM3099), et peut donner lieu à un ticket, EN COMPLÉTER un,
+ou rester à faire. Les décisions non ticketées remontent au projet par `pm-think-merge`.
+
+REQUALIFIER (RM3290) : `--move` change de TICKET, `--requalify --as` change de RUBRIQUE — une capture
+du harvest rangée en question bloque la clôture (RM3141) ; on la passe en note sans rien perdre. L'id
+d'arrivée est neuf (les ids sont locaux à leur rubrique et jamais réattribués), « Date · auteur » et
+l'état sont préservés, et la colonne « Origine » garde la piste (`ex-Q004`). ROUVRIR une question
+tranchée (`--state attente`) retire son lien « Tranchée par » et rappelle que la décision, elle, reste
+au carnet — à invalider ou amender explicitement. DÉPLACER une question tranchée réécrit son lien en
+inter-tickets (`RM2316-D004`) : la décision reste où l'arbitrage a eu lieu.
+
+TRANCHER UNE QUESTION APPELLE SA DÉCISION (RM3269) : `--set Qnnn --state valide` est REFUSÉ si rien
+ne tranche la question — ni `--dest Dnnn`, ni une colonne « Tranchée par » déjà remplie, ni une décision
+qui cite `Qnnn`. Trois sorties : `--decide-with "…"` (pose la décision et relie, en un appel), `--dest Dnnn`
+(relier une décision qui existe), ou `--state invalide` si ce n'était pas une question (capture du harvest,
+RM3141) — écarter n'est pas trancher, et n'exige donc rien. `--orphans` liste les questions déjà tranchées
+sans décision, héritées d'avant le garde-fou. `--force` TRANCHE QUAND MÊME (la décision viendra plus tard) :
+l'échappatoire est explicite, tracée au journal, et le manque reste retrouvable par `--orphans` — un garde-fou
+sans échappatoire rendait la transition impossible depuis le cockpit, dont le commentaire est facultatif (RM3227).
 
 Le think est la matière de travail du ticket (hors wiki) ; `pm-think-merge` la fusionne vers les fichiers
 du projet (`docs/cdc-*.md`). Les scripts et hooks appellent cet outil AVANT l'agent (D005) : l'agent
@@ -59,6 +86,16 @@ def _resync_questions(rm_id, sheet, kind=None):
         pass                    # une vue des questions ne doit jamais casser une consignation
 
 
+def _titre(sheet) -> str:
+    """Le titre du ticket, pour le gabarit d'un carnet créé à l'arrivée d'une entrée déplacée."""
+    import re
+    try:
+        m = re.search(r"^title:\s*(.+)$", Path(sheet).read_text(encoding="utf-8"), re.M)
+        return m.group(1).strip().strip("'\"") if m else ""
+    except OSError:
+        return ""
+
+
 def _log_path(sheet):
     """Le journal du ticket, à côté de sa fiche."""
     return Path(str(sheet).replace(".md", ".log.md"))
@@ -81,6 +118,52 @@ def _log_amendement(rm_id, sheet, rid, ancien, nouveau, par=None):
         pass                      # un journal non écrivable ne doit pas empêcher l'amendement
 
 
+def _log_deplacement(sheet, rid, sens, autre_rm, autre_id, par=None):
+    """Trace le déplacement dans le journal du ticket — des DEUX côtés. Le carnet ne garde
+    que la ligne ; c'est le journal qu'on relit pour savoir d'où elle vient, ou où elle est partie."""
+    from datetime import datetime
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    fleche = (f"{rid} → RM{autre_rm}-{autre_id}" if sens == "sortie"
+              else f"RM{autre_rm}-{autre_id} → {rid}")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Entrée du carnet déplacée ({fleche})\n"
+            f"Tokens : 0 | Durée : 0 min\n\nPar {qui}.\n")
+    try:
+        with open(_log_path(sheet), "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass                      # un journal non écrivable n'empêche pas le déplacement
+
+
+def _log_force(sheet, rid, par=None):
+    """RM3269 — trace un forçage. Trancher sans décision reste POSSIBLE (sinon l'UI est bloquée),
+    mais jamais silencieux : le journal dit qu'une question a été close sans son pourquoi, et
+    `--orphans` permet d'y revenir."""
+    from datetime import datetime
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Question tranchée SANS décision ({rid}, --force)\n"
+            f"Tokens : 0 | Durée : 0 min\n\nPar {qui}. À reprendre : `mmi-pm task-think <id> --orphans`.\n")
+    try:
+        with open(_log_path(sheet), "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass
+
+
+def _log_requalif(sheet, ancien, ancien_kind, neuf, neuf_kind, par=None):
+    """RM3290 — trace la requalification au journal. Le carnet ne montre que l'état d'arrivée
+    (plus la colonne « Origine ») ; c'est le journal qui dit ce que l'entrée était, et quand."""
+    from datetime import datetime
+    qui = str(par or os.environ.get("PM_AUTHOR") or getpass.getuser() or "?")
+    bloc = (f"\n## {datetime.now().strftime('%Y-%m-%dT%H:%M')} — Entrée du carnet requalifiée "
+            f"({ancien} [{ancien_kind}] → {neuf} [{neuf_kind}])\n"
+            f"Tokens : 0 | Durée : 0 min\n\nPar {qui}.\n")
+    try:
+        with open(_log_path(sheet), "a", encoding="utf-8") as f:
+            f.write(bloc)
+    except OSError:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__)
@@ -90,10 +173,22 @@ def main():
         ap.add_argument(f"--{flag}", metavar="TEXTE")
     ap.add_argument("--set", metavar="ID", help="ligne dont on change l'état (avec --state)")
     ap.add_argument("--delete", metavar="ID", help="supprime la ligne pour de bon (entrée incohérente, RM3064)")
+    ap.add_argument("--move", metavar="ID", help="RM3258 : déplace la ligne vers le ticket --to")
+    ap.add_argument("--to", metavar="RM-ID", type=int, help="ticket destinataire du --move")
     ap.add_argument("--text", metavar="TEXTE",
                     help="RM3161 : AMENDER le texte de la ligne --set, sans toucher à son état")
     ap.add_argument("--state", choices=sorted(pm_think.STATES.values()))
-    ap.add_argument("--dest", default="", help="« traitée par » d'une note (avec --set), ou renseigné à l'ajout")
+    ap.add_argument("--dest", default="", help="ce qui TRAITE une note / TRANCHE une question (avec --set), ou renseigné à l'ajout")
+    ap.add_argument("--decide-with", dest="decide_with", metavar="TEXTE",
+                    help="RM3269 : avec --set Qnnn --state valide, POSE la décision et l'y relie, en un seul appel")
+    ap.add_argument("--requalify", metavar="ID",
+                    help="RM3290 : change une entrée de RUBRIQUE (avec --as), sans la détruire")
+    ap.add_argument("--as", dest="as_kind", choices=["note", "question", "decision", "conseil", "feature"],
+                    help="RM3290 : rubrique d'arrivée du --requalify")
+    ap.add_argument("--force", action="store_true",
+                    help="RM3269 : trancher une question SANS décision — échappatoire explicite, tracée au journal")
+    ap.add_argument("--orphans", action="store_true",
+                    help="RM3269 : liste les questions tranchées (✅) que rien ne relie à une décision")
     ap.add_argument("--by", default="A"); ap.add_argument("--sid", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
     ap.add_argument("--when"); ap.add_argument("--bloque", default=""); ap.add_argument("--urgence", default="")
     ap.add_argument("--domaine", default=""); ap.add_argument("--version", default=""); ap.add_argument("--origine", default="")
@@ -125,6 +220,73 @@ def main():
         if changed and not a.no_commit:
             pm_git.autocommit([sheet], f"pm(think): RM{a.rm_id} compteurs")
         return
+    if a.move:
+        if not a.to:
+            sys.exit("ERREUR : --move exige --to <rm-id> (le ticket destinataire)")
+        if a.to == a.rm_id:
+            sys.exit(f"ERREUR : RM{a.rm_id} est déjà le ticket de cette entrée")
+        cible = cfg.find_task(a.to)
+        if not cible:
+            sys.exit(f"ERREUR : ticket RM{a.to} introuvable dans l'arbo PM.")
+        # RM2274 : écrire dans le carnet d'un AUTRE projet se dit — `--cross-project`. Le drapeau
+        # était déclaré ici sans garde derrière ; le déplacement est la première écriture qui vise
+        # une fiche que l'appelant n'a pas nommée en argument principal.
+        import pm_scope
+        pm_scope.assert_task_scope(a.to, cible, a.cross_project, "pm-task-think --move")
+        think_cible = pm_think.think_path(cible)
+        kind, row = pm_think.find_row(parsed, a.move)
+        if not kind:
+            sys.exit(f"ERREUR : ligne {a.move} introuvable dans {think.name}")
+        if a.dry_run:
+            print(f"{think.name} : {a.move} [{kind}] → {think_cible.name}"); return
+        res = pm_think.move_row(think, a.move, think_cible, rm_id=a.to, title=_titre(cible))
+        kind, ancien, neuf = res
+        for feuille, chemin in ((sheet, think), (cible, think_cible)):
+            pm_think.set_counters(feuille, pm_think.counters(pm_think.load(chemin)))
+        _log_deplacement(sheet, ancien, "sortie", a.to, neuf, a.by)
+        _log_deplacement(cible, neuf, "entrée", a.rm_id, ancien, a.by)
+        if kind in ("question", "decision"):     # la vue Redmine des questions change des deux côtés
+            _resync_questions(a.rm_id, sheet)
+            _resync_questions(a.to, cible)
+        pmout.op("think", extra=f"RM{a.rm_id} {ancien} [{kind}] → RM{a.to} {neuf}")
+        if not a.no_commit:
+            pm_git.autocommit([think, sheet, _log_path(sheet), think_cible, cible, _log_path(cible)],
+                              f"pm(think): RM{a.rm_id} {ancien} déplacée vers RM{a.to} {neuf}")
+        return
+    if a.orphans:
+        trous = pm_think.questions_orphelines(parsed)
+        if not trous:
+            pmout.info(f"RM{a.rm_id} : aucune question tranchée sans décision")
+            return
+        print(f"RM{a.rm_id} — {len(trous)} question(s) tranchée(s) SANS décision :")
+        for qid, libelle in trous:
+            print(f"  {qid}  {libelle[:110]}")
+        print("  → relier : pm-task-think " + str(a.rm_id) + " --set <Qnnn> --state valide --dest <Dnnn>")
+        return
+    if a.requalify:
+        if not a.as_kind:
+            sys.exit("ERREUR : --requalify exige --as note|question|decision|conseil|feature")
+        kind_cible = "decision" if a.as_kind == "conseil" else a.as_kind
+        prefix_cible = "C" if a.as_kind == "conseil" else None
+        if a.dry_run:
+            print(f"{think.name} : {a.requalify} → rubrique {a.as_kind}"); return
+        try:
+            res = pm_think.requalify_row(think, a.requalify, kind_cible, prefix=prefix_cible,
+                                         rm_id=a.rm_id, title=_titre(sheet))
+        except ValueError as e:
+            sys.exit(f"ERREUR : {e}")
+        if not res:
+            sys.exit(f"ERREUR : ligne {a.requalify} introuvable dans {think.name}")
+        k0, id0, k1, id1 = res
+        pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        _log_requalif(sheet, id0, k0, id1, k1, a.by)
+        if "question" in (k0, k1):     # la vue Redmine des questions change dans les deux sens
+            _resync_questions(a.rm_id, sheet)
+        pmout.op("think", extra=f"RM{a.rm_id} {id0} [{k0}] → {id1} [{k1}]")
+        if not a.no_commit:
+            pm_git.autocommit([think, sheet, _log_path(sheet)],
+                              f"pm(think): RM{a.rm_id} {id0} requalifiée en {id1} [{k1}]")
+        return
     if a.delete:
         if a.dry_run:
             print(f"{think.name} : {a.delete} supprimée"); return
@@ -137,11 +299,48 @@ def main():
             pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.delete} supprimée")
         return
     if a.set:
-        if not a.state and a.text is None:
+        if not a.state and a.text is None and not a.decide_with:
             sys.exit("ERREUR : --set exige --state ou --text")
+        # RM3269 — TRANCHER UNE QUESTION APPELLE SA DÉCISION.
+        # Poser la question, la trancher et écrire la décision étaient trois actes indépendants :
+        # on pouvait donc clore une question ✅ sans écrire nulle part POURQUOI. C'est arrivé
+        # (RM2316-Q004) et le raisonnement a été perdu. Le garde-fou ne vaut que pour « valide » :
+        # `invalide` ÉCARTE une entrée (une consigne captée par erreur par le harvest, cas courant
+        # — RM3141) et écarter n'est pas trancher, donc n'exige aucune décision.
+        # RM3269 (correction) : le garde-fou est un FILET, pas un mur. Sans échappatoire il rendait
+        # la transition impossible depuis le cockpit, dont le commentaire — donc la décision — est
+        # facultatif (RM3227) : on ne pouvait plus trancher depuis l'UI. `--force` tranche quand même,
+        # et le dit au journal : ce qui manque doit rester RETROUVABLE (`--orphans`), pas interdit.
+        est_question = str(a.set)[:1].upper() == "Q"
+        force_sans_decision = False
+        if est_question and a.state == "valide" and not a.decide_with:
+            lien = pm_think.decision_liante(parsed, a.set, a.dest)
+            if not lien and a.force:
+                force_sans_decision = True
+            elif not lien:
+                sys.exit(
+                    f"ERREUR : RM{a.rm_id} {a.set} — trancher une question exige la décision qui la tranche.\n"
+                    f"  → la poser en un appel  : --set {a.set} --state valide --decide-with \"ce qui est décidé\"\n"
+                    f"  → relier une décision   : --set {a.set} --state valide --dest Dnnn\n"
+                    f"  → ce n'est pas une question (capture du harvest) : --set {a.set} --state invalide\n"
+                    f"  → trancher quand même, la décision viendra plus tard : --force "
+                    f"(retrouvable ensuite par --orphans)")
         if a.dry_run:
             print(f"{think.name} : {a.set}" + (f" → {a.state}" if a.state else "")
+                  + (f" + décision « {a.decide_with[:60]} »" if a.decide_with else "")
                   + (" (texte amendé)" if a.text is not None else "")); return
+        # RM3269 — le chemin en UN appel : poser la décision, PUIS trancher la question en la
+        # pointant. L'ordre compte — la décision doit exister pour que « Tranchée par » la désigne.
+        # Elle cite la question dans son texte : le lien tient donc des deux côtés (colonne ET
+        # convention `_decision_liee`), et survit à un carnet non encore migré.
+        if a.decide_with:
+            texte_d = a.decide_with if a.decide_with != "-" else sys.stdin.read().strip()
+            if not str(a.set).upper() in texte_d.upper():
+                texte_d = f"{str(a.set).upper()} : {texte_d}"
+            did = pm_think.append(think, "decision", texte_d, rm_id=a.rm_id, title=_titre(sheet),
+                                  by=a.by, state="valide", when=a.when, sid=a.sid)
+            a.dest = did
+            pmout.info(f"RM{a.rm_id} +{did} [decision] {texte_d[:70]}")
         # RM3161 : AMENDER d'abord, changer l'état ensuite — les deux se combinent, et l'amendement
         # seul ne touche pas l'état : corriger le texte d'une décision validée la laisse validée.
         ancien = None
@@ -153,9 +352,29 @@ def main():
             # .log.md est ce qu'on relit — y retrouver « elle disait ceci, elle dit cela » évite
             # d'aller fouiller un diff.
             _log_amendement(a.rm_id, sheet, a.set, ancien, a.text, a.by)
+        if a.decide_with and not a.state:
+            a.state = "valide"           # poser la décision, c'est trancher : l'état suit
+        # RM3290 — ROUVRIR une question tranchée. Le lien « Tranchée par » devient faux dès que la
+        # question repasse en attente : on le retire. La DÉCISION, elle, reste au carnet — la
+        # supprimer ou l'invalider d'office serait décider à la place de l'utilisateur, alors qu'un
+        # revirement peut aussi bien l'amender (RM3161). On dit donc ce qui reste à faire.
+        ancien_lien = ""
+        if est_question and a.state and a.state != "valide":
+            _, _row = pm_think.find_row(parsed, a.set)
+            if _row is not None:
+                ancien_lien = pm_think.cell(parsed.get("question", {}), _row, "Tranchée par").strip()
         ok = pm_think.set_state(think, a.set, a.state, dest=a.dest) if a.state else True
+        if ancien_lien:
+            pm_think.set_dest(think, a.set, "")
+            pmout.info(f"RM{a.rm_id} {a.set} rouverte — lien vers {ancien_lien} retiré. "
+                       f"{ancien_lien} reste au carnet : --set {ancien_lien} --state invalide "
+                       f"si elle ne fait plus foi, ou --set {ancien_lien} --text \"…\" pour l'amender.")
         if not ok:
             sys.exit(f"ERREUR : ligne {a.set} introuvable dans {think.name}")
+        if force_sans_decision:
+            _log_force(sheet, a.set, a.by)
+            pmout.info(f"RM{a.rm_id} {a.set} tranchée SANS décision (--force) — "
+                       f"à reprendre : --orphans")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
         if a.set[:1].upper() in ("Q", "D"):          # une question, ou une décision qui peut y répondre
             _resync_questions(a.rm_id, sheet)
@@ -184,13 +403,7 @@ def main():
     if a.dry_run:
         rid = pm_think.next_id(parsed, kind, prefix or pm_think.KINDS[kind][0])
         print(f"{think.name} +{rid} [{kind}] {text[:100]}"); return
-    title = ""
-    try:
-        import re
-        m = re.search(r"^title:\s*(.+)$", sheet.read_text(encoding="utf-8"), re.M)
-        title = m.group(1).strip().strip("'\"") if m else ""
-    except OSError:
-        pass
+    title = _titre(sheet)
     rid = pm_think.append(think, kind, text, prefix=prefix, rm_id=a.rm_id, title=title, by=a.by, state=a.state,
                           when=a.when, sid=a.sid, bloque=a.bloque, urgence=a.urgence, domaine=a.domaine,
                           version=a.version, origine=a.origine, lot=a.lot, dest=a.dest)

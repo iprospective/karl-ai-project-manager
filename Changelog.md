@@ -20,6 +20,230 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `wp-config.php` et compte MySQL propres à la recette (mot de passe jamais en argument).
   Nouvelle stratégie de dump `remote-mysqldump-socket` : aucun mot de passe de prod à détenir.
   Le framework gagne un README.
+- **browser-check : mode parcours** (RM3359) : `--scenario <fichier.json>` déroule une suite
+  d'étapes (connexion, saisie, sélection, clic, assertions) au lieu d'un clic unique, avec des
+  paramètres `{{variables}}` fournis en ligne de commande. Les secrets viennent de
+  l'environnement (`--secret-env`) et sont masqués dans les sorties. Le parcours est validé
+  ENTIÈREMENT avant la première étape, et s'arrête à la première qui casse, avec son numéro,
+  son motif et une capture d'écran.
+- **Une question qui attend un TIERS ne bloque plus la clôture** (RM3357) : l'état `⏸ réserve`
+  existait mais ne fermait rien. Il vaut désormais « en attente d'un client, d'un hébergeur, d'un
+  fournisseur » : compté à part (`questions_reserve`), affiché sous son propre intitulé dans le CF 36
+  et le volet Réflexion, sans ✅/❌ — ce n'est pas à nous de trancher. La garde de MEP et le refus de
+  clôture ne regardent plus que les arbitrages qui nous reviennent.
+- **Fin des mails « SECURITY information » en rafale** (RM3341). La sonde `peut_sudo` du cockpit
+  (RM3070 L2) exécutait `sudo -n -u root true` : chaque refus était journalisé et mailé à root
+  (`mail_badpass`) — un mail toutes les 5 min cockpit ouvert, des rafales à chaque suite de tests.
+  Elle LIT désormais les règles (`sudo -n -l`, silencieux) au lieu de les essayer, et un refus reste
+  acquis jusqu'au redémarrage. `mmi-pm test` place un faux `sudo` en tête de PATH : aucun test ne
+  s'élève pour de vrai.
+- **Suivre les fonctionnalités qu'aucun ticket ne porte** (RM3306) : `pm-cdc-features --sans-ticket`
+  les liste, en séparant les soldées (livrées ou écartées — ce sont des traces) de celles qui restent
+  à faire, à qui il manque un ticket. Le chapitre généré porte la synthèse, et le cockpit a une
+  pastille « sans ticket n · m à faire » qui filtre la table. Rien ne devient bloquant : une
+  fonctionnalité sans ticket reste légitime (RM3099-D001) — elle était juste invisible, alors que
+  « on la ticketera plus tard » (RM3266-D004) suppose que quelqu'un la revoie.
+- **Critères d'acceptation : la section se replie dans le champ** (RM3285, suite de RM3241). La purge
+  avait laissé 87 tickets intacts, faute de pouvoir décider : prose dans la section, sous-titres
+  d'étapes, critères écrits en puces sans cases. Le CF 33 étant un champ **texte**, tout cela peut y
+  vivre — `acceptance-purge --fold` replie la section entière (texte, sous-titres, ordre), fusionne
+  les coches (coché d'un côté reste coché), conserve les critères que seul le champ portait, puis
+  retire la section. `--convert-bullets coché|décoché` transforme en cases les critères écrits en
+  puces. Restent exclus, parce qu'ils demandent un arbitrage : divergence croisée entre la fiche et
+  Redmine, coche contradictoire, et critères rédigés en paragraphes (aucune case à replier).
+
+- **La moisson garde moins, et mieux** (RM3281). Deux familles passaient encore le critère de la note
+  et rendaient les carnets illisibles : l'**ordre d'exécution** — « go faire 3108… », et celui posé en
+  FIN de note (« … Consigne tout ça dans le ticket maintenant »), qui pilote le tour en cours et ne se
+  relira jamais — et le **fragment sans référent** — « on verra plus tard pour la suite, il faudra
+  trancher », que rien ne rattache à quoi que ce soit hors de sa conversation. Une note gardée doit
+  désormais porter de quoi la retrouver : un ticket, un chemin, une option de commande, un terme
+  technique, ou assez de mots qui désignent quelque chose. Un impératif AU MILIEU d'un raisonnement
+  reste une note : on ne coupe pas plus large que nécessaire.
+
+- **Une session épinglée éteinte se reprend d'un clic** (RM3265) : RM2819 relançait celles qui
+  appartiennent à un jeu ; les autres n'avaient droit qu'à « introuvable, fermer l'onglet ». Le clic
+  cherche désormais leur conversation par le ticket, prend la session éteinte (jamais celle qui
+  tourne) et la reprend, ancrée sur ce même ticket. Le survol annonce le geste : « clic : attacher »
+  ou « clic : relancer ou reprendre la conversation ».
+- **karl s'installe en service d'équipe : une instance par développeur** (RM3070, lots L4 et L5).
+  Côté cockpit, la session d'un autre porte désormais son nom — un administrateur voit toutes les
+  sessions, il lui fallait savoir à qui elles sont ; la sienne n'est pas étiquetée. Côté installation,
+  le gabarit `karl-agent@<login>.service` fait tourner une instance **sous le compte de chaque
+  développeur**, derrière un front unique : tout ce qui est déjà par utilisateur le reste (sessions
+  tmux, coffre, agent SSH, transcripts), et le multi devient un problème de routage plutôt qu'une
+  réécriture du superviseur. `mmi-pm karl-service --user alice --port 9881` rédige les trois pièces
+  (environnement du développeur, unité, fragment de reverse-proxy avec `upgrade=websocket`) et
+  **n'écrit rien dans `/etc`** : la pose reste un geste root. Un port déjà attribué est refusé
+  d'avance, en nommant l'autre développeur — sinon le conflit ne se verrait qu'au démarrage de la
+  seconde instance. Runbook : `docs/guides/karl-multi-utilisateur.md`, avec ce qui n'est pas encore
+  fait (transcripts et mail restent servis par l'identité de l'instance).
+
+- **Le carnet qualifie ses entrées** (RM3262) : questions, décisions et fonctionnalités portent
+  « Date · auteur » comme les notes, et une question porte « Tranchée par » — rempli tout seul par
+  la décision qui la cite. La signature d'une décision quitte son libellé, où elle était collée.
+  Toutes les lectures de colonnes passent désormais par le NOM de la colonne : une dizaine de sites
+  lisaient `cells[1]`, qui serait devenu la date. `pm-think-schema --all` porte les carnets existants
+  à la grammaire courante (idempotent, `--check` pour la CI) ; il est appelé par `core update`, APRÈS
+  le déploiement du code — l'inverse ferait écrire l'ancien runtime dans la mauvaise colonne.
+- **Créer un projet sous une racine client verrouillée** (RM2947). `pm-project-new` était
+  inutilisable dans le cas devenu nominal (racine `2750 pm:pm`) : il déléguait le squelette à
+  `pm-env-helper ws-init`, qui crée `.mmi-pm/`, puis refusait sur ce même `.mmi-pm/` — « workspace
+  déjà relié à un projet PM ». Le garde-fou distingue désormais un squelette (dossiers vides) d'un
+  volet PM peuplé ; `ws-init` amorce aussi les deux entrées de racine qui manquaient (dépôt `-core`
+  vide et partagé, lien `docs`), et un `.gitignore` de whitelist n'est plus jugé à l'octet près —
+  ses règles suffisent, sinon celui de `ws-init` passait pour un fichier tiers à renommer, à la
+  racine, donc `Permission denied` de plus. Au passage, `mmi-pm test` collecte enfin les suites
+  **shell** (`test-ws-init.sh`, `test-pm-env-helper-daemon.sh`) : elles ne tournaient nulle part.
+
+- **Une session appartient à quelqu'un, et les gestes partagés se réservent** (RM3070, lot L4, 1ʳᵉ partie).
+  « Authentifié » ne voulait pas dire « isolé » : tout compte du cockpit pouvait ouvrir le moteur `shell`
+  — un shell de connexion sous le compte de service, donc ses droits UNIX complets —, déverrouiller le
+  coffre et l'agent SSH pour **tout le monde**, et voir les sessions des autres. En mode multi, les deux
+  premiers gestes sont désormais réservés aux administrateurs, et chacun ne voit que ses sessions ;
+  l'administrateur voit tout, sans quoi personne ne pourrait reprendre la session d'un absent. Le
+  propriétaire est inscrit dans la fiche de session, **pas dans le nom tmux** : renommer les sessions
+  casserait celles qui tournent. En mono, rien ne change — et rien ne disparaît à la mise à jour.
+
+- **La garde du CDC ne passe plus au rouge chez les voisins** (RM3260) : `pm-cdc-features --sync`
+  (et `--add-version`, `--set-version`, `--assign-version`, `--drop-version`, `--absorb`) écrivait le
+  registre sans régénérer le chapitre et la feuille de route qui en DÉRIVENT. Une session qui
+  synchronisait rendait `--check` rouge pour toutes les autres, sans que rien ne soit faux. Toute
+  écriture du registre régénère désormais les dérivés ; `--check` reste en lecture seule.
+
+- **Les commits PM portent enfin le nom de qui les a provoqués** (RM3070, lot L3). Le démon agissait
+  toujours sous son compte : tous les commits déclenchés depuis le cockpit avaient le même auteur, et les
+  journaux disaient « le service » là où ils devraient dire un nom. `pm_actor` résout l'acteur — table
+  `identities:` de la conf, puis son `~/.gitconfig`, puis son nom système — et le transporte par
+  l'environnement (`PM_ACTOR_*`) jusqu'aux sous-processus, y compris au fond d'une chaîne d'appels
+  (contexte de requête). L'AUTEUR du commit devient l'humain, le committer reste le compte de service :
+  « écrit par Alice, enregistré par karl », ce qui est exactement ce qui s'est passé. Sans adresse connue,
+  aucun auteur n'est posé — on ne signe pas un commit à une adresse inventée. En mono, rien ne change.
+
+- **Étiquettes : reprise de l'existant** (RM2828). Le socle RM2829 ne poussait le CF Redmine qu'à
+  l'écriture : 909 fiches étiquetées côté PM, 40 tickets seulement côté Redmine. `pm-tags-backfill`
+  rattrape le parc — additive (elle ne retire jamais une valeur posée dans l'UI), dry-run par défaut,
+  dump JSONL avant écriture — et compte séparément les trois raisons de ne pas monter : mot-clé local
+  assumé, alias à normaliser, valeur pas encore créée dans Redmine (sans id, elle ferait échouer le PUT).
+
+- **« Installer pour moi » vise enfin VOTRE home, et « installé » dit pour qui** (RM3097). L'action
+  partait dans le home du démon, et la détection balayait tous les homes de la machine : un moteur posé
+  par un autre développeur était rapporté présent pour tout le monde, avec un chemin que votre compte ne
+  peut pas exécuter. Désormais l'état est rendu pour le développeur connecté — « installé par bob — pas
+  pour vous » est un troisième état, distinct d'« absent » — et écrire dans le home d'un autre est refusé
+  en le disant, avec la commande à lancer sous son compte. La CLI gagne `--for-user`.
+
+- **Configurer la clé d'un autre développeur marche, et une clé illisible ne passe plus pour absente**
+  (RM3096). Le démon appelait `sudo -u <dev>`, que la règle sudoers n'autorise pas (elle n'ouvre le
+  script qu'en root) et n'utilisait jamais l'option `--user` prévue pour ce cas : l'écriture échouait
+  toujours. Pire, la lecture d'état avalait l'échec et affichait **« non renseignée » partout**, ce qui
+  envoyait chercher une configuration manquante là où il n'y avait qu'un refus de privilège. Désormais :
+  root + `--user <dev>`, et une clé dont l'état n'a pas pu être lu se dit **« état inconnu »**, avec le
+  motif et sans bouton d'effacement.
+
+- **Worklog : les projets rangés par proximité** (RM2852). Les groupes d'un statut suivaient leur
+  ordre d'apparition : un ticket d'un autre client pouvait passer devant le projet sur lequel on
+  travaille. Le worklog sert désormais le client et le projet de la session, et le cockpit range les
+  groupes — projet de la session, puis même client, puis le reste ; l'ordre d'apparition départage à
+  rang égal (tri stable), et une session sans projet résolu retrouve l'ordre d'avant.
+
+- **Le cockpit cesse de proposer ce qui ne peut pas aboutir** (RM3070, lot L2). Deux portées se
+  donnaient sans pouvoir tenir : le `.env` **global** d'un secret et l'installation d'un moteur **pour
+  toute la machine**. Les deux passent par `sudo -n`, or la règle sudoers exige un mot de passe — la
+  barrière humaine est voulue. Au clic, l'utilisateur récoltait une erreur de sudo. La capacité est
+  désormais **sondée** (une fois par 5 min) : la case « global » n'apparaît plus quand elle est
+  impossible, et l'API refuse en donnant **la commande à taper en terminal** au lieu d'échouer en
+  chemin. Au passage, **les préférences du navigateur sont cloisonnées par utilisateur**
+  (`u:<user>:<clé>`) et purgées à la déconnexion : deux développeurs sur un même poste ne se
+  marchent plus dessus. Sans utilisateur connecté (mono), rien ne change et aucune préférence n'est
+  perdue ; le premier connecté adopte celles d'avant.
+
+- **Une entrée du carnet peut changer de ticket** (RM3258) : `pm-task-think <id> --move Qnnn --to <autre-id>`
+  déplace la ligne telle quelle (verbatim, date, signature) vers le carnet du ticket qu'elle concerne,
+  sous un nouvel id — les ids sont locaux au ticket et jamais réattribués. Les deux journaux tracent
+  le déplacement, les compteurs (donc la garde de clôture) sont refaits des deux côtés, et les
+  registres des DEUX projets sont refondus. Dans le cockpit, le volet « Réflexion » de la revue gagne
+  → (déplacer) et ✕ (supprimer) à côté de ✅ / ❌ : la suppression n'existait que dans la vue CDC,
+  alors que c'est dans la revue qu'on voit les entrées et que la clôture est refusée.
+
+- **Critères d'acceptation : une seule copie, dans leur champ** (RM3241, suite de RM2882/RM3240).
+  Après la reprise, 783 tickets portaient leurs critères deux fois — CF 33 et description — et 15
+  avaient déjà divergé, la description restant non cochée (RM3173 en MEP : 4/4 dans le champ, 0/4
+  dans la description). `pm-acceptance-purge` retire la section (dry-run par défaut, dump JSONL,
+  relecture fraîche avant chaque PUT, fermés exclus sauf `--include-closed`) selon une règle
+  **orientée** : elle part si le champ la couvre ou est en avance, reste si la description est en
+  avance, si un item manque ou si elle porte de la prose. Les chemins qui recréaient le doublon
+  sont fermés : `pm-task-add` envoie les critères au champ, `pm-task-description-update` retire
+  ou refuse la section sur un ticket migré (et `--add-criterion` → `pm-task-acceptance --append`),
+  `pm-task-import` / `redmine-fetch-task` reprennent le CF et n'ajoutent plus de squelette,
+  l'email client lit les critères par `pm_acceptance`.
+- **`pm-sieve` : les filtres Sieve pilotés par ManageSieve** (RM3171) : `list`, `get`, `diff`,
+  `put`, `activate`, `delete`, `backups` sur une boîte (`--account`, URI du vault en config
+  `sieve:`). L'écriture passe trois gardes — boîte authentifiée = boîte demandée, validation
+  par le serveur (`CHECKSCRIPT`) avant de toucher à l'original, sauvegarde octet pour octet hors
+  git — puis relit ce qu'elle a écrit ; le script actif ne se supprime pas. Remplace le client
+  jetable de RM2667 et l'édition à la main dans Roundcube.
+  `restore` remet une sauvegarde en place (la dernière par défaut) en repassant par les mêmes
+  gardes, après avoir sauvegardé l'état courant.
+
+- **karl s'installe et se met à jour ailleurs que sur cette machine** (RM3070, lot L1). `core-update`
+  exigeait toujours root, donc une ligne sudoers : un développeur seul, propriétaire de son checkout,
+  ne pouvait pas maintenir karl. Quand le code appartient au compte qui lance la mise à jour, elle
+  se fait sans sudo ; le verrou 3 couches et les déploiements dans `/usr/local` sont sautés, et dits.
+  Les units systemd ne citent plus `/zfs/workspaces/…` : elles portent `@PM_ROOT@`, rendu par
+  `install.sh` et `karl-voice-setup.sh` d'après l'emplacement réel du dépôt (`PM_ROOT` pour forcer),
+  avec refus d'une unit mal rendue ; `KillMode=process` est tenu par un test. L'état et le journal
+  hors du code étaient déjà réglés (RM2992, RM3095) : L1 ne les a pas refaits.
+
+- **karl sait enfin s'il sert un développeur ou une équipe** (RM3070, lot L0). Le mode d'installation
+  était un accident — chaque composant supposait l'un ou l'autre. Il se déclare désormais
+  (`install.mode: mono|multi`, défaut mono ; `KARL_INSTALL_MODE` l'emporte), réglable par un admin
+  dans le cockpit. Il n'est jamais déduit, mais il est CONTRÔLÉ : compte de service, règle sudoers,
+  code appartenant à root et nombre de comptes sont comparés au mode déclaré ; chaque écart est
+  journalisé au démarrage et exposé par `/health` (`install`), sans jamais bloquer. Sur l'instance
+  actuelle il dit d'emblée l'écart que L1 corrigera : « mono, mais le code appartient à root ».
+
+- **Les modules s'allument et s'éteignent** (RM3145, lot 1). Jusqu'ici « activable » n'était
+  qu'un mot : l'état vivait dans le manifeste, versionné avec le noyau — éteindre un module aurait
+  modifié le code livré. Il vit désormais dans la configuration de l'INSTANCE. Les trois
+  arbitrages du demandeur sont portés : un module **natif** s'éteint mais ne se retire pas ;
+  éteindre un module dont d'autres dépendent est **refusé en les nommant** ; le **forçage** reste
+  possible sous double sécurité (réglage de l'instance, PUIS recopier le nom du module), et ses
+  conséquences se signalent tant qu'elles durent. Éteindre ne supprime rien. `mmi-pm module new`
+  crée un module valide du premier coup. Au passage : `mmi-pm module list` **plantait** dès qu'un
+  module exposait une route (la variable de boucle écrasait la résolution) — la liste s'arrêtait
+  net à `release-watch`, et les modules suivants n'apparaissaient jamais.
+
+- **Bot Telegram : on sait qui parle, et le verrou vit au coffre** (RM1777). Une liste blanche vide
+  laissait n'importe quel compte Telegram interroger Redmine (« mode découverte ») : elle n'autorise
+  désormais personne, seul `/whoami` répond. Une table `telegram.users` (conf locale) dit qui est chaque
+  identifiant — liste blanche, auteur des `/note`, cible de `/today moi`. L'empreinte du mot de passe
+  peut être une URI de coffre ; coffre fermé, le bot refuse de démarrer plutôt que de tourner sans
+  verrou. Runbook : `docs/guides/bot-telegram-karl.md`.
+
+- **Le capteur de marge NORMS ne crie plus « dépasse » à tort** (RM3255) : il comparait tous les rôles au
+  plafond par défaut (29 000), alors qu'un rôle peut avoir le sien relevé par arbitrage (worker-infra à
+  30 000, RM3238). Il signalait donc en critique un dépassement que `--check` — l'invariant qui fait foi —
+  ne voyait pas. Chaque rôle est désormais mesuré contre son propre plafond, et le pire rôle est celui qui
+  en est le plus proche, pas le plus gros. Une fausse alerte critique apprend à ignorer la vraie.
+
+- **Un projet peut enfin utiliser un autre coffre que celui par défaut** (RM2662) : le registre savait
+  dire « ce client impose son KeePass » — cascade projet → client → défaut — mais personne ne le lui
+  demandait. Un secret à instance implicite (`secret:<chemin>`) partait au démon, qui prenait toujours
+  son coffre par défaut : la surcharge déclarée n'était jamais consultée. Le démon ne pouvait pas le
+  faire lui-même — il est partagé par tous les projets et ne sait pas d'où on l'appelle. La cascade se
+  résout donc chez l'appelant (`pm-secret-instance`, branché dans `resolve-secret.sh`), qui réécrit
+  `secret:<chemin>` en `secret://<instance>/<chemin>`. `secret://` et `vaultwarden://` ne sont jamais
+  réécrits, et hors projet — ou en cas de doute — l'URI repart inchangée : un résolveur qui casserait
+  les secrets de tout un poste pour une config illisible ferait pire que le trou qu'il bouche. La doc
+  cesse de nommer Vaultwarden comme s'il était unique (NORMS 2.55.1).
+
+- **`pm-snapshot` : le point de restauration pré-MEP depuis le ticket** (RM2989, atlas RM3254) :
+  `pm-snapshot <RM-id> [--dry-run]` résout le service opensvc déclaré (`snapshot:` sur l'env de
+  `environments.md`, ou `meta.yml`), interroge chaque nœud candidat, exige exactement UNE
+  instance `up`, fait prendre le snapshot par atlas (`om <svc> sync update --rid sync#root_hour`)
+  et journalise son nom avec la commande de rollback. PM ne touche aucun hôte (D3, RM2421) ;
+  section `snapshot:` de `pm.config.yml` (nœuds, rid, canal atlas).
 - **`pm-promote` n'annote plus les tickets seulement cités** (RM3222) : le lot d'une promotion
   ne retient que les tickets PORTÉS par un commit — sujet `RM<id> : …` ou branche `<id>-…`
   fusionnée —, la lecture de la garde RM3239. Un RM-id cité dans le corps d'un commit
@@ -118,6 +342,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   deux envs sur une même branche : branche dérivée ; références (vhosts, pools PHP-FPM, scripts) réécrites au
   chemin exact avec sauvegarde, validation `apachectl configtest` et restauration en cas d'échec ; journal et
   `--undo` ; snapshot ZFS exigé ou refus assumé.
+- **Les notifications disent enfin de quoi elles parlent** (RM3206) : ticket, session, projet et
+  client, plus le travail qui les a émises et la mesure qui les a déclenchées. Le diagnostic a
+  montré que presque tout était déjà là — le champ `rm` était accepté par le modèle, rendu par le
+  ViewModel et **cliquable dans la vue**, mais *aucun* des quatre émetteurs ne le passait : un
+  paramètre optionnel qu'il faut penser à remplir ne se remplit pas. Le contexte est donc pris
+  **sur place** (`contexte_auto()` : sentinelle `CURRENT_TASK` puis branche de ticket, session,
+  `meta.yml` du workspace), et aucun émetteur n'a eu à changer. Piège évité : `cle()` — l'empreinte
+  d'anti-répétition — intègre `sid` ; enrichir la clé aurait fait de la même alerte émise depuis
+  deux sessions **deux** entrées. Le contexte auto est donc appliqué APRÈS le calcul de la clé, par
+  `setdefault` (ce que l'appelant dit explicitement gagne toujours). Côté rendu, `job` et `sid`
+  arrivaient déjà et étaient jetés ; s'y ajoutent la mesure avec son seuil (« 28 048 / 29 000
+  (97 %) » plutôt que « la précharge a entamé sa marge ») et la **fenêtre** de répétition — « ×12
+  sur 3 j » et « ×12 sur 10 min » appellent des réactions opposées.
 
 - **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
   si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —
@@ -988,6 +1225,43 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
+  Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
+  (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en
+  déclarant une instance, sans toucher au code. Son secret suit la convention des providers
+  (`DOLIBARR__DOLIBARR_IPRO__API_KEY`, posé par `pm-provider-secret`, valeur sur l'entrée standard) ;
+  `pm_erp` en calcule le nom avec la règle du script lui-même — une seule règle de nommage.
+  `mmi-pm invoice --month AAAA-MM` lit les saisies Redmine de l'utilisateur (manuelles ou posées
+  par `mmi-pm timesheet`), les rattache au client (manifeste PM, table déclarée, ou plus long
+  préfixe d'identifiant qui nomme une entité), éclate les projets mutualisés selon leur clé (SFY
+  70/30 sans perte d'heure), regroupe par activité → service du catalogue ERP (pratique
+  historique) ou par tâche, et applique **le tarif de la dernière facture du client** — pas de
+  table de tarifs à tenir en double, un brouillon ou un avoir n'étant jamais pris pour un tarif.
+  La note publique reproduit mot pour mot le modèle des factures existantes (période, « Principalement
+  les … », lien de détail) et y ajoute les **mises en production du mois**, lues dans l'historique
+  des statuts. **Rien n'est créé** : rapport + proposition amendable. Piège noté :
+  `find_project_by_redmine_id` rend le chemin du dossier client, pas son identifiant — pris tel
+  quel, il classait tout le temps client en interne.
+- **Secrets de provider : saisie interactive et masquée** (RM3277). Le terminal était REFUSÉ
+  (« la valeur se lit sur l'entrée standard ») : l'intention était juste — jamais en argument,
+  `ps` est lisible de tous — mais elle poussait au `echo 'secret' | …`, qui dépose le secret dans
+  l'historique du shell. `mmi-pm provider-secret --instance <x>` demande désormais le **nom** de
+  la clé (avec les clés usuelles du provider en exemple), puis sa **valeur en saisie masquée,
+  confirmée par une seconde frappe** — un secret mal tapé se pose sans bruit et ne se relit
+  jamais. L'usage scripté (tube, redirection) est inchangé, et les trois règles du script
+  tiennent : jamais en argument, jamais relu, jamais journalisé.
+- **Feuille de temps : valider journée par journée** (RM3229, lots L0–L1). Premier pas vers le
+  menu Facturation du cockpit : `mmi-pm timesheet --day AAAA-MM-JJ` calcule, ajuste et applique
+  UNE journée — l'unité de validation. `--start`/`--end`/`--client` posent les horaires normaux et
+  le client principal du jour (ils remplacent la présence régulière de ce jour-là, jamais deux
+  planchers empilés) ; `--validate-empty` valide une journée saisie entièrement à la main ;
+  `--json` sert la matière de l'écran de validation. Chaque journée TERMINÉE est mise en cache
+  (`~/.local/state/mmi-pm/timesheet/cache/`) : 21 s au premier calcul, **1 s** ensuite — c'est ce
+  qui rendra la vue interactive, et c'est une archive si les transcripts disparaissent. Les
+  réglages passent dans `~/.config/mmi-pm/timesheet.yml` : posés jusqu'ici dans un fichier de
+  travail de session, ils avaient disparu avec lui. Défaut corrigé au passage, antérieur au
+  chantier : le complément d'une journée de régie ignorait le temps DÉJÀ saisi ; une journée
+  validée se voyait re-proposer son complément à chaque recalcul — un doublon de facturation.
 - **L'annuaire de contacts devient utile aux automatismes, et visible** (RM3024, lots L4-L5
   de RM2703). Trois consommateurs le lisent désormais. **`internal` est un attribut de
   personne** : posé ligne par ligne, il ne voulait rien dire — la même personne était marquée

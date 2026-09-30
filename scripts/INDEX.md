@@ -44,6 +44,7 @@
 - `pm-think-classify` — classe les tours d'une conversation par un LLM LÉGER, au lieu d'une heu…
 - `pm-think-harvest` — moisson automatique du transcript vers le `.think.md` du ticket courant…
 - `pm-think-merge` — fusionne les `.think.md` des tickets vers les fichiers du projet. RM301…
+- `pm-think-schema` — met les `.think.md` existants à la grammaire courante
 - `pm-tick-backfill` — reconstitue les ticks de conso manqués depuis les transcripts
 
 ### Projets, clients & contacts
@@ -150,6 +151,7 @@
 
 - `pm-provider-secret` — pose, remplace ou efface le SECRET d'une instance de provider
 - `pm-providers` — inspecte le registre de serveurs et la résolution d'instance
+- `pm-secret-instance` — quel coffre pour CE projet ? Réécrit `secret:<chemin>` en `secret://<in…
 
 ### Ordonnancement & notifications
 
@@ -173,25 +175,33 @@
 - `pm-resolver-flip` — bascule du résolveur PM vers les workspaces co-localisés.
 - `pm-site-test` — Harnais de test / non-régression d'un site
 - `pm-tags-audit` — écarts entre le CF Redmine « Tags », le registre et les usages.
+- `pm-tags-backfill` — reprise de l'existant des étiquettes : frontmatter `tags` → CF Redmine
 - `pm-test` — mmi-pm test — lance la suite de tests hors ligne du système PM
 - `pm-zfs-backup` — snapshots ZFS de la machine, au fil de l'eau
 
 ### Divers
 
+- `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
+- `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
+- `pm-karl-service` — une instance de karl-agent par développeur
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
+- `pm-sieve` — piloter les filtres Sieve d'une boîte par ManageSieve (RFC 5804) : lire…
+- `pm-snapshot` — point de restauration ZFS pré-MEP, pris sur le bon hyperviseur, depuis…
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
+- `pm-user-conf-migrate` — Sort la conf PM d'un utilisateur de son home
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
 - `pm-worklog-merge` — reprendre un worklog de session resté à l'ancien emplacement
 
 ## Bibliothèques (importées, pas lancées)
 
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
+- `pm_actor` — QUI agit, quand karl agit pour quelqu'un
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP
@@ -199,16 +209,20 @@
 - `pm_contacts` — l'annuaire de contacts, cœur partagé
 - `pm_doc` — interface DocProvider (gestionnaire de docs agnostique) + backend wiki…
 - `pm_engine_recipes` — le CATALOGUE des moteurs et des serveurs de modèles installables
+- `pm_erp` — interface ErpProvider (facturation) + backend Dolibarr
 - `pm_events` — prévenir le cockpit qu'une donnée a changé
 - `pm_forge` — abstraction de forge git (GitLab / Gogs / GitHub) — RM2498 (T2).
 - `pm_git` — auto-commit + push atomiques des écritures des scripts pm-*
 - `pm_hierarchy` — Helpers partagés pour la hiérarchie parent/enfant des tâches PM.
 - `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
+- `pm_install_mode` — le mode d'installation de karl, déclaré et contrôlé
+- `pm_invoice` — proposer les factures d'un mois depuis les saisies de temps Redmine
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer
 - `pm_lock` — verrous PAR RESSOURCE (flock) + écriture atomique
 - `pm_log` — journal structuré du système PM et de karl-agent
+- `pm_mail_bounce` — reconnaître et lire un avis de non-remise
 - `pm_mail_routing` — de l'expéditeur d'un email au couple client/projet
 - `pm_markdown` — Utilitaires markdown partagés par l'outillage PM
 - `pm_modules` — le registre des MODULES de PM

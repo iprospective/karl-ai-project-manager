@@ -50,7 +50,14 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/×4/.test(card), "la répétition est visible");
   assert(/🔒mathieu/.test(card), "le privé est marqué dans la page, pas seulement dans les données");
   assert(/data-action="ticket" data-rm="2429"/.test(card), "une notification qui cite un ticket y mène");
-  assert(/data-action="done-all"/.test(card), "le geste « tout » existe dans la vue « ce qui attend »");
+  // RM3300 : deux gestes de lot, et chacun DIT ce qu'il fait — « tout » seul ne disait rien.
+  assert(/data-action="done-all"[^>]*>✓ tout traiter</.test(card), "« tout traiter » nomme son effet");
+  assert(/data-action="lu-all"[^>]*>○ tout lire</.test(card), "« tout lire » existe à côté");
+  assert(/Marquer lues les 2 notification\(s\) non lue\(s\)/.test(card), "…et annonce combien, avant le clic");
+  assert(/Marquer traitées les 3 notification\(s\)/.test(card));
+  { const luesToutes = String(V.FeedCard(new VM.FeedViewModel({ data: Object.assign({}, data, { counts: { open: 3, neuf: 0, worst: "critical" } }) })));
+    assert(!/data-action="lu-all"/.test(luesToutes), "rien à lire : le bouton disparaît, il ne reste pas inerte");
+    assert(/data-action="done-all"/.test(luesToutes), "…l'autre reste"); }
   assert(/lu au nom de <b>mathieu<\/b>/.test(card), "le lecteur est nommé : c'est ce qui explique ce qu'on ne voit pas");
   assert(!/\son(click|change|input)=/.test(card), "aucun handler inline");
   const anon = String(V.FeedCard(new VM.FeedViewModel({ data: Object.assign({}, data, { viewer: "" }) })));
@@ -78,6 +85,20 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   assert(/3 notification\(s\)/.test(asked), "« tout » dit combien il emporte avant de le faire");
   assert.deepStrictEqual(calls[0], ["mark", { all: true, etat: "traite" }]);
   assert(toasts.some(t => /3 notification\(s\) traitée\(s\)/.test(t)));
+
+  calls.length = 0; toasts.length = 0; await el.click("lu-all");
+  assert(/2 notification\(s\)/.test(asked), "« tout lire » dit combien il emporte");
+  assert(/restent dans la file/.test(asked), "…et ce qu'il ne fait PAS : elles ne sortent pas de la vue");
+  assert.deepStrictEqual(calls[0], ["mark", { all: true, etat: "lu" }], "lot « lu », sans filtre de personne quand il n'y en a pas");
+  assert(toasts.some(t => /notification\(s\) marquée\(s\) lue\(s\)/.test(t)));
+
+  // un refus de confirmation ne doit RIEN envoyer : le geste ne se défait pas
+  { const calls2 = []; const el2 = fakeEl();
+    const svc2 = { load: async () => data, mark: async (b) => { calls2.push(b); return { marked: 0 }; }, data: null };
+    const c2 = mountFeed(el2, { service: svc2, notify: () => {}, confirm: () => false });
+    await c2.open();
+    await el2.click("lu-all"); await el2.click("done-all");
+    assert.strictEqual(calls2.length, 0, "confirmation refusée : aucun appel serveur, ni pour lire ni pour traiter"); }
 
   calls.length = 0; await el.click("vue", { vue: "tout" });
   assert.strictEqual(ctr.state.etat, "tout"); assert.deepStrictEqual(calls[0][1], { etat: "tout", user: "" });
@@ -108,5 +129,52 @@ function fakeEl(id) { const L = []; let inner = ""; const kids = {};
   const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8");
   assert(/#feedbtn\.has-critical/.test(css), "la pastille sait crier — et seulement quand c'est critique");
 
-  console.log("✓ panneau Fil (RM2792) : file, confidentialité visible, gestes, câblage");
+  // ── RM3206 : le CONTEXTE — de quoi ça parle, et où ──────────────────────────────────────
+  const FVM = await import(path.join(DIR, "src/modules/feed/FeedViewModel.js"));
+  const ligne = {
+    id: "x", level: "warn", etat: "neuf", origin: "system", msg: "la précharge a entamé sa marge",
+    job: "norms-budget", tokens: 28048, budget: 29000, pct: 97,
+    rm: "3153", sid: "fbfafc14-8276-49cc", client: "iprospective", projet: "pm-ai-agents",
+    repeats: 12, ts: "2026-09-13T10:00:00+02:00", last: "2026-09-16T10:00:00+02:00" };
+  const r = new FVM.FeedViewModel({ data: { feed: [ligne] } }).rows()[0];
+  assert.strictEqual(r.job, "norms-budget", "l'origine PRÉCISE survit au rendu — « system » ne situe rien");
+  assert.strictEqual(r.client, "iprospective"); assert.strictEqual(r.projet, "pm-ai-agents");
+  assert.strictEqual(r.sid, "fbfafc14-8276-49cc"); assert.strictEqual(r.rm, "3153");
+  // toLocaleString("fr-FR") sépare les milliers par une FINE INSÉCABLE (U+202F) : on compare la
+  // forme, pas le caractère d'espacement, sinon le test casse au gré de la locale du système.
+  const esp = (s) => String(s).replace(/[\s\u202f\u00a0]+/g, " ");
+  assert.strictEqual(esp(r.mesure), "28 048 / 29 000 (97 %)",
+    "la mesure se lit d'un coup d'œil ; le message seul ne situe pas");
+  assert.strictEqual(r.fenetre, "3 j",
+    "×12 en dix minutes et ×12 sur trois jours appellent des réactions opposées");
+  // une notification sans mesure ni répétition ne fabrique pas de bruit
+  const nu = new FVM.FeedViewModel({ data: { feed: [{ id: "y", level: "info", msg: "rien de plus" }] } }).rows()[0];
+  assert.strictEqual(nu.mesure, ""); assert.strictEqual(nu.fenetre, "");
+  assert.strictEqual(nu.job, ""); assert.strictEqual(nu.client, "");
+  assert.strictEqual(FVM.fenetre("2026-09-16T10:00:00+02:00", "2026-09-16T10:30:00+02:00"), "30 min");
+  assert.strictEqual(FVM.fenetre("2026-09-16T10:00:00+02:00", "2026-09-16T15:00:00+02:00"), "5 h");
+  assert.strictEqual(FVM.fenetre("bidon", "aussi"), "", "des dates illisibles ne rendent pas « NaN »");
+  assert.strictEqual(esp(FVM.mesure({ pct: 97 })), "97 %", "un pourcentage seul reste lisible");
+  const vue = fs.readFileSync(path.join(DIR, "src/modules/feed/Feed.view.js"), "utf8");
+  assert(/data-action="ticket"/.test(vue), "le ticket est un LIEN, pas un texte");
+  assert(/feed-ou/.test(vue) && /feed-sid/.test(vue) && /feed-job/.test(vue) && /feed-mes/.test(vue),
+    "projet/client, session, job et mesure sont rendus");
+  const scss = fs.readFileSync(path.join(DIR, "src/modules/feed/feed.scss"), "utf8");
+  assert(/\.feed-ou/.test(scss) && /\.feed-mes/.test(scss), "le contexte a ses styles — discret, il situe sans concurrencer le message");
+
+  // ── RM3177 : la TENDANCE et les invariants rouges ────────────────────────────────────
+  const avecPente = new FVM.FeedViewModel({ data: { feed: [{ id: "t", level: "warn", msg: "marge",
+    tokens: 29518, budget: 30000, pct: 98, tendance: 5.3, tendance_jours: 21 }] } }).rows()[0];
+  assert.strictEqual(esp(avecPente.mesure), "29 518 / 30 000 (98 %), +5,3 pts en 21 j",
+    "« 98 % » ne distingue pas un plateau d'une dérive ; la pente dit ce qu'il faut faire");
+  assert.strictEqual(esp(FVM.tendance({ tendance: -3, tendance_jours: 10 })), ", -3 pts en 10 j", "une baisse se dit négative");
+  assert.strictEqual(FVM.tendance({ tendance: null }), "", "pas de pente connue : on n'invente rien");
+  assert.strictEqual(FVM.tendance({ tendance: 2, tendance_jours: 0 }), "", "une pente sans durée ne veut rien dire");
+  const doc = new FVM.FeedViewModel({ data: { feed: [{ id: "d", level: "warn", msg: "des invariants NORMS sont rouges",
+    job: "norms-doctor", invariants: ["non-perte", "index PÉRIMÉ"] }] } }).rows()[0];
+  assert.deepStrictEqual(doc.invariants, ["non-perte", "index PÉRIMÉ"], "le message est stable, la LISTE dit lesquels");
+  assert.deepStrictEqual(nu.invariants || [], [], "une notification sans invariants n'en fabrique pas");
+  assert(/feed-inv/.test(fs.readFileSync(path.join(DIR, "src/modules/feed/Feed.view.js"), "utf8")), "les invariants sont rendus");
+
+  console.log("✓ panneau Fil (RM2792/RM3206/RM3177) : file, confidentialité, gestes, câblage, contexte, tendance, invariants");
 })().catch(e => { console.error(e); process.exit(1); });

@@ -138,6 +138,20 @@ jobs:
       garde tout, rien n'est perdu. Toutes les 15 min : assez tôt pour alerter,
       assez espacé pour grouper.
 
+  # ── Relève de la boîte de karl : nouveaux mails + rejets (RM3319) ────────────
+  mail-watch:
+    schedule: "*/5 * * * *"
+    command: ["python3", "scripts/karl-mail-fetch.py", "--days", "3"]
+    timeout: 240
+    description: >
+      Relève la boîte de karl en lecture seule (PEEK, jamais de suppression) : les
+      mails humains entrent dans la file du panneau 📧 et font clignoter la boîte aux
+      lettres 📬 du cockpit ; un REJET (MAILER-DAEMON, DSN) devient une alerte
+      critique du fil et une note sur le ticket du mail rejeté — un envoi « parti »
+      qui n'est jamais arrivé ne passe plus inaperçu (incident RM1839). Fenêtre de
+      3 jours : l'index des Message-ID fait le reste. Coffre verrouillé = relève
+      impossible, signalée par l'ordonnanceur comme tout job en échec.
+
   # ── Veille des publications attendues (RM2792 lot 4 / RM2429) ───────────────
   release-watch:
     schedule: "40 7 * * *"
@@ -160,6 +174,16 @@ jobs:
       pendant des semaines apprend seulement à ignorer les échecs. Le plafond dur,
       lui, reste tenu par `pm-context-budget --check` dans la suite de tests. Le
       message est stable, donc une dérive qui dure fait UNE entrée qui remonte.
+
+  norms-doctor-watch:
+    schedule: "15 8 * * *"
+    command: ["python3", "scripts/pm-norms-doctor.py", "--notify"]
+    description: >
+      Signale dans le fil quand des invariants NORMS sont rouges (RM3177). Le doctor
+      reste le gate BLOQUANT de la suite de tests ; ce job fait savoir qu'il est rouge
+      entre deux modifications, au lieu d'attendre que quelqu'un relance la suite. Un
+      invariant rouge est un ÉTAT : il se notifie, il ne produit pas de ticket. La
+      liste des invariants part en champ, donc une panne qui dure fait UNE entrée.
 
   # ── Bus d'événements : les modules réagissent (RM3145, lot 2) ───────────────
   bus-drain:

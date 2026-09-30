@@ -3,13 +3,15 @@
 
 Le checkout de l'instance (`.mmi-pm-core`) est ROOT-owned (verrou 3 couches, RM2032) : ce verbe est LE SEUL geste privilégié du
 CLI. Lancé sans être root, il se ré-exécute lui-même par `sudo` (mot de passe demandé — barrière humaine §13a, jamais NOPASSWD),
-sauf en `--dry-run`, qui prévisualise sans privilège. Enchaînement (inchangé depuis le bash) :
+sauf en `--dry-run`, qui prévisualise sans privilège. Exception (RM3070 L1) : un checkout qui APPARTIENT au compte qui
+le lance (installation mono, non verrouillée) se met à jour sans sudo ; le verrou et les déploiements système
+(/usr/local) sont alors sautés, et dits. Enchaînement (inchangé depuis le bash) :
   1. agent SSH éphémère (RM2239) + multiplexing SSH (RM2069) : UNE saisie de passphrase pour fetch + pull + submodules ;
   2. `git pull --ff-only origin <branche>` + `submodule update --init --recursive` ;
   3. re-verrou par `scripts/core-lock lock` (SOURCE UNIQUE de la politique 3 couches) ;
   4. hooks PM du core lui-même (post-commit, pre-push, pre-commit — .git/hooks root-owned, RM2240) ;
   5. si `scripts/karl-agent.py` a changé : redémarrage du service USER karl-agent (RM2308 — KillMode=process, tmux intacts) ;
-  6. co-déploiement de pm-env-helper (RM2358) et karl-vhost-render (RM2565) dans /usr/local/sbin s'ils diffèrent ;
+  6. co-déploiement de pm-env-helper (RM2358), karl-vhost-render (RM2565) et karl-ttyd-auth (RM2146) dans /usr/local/sbin s'ils diffèrent ;
   7c. déclencheur périodique de l'ordonnanceur posé s'il manque (RM3151, `pm-scheduler install-timer`,
      en tant que `KARL_USER`) — idempotent : sans changement, il n'écrit ni ne recharge rien ;
   7b. stores de session ramenés du HOME vers `var/` du core s'il en reste (RM2992, `pm-stores-migrate`, en tant que
@@ -33,7 +35,8 @@ from pathlib import Path
 CORE_DIR = Path(__file__).resolve().parent.parent
 HOOKS = (("post-commit", "pm-post-commit.py"), ("pre-push", "pm-pre-push"), ("pre-commit", "pm-pre-commit.py"))
 DEPLOYS = (("tools/env-runtime/pm-env-helper.sh", "/usr/local/sbin/pm-env-helper", "RM2358"),
-           ("deploy/karl-agent/karl-vhost-render.sh", "/usr/local/sbin/karl-vhost-render", "RM2565"))
+           ("deploy/karl-agent/karl-vhost-render.sh", "/usr/local/sbin/karl-vhost-render", "RM2565"),
+           ("deploy/karl-agent/karl-ttyd-auth.py", "/usr/local/sbin/karl-ttyd-auth", "RM2146"))
 # RM3033 : alias courts `mmi-<domaine> <verbe>` ≡ `mmi-pm <domaine>-<verbe>` — des liens vers le dispatcher, à côté de /usr/local/bin/mmi-pm
 ALIAS_DOMAINS = ("core", "task", "env", "index", "session", "mr", "norms", "project", "client")
 BIN_DIR = Path("/usr/local/bin")
@@ -165,6 +168,37 @@ def with_ssh_session(core_dir: Path, work):
 
 
 # ── RM3054 : provisioning utilisateur (hooks Claude, skills) ─────────────────
+def code_a_moi(core_dir: Path, euid: int | None = None) -> bool:
+    """RM3070 L1 : le code appartient-il au compte qui lance la mise à jour ?
+
+    C'est l'installation mono « simple » : un développeur, son propre checkout, pas de verrou
+    root. Alors la mise à jour n'a besoin ni de sudo ni de mot de passe — l'exiger rendait karl
+    immaintenable sans ligne sudoers. Root n'est jamais « à moi » : il garde le chemin complet."""
+    euid = os.geteuid() if euid is None else euid
+    if euid == 0:
+        return False
+    try:
+        return (core_dir.stat().st_uid == euid and (core_dir / ".git").stat().st_uid == euid
+                and os.access(core_dir / ".git", os.W_OK))
+    except OSError:
+        return False
+
+
+def as_user(ku: str, cmd: list, env_vars: list) -> list | None:
+    """La commande `cmd` exécutée en tant que `ku`, avec `env_vars` (`["K=V", …]`).
+
+    En root : `runuser`. Sous l'utilisateur de l'instance lui-même : directement. Sous un AUTRE
+    compte non root : impossible sans sudo → None, que l'appelant signale au lieu d'échouer."""
+    if os.geteuid() == 0:
+        return ["runuser", "-u", ku, "--", "env", *env_vars, *cmd]
+    try:
+        import pwd
+        moi = pwd.getpwuid(os.geteuid()).pw_name
+    except KeyError:
+        moi = ""
+    return ["env", *env_vars, *cmd] if ku == moi else None
+
+
 def instance_user(core_dir: Path):
     """(login, uid, gid, home) de l'utilisateur de l'instance (`KARL_USER`), ou None."""
     ku = read_env(core_dir / ".env").get("KARL_USER") or ""
@@ -213,9 +247,12 @@ def sync_user_provisioning(core_dir: Path):
         log("⚠ provisioning utilisateur ignoré — KARL_USER inconnu dans .env (hooks Claude / skills à poser à la main : pm-claude-hooks-sync)"); return
     ku, uid, gid, home = who
     if claude_hooks_missing(core_dir, home):
-        r = run(["runuser", "-u", ku, "--", "env", f"HOME={home}", "PATH=/usr/local/bin:/usr/bin:/bin",
-                 sys.executable, str(core_dir / "scripts" / "pm-claude-hooks-sync.py"), "--pm-root", str(core_dir)])
-        if r.returncode == 0:
+        cmd = as_user(ku, [sys.executable, str(core_dir / "scripts" / "pm-claude-hooks-sync.py"),
+                           "--pm-root", str(core_dir)], [f"HOME={home}", "PATH=/usr/local/bin:/usr/bin:/bin"])
+        r = run(cmd) if cmd else None
+        if r is None:
+            log(f"⚠ hooks Claude de {ku} non synchronisés — pas root ni {ku} (lancer en tant que {ku} : pm-claude-hooks-sync)")
+        elif r.returncode == 0:
             log(f"hooks Claude Code de {ku} synchronisés (pm-claude-hooks-sync, ajout seulement)")
         else:
             log(f"⚠ pm-claude-hooks-sync a échoué pour {ku} : {(r.stdout or r.stderr).strip()[-200:]} — relancer à la main")
@@ -248,7 +285,9 @@ def restart_karl_agent(core_dir: Path, motifs=None):
     uid = run(["id", "-u", ku]).stdout.strip() if ku else ""
     if not (ku and uid):
         log(f"⚠ {quoi} modifié — KARL_USER inconnu dans .env ; si cette instance fait tourner l'agent : systemctl --user restart karl-agent"); return
-    base = ["runuser", "-u", ku, "--", "env", f"XDG_RUNTIME_DIR=/run/user/{uid}", "systemctl", "--user"]
+    base = as_user(ku, ["systemctl", "--user"], [f"XDG_RUNTIME_DIR=/run/user/{uid}"])
+    if base is None:
+        log(f"⚠ {quoi} modifié — pas root ni {ku} : relancer en tant que {ku} : systemctl --user restart karl-agent"); return
     if run(base + ["is-active", "--quiet", "karl-agent.service"]).returncode != 0:
         log(f"⚠ {quoi} modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user {ku})"); return
     if run(base + ["restart", "karl-agent.service"]).returncode == 0:
@@ -272,8 +311,10 @@ def migrate_stores(core_dir: Path, dry: bool):
     if not who:
         log("⚠ migration des stores ignorée — KARL_USER inconnu dans .env (à lancer à la main : mmi-pm stores-migrate)"); return
     ku, _uid, _gid, home = who
-    cmd = ["runuser", "-u", ku, "--", "env", f"HOME={home}", f"PM_CORE_DIR={core_dir}",
-           "PATH=/usr/local/bin:/usr/bin:/bin", sys.executable, str(script)]
+    cmd = as_user(ku, [sys.executable, str(script)],
+                  [f"HOME={home}", f"PM_CORE_DIR={core_dir}", "PATH=/usr/local/bin:/usr/bin:/bin"])
+    if cmd is None:
+        log(f"⚠ migration des stores ignorée — pas root ni {ku} (à lancer en tant que {ku} : mmi-pm stores-migrate)"); return
     if dry:
         cmd.append("--dry-run")
     r = run(cmd)
@@ -299,9 +340,11 @@ def install_scheduler_timer(core_dir: Path, dry: bool):
     if not who:
         log("⚠ timer de l'ordonnanceur ignoré — KARL_USER inconnu dans .env (à poser à la main : mmi-pm scheduler install-timer)"); return
     ku, uid, _gid, home = who
-    cmd = ["runuser", "-u", ku, "--", "env", f"HOME={home}", f"PM_CORE_DIR={core_dir}",
-           f"XDG_RUNTIME_DIR=/run/user/{uid}", "PATH=/usr/local/bin:/usr/bin:/bin",
-           sys.executable, str(script), "install-timer"]
+    cmd = as_user(ku, [sys.executable, str(script), "install-timer"],
+                  [f"HOME={home}", f"PM_CORE_DIR={core_dir}", f"XDG_RUNTIME_DIR=/run/user/{uid}",
+                   "PATH=/usr/local/bin:/usr/bin:/bin"])
+    if cmd is None:
+        log(f"⚠ timer de l'ordonnanceur ignoré — pas root ni {ku} (en tant que {ku} : mmi-pm scheduler install-timer)"); return
     if dry:
         cmd.append("--dry-run")
     r = run(cmd)
@@ -310,6 +353,36 @@ def install_scheduler_timer(core_dir: Path, dry: bool):
             log(line.strip())
     if r.returncode != 0:
         log(f"⚠ timer de l'ordonnanceur : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm scheduler install-timer")
+
+
+def migrate_think_schema(core_dir: Path, dry: bool):
+    """Étape 10 (RM3262) : porte les carnets `.think.md` à la grammaire courante.
+
+    L'ordre compte, et c'est pourquoi la migration vit ICI plutôt que dans la livraison : tant que
+    le runtime déployé est l'ancien, il écrit des lignes à l'ancienne largeur. Sur une table déjà
+    élargie, son texte irait dans la colonne voisine. La migration doit donc suivre le déploiement
+    du code, jamais le précéder — un `core update` fait les deux dans le bon ordre.
+
+    Idempotente : quand tous les carnets sont à jour, elle ne réécrit ni ne committe rien."""
+    who = instance_user(core_dir)
+    script = core_dir / "scripts" / "pm-think-schema.py"
+    if not script.is_file():
+        return
+    if not who:
+        log("⚠ grammaire des carnets ignorée — KARL_USER inconnu dans .env (à lancer : mmi-pm think-schema --all)"); return
+    ku, _uid, _gid, home = who
+    cmd = as_user(ku, [sys.executable, str(script), "--all"],
+                  [f"HOME={home}", f"PM_CORE_DIR={core_dir}", "PATH=/usr/local/bin:/usr/bin:/bin"])
+    if cmd is None:
+        log(f"⚠ grammaire des carnets ignorée — pas root ni {ku} (en tant que {ku} : mmi-pm think-schema --all)"); return
+    if dry:
+        cmd.append("--dry-run")
+    r = run(cmd)
+    for line in (r.stdout or "").splitlines():
+        if line.strip():
+            log(line.strip())
+    if r.returncode != 0:
+        log(f"⚠ grammaire des carnets : {(r.stderr or '').strip()[-200:]} — relancer : mmi-pm think-schema --all")
 
 
 def update(core_dir: Path, dry: bool) -> int:
@@ -336,9 +409,16 @@ def update(core_dir: Path, dry: bool) -> int:
         else:
             log("[dry] provisioning utilisateur : KARL_USER inconnu dans .env — ignoré")
         return 0
-    if os.geteuid() != 0:
+    sans_root = code_a_moi(core_dir)
+    if os.geteuid() != 0 and not sans_root:
         die("doit tourner en root (sudo) — le code de l'instance est root-owned")
-    ensure_safe_directory(core_dir)
+    if sans_root:
+        # RM3070 L1 : installation mono, code à l'utilisateur. Ce qui exige root est sauté EN LE
+        # DISANT, jamais contourné : c'est un autre profil d'installation, pas une dégradation.
+        log("code à l'utilisateur courant (installation mono) → mise à jour sans sudo ; "
+            "verrou 3 couches et déploiements système sautés")
+    else:
+        ensure_safe_directory(core_dir)
 
     def pull(env):
         git(core_dir, "fetch", "--quiet", "origin", check=True, env=env)
@@ -347,9 +427,12 @@ def update(core_dir: Path, dry: bool) -> int:
     with_ssh_session(core_dir, pull)
     new = git(core_dir, "rev-parse", "--short", "HEAD").stdout.strip()
     lock = core_dir / "scripts" / "core-lock"
-    if not os.access(lock, os.X_OK):
+    if sans_root:
+        pass   # verrouiller = rendre le code à root : l'opposé de ce profil
+    elif not os.access(lock, os.X_OK):
         die("scripts/core-lock absent/inexécutable")
-    run([str(lock), "lock", str(core_dir)], check=True)
+    else:
+        run([str(lock), "lock", str(core_dir)], check=True)
     hkdir = core_dir / ".git" / "hooks"; hkdir.mkdir(parents=True, exist_ok=True)
     for name, src, action in hooks_plan(core_dir):
         if action == "manual":
@@ -366,13 +449,18 @@ def update(core_dir: Path, dry: bool) -> int:
             restart_karl_agent(core_dir, motifs)
     migrate_stores(core_dir, dry)
     install_scheduler_timer(core_dir, dry)
+    migrate_think_schema(core_dir, dry)
     for src, dst, ref, todo in deploy_plan(core_dir):
-        if todo:
+        if todo and sans_root:
+            log(f"⚠ {dst} n'est pas à jour ({ref}) — déploiement système, root requis : sudo install -m 755 {src} {dst}")
+        elif todo:
             run(["install", "-o", "root", "-g", "root", "-m", "755", str(src), str(dst)], check=True)
             log(f"{dst.name} déployé → {dst} (source {src.relative_to(core_dir)}, {ref})")
     posed = []
     for link, target, action in alias_plan(core_dir):
-        if action == "link":
+        if action == "link" and sans_root and not os.access(link.parent, os.W_OK):
+            log(f"⚠ alias {link} absent — {link.parent} exige root : sudo ln -sfn {target} {link}")
+        elif action == "link":
             if link.is_symlink(): link.unlink()
             link.symlink_to(target); posed.append(link.name)
         elif action == "manual":
@@ -383,7 +471,9 @@ def update(core_dir: Path, dry: bool) -> int:
         sync_user_provisioning(core_dir)           # RM3054 : jamais bloquant
     except Exception as e:                         # noqa: BLE001
         log(f"⚠ provisioning utilisateur (hooks Claude / skills) en échec : {e}")
-    log(f"outil {old} -> {new} ({branch}) ; re-verrouillé via core-lock (politique 3 couches)")
+    log(f"outil {old} -> {new} ({branch}) ; "
+        + ("code à l'utilisateur, non verrouillé (installation mono)" if sans_root
+           else "re-verrouillé via core-lock (politique 3 couches)"))
     log("NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé).")
     return 0
 
@@ -394,7 +484,7 @@ def main(argv=None):
     ap.add_argument("--core-dir", default=None, help=argparse.SUPPRESS)   # tests
     a = ap.parse_args(argv)
     core_dir = Path(a.core_dir).resolve() if a.core_dir else CORE_DIR
-    if not a.dry_run and os.geteuid() != 0:
+    if not a.dry_run and os.geteuid() != 0 and not code_a_moi(core_dir):
         # Le re-exec passe par `<core>/bin/mmi-pm core update` : c'est LE chemin que la règle sudoers autorise en root
         # (deploy/mmi-pm.sudoers.example, ligne 2 — `bin/mmi-pm core update*`). Un `sudo python3 …` direct serait refusé
         # sur une instance dont le compte n'a que ces droits. bin/mmi-pm relaie au dispatcher → ce script, en root.

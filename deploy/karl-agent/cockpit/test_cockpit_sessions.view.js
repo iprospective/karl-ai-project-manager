@@ -29,6 +29,18 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert.strictEqual(live.dropTitle, "Retirer du jeu « Défaut » — la session continue de tourner");
   let t = String(V.Tile(live, lend));
   assert(/class="runitem active" data-action="attach" data-k="s:42"/.test(t) && /data-action="disp" data-k="s:42"/.test(t) && /class="tid">RM42</.test(t) && /<span class="pin">session:42<\/span>/.test(t) && /class="tlink">Sujet</.test(t) && / · 2min</.test(t) && /class="tquiet" title="Dernier message il y a 1min/.test(t) && /class="tbadge">⚠</.test(t) && /⏱✔/.test(t) && /class="tyes" data-action="approve" data-k="s:42"/.test(t) && /class="tkill tdrop" data-action="drop"/.test(t) && /class="tkill" data-action="kill" data-k="s:42"/.test(t) && !/onclick=/.test(t), "tuile : marque RM2795, lien de titre, silence, pastilles, gestes en data-action");
+  // RM3070 L4 : en multi, un administrateur voit TOUTES les sessions — sans le nom de leur
+  // propriétaire, il les verrait sans savoir à qui elles sont. La sienne n'est pas étiquetée.
+  const mien = new VM.SessionTileViewModel({ rm_id: "43", state: "idle", owner: "mathieu" },
+    Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(mien.owner, "", "ma propre session n'est pas étiquetée : l'évidence ne se dit pas");
+  const autrui = new VM.SessionTileViewModel({ rm_id: "44", state: "idle", owner: "alice" },
+    Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(autrui.owner, "alice", "la session d'un autre porte son nom");
+  assert(autrui.badges.some(b => /alice/.test(b.text)), "…jusque sur la tuile : " + JSON.stringify(autrui.badges));
+  const legacy = new VM.SessionTileViewModel({ rm_id: "45", state: "idle" }, Object.assign({}, base, { user: "mathieu" }));
+  assert.strictEqual(legacy.owner, "", "une session d'avant (sans propriétaire) n'est attribuée à personne");
+
   const idle = new VM.SessionTileViewModel({ rm_id: "7", state: "idle", disposition: "termine", in_current: false, set_labels: ["Chantier long"], sets: ["pm"] }, Object.assign({}, base, { set: { sets: SETS, current: "pm", view: "set" } }));
   assert(idle.badge.text === "✅" && /disp-termine/.test(idle.dotClass) && idle.stale && idle.setTag.text === "Chantier l" && !idle.canDrop, "RM2515 terminé · RM2598 question sans réponse · RM2446 jeu affiché · RM2673 : ⊖ masqué sur un jeu dérivé");
   t = String(V.Tile(idle, lend)); assert(/🕓/.test(t) && !/tdrop/.test(t) && /title="appartient au jeu « Chantier long »">Chantier l</.test(t) && /disp-termine/.test(t));
@@ -47,7 +59,17 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   t = String(V.CtxBanner("acme", 2)); assert(/Contexte client : <b>acme<\/b>/.test(t) && /2 groupe\(s\) hors client masqué/.test(t) && /data-action="ctx-clear"/.test(t) && !/onclick/.test(t)); assert(!/masqué/.test(String(V.CtxBanner("acme", 0))));
   t = String(V.ReviewGroup([new VM.ReviewTileViewModel("12", { found: true, title: "R12" }, true)], lend)); assert(/🧪 revues ouvertes/.test(t) && /class="runitem active" data-action="review" data-rm="12"/.test(t) && /<span class="pin">review:12<\/span>/.test(t) && /data-action="review-close" data-rm="12"/.test(t), "RM2210/RM2795");
   const cvm = new VM.CountersViewModel({ total: 3, attention: 2, choice: 1, idle: 1, working: 0, ghost: 2 }); assert(cvm.waiting === 3 && cvm.showYesAll && cvm.docTitle === "⚠3 Cockpit karl-agent");
-  t = String(V.Counters(cvm)); assert(/● 3/.test(t) && /⏸ 2/.test(t) && /class="pill att"[^>]*>⚠ 2/.test(t) && /❓ 1/.test(t) && /💤 1/.test(t)); assert(!/⏸|❓/.test(String(V.Counters(new VM.CountersViewModel({ total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 })))) && !new VM.CountersViewModel({ attention: 1, choice: 0 }).showYesAll, "RM2327 : ✔ tout dès 2 en attention");
+  t = String(V.Counters(cvm)); assert(/● 3/.test(t) && /⏸ 2/.test(t) && /class="pill filt att"[^>]*>⚠ 2/.test(t) && /❓ 1/.test(t) && /💤 1/.test(t));
+  // RM3302 : les compteurs sont des gestes — data-action/data-f, pastille enfoncée, et le total reste affiché sous filtre
+  assert(/data-action="filter" data-f="waiting"/.test(t) && /data-action="filter" data-f="idle"/.test(t) && /data-action="filter" data-f="ghost"/.test(t) && /data-action="filter" data-f="working"/.test(t) && !/onclick/.test(t), "RM3302 : chaque compteur porte son geste");
+  const cvmF = new VM.CountersViewModel({ total: 3, attention: 2, choice: 1, idle: 1, working: 0, ghost: 2 }, 4, "unseen", 5);
+  const tf = String(V.Counters(cvmF));
+  assert(/class="pill filt unseen on"/.test(tf) && /👁 4 à voir/.test(tf) && /⚠ 2/.test(tf), "RM3302 : la pastille filtrante est marquée, les autres compteurs gardent leur total");
+  assert(/second clic pour tout revoir/.test(tf) && /ne montrer que ces sessions/.test(String(V.Counters(cvm))), "RM3302 : l'infobulle dit ce que fait le clic");
+  const tb = String(V.FilterBanner(cvmF));
+  assert(/Filtre : <b>à voir<\/b>/.test(tb) && /5 session\(s\) masquée\(s\)/.test(tb) && /data-action="filter-clear"/.test(tb), "RM3302 : bandeau du filtre actif, annulable");
+  assert.strictEqual(String(V.FilterBanner(cvm)), "", "RM3302 : pas de filtre, pas de bandeau");
+  assert(/Aucune session « à voir »/.test(String(V.EmptyFiltered(cvmF))) && /data-action="filter-clear"/.test(String(V.EmptyFiltered(cvmF))), "RM3302 : liste vide PAR LE FILTRE, ça se dit"); assert(!/⏸|❓/.test(String(V.Counters(new VM.CountersViewModel({ total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 })))) && !new VM.CountersViewModel({ attention: 1, choice: 0 }).showYesAll, "RM2327 : ✔ tout dès 2 en attention");
   const tv = new VM.SessionTitleViewModel({ attached: "42", sess: { state: "attention", auto_yes_until: now + 600 }, resolved: { found: true, title: "Sujet" } }); assert(tv.shown && tv.approveVisible && tv.autoYesArmed && /⏱✔ 10 min/.test(tv.autoYesLabel));
   t = String(V.SessionTitle(tv, lend)); assert(/class="tdot st-attention"/.test(t) && /class="tid">RM42</.test(t) && /class="tlink">Sujet</.test(t) && /<button class="mini" style="margin-left:8px" data-action="approve"/.test(t) && !/onclick/.test(t), "RM2283/2332 : titre + ✔ Oui sans on*");
   t = String(V.SessionTitle(new VM.SessionTitleViewModel({ attached: "slug", sess: { is_ticket: false, state: "choice" } }), lend)); assert(/class="tid">slug</.test(t) && /karl-slug/.test(t) && /❓/.test(t) && !/✔ Oui/.test(t)); assert.strictEqual(String(V.SessionTitle(new VM.SessionTitleViewModel({ attached: null }), lend)), "");

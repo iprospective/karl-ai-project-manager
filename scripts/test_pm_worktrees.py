@@ -3,7 +3,7 @@
 
 Trois réglages (décision du 2026-09-16) :
 - `git.worktree_source` (instance, admin) : `central` = `<ws>/repos/<repo>.git` ; `per_user` = le dépôt du dev ;
-- dossier des dépôts (par utilisateur, `PM_REPOS_DIR` de son `~/.config/mmi-pm/.env`, défaut `~/repos`) ;
+- dossier des dépôts (par utilisateur, `PM_REPOS_DIR` de son `<core>/var/users/<user>/.env`, défaut `~/repos`) ;
 - `git.envs_layout` (instance, admin) : `project` = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<user>/<env>`.
 
 Ce qui doit tenir :

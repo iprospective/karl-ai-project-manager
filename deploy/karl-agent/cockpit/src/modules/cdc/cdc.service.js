@@ -30,11 +30,15 @@ export class CdcService {
   }
   /** RM3064 : édition d'une entrée de think ; invalide les chapitres en cache (les registres sont régénérés). */
   /** RM3258 : `to` porte le ticket destinataire d'un déplacement ; les champs vides ne partent pas. */
-  async thinkEdit({ rm, id, action, state, comment, to }) {
+  async thinkEdit({ rm, id, action, state, comment, to, force }) {
     const body = { rm, id, action };
     if (state) body.state = state;
     if (comment) body.comment = comment;
     if (to) body.to = to;
+    // RM3370 : `force` = trancher SANS décision, demandé explicitement par l'utilisateur. Le service
+    // le laissait tomber en le déstructurant : le geste existait dans l'écran (RM3269) mais la
+    // demande n'atteignait jamais le serveur, qui refusait alors faute de décision.
+    if (force) body.force = true;
     const r = await this.repo.thinkEdit(body); this._chap = {}; return r;
   }
   async featureEdit({ id, etat }) { const c = this.current; if (!c) return null; const r = await this.repo.featureEdit({ client: c.client, project: c.project, prefix: c.prefix, id, etat }); delete this._feat[c.key]; this._chap = {}; return r; }

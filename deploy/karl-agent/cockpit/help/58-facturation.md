@@ -110,6 +110,31 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
+## Relier l'IA à l'humain
+
+Chaque tour d'agent est **relié par un trait** à la plage humaine qui le contient : le
+trait monte du repère IA vers le milieu de sa plage, dans la couleur du client. Plusieurs
+tours convergent alors visiblement vers la même plage.
+
+Un tour qui ne tombe dans **aucune** plage n'est relié à rien : son trait reste un pointillé
+orange. C'est l'information qui compte — soit une plage humaine manque, soit l'agent a
+tourné seul, et les deux ne se traitent pas pareil.
+
+## Plages humaines et leurs preuves
+
+Sous les boutons, chaque plage de travail est reprise avec **ce qui la justifie** :
+
+| | Preuve |
+|---|---|
+| 🤖 | les **tours d'agent** de la plage, avec leur ticket |
+| ⎇ | les **commits** écrits pendant la plage |
+| 🚀 | les **livraisons** — MR fusionnées, lues dans les commits de fusion (aucun appel à la forge) |
+| ✍ | ce que **tu as écrit** : tes prompts, leur cible |
+| 📋 | les **actions Redmine** : tickets créés, commentés, changés de statut |
+
+Une plage **sans aucune preuve** est encadrée en orange : c'est celle qu'il faut regarder
+avant de la facturer. En bas, un encadré récapitule ce qui tombe **hors de toute plage**.
+
 ## Ce qui s'est passé — un seul fil
 
 Sous les boutons, **une** liste chronologique réunit tout ce que la journée a laissé :

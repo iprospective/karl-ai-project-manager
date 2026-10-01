@@ -259,6 +259,15 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── Les livraisons se lisent dans les commits de fusion (RM3229, 2026-10-01) ──
+# Une MR fusionnée laisse un commit « Merge branch 'NNNN-slug' into 'dev' » : la forge
+# n'a pas besoin d'être interrogée pour savoir ce qui est sorti ce jour-là.
+verifie(W._MERGE_RE.match("Merge branch '3199-infra' into 'dev'").group(1) == "3199-infra",
+        "le nom de branche se lit dans le sujet de fusion")
+verifie(W._MERGE_RE.match("Merge branch 'dev' into 'main'").group(2) == "main",
+        "…et sa cible")
+verifie(W._MERGE_RE.match("feat: autre chose") is None, "un commit ordinaire n'est pas une fusion")
+
 # ── Recouvrement des tours d'agent (RM3229, 2026-09-22) ─────────────────────
 # Le bornage a été demandé, essayé, puis RETIRÉ le jour même : deux agents en parallèle
 # produisent bien deux fois du travail, même si l'horloge n'avance qu'une fois. La

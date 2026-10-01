@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Corriger le texte d'une entrée de carnet depuis le cockpit** (RM3381) : ✎ sur chaque entrée, dans
+  la revue d'un ticket et dans le registre du projet. La saisie arrive pré-remplie avec le texte
+  actuel, l'état n'est pas touché (RM3161 : amender n'est pas revirer), l'ancien texte part au
+  journal du ticket, et un texte inchangé ou vide n'écrit rien. Une question moissonnée est le
+  verbatim d'un message, rarement un énoncé : elle se corrigeait seulement en ligne de commande.
 
 - **La file « à vérifier en prod » se rappelle à nous** (RM3278, lot B de l'étude RM2853).
   `en_mep` veut dire « déployé, dernière vérification avant fermeture » — mais rien ne relançait

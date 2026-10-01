@@ -62,6 +62,7 @@ export function mountCdc(el, ctx = {}) {
     else if (a === "ticket") { if (ctx.showTicket) ctx.showTicket(el.dataset.rm); else notify("fiche RM" + el.dataset.rm); }
     else if (a === "think-delete") { thinkDelete(el.dataset.rm, el.dataset.id); }
     else if (a === "think-move") { thinkMove(el.dataset.rm, el.dataset.id); }
+    else if (a === "think-text") { thinkText(el.dataset.rm, el.dataset.id, el.dataset.text || ""); }
     else if (a === "version-save") { versionSave(); }
     else if (a === "version-drop") { versionDrop(); }
   }
@@ -87,6 +88,15 @@ export function mountCdc(el, ctx = {}) {
     catch (e) { notify("retrait impossible : " + e.message, true); }
   }
   // RM3064 : édition d'une entrée depuis le panneau — le geste part vers le script (pm-task-think / pm-cdc-features), jamais vers le fichier
+  // RM3381 : une entrée mal formulée se CORRIGE — l'état n'est pas touché, l'ancien texte va au journal.
+  async function thinkText(rm, id, avant) {
+    const saisie = demande("Corriger " + id + " de RM" + rm + "\n(l'état n'est pas touché ; l'ancien texte reste au journal)", avant);
+    if (saisie === null) return;
+    const texte = String(saisie).trim();
+    if (!texte || texte === String(avant || "").trim()) { notify("texte inchangé"); return; }
+    try { await svc.thinkEdit({ rm, id, action: "text", text: texte }); notify(id + " corrigée, registres régénérés"); await renderChapters(); }
+    catch (e) { notify("correction impossible : " + e.message, true); }
+  }
   // RM3258 : mal attribuée plutôt qu'illégitime — elle se déplace, elle ne se perd pas.
   async function thinkMove(rm, id) {
     const saisie = demande("Déplacer " + id + " de RM" + rm + " vers quel ticket ?\nNuméro RM :", "");

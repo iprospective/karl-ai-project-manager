@@ -195,6 +195,17 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q002", state: "invalide" } }); await settle();
     assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q002", action: "state", state: "invalide" },
                            "écarter n'exige aucune décision — écarter n'est pas trancher");
+    // RM3381 — corriger le TEXTE d'une entrée : une question moissonnée est un verbatim, pas un énoncé.
+    reponse = "Faut-il indexer sur X ou sur Y ?";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "faut il indexer ?" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "text", text: "Faut-il indexer sur X ou sur Y ?" },
+                           "la correction part seule — ni état, ni commentaire");
+    const n1 = vus.length; reponse = "  faut il indexer ?  ";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "faut il indexer ?" } }); await settle();
+    assert.strictEqual(vus.length, n1, "texte inchangé : rien ne part sur le réseau");
+    reponse = "";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "x" } }); await settle();
+    assert.strictEqual(vus.length, n1, "texte vidé : rien non plus");
     await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-delete", id: "N003" } }); await settle();
     assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "N003", action: "delete" }, "supprimer depuis la revue");
     ctr2.unmount();

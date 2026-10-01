@@ -123,6 +123,14 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.length === 0 || edits.every(e => e[0] !== "think"), "suppression refusée sans confirmation");
   ok = true; await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.some(e => e[0] === "think" && e[1].action === "delete" && e[1].rm === "44" && e[1].id === "D001"), "suppression confirmée → service");
   const n1 = calls.filter(x => x.startsWith("feat:")).length; await ctl3.svc.featureEdit({ id: "F003", etat: "écarté" }); await ctl3.open("cdc-features"); assert(edits.some(e => e[0] === "feature" && e[1].id === "F003" && e[1].etat === "écarté" && e[1].client === "i") && calls.filter(x => x.startsWith("feat:")).length === n1 + 1, "état d'une fonctionnalité → service, registre rechargé");
+  // RM3381 : corriger le texte d'une entrée depuis le registre — pré-rempli avec ce qui est affiché
+  assert.strictEqual(VM.texteDeLigne('<td id="sec-RM44-Q001">Q001</td><td>Faut-il <b>indexer</b> ? &amp; ensuite</td><td>🕐</td>'),
+                     "Faut-il indexer ? & ensuite", "le pré-remplissage prend la cellule du texte, balises et entités retirées");
+  assert.strictEqual(VM.texteDeLigne(""), "", "ligne vide : pas de pré-remplissage inventé");
+  assert(/data-action="think-text"[^>]*data-text="le texte"/.test(VM.thinkActions("44", "Q001", "le texte")), "le geste porte le texte actuel");
+  assert(/data-text="il a dit &quot;non&quot;"/.test(VM.thinkActions("44", "Q001", 'il a dit "non"')), "…échappé : un guillemet ne casse pas l'attribut");
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q001", action: "text", text: "corrigé" });
+  assert(edits.some(e => e[0] === "think" && e[1].action === "text" && e[1].text === "corrigé"), "le service transmet la correction");
   // RM3370 : le drapeau « trancher sans décision » traverse enfin le service — il était déstructuré
   // et laissé tomber, si bien que le geste de RM3269 n'atteignait jamais le serveur.
   edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", force: true });

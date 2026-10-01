@@ -110,6 +110,26 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
+## Les blocs à insérer dans Redmine
+
+C'est **l'unité qui compte**. Un bloc = du temps + une activité + **un seul** projet, et si
+possible un ticket. C'est lui qu'on valide, donc lui qu'il faut pouvoir défendre :
+
+```
+1 h 30  calicote/prestashop  RM3039  Audit/Analyse  12:06–17:02
+        🤖 3 · 27 min   ✍ 3   🚀 1   dont 34 min d'outillage PM mutualisé
+```
+
+Une plage de travail humain **n'est pas** un bloc : c'est un intervalle d'horloge, et on
+peut y avoir changé de client. C'est la répartition qui transforme des plages en blocs.
+
+Un bloc **sans preuve directe** est encadré : son temps vient de la clé de refacturation
+plutôt que d'un travail observé. C'est légitime, mais c'est à regarder avant de facturer.
+
+Sous les blocs, les **tours d'agent hors des plages de travail** sont listés un par un —
+informatifs, jamais facturés : ils disent qu'un agent a tourné quand aucune trace humaine
+ne l'accompagnait.
+
 ## Relier l'IA à l'humain
 
 Chaque tour d'agent est **relié par un trait** à la plage humaine qui le contient : le

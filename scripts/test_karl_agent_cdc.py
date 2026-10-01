@@ -79,6 +79,18 @@ check("le panneau rend le texte de la question, pas sa date",
 check("…et sa signature à part", "2026-09-01" in _vue["questions"][0]["signature"])
 check("les notes aussi", _vue["notes"][0]["text"] == "Une note du carnet" and "2026-09-02" in _vue["notes"][0]["signature"])
 
+# RM3381 : corriger le texte d'une entrée — l'état n'est pas touché, c'est --text qui part
+rm_, loc_, args_ = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "text", "text": "  Faut-il   indexer ?  "})
+check("text → --set … --text, espaces normalisés", args_ == ["44", "--set", "Q002", "--text", "Faut-il indexer ?"], str(args_))
+check("…et aucun --state : amender n'est pas revirer (RM3161)", "--state" not in args_)
+for bad in ({"rm": 44, "id": "Q002", "action": "text"},
+            {"rm": 44, "id": "Q002", "action": "text", "text": "   "},
+            {"rm": 44, "id": "Q002", "action": "text", "text": "x" * 4001}):
+    try:
+        ka._cdc_think_args(bad); check(f"refus text {str(bad.get('text'))[:12]!r}", False)
+    except ka.ApiError:
+        check(f"refus text {str(bad.get('text'))[:12]!r}", True)
+
 # RM3370 : « trancher sans décision » n'est envoyé qu'explicitement, et seulement pour une question
 rm_, loc_, args_ = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "valide", "force": True})
 check("force → --force sur une question validée", args_ == ["44", "--set", "Q002", "--state", "valide", "--force"], str(args_))

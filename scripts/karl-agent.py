@@ -8488,6 +8488,10 @@ def _pm_script(name: str, args: list, timeout: int = 120, auth_ctx=None) -> str:
     return p.stdout
 
 
+#: RM3381 — un texte d'entrée est plus long qu'un commentaire de réponse : c'est l'énoncé lui-même
+_THINK_TEXT_MAX = 4000
+
+
 def _cdc_think_args(payload: dict) -> tuple:
     """(rm, id local, args de pm-task-think) — pur, testé. L'id fusionné `RM3044-D001` porte le ticket ; sinon `rm` est requis."""
     raw_id = str(payload.get("id") or "").strip()
@@ -8513,6 +8517,13 @@ def _cdc_think_args(payload: dict) -> tuple:
         if payload.get("force") and local.startswith("Q") and state == "valide":
             args.append("--force")
         return rm, local, args
+    if action == "text":                      # RM3381 : corriger le TEXTE d'une entrée, sans toucher à son état
+        texte = " ".join(str(payload.get("text") or "").split())
+        if not texte:
+            raise ApiError(400, "texte requis")
+        if len(texte) > _THINK_TEXT_MAX:
+            raise ApiError(400, f"texte trop long ({len(texte)} > {_THINK_TEXT_MAX} caractères)")
+        return rm, local, [rm, "--set", local, "--text", texte]
     if action == "move":                      # RM3258 : l'entrée part au carnet d'un autre ticket
         to = str(payload.get("to") or "").strip().lstrip("Rr Mm#")
         if not to.isdigit():
@@ -8522,7 +8533,7 @@ def _cdc_think_args(payload: dict) -> tuple:
         # --cross-project : le cockpit voit tous les projets, et une question mal attribuée
         # l'est souvent D'UN projet à l'autre — c'est le cas d'usage, pas l'exception.
         return rm, local, [rm, "--move", local, "--to", to, "--cross-project"]
-    raise ApiError(400, "action inconnue (delete | state | move)")
+    raise ApiError(400, "action inconnue (delete | state | move | text)")
 
 
 _THINK_COMMENT_MAX = 1000

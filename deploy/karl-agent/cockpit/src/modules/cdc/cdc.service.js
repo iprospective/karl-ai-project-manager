@@ -30,8 +30,9 @@ export class CdcService {
   }
   /** RM3064 : édition d'une entrée de think ; invalide les chapitres en cache (les registres sont régénérés). */
   /** RM3258 : `to` porte le ticket destinataire d'un déplacement ; les champs vides ne partent pas. */
-  async thinkEdit({ rm, id, action, state, comment, to, force }) {
+  async thinkEdit({ rm, id, action, state, comment, to, force, text }) {
     const body = { rm, id, action };
+    if (text) body.text = text;                      // RM3381 : corriger le texte d'une entrée
     if (state) body.state = state;
     if (comment) body.comment = comment;
     if (to) body.to = to;

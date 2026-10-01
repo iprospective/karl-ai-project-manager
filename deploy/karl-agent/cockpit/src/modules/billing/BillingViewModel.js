@@ -4,7 +4,7 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
-         bilanCorrespondance } from "./billing.js";
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -78,6 +78,12 @@ export class BillingViewModel {
   get transversalCumul() { return transversalParClient(this.j); }
   /** Tout ce qui s'est passé, dans l'ordre. */
   get fil() { return fil(this.j); }
+
+  /** Les blocs qui partiront dans Redmine, chacun avec ses preuves. L'unité de validation. */
+  get blocs() { return blocsRedmine(this.j); }
+  /** Les tours d'agent hors de toute plage humaine — montrés, jamais facturés. */
+  get iaHorsPlage() { return iaHorsPlage(this.j); }
+  get bilanBlocs() { return bilanBlocs(this.j); }
 
   /** Chaque plage humaine et ce qui la justifie — la pièce maîtresse du dossier. */
   get correspondances() {

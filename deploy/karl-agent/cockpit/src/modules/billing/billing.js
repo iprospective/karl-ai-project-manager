@@ -620,3 +620,82 @@ export function bilanCorrespondance(jour) {
     commitsOrphelins: orphelins.commits.length + orphelins.fusions.length,
   };
 }
+
+// ── Les blocs destinés à Redmine, et ce qui les justifie (RM3229) ─────────────
+//
+// L'UNITÉ de ce qui sera inséré dans Redmine est le BLOC : du temps, une activité, UN
+// projet, si possible un ticket. Une plage de travail humain n'en est pas un — elle peut
+// nourrir plusieurs blocs si on a changé de client pendant. C'est le bloc qu'on valide,
+// c'est donc lui qu'il faut pouvoir justifier.
+
+/** Le nom lisible d'une activité Redmine, ou son numéro à défaut. */
+export function nomActivite(jour, id) {
+  const t = (jour && jour.activites) || {};
+  return t[String(id)] || (id ? `activité ${id}` : "");
+}
+
+/**
+ * Les blocs de la journée, chacun avec les preuves qui le soutiennent.
+ *
+ * Une preuve rejoint un bloc quand elle porte le MÊME ticket, ou à défaut le même
+ * client/projet. Un bloc sans la moindre preuve est signalé : c'est du temps réparti
+ * par la clé de refacturation, pas du travail directement observé — légitime, mais à
+ * regarder avant de le facturer.
+ */
+export function blocsRedmine(jour) {
+  const prompts = traces(jour).filter(t => t.humain);
+  const cm = commits(jour);
+  const ia = (jour && jour.ia) || [];
+
+  return ((jour && jour.proposition) || []).map(l => {
+    const cible = [l.client, l.projet].filter(Boolean).join("/");
+    const memeCible = (c, p) => c === l.client && (!l.projet || !p || p === l.projet);
+    const parTicket = (rm) => l.ticket && String(rm) === String(l.ticket);
+
+    const sesIa = ia.filter(k => parTicket(k.ticket) || (!l.ticket && memeCible(k.client, k.projet)));
+    const sesPrompts = prompts.filter(t => parTicket(t.rm) || (!l.ticket && t.cible === cible));
+    const sesCommits = cm.travail.filter(c => c.client === l.client);
+    const sesFusions = cm.fusions.filter(c => parTicket(c.rm) || c.client === l.client);
+
+    const heures = [...sesIa.map(k => k.heure), ...sesPrompts.map(t => t.heure)].sort();
+    return {
+      jour: l.jour, client: l.client, projet: l.projet || "", ticket: l.ticket || null,
+      minutes: l.minutes, duree: fmtMin(l.minutes),
+      activite: l.activite, activiteNom: nomActivite(jour, l.activite),
+      facturable: l.facturable !== false,
+      outillage: l.outillage_min || 0,
+      couleur: couleurClient(l.client),
+      ia: sesIa.map(k => ({ heure: k.heure, minutes: Number(k.minutes) || 0, modele: k.modele || "" })),
+      iaDuree: fmtMin(sesIa.reduce((n, k) => n + (Number(k.minutes) || 0), 0)),
+      prompts: sesPrompts, commits: sesCommits, fusions: sesFusions,
+      plage: heures.length ? `${heures[0]}–${heures[heures.length - 1]}` : "",
+      preuves: sesIa.length + sesPrompts.length + sesCommits.length + sesFusions.length,
+    };
+  }).sort((a, b) => b.minutes - a.minutes);
+}
+
+/** Les tours d'agent qui ne tombent dans aucune plage humaine — informatif, jamais facturé. */
+export function iaHorsPlage(jour) {
+  const periodes = ((jour && jour.periodes) || []).map(([a, b]) => [minOf(a), minOf(b)]);
+  return ((jour && jour.ia) || [])
+    .filter(k => { const x = minOf(k.heure); return !isNaN(x) && !periodes.some(([a, b]) => x >= a && x <= b); })
+    .map(k => ({ heure: k.heure, minutes: Number(k.minutes) || 0, duree: fmtMin(k.minutes),
+                 rm: k.ticket || null, cible: [k.client, k.projet].filter(Boolean).join("/"),
+                 couleur: couleurClient(k.client), modele: k.modele || "" }))
+    .sort((a, b) => (a.heure < b.heure ? -1 : 1));
+}
+
+/** Le bilan des blocs : ce qui tient, ce qui est à regarder. */
+export function bilanBlocs(jour) {
+  const b = blocsRedmine(jour);
+  const hors = iaHorsPlage(jour);
+  return {
+    blocs: b.length,
+    minutes: b.reduce((n, x) => n + x.minutes, 0),
+    sansPreuve: b.filter(x => !x.preuves).length,
+    sansTicket: b.filter(x => !x.ticket).length,
+    clients: [...new Set(b.map(x => x.client))].length,
+    iaHorsPlage: hors.length,
+    minutesHorsPlage: Math.round(hors.reduce((n, k) => n + k.minutes, 0)),
+  };
+}

@@ -48,6 +48,7 @@ const JOUR = {
     { debut: "18:33", fin: "20:17", client: null, minutes: 104, parts: { null: 104 } },
   ],
   transversal_par_client: { pisceen: 55, calicote: 36 },
+  activites: { "9": "Développement", "10": "Audit/Analyse", "13": "SysAdmin/Conf/Debug" },
   pause: { declaree_h: null, trou: { debut: "12:36", fin: "13:32", minutes: 56 },
            cible: { client: "iprospective", projet: null, commentaire: "repas midi", heures: 1 } },
   deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration", client: "pisceen", projet: "pisceen-presta" },
@@ -284,6 +285,32 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
                      "une plage sans la moindre preuve est comptée — c'est celle qu'il faut regarder");
   console.log("✓ liaison IA ↔ humain : traits, orphelins, dossier de preuves par plage");
 
+  // — les BLOCS : l'unité qui part dans Redmine —
+  const blocs = M.blocsRedmine(JOUR);
+  assert.strictEqual(blocs.length, 4, "un bloc par ligne de proposition");
+  assert(blocs.every(b => b.client && typeof b.minutes === "number" && b.activite),
+         "un bloc porte au minimum du temps, une activité et UN client");
+  assert(blocs.every(b => !String(b.projet).includes(",")), "jamais deux projets dans un bloc");
+  assert.strictEqual(blocs[0].duree, "45 min", "trié du plus gros au plus petit");
+  assert.strictEqual(M.nomActivite(JOUR, 10), "Audit/Analyse", "l'activité se lit en clair");
+  assert.strictEqual(M.nomActivite(JOUR, 99), "activité 99", "…et à défaut, son numéro");
+  { const avecTicket = blocs.find(b => b.ticket === 3217);
+    assert(avecTicket && avecTicket.ia.length === 2, "les tours d'agent du MÊME ticket rejoignent son bloc");
+    assert.strictEqual(avecTicket.iaDuree, "8 min"); }
+  { const nf = blocs.find(b => b.client === "iprospective");
+    assert.strictEqual(nf.facturable, false, "un bloc sur soi n'est pas facturable"); }
+  const bib = M.bilanBlocs(JOUR);
+  assert.deepStrictEqual([bib.blocs, bib.clients], [4, 3]);
+  assert.strictEqual(bib.minutes, 105, "le total des blocs est celui de la proposition");
+
+  // — les tours hors plage : montrés, jamais facturés —
+  const hp = M.iaHorsPlage(horsPlage);
+  assert.strictEqual(hp.length, 1, "le tour de 03:12 est hors de toute plage");
+  assert.deepStrictEqual([hp[0].heure, hp[0].duree, hp[0].cible], ["03:12", "7 min", "pisceen/infra"],
+                         "…et il est montré en détail, pas seulement compté");
+  assert.strictEqual(M.iaHorsPlage(JOUR).length, 0, "ici, tous les tours sont dans une plage");
+  console.log("✓ blocs Redmine : un temps, une activité, un projet ; preuves et tours hors plage");
+
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
   // — service : charger, ajuster, valider —
@@ -409,6 +436,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/<svg class="bl-liens"/.test(frag) && /<line /.test(frag), "les traits relient les deux voies");
   assert(/bl-ia[^>]*background:hsl\(/.test(frag), "les repères IA sont colorés par client");
   assert(/plages humaines et leurs preuves/.test(frag), "le dossier des plages est là");
+  assert(/blocs à insérer dans Redmine — 4 bloc\(s\) · 3 client\(s\)/.test(frag), "les blocs Redmine sont la première section");
+  assert(/Audit\/Analyse/.test(frag), "chaque bloc dit son activité en clair");
   assert(/3199/.test(frag), "une livraison y figure");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");

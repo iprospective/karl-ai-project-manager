@@ -65,6 +65,7 @@ const JOUR = {
     { ts: "2026-09-18T12:31:00", sha: "0679ddb0", depot: "infra", client: "calicote", sujet: "RM3199 : journal — première synchronisation IMAP", auto: false },
     { ts: "2026-09-18T13:42:00", sha: "09877eee", depot: "infra", client: "calicote", sujet: "RM3199 : journal — 7 boîtes migrées", auto: false },
     { ts: "2026-09-18T23:27:00", sha: "009d9ee1", depot: "ai-project-management", client: "iprospective", sujet: "pm(tick): RM3229 métriques temps/tokens", auto: true },
+    { ts: "2026-09-18T13:45:00", sha: "aa11bb22", depot: "ai-project-management", client: "iprospective", sujet: "Merge branch '3199-infra' into 'dev'", auto: false, merge: true, branche: "3199-infra", cible: "dev", rm: "3199" },
   ],
   surcharge: null, valide: false,
 };
@@ -104,7 +105,15 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.timeline({}, {}).from, 8 * 60, "journée vide : 8 h → 19 h");
   const etroite = M.timeline({ periodes: [["10:05", "10:20"]] }, {});
   assert(etroite.to - etroite.from >= 60, "une plage minuscule garde une heure de large (sinon la frise est illisible)");
-  console.log("✓ frise : bornes, positions, groupement des tours d'agent");
+  // Une journée de 24 h ne tient pas 25 étiquettes d'heure : elles se chevauchaient.
+  { const large = M.timeline({ periodes: [["00:30", "23:30"]] }, {});
+    const vues = large.heures.filter(h => h.label);
+    assert.strictEqual(large.heures.length, 25, "toutes les graduations restent");
+    assert.strictEqual(vues.length, 9, "…mais une étiquette toutes les 3 h seulement");
+    const moyen = M.timeline({ periodes: [["09:00", "18:00"]] }, {});
+    assert.strictEqual(moyen.heures.filter(h => h.label).length, moyen.heures.length,
+                       "une journée courte garde toutes ses étiquettes"); }
+  console.log("✓ frise : bornes, positions, groupement des tours d'agent, règle lisible");
 
   // — heures normales : la mesure propose, l'ajustement tranche —
   const hn = M.heuresNormales(JOUR);
@@ -161,7 +170,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.traces(null).length, 0);
 
   const cm = M.commits(JOUR);
-  assert.deepStrictEqual([cm.total, cm.travail.length, cm.plomberie.length], [3, 2, 1], "la plomberie PM est comptée à part, pas mélangée au travail");
+  assert.deepStrictEqual([cm.total, cm.travail.length, cm.fusions.length, cm.plomberie.length], [4, 2, 1, 1], "livraisons et plomberie comptées à part du travail");
+  assert.strictEqual(cm.fusions[0].rm, "3199", "une livraison porte son ticket");
   assert.strictEqual(cm.travail[0].heure, "12:31", "l'heure du commit se lit directement");
   assert.strictEqual(cm.plomberie[0].sujet.startsWith("pm(tick)"), true);
   assert.deepStrictEqual(M.commits({}).travail, []);
@@ -223,10 +233,10 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
   // — le fil unique, trié —
   const fl = M.fil(JOUR);
-  assert.strictEqual(fl.length, 9, "traces + commits + plomberie + tours d'agent");
+  assert.strictEqual(fl.length, 10, "traces + commits + livraison + plomberie + tours d'agent");
   const heures = fl.map(x => x.heure);
   assert.deepStrictEqual(heures, [...heures].sort(), "trié par heure, tous genres confondus");
-  assert.deepStrictEqual([...new Set(fl.map(x => x.genre))].sort(), ["commit", "ia", "plomberie", "trace"]);
+  assert.deepStrictEqual([...new Set(fl.map(x => x.genre))].sort(), ["commit", "ia", "livraison", "plomberie", "trace"]);
   assert(/en parallèle du tour suivant/.test(fl.find(x => x.genre === "ia" && x.chevauche).texte),
          "un tour parallèle est SIGNALÉ, pas raboté");
 
@@ -237,6 +247,42 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual([ti.tours, ti.minutes, ti.paralleles, ti.horloge], [3, 18, 1, 10],
                          "le chiffre est le DÉCLARÉ ; l'horloge n'est qu'une information");
   console.log("✓ couleurs par client, notice, bande de pause, cumul transversal, fil unique, temps IA borné");
+
+  // — relier le temps IA au temps humain —
+  const fr = M.timeline(JOUR, {});
+  assert(fr.ia.every(k => k.couleur), "chaque repère IA porte une couleur");
+  assert.strictEqual(fr.ia[0].client, "pisceen", "…celle de son client dominant");
+
+  const ln = M.liens(JOUR, fr);
+  assert.strictEqual(ln.length, 3, "un trait par tour d'agent");
+  assert.strictEqual(ln.filter(l => l.orphelin).length, 0, "ici, tous les tours tombent dans une plage");
+  assert(/→ plage 08:51–09:31/.test(ln[0].titre), "le trait dit vers quelle plage il monte");
+
+  // le cas qui compte : un tour d'agent sans trace humaine autour
+  const horsPlage = Object.assign(clone(JOUR), {
+    ia: [...JOUR.ia, { heure: "03:12", ticket: null, client: "pisceen", projet: "infra",
+                       modele: "claude-opus-5", tokens: 1000, minutes: 7 }] });
+  const ln2 = M.liens(horsPlage, M.timeline(horsPlage, {}));
+  const orph = ln2.find(l => l.orphelin);
+  assert(orph && /AUCUNE trace humaine/.test(orph.titre), "un tour hors plage n'est relié à rien, et le DIT");
+  assert.strictEqual(orph.x1, orph.x2, "…son trait ne pointe nulle part");
+
+  // — le dossier de chaque plage —
+  const co = M.correspondances(JOUR);
+  assert.strictEqual(co.periodes.length, 3);
+  assert.strictEqual(co.periodes[0].ia.length, 2, "les tours tombent dans la bonne plage");
+  assert.strictEqual(co.periodes[0].prompts.length, 1, "ce que l'humain a écrit y figure");
+  assert.strictEqual(co.periodes[1].fusions.length, 1, "une livraison est rattachée à sa plage");
+  assert.strictEqual(co.periodes[1].fusions[0].rm, "3199");
+  assert(co.periodes[0].clients.some(x => x.client === "pisceen"), "la plage dit pour qui elle a été travaillée");
+  assert(co.periodes.every(p => typeof p.preuves === "number"));
+
+  const bl = M.bilanCorrespondance(horsPlage);
+  assert.deepStrictEqual([bl.periodes, bl.iaOrphelins, bl.minutesOrphelines], [3, 1, 7],
+                         "le bilan chiffre ce qui ne tient pas");
+  assert.strictEqual(M.bilanCorrespondance({ periodes: [["09:00", "10:00"]] }).sansPreuve, 1,
+                     "une plage sans la moindre preuve est comptée — c'est celle qu'il faut regarder");
+  console.log("✓ liaison IA ↔ humain : traits, orphelins, dossier de preuves par plage");
 
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
@@ -353,13 +399,17 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   { const manque = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1, commentaire: "repas midi" } } }), form: {} });
     const f2 = String(V.Card(manque));
     assert(/data-action="pause-midi"/.test(f2) && /aucune pause visible/.test(f2), "pause manquante : un bouton pour la noter en un clic"); }
-  assert(/ce qui s'est passé — 9 actions/.test(frag), "un seul fil : traces, commits et tours d'agent réunis");
-  assert(/2 traces humaines · 2 commits · 3 tours d'agent/.test(frag), "…et le détail de sa composition");
+  assert(/ce qui s'est passé — 10 actions/.test(frag), "un seul fil : traces, commits et tours d'agent réunis");
+  assert(/2 traces humaines · 2 commits · 1 livraison\(s\) · 3 tours d'agent/.test(frag), "…et le détail de sa composition");
   assert(/RM3199 : journal/.test(frag), "le sujet du commit se lit");
   assert(/bl-leg-i/.test(frag) && /background:hsl\(/.test(frag), "la notice donne une couleur par client");
   assert(/bl-pause-band/.test(frag), "la pause a sa propre bande, neutre");
   assert(/bl-tc-i/.test(frag), "le transversal montre son cumul par client");
   assert(/en parallèle du tour suivant/.test(frag), "un tour d'agent parallèle le signale");
+  assert(/<svg class="bl-liens"/.test(frag) && /<line /.test(frag), "les traits relient les deux voies");
+  assert(/bl-ia[^>]*background:hsl\(/.test(frag), "les repères IA sont colorés par client");
+  assert(/plages humaines et leurs preuves/.test(frag), "le dossier des plages est là");
+  assert(/3199/.test(frag), "une livraison y figure");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");

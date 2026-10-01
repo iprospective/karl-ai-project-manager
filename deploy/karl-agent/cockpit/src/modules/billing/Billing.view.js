@@ -27,7 +27,7 @@ export function Chiffres(vm) {
 export function Frise(vm) {
   const f = vm.frise;
   return html`<div class="bl-frise">
-    <div class="bl-ruler">${f.heures.map(h => html`<span class="bl-tick" style="left:${String(h.left)}%"><i></i>${h.label}</span>`)}</div>
+    <div class="bl-ruler">${f.heures.map(h => html`<span class="bl-tick${h.label ? "" : " bl-tick-nu"}" style="left:${String(h.left)}%"><i></i>${h.label}</span>`)}</div>
     <div class="bl-lane bl-lane-h" title="Temps humain mesuré (plages fusionnées : rien n'est compté deux fois). La couleur est celle du client dominant de la plage ; le survol donne le détail.">
       ${f.normal ? html`<span class="bl-normal" style="left:${String(f.normal.left)}%;width:${String(f.normal.width)}%" title="Heures normales déclarées : ${f.normal.debut}–${f.normal.fin}"></span>` : ""}
       ${f.pause ? html`<span class="bl-pause-band${f.pause.declaree ? " bl-pd" : ""}" style="left:${String(f.pause.left)}%;width:${String(f.pause.width)}%" title="${f.pause.titre}"></span>` : ""}
@@ -36,8 +36,11 @@ export function Frise(vm) {
         : f.humain.map(s => html`<span class="bl-seg" style="left:${String(s.left)}%;width:${String(s.width)}%" title="${s.debut}–${s.fin}"></span>`)}
       <span class="bl-lane-label">humain</span>
     </div>
-    <div class="bl-lane bl-lane-ia" title="Tours d'agent : ce que l'IA a produit pendant la journée">
-      ${f.ia.map(k => html`<span class="bl-ia" style="left:${String(k.left)}%" title="${k.heure} · ${String(k.tours)} tour(s)${k.tickets.length ? " · RM" + k.tickets.join(", RM") : ""}"></span>`)}
+    <svg class="bl-liens" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
+      ${f.liens.map(l => html`<line x1="${String(l.x1)}" y1="10" x2="${String(l.x2)}" y2="0" stroke="${l.orphelin ? "var(--warn)" : l.couleur}" stroke-width="0.12" ${l.orphelin ? raw('stroke-dasharray="0.6 0.6"') : raw("")}><title>${l.titre}</title></line>`)}
+    </svg>
+    <div class="bl-lane bl-lane-ia" title="Tours d'agent : ce que l'IA a produit pendant la journée. La couleur est celle du client ; le trait monte vers la plage humaine qui le contient.">
+      ${f.ia.map(k => html`<span class="bl-ia" style="left:${String(k.left)}%;background:${k.couleur}" title="${k.heure} · ${String(k.tours)} tour(s)${k.client ? " · " + k.client : ""}${k.tickets.length ? " · RM" + k.tickets.join(", RM") : ""}"></span>`)}
       <span class="bl-lane-label">IA</span>
     </div>
     ${Legende(vm)}
@@ -128,7 +131,7 @@ export function TempsIA(vm) {
   return html`<details class="bl-ev"><summary>temps IA — ${vm.chiffres[3].valeur} sur ${String(g.length)} cible(s)</summary><div class="bl-evl">${g.map(x => html`<div class="bl-evr"><span class="bl-eh">${x.plage}</span><span class="bl-ec">${x.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">${x.cle}</a>` : x.cle}</span><span class="bl-ex">${x.cible} <span class="bl-dim">${x.modeles}</span></span><span class="bl-min">${x.duree}</span><span class="bl-tool">${String(x.tours)} tours · ${x.jetons}</span></div>`)}</div></details>`;
 }
 
-const GENRE = { trace: "trace", commit: "commit", plomberie: "pm", ia: "IA" };
+const GENRE = { trace: "trace", commit: "commit", livraison: "livré", plomberie: "pm", ia: "IA" };
 
 /**
  * TOUT ce qui s'est passé dans la journée, dans l'ordre : traces, commits, tours d'agent.
@@ -139,13 +142,46 @@ export function Fil(vm) {
   const f = vm.fil;
   if (!f.length) return "";
   const c = vm.commits;
-  return html`<details class="bl-ev" open><summary>ce qui s'est passé — ${String(f.length)} actions <span class="bl-dim">· ${String(vm.tracesHumaines)} traces humaines · ${String(c.travail.length)} commits · ${String(vm.iaTotaux.tours)} tours d'agent</span></summary><div class="bl-evl">${f.map(x => html`<div class="bl-evr bl-g-${x.genre}${x.humain ? "" : " bl-ag"}"><span class="bl-eh">${x.heure}</span><span class="bl-gn">${GENRE[x.genre] || x.genre}</span><span class="bl-es">${x.source}</span><span class="bl-ec">${x.cible}${x.rm ? html` <a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">RM${String(x.rm)}</a>` : ""}</span><span class="bl-ex">${x.texte}</span></div>`)}</div></details>`;
+  return html`<details class="bl-ev" open><summary>ce qui s'est passé — ${String(f.length)} actions <span class="bl-dim">· ${String(vm.tracesHumaines)} traces humaines · ${String(c.travail.length)} commits${c.fusions.length ? " · " + String(c.fusions.length) + " livraison(s)" : ""} · ${String(vm.iaTotaux.tours)} tours d'agent</span></summary><div class="bl-evl">${f.map(x => html`<div class="bl-evr bl-g-${x.genre}${x.humain ? "" : " bl-ag"}"><span class="bl-eh">${x.heure}</span><span class="bl-gn">${GENRE[x.genre] || x.genre}</span><span class="bl-es">${x.source}</span><span class="bl-ec">${x.cible}${x.rm ? html` <a class="bl-rm" data-action="ticket" data-rm="${String(x.rm)}" href="#">RM${String(x.rm)}</a>` : ""}</span><span class="bl-ex">${x.texte}</span></div>`)}</div></details>`;
+}
+
+/** Une ligne de preuve dans le dossier d'une plage. */
+const Preuve = (icone, titre, items, rendu) => items.length
+  ? html`<div class="bl-pv"><span class="bl-pv-t" title="${titre}">${icone} ${String(items.length)}</span><span class="bl-pv-l">${items.map(rendu)}</span></div>`
+  : "";
+
+/**
+ * Le dossier de la journée : chaque plage humaine, et ce qui la justifie.
+ *
+ * C'est la pièce qu'on sort quand un client demande à quoi ont servi ces heures. Une
+ * plage sans aucune preuve est signalée — c'est précisément celle qu'il faut regarder.
+ */
+export function Correspondances(vm) {
+  const c = vm.correspondances;
+  if (!c.periodes.length) return "";
+  const b = vm.bilan;
+  const o = c.orphelins;
+  return html`<details class="bl-ev" open><summary>plages humaines et leurs preuves — ${String(b.periodes)} plage(s)${b.sansPreuve ? html` · <b class="bl-manque">${String(b.sansPreuve)} sans aucune preuve</b>` : ""}${b.iaOrphelins ? html` · <b class="bl-manque">${String(b.iaOrphelins)} tour(s) d'agent hors plage</b>` : ""}</summary>
+    <div class="bl-cor">${c.periodes.map(p => html`<div class="bl-cp${p.vide ? " bl-cp-vide" : ""}">
+      <div class="bl-cp-h"><b>${p.debut}–${p.fin}</b><span class="bl-dim">${p.duree}</span>${p.clients.map(x => html`<span class="bl-tc-i"><i style="background:${x.couleur}"></i>${x.client}</span>`)}${p.vide ? html`<span class="bl-manque">aucune preuve — à vérifier avant de facturer</span>` : ""}</div>
+      ${Preuve("🤖", "tours d'agent dans cette plage", p.ia, (k) => html`<span class="bl-pv-i" title="${k.heure} · ${k.cible}">${k.heure}${k.rm ? " RM" + String(k.rm) : ""}</span>`)}
+      ${Preuve("⎇", "commits écrits pendant cette plage", p.commits, (x) => html`<span class="bl-pv-i" title="${x.depot} · ${x.sujet}">${x.heure} ${x.depot}</span>`)}
+      ${Preuve("🚀", "livraisons (MR fusionnées) pendant cette plage", p.fusions, (x) => html`<span class="bl-pv-i bl-mr" title="${x.branche} → ${x.cible}">${x.heure} ${x.rm ? "RM" + String(x.rm) : x.depot}</span>`)}
+      ${Preuve("✍", "ce que tu as écrit pendant cette plage", p.prompts, (x) => html`<span class="bl-pv-i" title="${x.texte}">${x.heure}${x.cible ? " " + x.cible : ""}</span>`)}
+      ${Preuve("📋", "actions Redmine pendant cette plage", p.redmine, (x) => html`<span class="bl-pv-i" title="${x.texte}">${x.heure}${x.rm ? " RM" + String(x.rm) : ""}</span>`)}
+    </div>`)}</div>
+    ${c.aOrphelins ? html`<div class="bl-orph"><b class="bl-manque">hors de toute plage humaine</b> — soit une plage manque, soit l'agent a tourné seul :
+      ${o.ia.length ? html`<span class="bl-pv-i">🤖 ${String(o.ia.length)} tour(s), ${String(b.minutesOrphelines)} min</span>` : ""}
+      ${o.commits.length ? html`<span class="bl-pv-i">⎇ ${String(o.commits.length)} commit(s)</span>` : ""}
+      ${o.fusions.length ? html`<span class="bl-pv-i">🚀 ${String(o.fusions.length)} livraison(s)</span>` : ""}
+      ${o.prompts.length ? html`<span class="bl-pv-i">✍ ${String(o.prompts.length)} trace(s)</span>` : ""}</div>` : ""}
+  </details>`;
 }
 
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Fil(vm)}`;
+  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Correspondances(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

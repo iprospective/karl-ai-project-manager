@@ -120,3 +120,21 @@
 .bl-g-commit .bl-gn { color: var(--ok); }
 .bl-g-ia .bl-gn { color: var(--accent); }
 .bl-g-plomberie { opacity: .48; }
+
+// les traits qui relient un tour d'agent à sa plage humaine
+.bl-liens { display: block; width: calc(100% - 64px); height: 14px; margin-left: 46px; overflow: visible; }
+.bl-liens line { opacity: .55; }
+.bl-liens line:hover { opacity: 1; stroke-width: .3; }
+
+// le dossier : une plage humaine, ses preuves
+.bl-cor { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.bl-cp { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--panel2); }
+.bl-cp-vide { border-color: var(--warn); background: var(--warn-soft); }
+.bl-cp-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; margin-bottom: 3px; }
+.bl-cp-h b { color: var(--fg-strong); font-family: var(--mono); }
+.bl-pv { display: flex; gap: 8px; align-items: baseline; font-size: 11px; padding: 1px 0; }
+.bl-pv-t { flex: 0 0 3.4em; color: var(--muted); }
+.bl-pv-l { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 3px 6px; }
+.bl-pv-i { color: var(--fg); font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; white-space: nowrap; }
+.bl-mr { border-color: var(--ok); color: var(--ok); }
+.bl-orph { margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--warn); border-radius: 6px; font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

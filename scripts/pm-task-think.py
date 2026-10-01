@@ -48,6 +48,7 @@ n'écrit à la main que le conseil et l'arbitrage.
 """
 import argparse
 import os
+import subprocess
 import getpass
 import pathlib
 import sys
@@ -94,6 +95,45 @@ def _titre(sheet) -> str:
         return m.group(1).strip().strip("'\"") if m else ""
     except OSError:
         return ""
+
+
+def projet_de(sheet) -> str:
+    """« client/projet » d'une fiche, d'après sa place dans l'arbre PM, ou "". Pure.
+
+    Lu depuis la FIN (`…/<client>/projects/<projet>/tasks/RM<id>_…md`) : un « projects » peut
+    apparaître plus haut dans le chemin — il y en a un dans la racine PM elle-même — et le premier
+    rencontré donnerait un couple client/projet inventé."""
+    parts = pathlib.Path(sheet).parts
+    if len(parts) < 5 or parts[-2] != "tasks" or parts[-4] != "projects":
+        return ""
+    return f"{parts[-5]}/{parts[-3]}"
+
+
+def repercuter(sheets, dry=False, actif=True) -> list:
+    """RM3380 — régénère les registres du PROJET après une écriture dans le carnet d'un ticket.
+
+    `docs/cdc-questions.md` & co. sont GÉNÉRÉS depuis les `.think.md` : une question tranchée ici
+    reste affichée ouverte là-bas tant que la fusion n'a pas tourné. Le cockpit l'appelait déjà
+    après chaque geste ; la ligne de commande, non — d'où 127 fichiers périmés sur le seul projet PM
+    après un tri de deux jours. Un déplacement touche DEUX projets : d'où la liste de fiches.
+
+    Muet et jamais bloquant : une fusion qui échoue ne doit pas annuler une consignation réussie.
+    Rend les projets régénérés."""
+    if not actif or dry:
+        return []
+    faits = []
+    for projet in dict.fromkeys(p for p in (projet_de(s) for s in sheets) if p):
+        try:
+            r = subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve().parent / "pm-think-merge.py"),
+                                "--project", projet],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                faits.append(projet)
+            else:
+                pmout.warn(f"fusion du projet {projet} en échec — `mmi-pm think-merge --project {projet}`")
+        except Exception:      # noqa: BLE001 — une vue régénérée ne casse jamais une écriture
+            pmout.warn(f"fusion du projet {projet} impossible — `mmi-pm think-merge --project {projet}`")
+    return faits
 
 
 def _log_path(sheet):
@@ -194,6 +234,8 @@ def main():
     ap.add_argument("--domaine", default=""); ap.add_argument("--version", default=""); ap.add_argument("--origine", default="")
     ap.add_argument("--lot", default="")
     ap.add_argument("--dedupe", action="store_true"); ap.add_argument("--no-commit", action="store_true")
+    ap.add_argument("--no-merge", action="store_true",
+                    help="RM3380 : ne pas régénérer les registres du projet (rafale scriptée ; relancer `mmi-pm think-merge` ensuite)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show", action="store_true"); ap.add_argument("--counters", action="store_true")
     ap.add_argument("--path", action="store_true", help="imprime le chemin du think et sort")
@@ -249,6 +291,7 @@ def main():
             _resync_questions(a.rm_id, sheet)
             _resync_questions(a.to, cible)
         pmout.op("think", extra=f"RM{a.rm_id} {ancien} [{kind}] → RM{a.to} {neuf}")
+        repercuter([sheet, cible], a.dry_run, not a.no_merge)
         if not a.no_commit:
             pm_git.autocommit([think, sheet, _log_path(sheet), think_cible, cible, _log_path(cible)],
                               f"pm(think): RM{a.rm_id} {ancien} déplacée vers RM{a.to} {neuf}")
@@ -294,6 +337,7 @@ def main():
         if not n:
             sys.exit(f"ERREUR : ligne {a.delete} introuvable dans {think.name}")
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+        repercuter([sheet], a.dry_run, not a.no_merge)
         pmout.op("think", extra=f"RM{a.rm_id} {a.delete} supprimée")
         if not a.no_commit:
             pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} {a.delete} supprimée")
@@ -378,6 +422,7 @@ def main():
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
         if a.set[:1].upper() in ("Q", "D"):          # une question, ou une décision qui peut y répondre
             _resync_questions(a.rm_id, sheet)
+        repercuter([sheet], a.dry_run, not a.no_merge)   # RM3380 : les registres du projet suivent
         pmout.op("think", extra=f"RM{a.rm_id} {a.set}"
                  + (f" → {pm_think.STATE_ICON[a.state]}" if a.state else "")
                  + (" amendée" if a.text is not None else ""))
@@ -410,6 +455,7 @@ def main():
     pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
     if kind == "question" or (kind == "decision" and pm_think.cite_question(text)):
         _resync_questions(a.rm_id, sheet, kind)      # une question posée, ou sa réponse, se voit tout de suite
+    repercuter([sheet], a.dry_run, not a.no_merge)   # RM3380 : une entrée neuve apparaît aussi au projet
     pmout.op("think", extra=f"RM{a.rm_id} +{rid} [{kind}] {text[:80]}")
     if not a.no_commit:
         pm_git.autocommit([think, sheet], f"pm(think): RM{a.rm_id} +{rid}")

@@ -1,6 +1,7 @@
 // modules/billing/Billing.view — l'écran de validation d'une journée. Fonctions pures : un ViewModel entre,
 // un fragment sûr sort. Gestes en data-action, aucun on*. RM3229, lot L3.
 import { html, raw } from "../../core/html.js";
+import { fmtMin as fmtMinV } from "./billing.js";
 
 /** La barre du haut : la journée regardée, les flèches, l'état, la relecture. */
 export function Header(vm) {
@@ -156,6 +157,26 @@ const Preuve = (icone, titre, items, rendu) => items.length
  * C'est la pièce qu'on sort quand un client demande à quoi ont servi ces heures. Une
  * plage sans aucune preuve est signalée — c'est précisément celle qu'il faut regarder.
  */
+/**
+ * Les blocs destinés à Redmine, et ce qui justifie chacun.
+ *
+ * C'est l'unité qui compte : un bloc = du temps + une activité + UN projet + si possible
+ * un ticket. C'est lui qu'on valide, donc lui qu'il faut pouvoir défendre.
+ */
+export function Blocs(vm) {
+  const b = vm.blocs;
+  if (!b.length) return "";
+  const bi = vm.bilanBlocs;
+  const hors = vm.iaHorsPlage;
+  return html`<details class="bl-ev" open><summary>blocs à insérer dans Redmine — ${String(bi.blocs)} bloc(s) · ${String(bi.clients)} client(s)${bi.sansTicket ? html` · <span class="bl-dim">${String(bi.sansTicket)} sans ticket</span>` : ""}${bi.sansPreuve ? html` · <b class="bl-manque">${String(bi.sansPreuve)} sans preuve directe</b>` : ""}</summary>
+    <div class="bl-cor">${b.map(x => html`<div class="bl-bloc${x.preuves ? "" : " bl-cp-vide"}">
+      <div class="bl-bloc-h"><i style="background:${x.couleur}"></i><b>${x.duree}</b><span class="bl-bk">${x.client}/${x.projet}</span>${x.ticket ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(x.ticket)}" href="#">RM${String(x.ticket)}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}<span class="bl-act">${x.activiteNom}</span>${x.facturable ? "" : html`<span class="bl-nf-tag">non facturé</span>`}${x.plage ? html`<span class="bl-dim">${x.plage}</span>` : ""}</div>
+      <div class="bl-bloc-p">${x.ia.length ? html`<span class="bl-pv-i" title="tours d'agent sur ce ticket">🤖 ${String(x.ia.length)} · ${x.iaDuree}</span>` : ""}${x.prompts.length ? html`<span class="bl-pv-i" title="ce que tu as écrit pour cette cible">✍ ${String(x.prompts.length)}</span>` : ""}${x.commits.length ? html`<span class="bl-pv-i" title="commits chez ce client">⎇ ${String(x.commits.length)}</span>` : ""}${x.fusions.length ? html`<span class="bl-pv-i bl-mr" title="livraisons">🚀 ${String(x.fusions.length)}</span>` : ""}${x.outillage ? html`<span class="bl-tool">dont ${fmtMinV(x.outillage)} d'outillage PM mutualisé</span>` : ""}${x.preuves ? "" : html`<span class="bl-manque">aucune preuve directe — temps réparti par la clé de refacturation</span>`}</div>
+    </div>`)}</div>
+    ${hors.length ? html`<div class="bl-orph"><b>${String(hors.length)} tour(s) d'agent hors des plages de travail</b> <span class="bl-dim">(${String(bi.minutesHorsPlage)} min, informatif — jamais facturé)</span><div class="bl-pv-l">${hors.map(k => html`<span class="bl-pv-i" title="${k.modele}${k.cible ? " · " + k.cible : ""}"><i style="background:${k.couleur}"></i>${k.heure} ${k.duree}${k.rm ? " RM" + String(k.rm) : ""}</span>`)}</div></div>` : ""}
+  </details>`;
+}
+
 export function Correspondances(vm) {
   const c = vm.correspondances;
   if (!c.periodes.length) return "";
@@ -181,7 +202,7 @@ export function Correspondances(vm) {
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Correspondances(vm)}${Fil(vm)}`;
+  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

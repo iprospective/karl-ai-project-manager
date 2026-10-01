@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : b756a75ad27324c8 (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 999db0ee20259839 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -6373,4 +6373,70 @@ button.mini.soft:hover {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.bl-bloc {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--panel2);
+}
+
+.bl-bloc-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.bl-bloc-h > i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.bl-bloc-h b {
+  color: var(--fg-strong);
+  flex: 0 0 4.5em;
+}
+
+.bl-bk {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bl-act {
+  color: var(--muted);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.bl-bloc-p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 3px;
+  align-items: baseline;
+}
+
+.bl-orph .bl-pv-l {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.bl-orph .bl-pv-i {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bl-orph .bl-pv-i i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  display: inline-block;
 }

@@ -26,6 +26,7 @@
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
+| je **nomme** une fonction, une méthode, un paramètre, une variable, un fichier source — **en anglais**, sauf base de code déjà écrite en français (un code *mixte* n'en est pas une) | `modules/methodes-travail.md` § « Langue du code » | — |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |

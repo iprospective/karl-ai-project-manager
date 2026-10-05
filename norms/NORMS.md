@@ -33,6 +33,7 @@ updated: 2026-09-30
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
+| je **nomme** une fonction, une méthode, un paramètre, une variable, un fichier source — **en anglais**, sauf base de code déjà écrite en français (un code *mixte* n'en est pas une) | `modules/methodes-travail.md` § « Langue du code » | — |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
@@ -1828,6 +1829,33 @@ partout mérite d'être dans la méthode ; ce qui n'apparaît qu'une fois mérit
 - **le chiffrage** et **les critères d'acceptation du CDC lui-même** — les deux manquaient au
   cas fondateur, et les deux sont ce qui distingue un accord d'un plan ;
 - un **journal des révisions** n'est pas nécessaire : git le tient, le registre dit pourquoi.
+
+## Langue du code : les identifiants en anglais
+
+Les **identifiants se nomment en anglais** — fonctions, méthodes, paramètres, variables,
+classes, noms de fichiers source. `lotsForTier()`, pas `lotsPourPalier()` ; `$restriction`,
+pas `$restreint`.
+
+L'**exception** est une base de code **déjà écrite en français** : on s'y conforme, plutôt
+que d'y introduire un troisième dialecte. Attention au faux ami : un code **mixte** —
+quelques noms français hérités dans une base par ailleurs anglaise, ce qui est le cas de
+Dolibarr et des modules MMI — **n'est pas** une base française. Les ajouts s'y font en
+anglais.
+
+Restent en **français** : les commentaires et la documentation, les notes de commit et de
+ticket, les libellés affichés à l'utilisateur. Et ne relèvent pas du choix : les **noms de
+données existants** — colonnes, extrafields, clés d'API, valeurs stockées comme `palier` ou
+`date_courte` — se citent tels qu'ils sont, les renommer casserait les données. Une variable
+locale qui porte une telle valeur peut, elle, s'appeler `$tier`.
+
+**Pourquoi.** Un code dont les identifiants mélangent deux langues ne se lit pas seulement
+moins bien : il ne se **cherche** plus. Personne ne sait s'il faut grepper `palier` ou
+`tier`, `expedition` ou `shipping` — et les deux finissent par coexister. Le coût est
+permanent, et il croît avec la base.
+
+**Quand l'appliquer :** au moment de **nommer**, pas au moment de relire. Avant d'écrire une
+fonction, regarder comment la base nomme ses propres symboles ; en cas de mélange, choisir
+l'anglais.
 > 📂 **Module `cdc` — quand lire ceci :** on attaque un **projet neuf** (ou une refonte de
 > fond) et le travail commence par un **cahier des charges complet** — pas un ticket, pas une
 > étude d'une page. Aussi : je reprends un CDC existant, j'y consigne un arbitrage, ou je

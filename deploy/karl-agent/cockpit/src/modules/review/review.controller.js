@@ -236,7 +236,17 @@ export function mountReview(el, ctx = {}) {
     catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }
 
+  /** RM3225 : copier une commande (lancement du script de MEP). Même repli que le terminal. */
+  async function copyText(n) {
+    const txt = n.dataset.text || "";
+    let ok = false;
+    if (ctx.clipboard) { try { await ctx.clipboard.writeText(txt); ok = true; } catch (e) { /* repli */ } }
+    if (!ok && ctx.copyFallback) ok = !!ctx.copyFallback(txt);
+    notify(ok ? "commande copiée" : "copie impossible — sélectionner la commande", !ok);
+  }
+
   const gestures = {
+    copy: (n) => copyText(n),
     reload: () => T.reload(state.current), "think-state": (n) => thinkState(n),
     "think-move": (n) => thinkMove(n), "think-delete": (n) => thinkDelete(n), "think-text": (n) => thinkText(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
     verdict: (n) => verdict(n.dataset.rm, n.dataset.kind, n), pm: (n) => ctx.sendPmAction && ctx.sendPmAction(Number(n.dataset.i), n.dataset.rm, n),

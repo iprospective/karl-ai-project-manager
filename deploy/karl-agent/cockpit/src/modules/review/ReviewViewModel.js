@@ -87,7 +87,10 @@ export class ReviewViewModel extends EntityViewModel {
                 out.push([x.name || "env", html`<a href="${x.url}" target="_blank" rel="noopener">↗</a>`]);
               return out;
             }, empty: "aucun environnement" },
-            // RM3256 : en markdown, et AVEC sa provenance (champ dédié, note de livraison, description).
+            // RM3225 : la MISE EN PRODUCTION du ticket — actions au déploiement (CF 8) et script de MEP
+      // conservé à côté de la fiche. Dépliée d'office quand le ticket est à mettre en prod.
+      { id: "mep", title: "mise en production", level: "full", body: () => this.mepBlock(), empty: "rien de particulier" },
+      // RM3256 : en markdown, et AVEC sa provenance (champ dédié, note de livraison, description).
             // Rendu en <pre>, un protocole écrit en tableau devenait illisible — la fiche du centre le
             // rendait déjà correctement, de son côté ; c'est cette version-là qui devient la seule.
             { id: "protocol", title: "protocole de test", level: "full",
@@ -121,6 +124,36 @@ export class ReviewViewModel extends EntityViewModel {
     if (this.e.tqSize) return { kind: "outside" };
     return { kind: "loading" };
   }
+  /** RM3225 : la MISE EN PRODUCTION du ticket — ses actions au déploiement (CF 8) et son script
+   *  de MEP conservé à côté de la fiche (`RM<id>_<slug>.script-mep.sh`). `null` quand il n'y a ni
+   *  l'un ni l'autre : une fiche n'affiche pas une section vide. `focus` : le ticket est à mettre
+   *  en prod (ou en cours de MEP) — c'est là que la procédure doit sauter aux yeux. */
+  get mep() {
+    const r = this.r || {};
+    const actions = (r.deploy_actions || []).map(a => String(a)).filter(a => a.trim());
+    const s = r.mep_script && r.mep_script.file ? r.mep_script : null;
+    if (!actions.length && !s) return null;
+    const launch = (s && s.launch) || {};
+    return { actions, focus: r.status === "a_mep" || r.status === "en_mep",
+      script: s ? { file: String(s.file), text: String(s.text || ""), truncated: !!s.truncated,
+        lines: Number(s.lines) || 0, check: String(launch.check || ""), apply: String(launch.apply || ""),
+        aliasKnown: !!s.alias, lint: (s.lint || []).map(String) } : null };
+  }
+
+  /** Le bloc rendu de la section « mise en production » : les actions dans l'ordre, puis le script
+   *  avec ses deux commandes (contrôle, puis --apply) copiables et son texte. */
+  mepBlock() {
+    const m = this.mep;
+    if (!m) return null;
+    const cmd = (label, c) => (c ? html`<div style="margin:4px 0 6px"><div class="e-src">${label} <button class="mini" title="Copier la commande" data-action="copy" data-text="${c}">📋</button></div><code style="display:block;text-align:left;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-all;user-select:all;background:rgba(127,127,127,.12);padding:4px 8px;border-radius:6px">${c}</code></div>` : "");
+    const s = m.script;
+    return html`${m.actions.length
+      ? html`<div class="e-src">actions au déploiement, dans l'ordre :</div><ol style="margin:0 0 8px 18px;padding:0;font-size:13px;line-height:1.45">${m.actions.map(a => html`<li>${a}</li>`)}</ol>` : ""}${s
+      ? html`<details${m.focus ? " open" : ""}><summary style="cursor:pointer"><b>📜 Script de MEP</b> <span class="e-src">(${s.file} · ${String(s.lines)} lignes)</span></summary><div style="margin-top:6px">${cmd("contrôle", s.check)}${cmd("exécution", s.apply)}${s.aliasKnown ? "" : html`<div class="e-src">alias ssh inconnu : à remplacer dans la commande (champ <code>ssh_alias</code> de l'environnement prod).</div>`}${s.lint.length
+        ? html`<div style="color:var(--warn,#d29922);font-size:12px;margin:4px 0">⚠ contrat du script : manque ${s.lint.join(", ")}</div>` : ""}<pre style="font-size:12px;line-height:1.4;max-height:420px;overflow:auto;background:rgba(127,127,127,.08);padding:8px 10px;border-radius:8px">${s.text}</pre>${s.truncated
+        ? html`<div class="e-src">texte tronqué — le fichier complet est à côté de la fiche.</div>` : ""}</div></details>` : ""}`;
+  }
+
   /** RM3089 : la réflexion du ticket — les quatre rubriques, prêtes à rendre. `null` si le carnet
    *  n'existe pas encore : une fiche sans carnet n'affiche pas un bloc vide. */
   get think() {

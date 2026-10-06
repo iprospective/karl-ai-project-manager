@@ -16,6 +16,7 @@ presta_sync_files() {
     --exclude="admin*/autoupgrade/backup" \
     --exclude="app/config/parameters.php" \
     --exclude="/img/tmp" \
+    --exclude="/data" \
     --exclude="/var/cache/" \
     --exclude="/var/logs/" \
     --exclude="/themes/$THEME_NAME/assets/cache" \

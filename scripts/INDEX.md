@@ -32,6 +32,7 @@
 - `pm-task-partner` — rattache un ticket PM à un ticket d'un gestionnaire PARTENAIRE.
 - `pm-task-protocol` — Protocole de test d'un ticket : CF Redmine + frontmatter
 - `pm-task-questions` — les questions d'un ticket, dans son CF Redmine 36 « Questions à tranche…
+- `pm-task-rename` — renommer le TITRE d'un ticket (frontmatter + Redmine). RM3242.
 - `pm-task-report` — Report des tokens/temps consommés (frontmatter + .log.md PM) → Redmine.
 - `pm-task-search` — recherche d'ANTÉRIORITÉ : ce sujet a-t-il déjà un ticket ?
 - `pm-task-show` — Affiche le détail d'une tâche (MD + tail log + Redmine récent).

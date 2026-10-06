@@ -31,7 +31,9 @@ touch "$SITE/config/defines.inc.php"
 echo "photo" > "$SITE/img/p/1/1.jpg"
 echo "piece" > "$SITE/upload/abc.pdf"
 echo "banniere" > "$SITE/modules/demo/img/b.jpg"
-printf 'modules/demo|modules/demo/img\ncms-img|-\n' > "$SITE/.mmi-pm/presta-data.map"
+printf 'modules/demo|modules/demo/img\n' > "$SITE/.mmi-pm/presta-data.map"
+# La surcharge versionnée AVEC le site (cas d'un worktree, qui n'a pas de .mmi-pm).
+printf 'cms-img|-\nmodules/demo2|modules/demo/img\n' > "$SITE/.presta-data.map"
 
 # empreinte des DONNÉES avant toute exécution
 AVANT=$(find "$SITE/img" "$SITE/upload" "$SITE/download" "$SITE/modules" -type f | sort)
@@ -50,8 +52,9 @@ check "une racine sans config/defines.inc.php est refusée" "$(ok "$?" 2)"
 
 # — surcharge projet : ajout d'un module, retrait d'une entrée générique —
 L=$("$SCRIPT" --list "$SITE")
-check "la surcharge projet ajoute le module"  "$(ok "$(grep -c 'data/modules/demo' <<<"$L")" 1)"
+check "la surcharge projet ajoute le module"  "$(ok "$(grep -cE 'data/modules/demo[[:space:]]' <<<"$L")" 1)"
 check "une cible « - » retire l'entrée"       "$(ok "$(grep -c 'data/cms-img' <<<"$L")" 0)"
+check "la surcharge VERSIONNÉE du site est lue" "$(ok "$(grep -cE 'data/modules/demo2[[:space:]]' <<<"$L")" 1)"
 
 # — check AVANT création : non conforme, et rien d'écrit —
 "$SCRIPT" --check "$SITE" >/dev/null 2>&1

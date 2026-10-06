@@ -25,9 +25,9 @@
 #   presta-data-index.sh --ensure --dry-run [<racine>]
 #
 # <racine> : la racine du site (défaut : le dossier courant). Le manifeste générique est
-# `presta-data.map`, à côté de ce script ; la surcharge du projet est
-# `<racine>/.mmi-pm/presta-data.map` (elle ajoute les dossiers de données des modules,
-# qui sont propres à chaque site).
+# `presta-data.map`, à côté de ce script ; la surcharge du site est
+# `<racine>/.presta-data.map` (versionnée avec lui) ou `<racine>/.mmi-pm/presta-data.map`
+# — c'est là qu'on ajoute les dossiers de données des MODULES, propres à chaque site.
 set -uo pipefail
 
 SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -87,8 +87,17 @@ read_map() {
   done < "$f"
 }
 
+# Trois sources, dans l'ordre ; la suivante surcharge la précédente :
+#   1. le manifeste générique, à côté de ce script (le cœur PrestaShop) ;
+#   2. `<racine>/.mmi-pm/presta-data.map`, quand la racine du site EST celle d'un
+#      workspace PM ;
+#   3. `<racine>/.presta-data.map`, **versionné avec le site** — le cas des layouts
+#      RM1993, où la racine servie est un worktree de `envs/` et ne porte donc aucun
+#      `.mmi-pm`. C'est là que vivent les dossiers de données des MODULES : ils sont
+#      propres au site, et ils doivent suivre son dépôt, pas la machine.
 read_map "$MAP_BASE"
 read_map "$ROOT/.mmi-pm/presta-data.map"
+read_map "$ROOT/.presta-data.map"
 
 # ── sortie ───────────────────────────────────────────────────────────────────────
 RC=0

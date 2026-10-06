@@ -33,6 +33,7 @@ updated: 2026-09-30
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
+| je **crée un env de dev / de recette** : désactiver les protections anti-automatisation (CAPTCHA, 2FA, rate-limit) et poser le compte de l'agent — jamais les contourner, la prod les garde | `modules/environments.md` § « recettable par un agent » + `knowledge/<produit>/env-dev.md` | `pm-env-session create` |
 | je **nomme** une fonction, une méthode, un paramètre, une variable, un fichier source — **en anglais**, sauf base de code déjà écrite en français (un code *mixte* n'en est pas une) | `modules/methodes-travail.md` § « Langue du code » | — |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
@@ -4520,6 +4521,32 @@ Le framework de synchro les lit seul. Une conf d'environnement écrit
 `guard_local_target` reconnaît alors le domaine de test réel au lieu de deviner par
 motif, et un domaine de recette se repère au premier coup d'œil — dans un vhost, un
 log ou une URL envoyée au client.
+
+### Un env de dev doit être recettable par un agent (RM3400)
+
+**Règle.** À la création d'un environnement de dev ou de recette, **désactiver les protections
+anti-automatisation** : CAPTCHA sur la connexion, double authentification, limitation de débit
+et bannissement d'IP sur les tentatives. Elles restent **actives en production**, sans
+exception, et on vérifie après coup qu'on ne l'a pas touchée.
+
+**Ce qu'on ne fait pas : les contourner.** Résoudre un CAPTCHA par script, c'est fabriquer un
+outil de contournement réutilisable — contre l'instance qu'on protège, et par quiconque
+remettra la main dessus. Soit la protection n'a pas lieu d'être là, et on la désactive ; soit
+elle y a sa place, et on s'abstient d'automatiser cet écran.
+
+**Pourquoi c'est une règle et pas une commodité.** Sans accès navigateur, un défaut
+d'interface se corrige à l'aveugle : on déduit la cause du code, on déploie, on demande à
+l'utilisateur ce qu'il voit, on recommence. RM3040 a coûté **six déploiements** pour trois
+lignes de CSS — la cause réelle (le script renonçait en silence faute de trouver son champ)
+a été trouvée en un essai le jour où l'inspection du DOM est devenue possible. Le coût ne se
+paie pas en une fois : il se paie à chaque aller-retour, et il se paie en crédibilité.
+
+**Corollaire.** La désactivation ne sert à rien sans un **compte nominatif de l'agent** sur
+l'environnement, avec les droits du périmètre testé (cf. module `testing` § 9). Les deux vont
+ensemble : prévoir l'un à la création, c'est prévoir l'autre.
+
+**Spécificités par produit** : `knowledge/<produit>/env-dev.md` (pour Dolibarr :
+`MAIN_SECURITY_ENABLECAPTCHA`).
 
 ### Gestion des secrets — vaults déclarés
 

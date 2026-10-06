@@ -1,6 +1,6 @@
 # NORMS·runtime KERNEL — seul fichier NORMS préchargé ; lire EN ENTIER chaque session, ET après chaque compaction/reprise
 Réécriture dense pour LLM (RM3037, essai) de `norms/src/` ; source humaine `norms/src/NORMS-KERNEL.md`. Généré ⇒ ne pas éditer.
-Exception tracée (RM3195, 2026-09-15) : les tripwires 18-20 ont été densifiés À LA MAIN, le générateur `pm-norms-runtime --build` exigeant un fournisseur LLM qu'aucune instance ne sert (RM3135). Idem RM3318 (2026-09-28) : tripwire 21 densifié à la main, l'ancien 21 devient 22.. Idem RM3394 (2026-10-05) : l'entrée `methodes-travail` a été ajoutée à la main — le module ENTIER manquait à l'index, donc rien n'y renvoyait jamais. Ils manquaient depuis un conflit git non résolu dans la source.
+Exception tracée (RM3195, 2026-09-15) : les tripwires 18-20 ont été densifiés À LA MAIN, le générateur `pm-norms-runtime --build` exigeant un fournisseur LLM qu'aucune instance ne sert (RM3135). Idem RM3318 (2026-09-28) : tripwire 21 densifié à la main, l'ancien 21 devient 22.. Idem RM3400 (2026-10-06) : l'entrée `environments` a été enrichie à la main. Idem RM3394 (2026-10-05) : l'entrée `methodes-travail` a été ajoutée à la main — le module ENTIER manquait à l'index, donc rien n'y renvoyait jamais. Ils manquaient depuis un conflit git non résolu dans la source.
 Compaction/reprise = normes perdues, tâche gardée : ce qui te reste des garde-fous est un souvenir, pas une règle. Réinjection auto (hook `SessionStart` `compact|resume` → `mmi-pm norms-recall`) ; pas arrivée ⇒ relire avant d'agir.
 Contenu : (A) garde-fous permanents, (B) index mots-clés → module à ouvrir quand le cas se présente. Module = détail, fait foi ; KERNEL = obligation d'y aller. Modules runtime : `norms/runtime/<nom>.md`.
 
@@ -44,7 +44,7 @@ Contenu : (A) garde-fous permanents, (B) index mots-clés → module à ouvrir q
 - **traceability** : commit / étape significative (note + log + métriques), décision ou arbitrage à journaliser au fil de l'eau [`pm-task-report`]
 - **roi-pricing** : estimer, ROI, prioriser [`pm-task-add`, `pm-task-tick`, `priority.py`]
 - **task-links** : lier / dépendre / parenter des tickets [`pm-task-link`]
-- **environments** : me connecter à / référencer un env (`ssh_alias`), secrets et vaults (#11) [`resolve-secret.sh`]
+- **environments** : me connecter à / référencer un env (`ssh_alias`), secrets et vaults (#11) ; **CRÉER un env de dev/recette ⇒ désactiver les protections anti-automatisation** (CAPTCHA, 2FA, rate-limit) et poser le COMPTE de l'agent avec les droits du périmètre — on ne les CONTOURNE jamais (un script qui résout un CAPTCHA est un outil de contournement réutilisable) ; la prod les garde, vérifier après coup. Sans ça, un défaut d'interface se corrige à l'aveugle : RM3040 = six déploiements pour trois lignes de CSS. Gestes par produit : `knowledge/<produit>/env-dev.md` [`resolve-secret.sh`, `pm-env-session create`]
 - **environments-reference** (hors précharge) : écrire/éditer un aspect `environments.md` (noms d'env, champs, `post_deploy`, logs) [`templates/aspects/common/environments.md`]
 - **project-creation** : créer projet / entité, bootstrap, memberships [`pm-project-new`, `pm-project-bootstrap`, `pm-client-new`]
 - **project-modeling** : projet multi-clients / implémente un général, aspects, CDC, contacts [`pm-doctor`, `pm-sync-views`⚠, `pm-client-contact`]

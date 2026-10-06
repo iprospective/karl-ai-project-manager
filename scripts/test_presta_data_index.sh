@@ -111,5 +111,17 @@ check "aucun lien pendant n'est créé" "$(ok "$([ -e "$SITE/data/profile-img" ]
 check "le dossier de données n'est pas créé à la place de PS" \
       "$(ok "$([ -d "$SITE/img/pr" ] && echo y || echo n)" n)"
 
+# — --force-missing : le lien est posé malgré une cible absente ICI, mais seulement
+#   si on le demande (le défaut reste le refus, testé juste au-dessus).
+"$SCRIPT" --ensure --force-missing "$SITE" >/dev/null 2>&1
+check "--force-missing pose le lien quand même" \
+      "$(ok "$(readlink "$SITE/data/profile-img")" "../img/pr")"
+check "le dossier de données n'est toujours pas créé" \
+      "$(ok "$([ -d "$SITE/img/pr" ] && echo y || echo n)" n)"
+"$SCRIPT" --check "$SITE" >/dev/null 2>&1
+check "--check reste rouge sur un lien pendant" "$(ok "$?" 1)"
+APRES2=$(find "$SITE/img" "$SITE/upload" "$SITE/download" "$SITE/modules" -type f | sort)
+check "même avec --force-missing, aucune donnée n'a bougé" "$(ok "$AVANT" "$APRES2")"
+
 if [ "$fails" != 0 ]; then echo; echo "ÉCHEC : $fails test(s)"; exit 1; fi
 echo; echo "OK — presta-data-index (rien n'est jamais déplacé)"

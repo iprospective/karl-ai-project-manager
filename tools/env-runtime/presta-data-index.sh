@@ -23,6 +23,10 @@
 #   presta-data-index.sh --check  [<racine>]   contrôle (exit 1 si anomalie), n'écrit rien
 #   presta-data-index.sh --ensure [<racine>]   crée/répare les liens + le .htaccess
 #   presta-data-index.sh --ensure --dry-run [<racine>]
+#   presta-data-index.sh --ensure --force-missing [<racine>]
+#                                              pose aussi les liens dont la cible manque
+#                                              ICI mais existe ailleurs (donnée gitignorée
+#                                              d'un module, absente d'un worktree)
 #
 # <racine> : la racine du site (défaut : le dossier courant). Le manifeste générique est
 # `presta-data.map`, à côté de ce script ; la surcharge du site est
@@ -34,12 +38,14 @@ SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 MAP_BASE="$SELF_DIR/presta-data.map"
 MODE=""
 DRY=0
+FORCE_MISSING=0
 ROOT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --list|--check|--ensure) MODE="${1#--}" ;;
     --dry-run) DRY=1 ;;
+    --force-missing) FORCE_MISSING=1 ;;
     -h|--help) sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "ERREUR : option inconnue $1" >&2; exit 2 ;;
     *) ROOT="$1" ;;
@@ -142,9 +148,19 @@ for name in "${NAMES[@]}"; do
 
   # La cible doit exister : on ne crée jamais un lien pendant, et on ne crée jamais le
   # dossier de données non plus — ce serait décider à la place de PrestaShop.
+  # Une cible peut manquer ICI tout en existant ailleurs : un worktree ne contient que
+  # les fichiers trackés, donc un dossier de données gitignoré d'un module en est absent
+  # alors qu'il existe dans l'env canonique et en prod. Le lien étant RELATIF et commité,
+  # il sera juste partout où la donnée est là. On ne devine pas : `--force-missing` est
+  # un choix explicite, et sans lui le défaut reste le refus (jamais de lien pendant posé
+  # par accident).
   if [ ! -d "$ROOT/$target" ]; then
-    echo "  $WARN $name : cible absente ($target) — aucun lien créé"
-    n_miss=$((n_miss + 1)); RC=1; continue
+    if [ "$FORCE_MISSING" = 1 ] && [ "$MODE" = "ensure" ]; then
+      echo "  $WARN $name : cible absente ici ($target) — lien posé quand même (--force-missing)"
+    else
+      echo "  $WARN $name : cible absente ($target) — aucun lien créé"
+      n_miss=$((n_miss + 1)); RC=1; continue
+    fi
   fi
 
   if [ -L "$link" ]; then

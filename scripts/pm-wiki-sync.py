@@ -52,7 +52,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pm_paths import PMConfig  # noqa: E402
+from pm_paths import PMConfig, core_state_dir  # noqa: E402
 import redmine_utils as rm  # noqa: E402
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
 from pm_doc import get_doc_provider, DocProviderError, wiki_title_for_slug  # seam DocProvider (P3/RM2545)  # noqa: E402
@@ -146,22 +146,82 @@ def rewrite_links_foldback(body, title_to_basename):
 
 
 # ── Garde anti-secret (spec §5) ──────────────────────────────────────────
+_RX_BASE64 = re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b")
+
 _SECRET_PATTERNS = [
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "clé privée PEM"),
     (re.compile(r"(?i)\bpassword\s*[:=]\s*\S+"), "password: <valeur>"),
     (re.compile(r"(?i)\bpasswd\s*[:=]\s*\S+"), "passwd: <valeur>"),
     (re.compile(r"(?i)\bsecret\s*[:=]\s*\S+"), "secret: <valeur>"),
     (re.compile(r"(?i)\bapi[_-]?key\s*[:=]\s*\S+"), "api_key: <valeur>"),
-    (re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"), "jeton haute entropie (≥32c base64)"),
+    # Jetons de forge, ancrés sur leur préfixe (RM2826). Le motif base64 ci-dessous ne les
+    # voyait pas : le `_` et le `-` sont des caractères de mot ou des séparateurs, si bien
+    # que `\b…{32,}` ne trouvait jamais 32 caractères contigus dans sa classe. Lacune
+    # préexistante, relevée en corrigeant le faux positif — et elle compte ici, puisque ce
+    # dépôt manipule des PAT GitLab.
+    (re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}"), "jeton GitLab (glpat-)"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}"), "jeton GitHub (ghp_/gho_/ghu_/ghs_/ghr_)"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "jeton GitHub à portée fine"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"), "jeton Slack (xox…-)"),
 ]
 _ALLOW_MARK = "<!-- wiki-sync: allow -->"
+
+# Un segment de chemin plausible : un nom de fichier ou de dossier, pas un blob.
+_RX_SEGMENT_CHEMIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@+-]*\Z")
+
+
+def _ressemble_a_un_chemin(fragment):
+    """Le fragment capté par le motif base64 est-il en réalité un chemin de fichier ? (RM2826)
+
+    Le motif accepte le `/`, légitime en base64 — mais du coup tout chemin un peu long
+    devient un « jeton haute entropie ». Deux exemples qui bloquaient le CDC transport de
+    pisceen/presta :
+
+        /zfs/workspaces/prestashop/modules/customshippingrate
+        modules/thecheckout/controllers/front/front
+
+    Le départage retenu : un vrai jeton est une suite CONTIGUË de 32 caractères ou plus. Si
+    l'on découpe le fragment sur ses `/` et que chaque morceau est un nom plausible de moins
+    de 32 caractères, c'était un chemin. Un jeton, lui, garde au moins un morceau long.
+
+    On ne touche pas à la sensibilité du motif : on écarte seulement ce qui n'a jamais été
+    un secret. Les autres motifs sont ancrés sur un mot-clé (`password:`, `api_key:`…) et
+    n'ont pas ce défaut.
+    """
+    if "/" not in fragment:
+        return False
+
+    segments = [seg for seg in fragment.split("/") if seg]
+
+    if len(segments) < 2:
+        return False
+
+    return all(
+        len(seg) < 32 and _RX_SEGMENT_CHEMIN.match(seg)
+        for seg in segments
+    )
+
+
+def _jetons_haute_entropie(body):
+    """Les fragments base64 du corps qui ne sont pas des chemins de fichiers."""
+    return [
+        fragment
+        for fragment in _RX_BASE64.findall(body)
+        if not _ressemble_a_un_chemin(fragment)
+    ]
 
 
 def scan_secrets(body):
     """Libellés des motifs secrets détectés (vide si OK ou si marque allow présente)."""
     if _ALLOW_MARK in body:
         return []
-    return [label for rx, label in _SECRET_PATTERNS if rx.search(body)]
+
+    labels = [label for rx, label in _SECRET_PATTERNS if rx.search(body)]
+
+    if _jetons_haute_entropie(body):
+        labels.append("jeton haute entropie (≥32c base64)")
+
+    return labels
 
 
 # ── Wrappers gérés (ajoutés au push, retirés à la canonicalisation) ──────
@@ -427,6 +487,30 @@ class LockBusy(Exception):
     """Levée quand un autre sync du même projet tient déjà le lock au-delà du délai."""
 
 
+_GITIGNORE_ETAT = """# État runtime de pm-wiki-sync — jamais versionné (RM2825).
+# Le verrou vit désormais hors de ce dossier ; cette ligne reste le filet pour les
+# projets synchronisés avant le correctif, et pour tout résidu.
+.lock
+"""
+
+
+def _ignorer_le_verrou_residuel(state_dir):
+    """Pose un `.gitignore` dans le dossier d'état, pour les projets déjà synchronisés.
+
+    Le verrou n'est plus écrit ici (cf. `ProjectLock._chemin_du_verrou`), mais les projets
+    synchronisés avant le correctif en gardent un, parfois déjà suivi par git. Ce fichier
+    évite qu'il revienne dans l'index. Le rattrapage des `.lock` DÉJÀ suivis reste un
+    `git rm --cached` à faire une fois par projet concerné — on ne touche pas à l'index
+    d'un dépôt sous les pieds de l'utilisateur.
+    """
+    cible = Path(state_dir) / ".gitignore"
+    try:
+        if not cible.exists():
+            cible.write_text(_GITIGNORE_ETAT, encoding="utf-8")
+    except OSError:
+        pass   # un dossier non inscriptible ne doit pas empêcher la synchro
+
+
 class ProjectLock:
     """Sérialise deux syncs concurrents d'un même projet (spec §9).
 
@@ -435,14 +519,65 @@ class ProjectLock:
     (supprime le TOCTOU RM1834). Contention = attente bornée ; au-delà de `timeout`,
     LockBusy → le projet est skippé et re-tenté au sync suivant (skip préservé)."""
 
-    def __init__(self, state_dir, *, timeout=10.0):
-        self.path = state_dir / ".lock"
+    def __init__(self, state_dir, *, timeout=10.0, lock_path=None):
         self.state_dir = state_dir
+        self.path = Path(lock_path) if lock_path else self._chemin_du_verrou(state_dir)
         self._timeout = timeout
         self._cm = None
 
+    @staticmethod
+    def _chemin_du_verrou(state_dir):
+        """Où écrire le `.lock` : hors du volume PM VERSIONNÉ du projet (RM2825).
+
+        Le dossier d'état `.mmi-pm/.wiki-sync/` est versionné. Y déposer un verrou en fait
+        un fichier que git peut créer, supprimer ou restaurer sous les pieds du processus
+        qui le détient : un `git checkout` ou un `git stash` pendant une synchro suffit à le
+        fausser. Et en sessions parallèles, deux workers synchronisant deux projets
+        produisent des commits qui se marchent dessus sur un fichier qui n'a aucune raison
+        d'être partagé. Constaté le 2026-08-25 sur pisceen/presta, où le `.lock` s'est
+        retrouvé dans l'index avec les fichiers légitimes.
+
+        Ordre de préférence, et pourquoi :
+
+        1. `<core>/var/wiki-sync/` — déjà couvert par le `.gitignore` du core, et surtout
+           PARTAGÉ entre utilisateurs : c'est la seule option qui sérialise vraiment deux
+           synchros lancées par deux comptes différents sur le même projet.
+        2. `$XDG_RUNTIME_DIR/mmi-pm/wiki-sync/` — si le `var/` du core n'est pas
+           inscriptible. Dégradé et assumé : ce dossier est propre à chaque utilisateur,
+           donc deux comptes ne se verrouillent plus mutuellement. Mieux que pas de verrou.
+        3. l'ancien emplacement, dans le dossier d'état du projet — dernier repli, pour ne
+           jamais empêcher une synchro de tourner.
+
+        Le nom est dérivé du chemin du dossier d'état : un verrou par projet, sans collision
+        entre deux projets de même nom chez deux clients différents.
+        """
+        etat = Path(state_dir)
+        cle = hashlib.sha1(str(etat.resolve()).encode("utf-8")).hexdigest()[:12]
+        nom = "%s-%s.lock" % (etat.parent.parent.name or "projet", cle)
+
+        candidats = []
+        try:
+            candidats.append(core_state_dir() / "wiki-sync")
+        except Exception:
+            pass
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if runtime:
+            candidats.append(Path(runtime) / "mmi-pm" / "wiki-sync")
+
+        for base in candidats:
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+                if os.access(str(base), os.W_OK):
+                    return base / nom
+            except OSError:
+                continue
+
+        return etat / ".lock"
+
     def __enter__(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        _ignorer_le_verrou_residuel(self.state_dir)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._cm = resource_lock(self.path, timeout=self._timeout)
         try:
             self._cm.__enter__()

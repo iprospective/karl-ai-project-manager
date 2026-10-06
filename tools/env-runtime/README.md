@@ -114,8 +114,18 @@ sudo -n /usr/local/sbin/pm-env-helper ws-perms <workspace>   # (ré)applique le 
 
 `ws-init` crée, si absents : le dossier client, la racine du workspace, tous les dossiers
 du modèle (`.mmi-pm/` et ses sous-dossiers, `repos/`, `envs/`, `tmp/ sessions/ logs/
-data/`) et le `.gitignore` de whitelist du repo `-core` — puis applique le modèle de
-perms. Idempotent : sur un workspace déjà complet, il ne fait rien.
+data/`) et les **entrées de racine** — `.gitignore` de whitelist, dépôt `-core` **vide**
+(`.git`, `--shared=group`, branche `main`, ni remote ni commit) et lien `docs →
+.mmi-pm/docs` — puis applique le modèle de perms. Idempotent : sur un workspace déjà
+complet, il ne fait rien.
+
+Ces entrées de racine relèvent du privilège pour la même raison que les dossiers : en
+`2750`, y créer une entrée est précisément ce que le modèle interdit à l'appelant.
+`pm-project-new` mourait donc en `Permission denied` au moment de publier `.mmi-pm/`
+(RM2947). Le dépôt est amorcé **vide** : `git_core_publish` reste seul à décider quoi
+publier et où — ici on pose le contenant, jamais le contenu. Et il est **partagé**
+(`--shared=group`), sans quoi le premier committant verrouillerait les objets pour les
+autres membres du groupe `pm`.
 
 **Le modèle n'est pas dans le helper.** La liste des dossiers vient de
 `pm-perms.py --list-dirs`, les modes et owners de `pm-perms.py --apply`, le texte du

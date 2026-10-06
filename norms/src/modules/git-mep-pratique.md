@@ -111,8 +111,15 @@ Points de vigilance :
   de rollback (cf. `modules/traceability.md`) — un point de restauration non tracé ne
   sert à rien le jour où il faut revenir en arrière.
 
-> **Trou d'outillage** (à combler) : pas encore de script PM dédié
-> (`pm-snapshot-pre-mep`) — la commande `om` est passée à la main pour l'instant.
+> **Outil : `pm-snapshot` (RM2989).** `pm-snapshot <RM-id> --dry-run` constate le nœud
+> qui porte l'instance `up` et affiche la commande exacte ; `pm-snapshot <RM-id>` prend
+> le snapshot, affiche son nom et journalise (`.log.md` + note Redmine) le nom et la
+> commande de rollback. PM ne touche aucun hôte : le snapshot est pris par **atlas**
+> (ops `svc-status` / `svc-snapshot`, RM3254) via le canal orchestrateur — frontière D3
+> (RM2421). La cible se **déclare** (`snapshot: {svc: <service>, rid: sync#root_hour}` sur
+> l'env de `environments.md`, ou dans `meta.yml` quand la prod du projet EST le
+> conteneur) : jamais devinée. Zéro ou plusieurs instances `up` ⇒ refus, rien
+> d'exécuté. Hors parc opensvc (hébergement tiers, cf. RM2567) : pas de couverture.
 
 > Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
 > à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
@@ -340,7 +347,7 @@ sait y ouvrir des PR. Pour **créer** un dépôt et y pousser des branches chois
   avertissement sinon (les dépôts privés d'un plan gratuit n'en ont pas) ;
 - `--remote github` pose le remote sous ce nom : `origin` (GitLab) reste intact ;
 - le jeton est **par organisation** : `GITHUB__<OWNER>__TOKEN` (ex. `GITHUB__IPROSPECTIVE__TOKEN`) dans le
-  **`.env` utilisateur** (`~/.config/mmi-pm/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
+  **`.env` utilisateur** (`<core>/var/users/<user>/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
   `deploy/karl-agent/git-credential-pm-github` (installé dans `~/.local/bin`) le sert à `git` ; le
   repli HTTPS+jeton de l'alias canonique est `url.https://github.com/.insteadOf github:` en
   config globale — le remote stocké reste `github:owner/repo.git` (RM2328).
@@ -398,7 +405,7 @@ Redmine » veut dire « pas d'information », pas « efface ». Le vidage volont
 > défaut, ne remplace jamais du contenu par du vide, et **signale les désaccords au lieu
 > de trancher**.
 
-##### Script de MEP : la procédure s'automatise, et se conserve — v2.55.0 (RM3225)
+##### Script de MEP : la procédure s'automatise, et se conserve — v2.62.0 (RM3225)
 
 Dès que `deploy_actions` contient autre chose qu'un geste trivial (supprimer un dossier non
 suivi, recâbler un submodule, écrire une version en base, vérifier un rendu…), la procédure
@@ -412,15 +419,10 @@ tasks/RM<id>_<slug>.script-mep.sh        # frère de la fiche, comme .log.md / .
 Il est versionné avec les données du projet et **jamais supprimé**, même ticket fermé :
 c'est l'historique **exécutable** des MEP. `pm-task-move` l'emporte avec le ticket.
 
-**Contrat minimal** — ce qu'un relecteur doit pouvoir vérifier d'un coup d'œil :
-
-- `set -euo pipefail` ;
-- **mode CONTRÔLE par défaut** (lecture seule, hors `git fetch`) et **`--apply`** pour exécuter ;
-- **idempotent** : relancé après succès, il constate l'état et ne touche à rien ;
-- **gardes avant le point de non-retour** (le contenu à supprimer est-il celui qu'on croit ?
-  le lot est-il promu ?) — une garde qui échoue arrête tout, avec le motif ;
-- **vérification finale** de l'état obtenu ;
-- **rollback** en en-tête ; **aucun secret**.
+**Contrat minimal**, vérifiable d'un coup d'œil : `set -euo pipefail` ; **mode CONTRÔLE par
+défaut** et **`--apply`** pour exécuter ; **idempotent** ; **gardes avant le point de
+non-retour** (le contenu à supprimer est-il celui qu'on croit ? le lot est-il promu ?), qui
+arrêtent tout avec leur motif ; **vérification finale** ; **rollback** en en-tête ; aucun secret.
 
 **Lancement** : le script s'exécute **sur la cible** et se lance depuis le poste de
 l'opérateur, par l'entrée standard — rien n'est copié sur le serveur :
@@ -434,16 +436,11 @@ ssh <alias> 'bash -s -- --apply' < .mmi-pm/tasks/RM<id>_<slug>.script-mep.sh  # 
 lieu d'en recopier les étapes. **Le tester** avant la MEP : maquette locale pour les cas
 limites, puis **mode contrôle sur la vraie cible**.
 
-**Où il se voit** : sur la fiche du ticket au cockpit (bloc « 🚀 Mise en production » —
-actions au déploiement, commandes copiables, texte du script, déplié en `a_mep`/`en_mep`),
-au passage en `a_mep` (`pm-task-status-update` l'affiche avec ses commandes) et dans
-`pm-task-deploy <id>`. Une seule lecture : `scripts/pm_mep_script.py`, qui signale aussi
-(sans bloquer) ce qui manque au contrat. L'alias ssh vient du champ `ssh_alias` de l'env
-`prod` du projet, sinon de l'en-tête du script.
-
-**Sécurité prod** : le script ne lève **aucune** garde. Le consentement humain porte sur
-« lancer **ce** script en `--apply` » — une action précise et relue, plus simple à donner
-qu'une suite de commandes tapées à la main.
+**Où il se voit** : fiche du ticket au cockpit (rubrique « mise en production »), passage en
+`a_mep`, et `pm-task-deploy <id>`. Lecture unique : `scripts/pm_mep_script.py`, qui signale
+sans bloquer ce qui manque au contrat ; l'alias ssh vient du champ `ssh_alias` de l'env
+`prod`, sinon de l'en-tête du script. Le script ne lève **aucune** garde : le consentement
+porte sur « lancer **ce** script en `--apply` » — précis et relu.
 
 #### Plusieurs tickets dans une session : bonne branche, bon worktree — v1.20.5
 

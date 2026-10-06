@@ -37,6 +37,17 @@ la prise) sont restées dans `status-workflow.md`.
 | `a_mep` | `en_mep` | déployé en **PROD** : **3 branches** MR `preprod`→`prod_branch` / **2 branches** MR `dev`→`prod_branch` + pull prod |
 | `en_mep` | `ferme` | *(RM2893 : `en_mep` = en prod)* vérif **prod** OK — `close_reason: resolu` |
 | `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
+
+**La file `en_mep` se rappelle à nous (RM3278).** `en_mep` est une file d'attente HUMAINE :
+le code est en prod, il reste à jouer la colonne « Prod » du protocole de test, puis à fermer.
+Rien ne la relançait — mesuré le 2026-09-30 : 18 tickets déployés en attente, le plus ancien
+depuis 71 jours. Le job `mep-watch` (registre de l'ordonnanceur) les signale au fil de
+notifications, **à condition de pouvoir prouver** que le code est en prod : filiation des
+commits depuis le checkout de prod, ou merge dans la branche que la prod suit
+(`project/environments.md`, champ `branch`) — jamais une date, jamais un `git log --grep`.
+Sans preuve, rien n'est notifié : un ticket dont la MEP n'a pas eu lieu est un autre problème.
+Un ticket resté en `a_mep` alors que son code est déjà en prod est signalé aussi : son statut
+est en retard. Rapport à la demande : `mmi-pm mep-watch`.
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
@@ -125,6 +136,9 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
+  Si le sujet remplit le critère d'**aspect partagé** (CDC, cluster ≥ 2 tickets, transverse
+  durable — `project-modeling-pratique.md` § *Aspect partagé*), le livrable **est** cet
+  aspect, lié par `pm-task-doc` : la description du ticket y renvoie au lieu de le recopier.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
 - **Proposition d'implémentation** — l'esquisse technique, dans le CF 31 via
   `pm-task-implementation` (§ dédiée ci-dessous). **Obligatoire dès que l'étude débouche
@@ -229,6 +243,20 @@ ne lit jamais l'API). Outil unique : **`pm-task-acceptance`** (`--set` / `--appe
 porte ses critères en section `## Critères d'acceptation` du corps, se reprend par
 `--from-description` (en masse : `pm-cf-mirror-backfill --field acceptance
 --adopt-sections` — le corps est **conservé**, rien n'est effacé).
+
+**Une seule copie (RM3241).** Une fois repris dans le champ, les critères **sortent** de la
+description : deux copies divergent, et la périmée est celle que lit l'humain dans Redmine
+(RM3173 : 4/4 cochés dans le champ, 0/4 dans la description, ticket en MEP). À la
+création, `pm-task-add` envoie la section de critères de `--description` au champ, pas
+à la description. Sur un ticket migré, `pm-task-description-update` retire la section
+d'un `--set-from-file` que le champ couvre déjà, et **refuse** celle qui en diffère
+(critère ou coche en plus) ainsi que `--add-criterion` : on passe par `pm-task-acceptance`.
+L'existant se purge par `pm-acceptance-purge` (dry-run par défaut, dump JSONL avant
+écriture ; `--fold` replie d'abord la section ENTIÈRE dans le champ — texte et sous-titres
+compris, coches fusionnées —, `--convert-bullets` y transforme les critères écrits en
+puces), selon une règle **orientée** : la section part si le champ la couvre ou est
+**en avance** ; elle reste si la description est en avance, si un item manque au champ,
+ou si elle porte de la prose — rien ne se perd, le reste se tranche à la main.
 
 **Lecture à double source, et sans bascule.** Champ non vide ⇒ il fait foi ; vide ⇒ la
 section de la description, exactement comme avant. Tous les lecteurs partagent la même

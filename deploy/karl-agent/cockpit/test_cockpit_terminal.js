@@ -22,8 +22,8 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   assert.strictEqual(M.termAvailable(st("1"), { KarlTerm: {}, Terminal: {} }), false, "karl_noxterm=1 : repli explicite");
   assert.strictEqual(M.termAvailable(st(null), {}), false, "bundle absent : repli");
   assert.strictEqual(M.termAvailable({ getItem() { throw new Error("privé"); } }, { KarlTerm: {}, Terminal: {} }), true, "stockage bloqué : on garde le défaut, pas le repli");
-  assert.strictEqual(M.iframeReachable({ port: "9876" }), true, "accès direct : le port 7681 du bridge est joignable");
-  assert.strictEqual(M.iframeReachable({ port: "" }), false, "RM3124 : derrière le vhost (donc à distance), :7681 ne l'est pas");
+  assert.strictEqual(M.iframeReachable({ port: "9876" }), true, "accès direct au port de karl-agent (loopback) : ttyd :7681 l'est aussi");
+  assert.strictEqual(M.iframeReachable({ port: "" }), false, "RM3124/RM2146 : derrière le vhost, :7681 ne l'est pas (vhost dédié supprimé)");
   assert.strictEqual(M.iframeReachable({ port: "443" }), false); assert.strictEqual(M.iframeReachable({ port: "80" }), false);
   assert.strictEqual(M.composerGuard("idle").allow, true); assert.strictEqual(M.composerGuard("working").allow, true); assert.strictEqual(M.composerGuard(undefined).allow, true); assert.strictEqual(M.composerGuard("choice").allow, false); assert.strictEqual(M.composerGuard("attention").allow, false); assert(/menu/i.test(M.composerGuard("choice").warn) && /question/i.test(M.composerGuard("attention").warn)); assert.strictEqual(M.composerGuard("idle").warn, null);
   assert.deepStrictEqual(M.composerHistoryAdd([], "a"), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "b"), ["b", "a"]); assert.deepStrictEqual(M.composerHistoryAdd(["b", "a"], "a"), ["a", "b"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "  a  "), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "   "), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(null, "a"), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a", "b", "c"], "d", 3), ["d", "a", "b"]);

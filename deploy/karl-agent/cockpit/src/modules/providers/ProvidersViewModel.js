@@ -19,7 +19,12 @@ export class ProvidersViewModel extends EntityViewModel {
     return { list: m.models || [], count: (m.models || []).length, url: m.url || "" };
   }
   get admin() { return !!this.data.admin; }
+  /** RM3070 L2 : la portée « global » n'est offerte que si l'instance peut vraiment l'écrire. */
+  get canGlobal() { return !!this.data.admin && !!this.data.can_global; }
   get user() { return this.data.user || ""; }
+  /** RM3096 : l'état des clés n'a pas pu être lu — à dire, au lieu de les montrer « absentes ». */
+  get statesUnknown() { return !!this.data.states_unknown; }
+  get statesError() { return this.data.states_error || ""; }
   get empty() { return !(this.cat.types || []).length; }
   typesOf(axis) { return (this.cat.types || []).filter(t => t.axis === axis); }
   typeOf(nom) { return (this.cat.types || []).find(t => t.type === nom) || { fields: [], secrets: [] }; }

@@ -188,4 +188,71 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     L.resetCenterH();
     assert(props["--reviewpane-h"] === undefined && st.d.karlCenterH === undefined, "double-clic : retour au défaut CSS");
     console.log("✓ split de la zone centrale (RM3051) : OFF par défaut, session masquée puis rendue à l'identique, bascule à chaud, hauteur bornée et mémorisée"); }
+
+  // — RM3270 : l'écran utile au doigt — plein écran au clavier, barre du haut en icônes, double appui —
+  { const { mountLayout: ML } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
+    const MB = await import(path.join(DIR, "src/modules/layout/mobile.js"));
+    // — modèle —
+    assert(MB.keyboardOpen({ viewportH: 380, windowH: 800 }) && !MB.keyboardOpen({ viewportH: 780, windowH: 800 }), "le clavier se voit au viewport qui rétrécit");
+    assert(!MB.keyboardOpen({}) && !MB.keyboardOpen({ viewportH: 380, windowH: 0 }), "sans mesure, pas de conclusion");
+    assert.deepStrictEqual(MB.fullItem(false), { icon: "⛶", label: "plein écran", full: false });
+    assert.strictEqual(MB.fullItem(true).label, "vue normale");
+    assert.deepStrictEqual(MB.headerSplit(["setbtn", "cdcbtn", "yesatt", "pmbtn"]), { primary: ["setbtn", "yesatt"], extra: ["cdcbtn", "pmbtn"] });
+    assert.strictEqual(MB.iconOf("🩺 Supervision"), "🩺"); assert.strictEqual(MB.iconOf("❓"), "❓"); assert.strictEqual(MB.iconOf("  ⬆ MAJ dispo "), "⬆"); assert.strictEqual(MB.iconOf(null), "");
+    // — contrôleur —
+    const mkb = (id, txt) => Object.assign(fakeEl(id), { textContent: txt });
+    const boutons = [mkb("setbtn", "🔧"), mkb("cdcbtn", "📋 CDC"), mkb("yesatt", "✔ Oui"), mkb("hdrmore", "…")];
+    const header = Object.assign(fakeEl("header"), { querySelectorAll: () => boutons, contains: (n) => boutons.includes(n) });
+    const hdrmore = boutons[3];
+    const mainM = fakeEl("main"), mnav = fakeEl("mnav");
+    let inner = ""; Object.defineProperty(mnav, "innerHTML", { get() { return inner; }, set(v) { inner = v; } });
+    const rootM = { documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, addEventListener() {}, removeEventListener() {} };
+    const vp = { height: 800, L: [], addEventListener(t, f) { this.L.push([t, f]); }, removeEventListener(t, f) { this.L = this.L.filter(([a, b]) => !(a === t && b === f)); } };
+    const stM = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
+    const lay = ML({ main: mainM, mnav, header, hdrmore }, { storage: stM, root: rootM, media: { matches: true, addEventListener() {}, removeEventListener() {} }, search: "",
+      viewport: vp, windowH: () => 800 });
+    lay.restore();
+    // barre du haut : icône seule, secondaires en « extra », le bouton « … » intact
+    assert.strictEqual(boutons[1].textContent, "📋", "le libellé cède la place à l'icône");
+    assert.strictEqual(boutons[1].dataset.full, "📋 CDC", "le libellé d'origine est gardé pour le retour au bureau");
+    assert(boutons[1].has("hdr-extra") && !boutons[0].has("hdr-extra") && !boutons[2].has("hdr-extra"), "seuls les secondaires passent sous « … »");
+    assert.strictEqual(hdrmore.textContent, "…", "le bouton de débordement ne se condense pas");
+    // double appui : le premier montre le nom et retient le geste, le second laisse passer
+    let passe = 0, stopped = 0;
+    const tap = (b) => { const ev = { target: { closest: () => b }, preventDefault() { passe--; }, stopPropagation() { stopped++; } }; passe++; lay.headerTap(ev); return ev; };
+    tap(boutons[1]);
+    assert(boutons[1].textContent === "📋 CDC" && stopped === 1 && passe === 0, "1er appui : le nom s'affiche, le clic est retenu");
+    tap(boutons[1]);
+    assert(stopped === 1 && passe === 1 && boutons[1].textContent === "📋", "2e appui sur le même bouton : le clic passe, l'icône revient");
+    tap(boutons[0]); assert.strictEqual(stopped, 2, "un autre bouton repart du premier appui");
+    // plein écran : bascule manuelle, page forcée au centre, barre du bas repeinte
+    assert.strictEqual(rootM.documentElement.dataset.mfull, "0");
+    assert.strictEqual(lay.toggleFull(), true);
+    assert(rootM.documentElement.dataset.mfull === "1" && mainM.dataset.mpage === "center", "plein écran : le centre seul");
+    assert(/data-mfull="1"/.test(inner) && /vue normale/.test(inner), "la bascule est dans la barre du bas, et dit comment en sortir");
+    assert.strictEqual(lay.toggleFull(), false); assert.strictEqual(rootM.documentElement.dataset.mfull, "0");
+    // clavier : entrée automatique, et sortie automatique parce que c'est lui qui l'avait demandée
+    vp.height = 380; vp.L.find(([t]) => t === "resize")[1]();
+    assert(lay.mobile().full && lay.mobile().auto, "clavier ouvert → plein écran automatique");
+    vp.height = 800; vp.L.find(([t]) => t === "resize")[1]();
+    assert(!lay.mobile().full, "clavier refermé → retour à la vue normale");
+    // … mais une bascule MANUELLE ne se défait pas toute seule quand le clavier retombe
+    lay.toggleFull(); vp.height = 800; vp.L.find(([t]) => t === "resize")[1]();
+    assert(lay.mobile().full, "le plein écran demandé à la main reste");
+    // débordement « … »
+    assert.strictEqual(lay.toggleMore(), true); assert(header.has("hdr-more"));
+    assert.strictEqual(lay.toggleMore(), false); assert(!header.has("hdr-more"));
+    // second formulaire (composer) : la disposition porte la règle, les réglages la commandent
+    assert.strictEqual(lay.applyComposer(false), false); assert.strictEqual(rootM.documentElement.dataset.mcomposer, "0");
+    lay.applyComposer(true); assert.strictEqual(rootM.documentElement.dataset.mcomposer, "1");
+    // retour au bureau : les libellés reviennent, le plein écran tombe
+    lay.toggleFull();
+    const layD = ML({ main: fakeEl("mainD"), mnav: fakeEl("mnavD"), header, hdrmore }, { storage: stM, root: rootM, media: { matches: false, addEventListener() {}, removeEventListener() {} }, search: "", forced: null });
+    layD.restore();
+    assert(boutons[1].textContent === "📋 CDC" && boutons[1].dataset.full === undefined && !boutons[1].has("hdr-extra"), "au bureau, la barre du haut est rendue telle qu'elle était");
+    assert.strictEqual(layD.toggleFull(), false, "pas de plein écran au bureau");
+    lay.unmount(); layD.unmount();
+    assert.strictEqual(vp.L.length, 0, "unmount retire l'écouteur du viewport");
+    assert.strictEqual(header.listenerCount, 0, "unmount retire l'écouteur de capture de la barre du haut");
+    console.log("✓ écran utile au doigt (RM3270) : plein écran au clavier et à la main, barre du haut en icônes + « … », double appui, composer optionnel"); }
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

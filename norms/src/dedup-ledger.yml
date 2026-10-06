@@ -357,3 +357,7 @@ rewritten:
   - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : corollaire de l'entrée ci-dessus — l'optimistic locking est repositionné par rapport à `flock`. Il ne complète plus seulement « les règles de propriété » mais devient explicitement le filet INTER-MACHINE, là où `flock` sérialise sur une même machine (NFS/multi-serveur : cf. `modules/governance.md`). Sans cette précision, un lecteur pouvait croire les deux mécanismes redondants et n'en appliquer qu'un. Le protocole en 5 étapes et sa portée (tous les `.md`, jamais les `.log.md`) sont conservés verbatim juste en dessous."
     old: |
       Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+
+  - reason: "RM2662 (2026-09-19) : la liste des fondations d'un projet nommait « Vaultwarden » comme s'il était le seul coffre possible. Depuis RM2662, un projet peut utiliser KeePass, 1Password, Nextcloud Passwords ou un fichier age, et la cascade projet → client → défaut est réellement consultée à la résolution d'un secret. La ligne dit désormais « le coffre à secrets » : aucune règle retirée — la fondation à ne pas oublier est la même, seul le cas particulier devient le cas général. Vaultwarden reste nommé, comme DÉFAUT, dans la ligne du gabarit `001-secrets-vaultwarden` juste en dessous."
+    old: |
+      créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,

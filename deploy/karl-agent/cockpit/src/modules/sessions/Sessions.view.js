@@ -27,7 +27,7 @@ export function CtxGauge(g, pulse) {
 export function Tile(vm, { pin, titleLink }) {
   const tc = vm.ticketCount;   // RM3131 : « n ouverts / m » des tickets de la session
   const s = vm.s, tag = vm.setTag, q = vm.quiet;
-  return html`<div class="runitem${vm.active ? " active" : ""}${vm.unseen ? " unseen" : ""}" data-action="attach" data-k="${vm.key}" title="${vm.tip}"${outline(vm)}><span class="${vm.dotClass}" data-action="disp" data-k="${vm.key}" title="${vm.dispTip}"></span><span class="tid">${vm.idLabel}</span>${raw(pin("session", s.rm_id))}${tag ? html`<span class="tbadge" style="opacity:${tag.opacity}" title="${tag.title}">${tag.text}</span>` : ""}<span class="rmeta">${raw(titleLink(s.rm_id, vm.title))}${vm.age ? (vm.title ? " · " : "") + vm.age : ""}</span>${q ? html`<span class="tquiet" title="${q.title}">${q.text}</span>` : ""}${Badge(vm.badge)}${vm.autoTitle ? html`<span class="tbadge" style="color:var(--ok)" title="${vm.autoTitle}">⏱✔</span>` : ""}${vm.stale ? html`<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>` : ""}${vm.canApprove ? html`<span class="tyes" data-action="approve" data-k="${vm.key}" title="Répondre Oui à la question en attente (sans attacher)">✔</span>` : ""}${vm.canDrop ? html`<span class="tkill tdrop" data-action="drop" data-k="${vm.key}" title="${vm.dropTitle}">⊖</span>` : ""}<span class="tkill" data-action="kill" data-k="${vm.key}" title="Fermer la session (le tmux est tué ; l'entrée reste dans le jeu, en tuile grise)">✕</span>${tc
+  return html`<div class="runitem${vm.active ? " active" : ""}${vm.unseen ? " unseen" : ""}" data-action="attach" data-k="${vm.key}" title="${vm.tip}"${outline(vm)}><span class="${vm.dotClass}" data-action="disp" data-k="${vm.key}" title="${vm.dispTip}"></span><span class="tid">${vm.idLabel}</span>${raw(pin("session", s.rm_id))}${tag ? html`<span class="tbadge" style="opacity:${tag.opacity}" title="${tag.title}">${tag.text}</span>` : ""}<span class="rmeta">${raw(titleLink(s.rm_id, vm.title))}${vm.age ? (vm.title ? " · " : "") + vm.age : ""}</span>${q ? html`<span class="tquiet" title="${q.title}">${q.text}</span>` : ""}${Badge(vm.badge)}${vm.autoTitle ? html`<span class="tbadge" style="color:var(--ok)" title="${vm.autoTitle}">⏱✔</span>` : ""}${vm.stale ? html`<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>` : ""}${vm.compact ? html`<span class="tcompact${vm.compact.ready ? "" : " off"}" data-action="compact" data-k="${vm.key}" title="${vm.compact.title}">🗜</span>` : ""}${vm.canApprove ? html`<span class="tyes" data-action="approve" data-k="${vm.key}" title="Répondre Oui à la question en attente (sans attacher)">✔</span>` : ""}${vm.canDrop ? html`<span class="tkill tdrop" data-action="drop" data-k="${vm.key}" title="${vm.dropTitle}">⊖</span>` : ""}<span class="tkill" data-action="kill" data-k="${vm.key}" title="Fermer la session (le tmux est tué ; l'entrée reste dans le jeu, en tuile grise)">✕</span>${tc
     ? html`<span class="tcount" title="${tc.open} ticket(s) encore ouvert(s) sur ${tc.total} traité(s) dans cette session — statuts résolus par l'index, pas figés au worklog">${tc.open}/${tc.total}</span>` : ""}${CtxGauge(vm.ctxGauge, vm.ctxPulse)}</div>`;
 }
 
@@ -64,11 +64,23 @@ export function ReviewGroup(vms, { pin, titleLink }) {
 
 export const Empty = () => html`<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>`;
 
-/** RM2283 : compteurs du panneau (ouvertes · enregistrées · ⚠ · ❓ · repos). */
+/** RM2283 : compteurs du panneau (ouvertes · enregistrées · ⚠ · ❓ · repos).
+ * RM3302 : chaque compteur est un GESTE — un clic ne montre que ces sessions, un second revient à tout.
+ * Le compteur affiche toujours le total, filtre ou pas : il reste le chemin pour changer de filtre. */
 export function Counters(vm) {
   const c = vm.c;
-  return html`<span class="pill" title="sessions ouvertes">● ${String(c.total)}</span>${vm.unseen ? html`<span class="pill unseen" title="sessions qui ont fini leur tour pendant que tu regardais ailleurs — le compteur descend dès que tu vas les voir">👁 ${String(vm.unseen)} à voir</span>` : ""}${c.ghost ? html`<span class="pill" style="opacity:.6" title="sessions enregistrées, non démarrées — clic sur la tuile pour relancer">⏸ ${String(c.ghost)}</span>` : ""}<span class="pill${c.attention ? " att" : ""}" title="questions OUI/NON en attente">⚠ ${String(c.attention)}</span>${c.choice ? html`<span class="pill" style="color:var(--warn);border-color:var(--warn)" title="questions à choix multiple en attente (réponse dans le terminal)">❓ ${String(c.choice)}</span>` : ""}<span class="pill" title="au repos">💤 ${String(c.idle)}</span>`;
+  const P = (f, cls, titre, contenu) => html`<span class="pill filt${cls ? " " + raw(cls) : ""}${vm.actif(f) ? " on" : ""}" data-action="filter" data-f="${f}" title="${vm.tip(f, titre)}">${contenu}</span>`;
+  return html`<span class="pill" title="sessions ouvertes">● ${String(c.total)}</span>${vm.unseen ? P("unseen", "unseen", "sessions qui ont fini leur tour pendant que tu regardais ailleurs — le compteur descend dès que tu vas les voir", html`👁 ${String(vm.unseen)} à voir`) : ""}${c.ghost ? P("ghost", "ghostpill", "sessions enregistrées, non démarrées — clic sur la tuile pour relancer", html`⏸ ${String(c.ghost)}`) : ""}${P("waiting", c.attention ? "att" : "", "questions OUI/NON en attente", html`⚠ ${String(c.attention)}`)}${c.choice ? P("waiting", "choice", "questions à choix multiple en attente (réponse dans le terminal)", html`❓ ${String(c.choice)}`) : ""}${P("working", "", "sessions en travail", html`⚙ ${String(c.working)}`)}${P("idle", "", "au repos", html`💤 ${String(c.idle)}`)}`;
 }
+
+/** RM3302 : le filtre actif se voit et s'annule d'un geste, sans avoir à retrouver la pastille cliquée. */
+export function FilterBanner(vm) {
+  if (!vm.filtre) return "";
+  return html`<div class="ctxbanner filtbanner">Filtre : <b>${vm.filtreLabel}</b>${vm.masquees > 0 ? html` <span style="opacity:.7">· ${String(vm.masquees)} session(s) masquée(s)</span>` : ""} <button class="mini" data-action="filter-clear" title="Revoir toutes les sessions">tout ✕</button></div>`;
+}
+
+/** RM3302 : le filtre ne laisse rien — on le DIT, au lieu d'une liste vide qui ressemble à une panne. */
+export const EmptyFiltered = (vm) => html`<div class="empty">Aucune session « ${vm.filtreLabel} » pour l'instant. <button class="mini" data-action="filter-clear">tout revoir</button></div>`;
 
 /** RM2283/RM2332/RM2327 : titre de la session attachée dans la barre du centre, avec « ✔ Oui » quand elle attend. */
 export function SessionTitle(vm, { titleLink }) {

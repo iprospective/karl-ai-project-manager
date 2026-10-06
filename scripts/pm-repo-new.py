@@ -128,7 +128,7 @@ def create_project(forge, token, name, group_id, args):
 # ── GitHub (RM3016) ──────────────────────────────────────────────────────────────
 # Adressage owner/repo, pas d'id numérique ; l'owner est une ORGANISATION ou un UTILISATEUR,
 # et l'API de création n'est pas la même. Le jeton vient de GITHUB_TOKEN (.env utilisateur
-# `~/.config/mmi-pm/.env` d'abord — identité par dev, RM2497 — sinon le .env d'instance).
+# `<core>/var/users/<user>/.env` d'abord — identité par dev, RM2497 — sinon le .env d'instance).
 
 def gh_owner(forge, token, owner):
     """'org' | 'user' — par lecture, jamais deviné (tripwire #14 : le chemin exact)."""

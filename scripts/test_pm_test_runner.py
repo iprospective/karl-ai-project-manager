@@ -57,6 +57,11 @@ with tempfile.TemporaryDirectory() as td:
         # lanceur, et la raison d'être du ticket.
         "test_fuite.py": ("import os, sys; "
                           "sys.exit(0 if 'PM_CORE_DIR' not in os.environ else 3)"),
+        # RM3341 : aucun test ne s'élève — le `sudo` trouvé est le faux, et il échoue.
+        "test_sudo.py": ("import shutil, subprocess, sys; s = shutil.which('sudo') or ''; "
+                         "r = subprocess.run(['sudo', '-n', 'true'], capture_output=True, text=True); "
+                         "sys.exit(0 if 'pm-test-sudo-' in s and r.returncode != 0 "
+                         "and 'neutralisé' in r.stderr else 4)"),
     }
     for nom, code in cas.items():
         (tmp / nom).write_text(code, encoding="utf-8")
@@ -76,7 +81,7 @@ with tempfile.TemporaryDirectory() as td:
 vu = sortie.getvalue()
 check("un rouge fait sortir le lanceur en échec", rc_purge == 1)
 check("le compte distingue vert / rouge / ignoré",
-      "2 vert(s), 1 rouge(s), 1 ignoré(s)" in vu)
+      "3 vert(s), 1 rouge(s), 1 ignoré(s)" in vu)
 check("un test qui s'ignore dit pourquoi (et n'est pas compté vert)",
       "⊘ test_ignore.py — pas de vault ici" in vu)
 check("l'échec est restitué avec la sortie du test", "cassé" in vu)
@@ -84,6 +89,8 @@ check("l'environnement est purgé : PM_CORE_DIR ne traverse pas",
       "✓ test_fuite.py" in vu)
 check("--inherit rend au contraire le shell tel quel (donc ici : rouge)",
       rc_herite == 1 and "environnement hérité" in vu)
+check("sudo est neutralisé pour les tests : faux binaire en tête de PATH, qui échoue (RM3341)",
+      "✓ test_sudo.py" in vu)
 
 print()
 if fails:

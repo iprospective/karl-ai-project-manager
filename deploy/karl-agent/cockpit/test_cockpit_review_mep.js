@@ -6,7 +6,11 @@
 import assert from "node:assert";
 import fs from "node:fs";
 import { ReviewViewModel } from "./src/modules/review/ReviewViewModel.js";
-import { MepPane, ReviewPane } from "./src/modules/review/Review.view.js";
+import { ReviewPane } from "./src/modules/review/Review.view.js";
+
+// RM3256 a restructuré la fiche : les rubriques viennent de sections() du ViewModel, et c'est
+// lui qui rend le bloc. On teste donc mepBlock(), à la place de l'ancien MepPane.
+const MepPane = (vm) => (vm && vm.mep ? vm.mepBlock() : "");
 
 const SCRIPT = {
   file: "RM3219_x.script-mep.sh", text: "#!/usr/bin/env bash\nset -euo pipefail\nrm -rf \"$MOD\" # <danger>\n",
@@ -28,24 +32,24 @@ assert.strictEqual(mk({ mep_script: SCRIPT }).mep.actions.length, 0, "un script 
 assert.ok(vm.sections().some(s => s.id === "mep"), "la rubrique figure dans les sections de la fiche");
 
 // ── le rendu ────────────────────────────────────────────────────────────────
-const h = String(MepPane(vm.mep));
-assert.ok(/🚀 Mise en production/.test(h) && /<ol[^>]*>.*Contrôle.*Exécution/s.test(h), "actions listées dans l'ordre");
+const h = String(MepPane(vm));
+assert.ok(/<ol[^>]*>.*Contrôle.*Exécution/s.test(h), "actions listées dans l'ordre");
 assert.ok(/📜 Script de MEP/.test(h) && /RM3219_x\.script-mep\.sh · 3 lignes/.test(h), "le script est nommé");
 assert.ok(/<details open>/.test(h), "déplié d'office en a_mep");
-assert.ok(!/<details open>/.test(String(MepPane(mk({ status: "en_cours", mep_script: SCRIPT }).mep))), "replié hors MEP");
+assert.ok(!/<details open>/.test(String(MepPane(mk({ status: "en_cours", mep_script: SCRIPT })))), "replié hors MEP");
 assert.ok(/bash -s -- --apply/.test(h) && /data-action="copy"/.test(h), "les deux commandes, copiables");
 assert.ok(/&lt;danger&gt;/.test(h) && !/<danger>/.test(h), "le texte du script est échappé (il contient < et >)");
 assert.ok(!/alias ssh inconnu/.test(h), "alias connu : pas d'avertissement");
-const sansAlias = String(MepPane(mk({ mep_script: Object.assign({}, SCRIPT, { alias: null }) }).mep));
+const sansAlias = String(MepPane(mk({ mep_script: Object.assign({}, SCRIPT, { alias: null }) })));
 assert.ok(/alias ssh inconnu/.test(sansAlias), "alias inconnu : on le dit, la commande n'est pas prête");
-const lint = String(MepPane(mk({ mep_script: Object.assign({}, SCRIPT, { lint: ["procédure de rollback"] }) }).mep));
+const lint = String(MepPane(mk({ mep_script: Object.assign({}, SCRIPT, { lint: ["procédure de rollback"] }) })));
 assert.ok(/contrat du script : manque procédure de rollback/.test(lint), "un manque au contrat se voit");
 assert.ok(!/\son\w+=/.test(h), "aucun gestionnaire inline");
-assert.strictEqual(String(MepPane(null)), "", "rien à rendre sans procédure");
+assert.strictEqual(String(MepPane(mk({}))), "", "rien à rendre sans procédure");
 const vmFiche = new ReviewViewModel({ r: { found: true, title: "T", status: "a_mep", deploy_actions: ["Contrôle"], mep_script: SCRIPT },
   cfg: { statuses: ["a_mep"], actions: [] }, tqLoaded: true, tqSize: 1 }, { rm: "3219", prompt: { tpl: "", text: "" }, now: Date.parse("2026-09-19T10:00") });
 const pane = String(ReviewPane(vmFiche, { md: (s) => s, titleLink: (rm, t) => t, mcBanner: () => "" }));
-assert.ok(/🚀 Mise en production/.test(pane), "la fiche intègre le bloc");
+assert.ok(/mise en production/i.test(pane), "la fiche intègre la rubrique");
 
 // ── la copie et le câblage ─────────────────────────────────────────────────
 const ctl = fs.readFileSync(new URL("./src/modules/review/review.controller.js", import.meta.url), "utf8");

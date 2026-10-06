@@ -45,19 +45,24 @@ from pm_paths import PMConfig                   # noqa: E402
 from pm_transcript import transcript_outline    # noqa: E402
 
 
+def _classify():
+    """Le module de classement (RM3067), chargé une fois. None s'il est indisponible."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "pm_think_classify", Path(__file__).resolve().parent / "pm-think-classify.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        return mod
+    except Exception:      # noqa: BLE001 — la moisson ne casse jamais un tour
+        return None
+
+
 def _type_heuristique(role, texte):
     """RM3090 : LE critère vit dans `pm-think-classify` (RM3067, D023) — importé, jamais recopié.
     Un hook de fin de tour doit rendre la main tout de suite : c'est la version SANS modèle ; la
     passe LLM (`pm-think-classify --all`) reste le filet qui complète et corrige.
     Indisponible : tout retombe en note, comme avant."""
-    try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "pm_think_classify", Path(__file__).resolve().parent / "pm-think-classify.py")
-        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-        return mod.type_heuristique(role, texte)
-    except Exception:      # noqa: BLE001 — la moisson ne casse jamais un tour
-        return "dette"
+    mod = _classify()
+    return mod.type_heuristique(role, texte) if mod else "dette"
 
 MIN_NOTE = 20
 MAX_NOTE = 400
@@ -78,10 +83,20 @@ def transcript_of(sid):
     return next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None) if sid else None
 
 
+def _suite(items: list, n) -> list:
+    """RM3259 — les tours qui SUIVENT celui-ci, en (role, texte), du plus proche au plus lointain.
+    C'est ce que `deja_tranchee` lit : une question dont le demandeur a pris la réponse (il
+    approuve, ou il enchaîne) n'est plus ouverte. Pure."""
+    role = {"user": "M", "assistant": "A"}
+    return [(role.get(x.get("kind"), "?"), x.get("full") or x.get("text") or "")
+            for x in items if isinstance(n, int) and isinstance(x.get("n"), int) and x["n"] > n]
+
+
 def harvest_items(lines) -> list:
     """[(kind, text, extra)] à consigner, dans l'ordre du fil, sans doublon. Pure — c'est elle qui est testée."""
     out, seen = [], set()
-    for it in transcript_outline(lines, max_items=1000000):
+    items_bruts = transcript_outline(lines, max_items=1000000)
+    for it in items_bruts:
         k = it.get("kind")
         if k == "question":
             q = " / ".join(l.strip() for l in str(it.get("full") or "").splitlines()
@@ -103,6 +118,17 @@ def harvest_items(lines) -> list:
                 # RM3090 : ce que le demandeur DEMANDE est une note, ce qu'il se DEMANDE est une
                 # question. Le critère de la note (dette à faire) l'aurait écartée : une question
                 # ne porte pas de dette, elle porte un arbitrage en attente.
+                # RM3259 : mais toute interrogation n'est pas un arbitrage. Une question de conduite
+                # de séance (« on en est où ? », « quel est le mdp ? ») se répond dans la minute et
+                # ne change rien plus tard ; elle bloquait pourtant la clôture du ticket. Et une
+                # question que le demandeur a vue tranchée — il approuve, ou il enchaîne — n'est
+                # plus ouverte. Mesuré sur RM2881 : 20 des 21 « questions ouvertes » étaient l'une
+                # ou l'autre.
+                mod = _classify()
+                if mod and not mod.question_pertinente(t)[0]:
+                    continue
+                if mod and mod.deja_tranchee(_suite(items_bruts, it.get("n"))):
+                    continue
                 item = ("question", texte, {"by": "M"})
             else:
                 ok, _motif = pm_think.note_pertinente(t)      # RM3062 : le critère de la note
@@ -154,9 +180,10 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
         if kind == "decision":
             rid = pm_think.append(think, "decision", text, rm_id=rm_id, title=title, by="M", state="valide", sid=sid)
             # la question homonyme laissée ouverte par une moisson précédente est tranchée
-            for r in parsed.get("question", {}).get("rows", []):
-                if not r["closed"] and r["state"] not in ("valide", "invalide") and len(r["cells"]) > 1 \
-                        and pm_think._norm(r["cells"][1]) == pm_think._norm(extra.get("question")):
+            sec_q = parsed.get("question", {})
+            for r in sec_q.get("rows", []):
+                if not r["closed"] and r["state"] not in ("valide", "invalide") \
+                        and pm_think._norm(pm_think.texte(sec_q, r, "question")) == pm_think._norm(extra.get("question")):
                     pm_think.set_state(think, r["id"], "valide", dest=rid)
         elif kind == "question":
             # RM3090 : l'auteur suit la provenance — une question posée PAR l'agent (AskUserQuestion)
@@ -191,17 +218,18 @@ def prune(think: Path, dry=False, delete=False) -> list:
     parsed = pm_think.load(think)
     livre = ticket_livre(pm_think.sheet_of(think))
     out = []
-    for r in parsed.get("note", {}).get("rows", []):
+    sec_n = parsed.get("note", {})
+    for r in sec_n.get("rows", []):
         if len(r["cells"]) < 3:
             continue
         if livre and not (r["closed"] or r["state"] in ("valide", "invalide")):
             out.append(r["id"]); continue      # ticket livré : la note n'a plus d'objet
-        deja = "élaguée (RM3062)" in (r["cells"][4] if len(r["cells"]) > 4 else "")
+        deja = "élaguée (RM3062)" in pm_think.cell(sec_n, r, "Traitée par")
         if deja and delete:
             out.append(r["id"]); continue
         if r["closed"] or r["state"] in ("valide", "invalide"):
             continue
-        ok, motif = pm_think.note_pertinente(r["cells"][2])
+        ok, motif = pm_think.note_pertinente(pm_think.texte(sec_n, r, "note"))
         if ok:
             continue
         out.append(r["id"])

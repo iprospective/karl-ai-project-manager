@@ -224,3 +224,30 @@ Un slug : minuscules, sans accent, tirets — `pm_tags.normalize` s'en charge, s
 bien que « Tunnel de Commande », « tunnel_de_commande » et « TUNNEL DE COMMANDE »
 sont **une seule** étiquette. Plafond : 12 par ticket (au-delà, une étiquette ne
 distingue plus rien).
+
+## Reprendre l'existant (RM2828)
+
+Le socle pousse les étiquettes au CF **à l'écriture**. Un ticket tagué avant lui —
+ou tagué à la main dans le `.md` — n'est jamais monté : mesure du 2026-09-20,
+**909 fiches étiquetées côté PM pour 40 tickets étiquetés côté Redmine**.
+
+    pm-tags-backfill.py            # rejeu à blanc : ce qui monterait, et ce qui ne peut pas
+    pm-tags-backfill.py -v         # + le détail ticket par ticket
+    pm-tags-backfill.py --go       # exécute (dump JSONL déposé avant la première écriture)
+
+La reprise est **additive** : elle pousse les valeurs du vocabulaire absentes du CF,
+rapatrie au frontmatter ce que le CF portait en plus, et ne retire **jamais** rien —
+« absente du frontmatter » ne veut pas dire « retirée » (RM2840).
+
+Trois raisons de ne pas monter, comptées séparément parce qu'elles appellent trois
+gestes différents :
+
+| Cas | Geste |
+|---|---|
+| mot-clé **local** assumé (`cockpit`, `norms`, `karl`…) | rien — il vit au frontmatter |
+| **alias** d'une valeur du vocabulaire (`3d` → `design`) | `pm-task-tag <id> --set …` pour normaliser |
+| valeur au vocabulaire **pas encore créée** dans Redmine | `pm-tags-audit` puis création dans l'UI admin |
+
+Au 2026-09-20 : 292 tickets à reprendre, 310 étiquettes-alias et 489 mots-clés
+locaux — l'essentiel du vocabulaire réel du parc est hors CF, et c'est normal :
+le CF porte le **domaine**, pas le sujet.

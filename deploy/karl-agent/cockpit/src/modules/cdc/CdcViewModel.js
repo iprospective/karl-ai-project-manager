@@ -4,6 +4,10 @@ import { EntityViewModel } from "../../core/EntityViewModel.js";
 
 // RM3099 : `domaine` est le domaine d'USAGE — il groupe le chapitre ; `domaine_technique` reste
 // visible en ÉTIQUETTE (quelle partie du système est touchée), jamais comme second classement.
+//: RM3306 — le mot-clé qui isole les fonctionnalités qu'aucun ticket ne porte, et les états qui
+//: rendent l'absence de ticket légitime (une trace, pas un oubli). Mêmes mots que le CLI.
+export const SANS_TICKET = "sans-ticket";
+const SOLDES = ["livré", "écarté"];
 export const COLS = [["id", "#"], ["libelle", "Fonctionnalité"], ["domaine", "Domaine"], ["tickets", "Ticket(s)"], ["domaine_technique", "Technique"], ["type", "Type"], ["version", "Version"], ["etat", "État"], ["date", "Date"]];
 /** La version d'une entrée : `version` (V0, V1…, RM3015-D018) ou l'ancien `jalon` entier (AtomBox) rendu `V<n>` ; "" sinon. */
 export const versionOf = (e) => e.version ? String(e.version) : (e.jalon === null || e.jalon === undefined ? "" : "V" + e.jalon);
@@ -41,10 +45,18 @@ export function cdcTabs(cdc) {
 export const THINK_STATES = [["valide", "✅ validé"], ["invalide", "❌ invalidé"], ["propose", "🟡 proposé"], ["attente", "🕐 en attente"], ["reserve", "⏸ en réserve"]];
 export const FEATURE_STATES = ["prévu", "en cours", "en pause", "écarté", "livré"];
 const escA = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-/** La cellule de gestes d'une entrée de think : état + suppression (RM3064). Chaîne HTML sûre (ids contrôlés par regex). */
-export function thinkActions(rm, id) {
+/** RM3381 — le texte visible d'une ligne de registre, pour pré-remplir la correction. Les registres
+ *  sont du HTML rendu : on prend la cellule qui suit l'id, balises retirées. Best-effort — c'est un
+ *  pré-remplissage, l'utilisateur voit et corrige ce qu'il obtient. */
+export function texteDeLigne(row) {
+  const cells = String(row || "").split(/<\/td>/i);
+  const brut = (cells[1] || cells[0] || "").replace(/<[^>]*>/g, " ");
+  return brut.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+}
+/** La cellule de gestes d'une entrée de think : état + suppression (RM3064) + correction (RM3381). Chaîne HTML sûre (ids contrôlés par regex). */
+export function thinkActions(rm, id, texte = "") {
   const opts = THINK_STATES.map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("");
-  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
+  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini" data-action="think-text" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" data-text="' + escA(texte) + '" title="Corriger le TEXTE de cette entrée, sans toucher à son état (RM3381)">✎</button> <button class="mini" data-action="think-move" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Déplacer cette entrée vers un autre ticket (RM3258)">→</button> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
 }
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {
@@ -70,11 +82,28 @@ export class FeaturesViewModel extends EntityViewModel {
   rows() {
     const q = String(this.e.q || "").trim().toLowerCase(); const s = this.e.sort || "id", desc = !!this.e.desc;
     const val = f => { if (s === "version") { const vv = versionOf(f); return vv ? "0" + vv : "1"; } /* sans version en dernier (ICU trie la ponctuation avant les lettres) */ if (s === "etat") return ORDRE_ETAT[etatKey(f.etat)] ?? 8; if (s === "tickets") return f.tickets[0] || 0; return String(f[s] || ""); };
+    // RM3306 : « sans-ticket » est un mot-clé de filtre, pas un texte à chercher — une
+    // fonctionnalité qu'aucun ticket ne porte n'apparaît dans AUCUNE liste de travail, et c'est
+    // précisément celle qu'on veut pouvoir isoler (RM3266-D004).
+    if (q === SANS_TICKET) {
+      const nues = this.all.filter(f => !f.tickets.length);
+      return this._ordonne(nues, s, desc, val);
+    }
     const rows = this.all.filter(f => !q || [f.id, f.libelle, f.domaine, f.domaine_technique, f.etat, f.type, ...f.tickets.map(t => "rm" + t)].join(" ").toLowerCase().includes(q));
+    return this._ordonne(rows, s, desc, val);
+  }
+  /** Le tri commun, quel que soit le filtre (RM3306 : le mot-clé « sans-ticket » en a besoin aussi). */
+  _ordonne(rows, s, desc, val) {
     rows.sort((a, b) => { const x = val(a), y = val(b); const c = typeof x === "number" ? x - y : x.localeCompare(y); return (desc ? -c : c) || (a.id < b.id ? -1 : 1); });
     return rows.map(f => ({ id: f.id, libelle: f.libelle || "", domaine: f.domaine || "", tickets: f.tickets, tech: f.domaine_technique || "", type: f.type || "", version: versionOf(f), etat: f.etat || "", cls: etatClass(f.etat), date: f.date || "", manuel: !!f.manuel, parent: f.parent || null }));
   }
   get count() { return this.rows().length + " / " + this.all.length; }
+  /** RM3306 : combien ne citent aucun ticket, et combien d'entre elles restent à faire. */
+  get sansTicket() {
+    const nues = this.all.filter(f => !f.tickets.length);
+    const aFaire = nues.filter(f => !SOLDES.some(e => String(f.etat || "").startsWith(e)));
+    return { n: nues.length, aFaire: aFaire.length, on: String(this.e.q || "").trim().toLowerCase() === SANS_TICKET };
+  }
   /** RM3064 : les états qu'une ligne peut recevoir depuis le panneau (l'entrée est alors figée). */
   get featureStates() { return FEATURE_STATES; }
   /** RM3060 : les versions offertes au rattachement — celles déclarées, plus celles déjà portées par une
@@ -101,7 +130,7 @@ export class ChaptersViewModel extends EntityViewModel {
     let h = String(htmlText || "").replace(/<td>(<del>|<s>)?((?:RM\d+-)?[DCQNF]\d{3}[a-z]?)(?=[\s<])/g, (m, del, id) => '<td id="sec-' + id + '">' + (del || "") + id)
       .replace(/\bRM(\d{3,5})\b(?!-)(?![^<]*<\/a>)/g, '<a href="#" class="cdcrm" data-action="ticket" data-rm="$1">RM$1</a>');   // pas le RM d'un id fusionné (RM3044-D001)
     let touched = false;
-    h = h.replace(/<tr>(\s*<td id="sec-RM(\d+)-([DCQNF]\d{3}[a-z]?)">[\s\S]*?)<\/tr>/g, (m, row, rm, id) => { touched = true; return "<tr>" + row + thinkActions(rm, id) + "</tr>"; });
+    h = h.replace(/<tr>(\s*<td id="sec-RM(\d+)-([DCQNF]\d{3}[a-z]?)">[\s\S]*?)<\/tr>/g, (m, row, rm, id) => { touched = true; return "<tr>" + row + thinkActions(rm, id, texteDeLigne(row)) + "</tr>"; });
     if (touched) h = h.replace(/<tr>(\s*<th>[\s\S]*?)<\/tr>/g, (m, row) => "<tr>" + row + '<th class="cdc-act"></th></tr>');
     return h;
   }

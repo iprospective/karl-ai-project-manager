@@ -6,7 +6,7 @@ cinq endroits. Ce module est désormais le seul à décider :
 
     git.worktree_source  (instance, admin)   central   → <ws>/repos/<repo>.git
                                              per_user  → <dossier des dépôts du dev>/<repo>
-    dossier des dépôts   (par utilisateur)   PM_REPOS_DIR de son ~/.config/mmi-pm/.env, défaut ~/repos
+    dossier des dépôts   (par utilisateur)   PM_REPOS_DIR de son <core>/var/users/<user>/.env, défaut ~/repos
     git.envs_layout      (instance, admin)   project   → <ws>/envs/<env>
                                              user      → <ws>/envs/<user>/<env>
 
@@ -74,7 +74,8 @@ def _read_env_value(env_file: Path, key: str) -> Optional[str]:
 def user_repos_dir(user: Optional[str] = None, home: Optional[Path] = None, environ=os.environ,
                    current: Optional[bool] = None) -> Path:
     """Dossier des dépôts d'un utilisateur. L'environnement n'est consulté que pour l'utilisateur COURANT :
-    pour un autre, sa valeur vient de son propre `~/.config/mmi-pm/.env`."""
+    pour un autre, sa valeur vient de son propre `<core>/var/users/<user>/.env` (RM3318 ; repli
+    transitoire sur l'ancien `~/.config/mmi-pm/.env`)."""
     if home is None:
         entry = pwd.getpwnam(user) if user else pwd.getpwuid(os.geteuid())
         home = Path(entry.pw_dir)
@@ -85,7 +86,12 @@ def user_repos_dir(user: Optional[str] = None, home: Optional[Path] = None, envi
     if environ is not None and current is not False:
         raw = environ.get("PM_REPOS_DIR")
     if raw is None:
-        raw = _read_env_value(home / ".config" / "mmi-pm" / ".env", "PM_REPOS_DIR")
+        import pm_paths
+        nom = user or pwd.getpwuid(os.geteuid()).pw_name
+        for env_file in (pm_paths.user_conf_dir(nom) / ".env", home / pm_paths.LEGACY_USER_SUBDIR / ".env"):
+            raw = _read_env_value(env_file, "PM_REPOS_DIR")
+            if raw is not None:
+                break
     raw = raw or DEFAULT_REPOS_DIR
     if raw == "~" or raw.startswith("~/"):
         return home / raw[2:] if raw != "~" else home
@@ -170,7 +176,7 @@ def per_user_source_error(root: Path, git_common_dir: str, expected: Path) -> Op
     if same_repo(src, expected):
         return None
     return (f"git.worktree_source=per_user — la branche part de TON dépôt {expected}, pas de {src}. "
-            "Place-toi dedans, ou règle PM_REPOS_DIR dans ~/.config/mmi-pm/.env.")
+            "Place-toi dedans, ou règle PM_REPOS_DIR dans <core>/var/users/<user>/.env.")
 
 
 def resolve_source(ws: Path, repo: str, core_dir: Path = CORE_DIR) -> Path:

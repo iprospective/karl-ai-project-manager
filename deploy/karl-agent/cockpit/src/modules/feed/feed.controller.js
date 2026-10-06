@@ -43,11 +43,19 @@ export function mountFeed(el, ctx = {}) {
         await svc.mark({ ids: [n.dataset.id], etat: a === "lu" ? "lu" : "traite" });
         await open(); if (ctx.onCounts) await poll(); return;
       }
+      if (a === "lu-all") {
+        const c = vm().counts;
+        // Même exigence que « tout traiter » : un geste de lot dit COMBIEN il emporte.
+        if (!ask("Marquer lue(s) " + c.neuf + " notification(s) ?\n\nElles restent dans la file ; elles cessent seulement de compter comme neuves.")) return;
+        const r = await svc.mark(Object.assign({ all: true, etat: "lu" }, state.user ? { user: state.user } : {}));
+        notify((r && r.marked ? r.marked : 0) + " notification(s) marquée(s) lue(s)");
+        await open(); if (ctx.onCounts) await poll(); return;
+      }
       if (a === "done-all") {
         const c = vm().counts;
         // « tout » est un geste qu'on ne défait pas : il doit dire COMBIEN il emporte.
         if (!ask("Marquer traité " + c.open + " notification(s) ?\n\nElles sortent de la vue ; le fil les garde.")) return;
-        const r = await svc.mark({ all: true, etat: "traite" });
+        const r = await svc.mark(Object.assign({ all: true, etat: "traite" }, state.user ? { user: state.user } : {}));
         notify((r && r.marked ? r.marked : 0) + " notification(s) traitée(s)");
         await open(); if (ctx.onCounts) await poll(); return;
       }

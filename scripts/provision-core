@@ -11,10 +11,10 @@
 # Pré-requis : .mmi-pm-core = checkout git provisionné, .env déjà placé (secrets),
 # users KARL_USER / KARL_SUDO_USER existants.
 #
-# Usage : sudo provision-core [/zfs/workspaces/.mmi-pm-core]
+# Usage : sudo provision-core [CORE_DIR]   (défaut : l'instance qui porte ce script)
 set -euo pipefail
 
-CORE_DIR="${1:-/zfs/workspaces/.mmi-pm-core}"
+CORE_DIR="${1:-$(dirname "$(dirname "$(readlink -f "$0")")")}"   # RM3208/A2 : auto-localisé
 die(){ echo "provision-core: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "root requis (chown inter-utilisateur mathieu -> KARL_SUDO_USER)"

@@ -63,8 +63,13 @@ Sous le champ de recherche, cinq sélecteurs :
 - **Client**, **projet**, **statut.** Ils portent sur les deux sources. La liste
   des projets suit le client choisi. Un filtre explicite l'emporte sur le
   contexte client global : c'est le dernier choix fait qui vaut.
-- **Étiquette** — le domaine du ticket (`front`, `bo`, `bdd`, `refacto`,
-  `livraison`…). Le menu ne propose que les étiquettes **réellement en usage**,
+- **Étiquette** — le domaine du ticket. Le vocabulaire est **contrôlé** : 30
+  valeurs partagées par tous les projets (`front`, `bo`, `db`, `refacto`,
+  `deploiement`, `tooling`, `securite`…), tenues dans `tags.registry.yml` et
+  créées côté Redmine — `pm-tags-audit` dit lesquelles manquent. Un mot hors
+  vocabulaire reste possible comme mot-clé **local** (`pm-task-tag --free`) :
+  il vit au frontmatter, il ne monte pas dans Redmine.
+  Le menu ne propose que les étiquettes **réellement en usage**,
   avec leur nombre de tickets ; les étiquettes d'un résultat s'affichent sur sa
   ligne (🏷). Le même filtre existe dans le **triage ROI** (« les refactos par
   levier ») et comme critère de **jeu de sessions dérivé** — un jeu « étiquette =

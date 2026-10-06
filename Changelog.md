@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
+  s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé
+  (`pm-task-move` l'emporte). La fiche du cockpit gagne un bloc « 🚀 Mise en production » — actions au
+  déploiement (jusque-là absentes du cockpit), commandes de lancement copiables, texte du script, déplié
+  en `a_mep` / `en_mep` ; `pm-task-status-update` (entrée en `a_mep`) et `pm-task-deploy` l'affichent
+  aussi. Lecture unique `scripts/pm_mep_script.py` (+ contrôle du contrat, signalé sans bloquer).
+  Au passage, `karl-agent` lit enfin les environnements écrits en liste YAML en colonne 0 (`- name:
+  prod`, forme de pisceen : le cockpit n'en voyait aucun) et retire le commentaire de fin de ligne
+  d'une URL. NORMS v2.55.0.
+
 - **Corriger le texte d'une entrée de carnet depuis le cockpit** (RM3381) : ✎ sur chaque entrée, dans
   la revue d'un ticket et dans le registre du projet. La saisie arrive pré-remplie avec le texte
   actuel, l'état n'est pas touché (RM3161 : amender n'est pas revirer), l'ancien texte part au

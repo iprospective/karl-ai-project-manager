@@ -158,7 +158,9 @@ const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket
 // les contrôleurs à l'appel, jamais au montage).
 const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("main"), lnav: document.querySelector(".lnav"), lbody: document.querySelector(".lbody"),
   // RM3270 : la barre du haut (condensée au doigt) et son bouton de débordement
-  header: document.querySelector("header"), hdrmore: byId("hdrmore"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
+  header: document.querySelector("header"), hdrmore: byId("hdrmore"),
+  // RM3418 : la barre de session suit la même règle que celle du haut
+  tabactions: byId("tabactions"), sessmore: byId("sessmore"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab"),
   // RM3051 : les surfaces de la zone centrale — la disposition les montre ou les masque selon l'option de split
   reviewpane: byId("reviewpane"), viewpane: byId("viewpane"), panelpane: byId("panelpane"),
   centerhandle: byId("centerhandle"), termhost: byId("termhost"), term: byId("term"), composer: byId("composer") }, {
@@ -166,7 +168,9 @@ const layout = mountLayout({ mnav: byId("mnav"), main: document.querySelector("m
   // RM3003 : gabarit mobile — écran étroit (media query) ou ?layout=mobile ; la barre du bas compte les sessions qui attendent
   media: (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia("(max-width: " + MOBILE_MAX_PX + "px)") : null,
   // RM3270 : le clavier logiciel ne rétrécit QUE le viewport visible — c'est lui qui déclenche le plein écran
-  viewport: (typeof window !== "undefined" && window.visualViewport) ? window.visualViewport : null, search: (typeof location !== "undefined" ? location.search : ""),
+  viewport: (typeof window !== "undefined" && window.visualViewport) ? window.visualViewport : null,
+  // RM3418 : composition des barres, servie par la conf d'instance (plus de liste en dur ici)
+  ui: () => (CFG || {}).ui || {}, search: (typeof location !== "undefined" ? location.search : ""),
   attention: () => stores.sess.values().filter(s => s && !s.ghost && (s.state === "attention" || s.state === "choice")).length, attached: () => (attachCtl ? attachCtl.current() : null),
   onApply: (r, visible) => {
     const att = attachCtl.current();
@@ -268,6 +272,8 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   applyMonitor: (on) => { const el = document.getElementById("monbox"); if (el) el.style.display = on ? "" : "none"; },
   // RM3270 : le second formulaire sous le terminal — masqué par défaut en mobile (la disposition porte la règle CSS)
   applyComposer: (on) => { if (layout && layout.applyComposer) layout.applyComposer(on); },
+  // RM3418 : la taille de typo s'applique au montage du terminal → on le remonte
+  applyTermFont: () => { const a = attachCtl && attachCtl.current(); if (a && terminal) { terminal.unmountTerm(); terminal.mountTerm(a); } },
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
   // RM3051 : l'option vit dans la disposition (elle seule sait masquer/rendre la session)
@@ -503,6 +509,8 @@ worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), na
 // les actions d'une session (RM1893 §2 chips, RM2720 actions PM d'un ticket, §3 moniteurs, RM2515 disposition, fermeture) :
 // la session attachée, le registre, CFG, le détachement et les rafraîchissements sont prêtés
 const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabactions") }, {
+  // RM3418 : en mobile, la conf garde les chips utiles sur la ligne et range les autres sous « … »
+  mobile: () => (layout ? layout.isMobile() : false),
   notify: notify.toast, attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG,
   detach: () => attachCtl.detach(), refreshSessions: (() => refreshCtl.refreshSessions()), refreshHealth: (() => refreshCtl.refreshHealth()),
   popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "dispmenu"; document.body.appendChild(m); return m; },
@@ -516,6 +524,7 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 const copyFallback = (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; };
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
   storage: PREFS, win: window, cfg: () => CFG, notify: notify.toast,
+  mobile: () => (layout ? layout.isMobile() : false),     // RM3418 : typo du terminal plus petite en mobile
   attached: () => attachCtl.current(), sess: () => stores.sess, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
   copyFallback,
@@ -625,6 +634,7 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
 // appelle `boot` une fois CFG connu ; une connexion relance la santé et les sessions et ramène au panneau « en cours »
 auth = mountAuth({ gate: byId("authgate"), card: byId("authcard"), users: byId("userscard"), lock: byId("lock") }, {
   storage: RAW_STORAGE, onLogout: (qui) => PREFS && PREFS.purge(qui), cfg: () => CFG, notify: notify.toast,
+  mobile: () => (layout ? layout.isMobile() : false),     // RM3418 : cadenas compact en mobile (pas de « (admin) »)
   confirm: (m) => window.confirm(m), prompt: (m) => window.prompt(m), ua: (typeof navigator !== "undefined" ? navigator.userAgent : ""),
   afterAuth: () => { refreshCtl.refreshHealth(); refreshCtl.refreshSessions(); }, switchPanel: (n) => layout.switchPanel(n),
 });

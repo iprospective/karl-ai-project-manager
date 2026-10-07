@@ -22,7 +22,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   Au passage, `karl-agent` lit enfin les environnements écrits en liste YAML en colonne 0 (`- name:
   prod`, forme de pisceen : le cockpit n'en voyait aucun) et retire le commentaire de fin de ligne
   d'une URL. NORMS v2.55.0.
-
+- **`data/` : l'index des données d'un PrestaShop** (RM3401, pour RM3186). `tools/env-runtime/presta-data-index.sh`
+  crée, dans `data/`, **un lien symbolique relatif par dossier de données** du site — images produit,
+  rubriques, CMS, fabricants… plus `upload/` et `download/` — d'après un manifeste
+  (`presta-data.map`, surchargeable par projet pour les données des modules). **Rien n'est déplacé** :
+  les données restent là où PrestaShop les écrit, et aucun lien n'est posé DANS son arbre, donc une
+  mise à jour du cœur ou d'un module ne peut pas les casser. Les liens étant relatifs, ils se
+  commitent et git les reproduit dans chaque worktree et en prod. `--check` signale un lien pendant
+  ou faux, `--ensure` répare, et un vrai dossier déjà en place dans `data/` **arrête** le script au
+  lieu d'être écrasé. Un `data/.htaccess` refuse tout accès HTTP (les liens y mènent à `upload/`).
+  La synchro prod→dev exclut `/data`.
 - **Corriger le texte d'une entrée de carnet depuis le cockpit** (RM3381) : ✎ sur chaque entrée, dans
   la revue d'un ticket et dans le registre du projet. La saisie arrive pré-remplie avec le texte
   actuel, l'état n'est pas touché (RM3161 : amender n'est pas revirer), l'ancien texte part au

@@ -234,6 +234,7 @@ from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 :
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_priority as _pm_priority   # noqa: E402  RM3275 : énumération priority, source unique
 import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -9232,7 +9233,7 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
 # sous-processus. Les entrées client sont passées en argv (liste, jamais via un
 # shell) → aucune injection possible ; type/priorité validés contre une liste.
-PRIORITIES = ["low", "normal", "high", "urgent"]
+PRIORITIES = _pm_priority.labels()  # RM3275 : source unique (redmine.reference.yml)
 _TASK_TYPES_CACHE = None
 
 
@@ -11730,7 +11731,7 @@ def op_mail_create(payload: dict) -> dict:
     args = ["--create", _mail_key(payload)]
     for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
                                  ("--title", "title", r".{1,120}"),
-                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--priority", "priority", _pm_priority.choices_re()),  # RM3275
                                  ("--note-on", "note_on", r"\d{1,8}")):
         v = str(payload.get(field) or "").strip()
         if v:

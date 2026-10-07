@@ -230,7 +230,7 @@ les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en s
 `a_tester_demandeur`, normalisé par les scripts.
 
 ### priority
-`low` | `normal` | `high` | `urgent`
+`low` | `normal` | `high` | `urgent` | `immediat`
 
 ### close_reason
 `resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`

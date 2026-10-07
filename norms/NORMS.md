@@ -237,7 +237,7 @@ les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en s
 `a_tester_demandeur`, normalisé par les scripts.
 
 ### priority
-`low` | `normal` | `high` | `urgent`
+`low` | `normal` | `high` | `urgent` | `immediat`
 
 ### close_reason
 `resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`
@@ -2368,10 +2368,27 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
-> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur · je choisis une priorité, ou j'hésite entre `urgent` et `immediat`.
+> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates`, `pm-task-priority` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
+
+## Priorité `immediat` — le cran qui passe devant le travail en cours (RM3275)
+
+`immediat` (Redmine id 5) ne veut pas dire « urgent, mais vraiment » : il désigne ce pour quoi
+on **lâche ce qu'on est en train de faire** — secret compromis, production à l'arrêt, perte de
+données en cours. Le test est comportemental : si personne n'interrompt son travail, c'est
+`urgent`. Sans ce garde-fou le cran dérive en doublon d'`urgent` en quelques semaines et ne
+distingue plus rien.
+
+Énumération et poids viennent de `redmine.reference.yml :: priorities` via `pm_priority.py` —
+aucun script ne recopie la table. Changer la priorité d'un ticket **existant** :
+`pm-task-priority <id> <priorité>` (Redmine + frontmatter + journal dans le même mouvement) ;
+jamais à la main, jamais par l'UI seule, qui laisserait le frontmatter en arrière.
+
+« A définir » (id 24) existe côté Redmine mais n'est pas un degré d'urgence : hors énumération
+NORMS, traitée comme priorité inconnue — elle ne double personne dans une file.
+
 
 Détaché de `status-workflow.md` par RM2582. La table des transitions est une
 **référence** : le KERNEL impose déjà de la demander à l'outil
@@ -4000,9 +4017,10 @@ Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
 score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
 ```
 
-Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
+Avec `priority_weight` = `pm_priority.weights()` : 0,5 au cran le plus bas, ×2 par cran.
 
 Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
+
 Sortie : top N tâches triées par score décroissant, par client/projet ou global.
 
 ## ROI assisté par IA (RM1717)

@@ -9,13 +9,38 @@ export function pmActionTarget(rm, sessions, attached) {
 }
 /** La consigne envoyée : `{id}` vaut le TICKET visé (RM2720), plus la session. */
 export function actionMessage(a, rid) { return String((a && a.text) || "").replaceAll("{id}", String(rid == null ? "" : rid)); }
-/** §2 : les chips de la barre de session — les actions `ticket_only` vivent sur la fiche du ticket, pas ici (RM2720) ; groupes annoncés une fois. */
-export function chipList(actions, attached) {
-  const out = []; let lastGroup = null;
+/**
+ * §2 : les chips de la barre de session — les actions `ticket_only` vivent sur la fiche du
+ * ticket, pas ici (RM2720).
+ *
+ * RM3418 : rendus en BLOCS par groupe (« Dev », « Session »…) au lieu d'une rangée continue
+ * où les groupes se confondaient. `hidden` (conf d'instance) retire une action partout :
+ * ce qu'une norme impose déjà (commit+push) ou qu'un panneau montre mieux (git status) n'a
+ * pas à occuper la barre. `line` ne s'applique qu'en mobile : les autres passent sous « … ».
+ */
+export function chipBlocks(actions, attached, { hidden = [], line = null } = {}) {
+  const blocs = [];
   (actions || []).forEach((a, i) => {
     if (!a || a.ticket_only) return;
-    if (a.group && a.group !== lastGroup) { out.push({ group: a.group }); lastGroup = a.group; }
-    out.push({ i, label: a.label || "", title: actionMessage(a, attached) + (a.enter === false ? "\n(texte injecté sans Enter — complète dans le terminal)" : "") });
+    const cle = a.key || "";
+    if (cle && (hidden || []).includes(cle)) return;
+    const nom = a.group || "";
+    let bloc = blocs.find(b => b.group === nom);
+    if (!bloc) { bloc = { group: nom, chips: [] }; blocs.push(bloc); }
+    bloc.chips.push({
+      i, key: cle, label: a.label || "",
+      extra: !!line && !line.includes(cle),
+      title: actionMessage(a, attached) + (a.enter === false ? "\n(texte injecté sans Enter — complète dans le terminal)" : ""),
+    });
+  });
+  return blocs.filter(b => b.chips.length);
+}
+/** Rangée à plat — conservée pour le bureau et les appels historiques. */
+export function chipList(actions, attached, opts) {
+  const out = [];
+  chipBlocks(actions, attached, opts).forEach(b => {
+    if (b.group) out.push({ group: b.group });
+    b.chips.forEach(c => out.push(c));
   });
   return out;
 }

@@ -66,12 +66,22 @@ Au doigt, l'écran utile passe avant le décor :
   en molette, donc il défile ce que la molette défilerait au bureau — l'historique de
   tmux quand une session y tourne, le tampon du terminal sinon. Un appui simple garde
   le clavier, le pincer-zoomer reste au navigateur.
-- La **barre du haut se réduit aux icônes**, les moins courantes passant sous **…**.
-  Un **premier appui affiche le nom** du bouton, le **second déclenche** son action :
-  au doigt, on ne lance rien à l'aveugle.
-- Deux affichages sont **masqués par défaut** et se rendent dans les réglages
-  (Thème & affichage) : les **commandes de moniteur tmux** et le **second formulaire
-  sous le terminal**.
+- La **barre du haut** et la **barre de la session** se réduisent aux icônes, sur **une
+  seule ligne** ; les commandes les moins courantes passent sous **…**, qui révèle aussi
+  les informations sorties de la ligne (le compte connecté). Un **premier appui affiche
+  le nom** du bouton, le **second déclenche** son action : au doigt, on ne lance rien à
+  l'aveugle.
+- **Ce qui reste sur la ligne se règle** (🔧 réglages → groupe « Cockpit », admin) :
+  ordre et visibilité des boutons de l'en-tête, commandes de session gardées sur la
+  ligne, chips masquées, taille de la typo du terminal. Plus rien n'est codé en dur.
+- Les **onglets épinglés défilent horizontalement**, comme ceux d'un navigateur.
+- Les **chips d'action** sont groupées en blocs (PM, Dev, Session). Trois sont masquées
+  par défaut, parce qu'elles demandaient ce qui est déjà acquis : **commit+push** (la
+  norme l'impose à chaque étape), **git status** (le panneau ⎇ git le montre) et le
+  **à tester** du groupe Session (doublon de celui de PM).
+- Trois affichages sont **masqués par défaut** et se rendent dans les réglages
+  (Thème & affichage) : les **commandes de moniteur tmux**, le **second formulaire
+  sous le terminal**, et la **taille du terminal** s'y choisit pour ce navigateur.
 
 ## Les boutons d'aide
 

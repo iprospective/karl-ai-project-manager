@@ -21,8 +21,13 @@
   background: var(--panel); border-bottom: 1px solid var(--line); padding: 3px 10px 4px; }
 .tabbar2 { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+/* RM3418 : les onglets défilent horizontalement, comme ceux d'un navigateur. `min-width: 0`
+   est ce qui le rend possible : sans lui, un élément flex refuse de rétrécir sous son
+   contenu (min-width:auto), la barre s'élargit avec les onglets et rien ne défile jamais.
+   `overscroll-behavior-x: contain` évite que le geste parte en navigation arrière. */
 .ctabs { display: flex; gap: 2px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
-  scrollbar-width: thin; }
+  scrollbar-width: thin; min-width: 0; overscroll-behavior-x: contain; }
+.tabbar { overflow: hidden; }
 .ctab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
   border: 1px solid var(--line); border-bottom: none; border-radius: 5px 5px 0 0;
   background: var(--bg2); color: var(--muted); font-size: 11px; white-space: nowrap;

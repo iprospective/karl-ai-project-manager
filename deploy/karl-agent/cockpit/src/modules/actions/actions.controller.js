@@ -22,9 +22,17 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
 
   function renderChips() {
     if (!chipsH) return;
-    const vm = new ChipsViewModel({ actions: cfg().actions, attached: attached() });
+    // RM3418 : la conf d'instance dit ce qui est masqué (partout) et ce qui reste sur la
+    // ligne (mobile seulement) ; le reste passe sous « … », replié à chaque rendu.
+    const vm = new ChipsViewModel({ actions: cfg().actions, attached: attached(),
+      ui: (cfg() || {}).ui || {}, mobile: ctx.mobile ? !!ctx.mobile() : false });
     chipsH.update(vm.shown ? Chips(vm) : "");
-    if (chips) chips.style.display = vm.shown ? "flex" : "none";
+    if (chips) { chips.style.display = vm.shown ? "flex" : "none"; if (chips.classList) chips.classList.remove("bar-more"); }
+  }
+  /** Le « … » des chips : montre celles que la conf a sorties de la ligne. */
+  function toggleChipsMore() {
+    if (chips && chips.classList) chips.classList.toggle("bar-more");
+    return !!(chips && chips.classList && chips.classList.contains("bar-more"));
   }
   /** RM2720 : `id` = le ticket que remplace {id} ; `sid` = la session destinataire. */
   async function sendAction(a, btn, id, sid) {
@@ -67,11 +75,14 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
       if (ctx.refreshSessions) ctx.refreshSessions(); if (ctx.refreshHealth) ctx.refreshHealth();
     } catch (e) { notify(e.message, true); }
   }
-  const chipsH = chips ? mount(chips, "", { events: [["click", "[data-action=\"chip\"]", (e, n) => { const a = (cfg().actions || [])[Number(n.dataset.i)]; sendAction(a, n); }]] }) : null;
+  const chipsH = chips ? mount(chips, "", { events: [
+    ["click", "[data-action=\"chip\"]", (e, n) => { const a = (cfg().actions || [])[Number(n.dataset.i)]; sendAction(a, n); }],
+    ["click", "[data-action=\"chips-more\"]", () => toggleChipsMore()],
+  ] }) : null;
   const disposers = [];
   const listen = (el, type, fn) => { if (el && el.addEventListener) { el.addEventListener(type, fn); disposers.push(() => el.removeEventListener(type, fn)); } };
   listen(bar, "click", (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (!n) return; if (n.dataset.action === "monitor-add") { e.preventDefault(); addMonitor(); } else if (n.dataset.action === "monitor-remove") { e.preventDefault(); removeMonitor(); } });
   listen(bar, "change", (e) => { if (e.target && e.target.id === "layoutsel") setLayout(); });
-  return { renderChips, sendAction, sendPmAction, pmTarget, fillPresets, addMonitor, removeMonitor, setLayout, openDispositionMenu, closeDispMenu, setDisposition, kill,
+  return { renderChips, toggleChipsMore, sendAction, sendPmAction, pmTarget, fillPresets, addMonitor, removeMonitor, setLayout, openDispositionMenu, closeDispMenu, setDisposition, kill,
     unmount() { closeDispMenu(); if (chipsH) chipsH.unmount(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

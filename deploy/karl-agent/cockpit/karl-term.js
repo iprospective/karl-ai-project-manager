@@ -312,7 +312,9 @@
     var term = new global.Terminal({
       allowProposedApi: true,
       cursorBlink: true,
-      fontSize: 14,
+      // RM3418 : réglable (conf d'instance + préférence du navigateur) — 14 px sur un
+      // écran de téléphone, c'est 40 colonnes utiles.
+      fontSize: opts.fontSize > 0 ? Number(opts.fontSize) : 14,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
       // le thème suit les tokens du cockpit (RM2386) — aucune couleur en dur
       theme: readThemeTokens(container),

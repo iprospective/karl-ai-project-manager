@@ -11951,6 +11951,16 @@ def op_test_queue(qs: dict) -> list:
 #: Reste un RÉGLAGE : on peut vouloir autre chose ici — une consigne du jour, une autre procédure.
 PROMPT_RELANCE_DEFAUT = "Fais le cycle de session."
 
+# RM3418 — composition par défaut des barres du cockpit. Ici et pas dans le front :
+# c'est le serveur qui sert la conf d'instance, et le front ne fait que l'appliquer.
+UI_HEADER_LINE_DEFAUT = "yesatt yesall voicebtn feedbtn setbtn helpbtn"
+UI_SESSION_LINE_DEFAUT = "yesbtn micbtn reattach"
+# commit+push : la norme impose déjà commit+push immédiat à chaque étape · git status :
+# le panneau git le montre en lecture directe · session-atester : doublon du « à tester » PM.
+UI_CHIPS_HIDDEN_DEFAUT = "commit gitstatus session-atester"
+UI_CHIPS_LINE_DEFAUT = "atester commenter majdesc point done"
+
+
 _PM_SETTINGS_CONF = [
     {"key": "conf:sessions.relance_prompt", "label": "Prompt du bouton « relancer la session »",
      "group": "Sessions", "type": "text", "maxlen": 4000, "rows": 5,
@@ -11972,6 +11982,41 @@ _PM_SETTINGS_CONF = [
      "path": ["install", "mode"],
      "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
              "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
+    # RM3418 — la composition des BARRES du cockpit, et la taille du terminal. Réglages
+    # d'INSTANCE (admin) : l'ordre et la visibilité des boutons étaient codés en dur dans
+    # le front, donc intouchables sans livrer une version. Listes d'identifiants séparés
+    # par des espaces ou des virgules ; un identifiant inconnu est ignoré sans bruit.
+    {"key": "conf:ui.header_line", "label": "Barre du haut — boutons gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_HEADER_LINE_DEFAUT, "path": ["ui", "header_line"],
+     "help": "Dans l'ordre d'affichage. Les autres passent sous « … ». "
+             "Identifiants des boutons de l'en-tête (helpbtn, setbtn, feedbtn, yesatt…)."},
+    {"key": "conf:ui.header_hidden", "label": "Barre du haut — boutons jamais affichés (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": "", "path": ["ui", "header_hidden"],
+     "help": "Masqués même sous « … ». Vide = aucun."},
+    {"key": "conf:ui.session_line", "label": "Barre de session — commandes gardées sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_SESSION_LINE_DEFAUT, "path": ["ui", "session_line"],
+     "help": "Les autres passent sous « … » (auto-oui, disposition des panes, lecture à voix haute…)."},
+    {"key": "conf:ui.chips_hidden", "label": "Chips de session — masqués",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_HIDDEN_DEFAUT, "path": ["ui", "chips_hidden"],
+     "help": "Clés du catalogue d'actions (commit, gitstatus, session-atester…). "
+             "Masqués au bureau comme en mobile : ce qu'une norme impose déjà ou qu'un "
+             "panneau montre mieux n'a pas à occuper la barre."},
+    {"key": "conf:ui.chips_line", "label": "Chips de session — gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_LINE_DEFAUT, "path": ["ui", "chips_line"],
+     "help": "Les autres passent sous « … », en mobile seulement."},
+    {"key": "conf:ui.term_font_px", "label": "Terminal — taille de la typo (bureau)",
+     "group": "Cockpit", "type": "number", "min": 8, "max": 24, "admin": True,
+     "default": 14, "path": ["ui", "term_font_px"]},
+    {"key": "conf:ui.term_font_px_mobile", "label": "Terminal — taille de la typo (mobile)",
+     "group": "Cockpit", "type": "number", "min": 7, "max": 20, "admin": True,
+     "default": 11, "path": ["ui", "term_font_px_mobile"],
+     "help": "Un écran de téléphone fait 390 px de large : à 14 px, une ligne de 80 colonnes "
+             "ne tient pas. Chaque navigateur peut encore l'ajuster dans ses réglages."},
     # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
     {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
@@ -12209,6 +12254,35 @@ def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
     return spec["value"] if spec else "auto"
+
+
+def _ui_bars() -> dict:
+    """RM3418 — ce que le front doit savoir des barres : quels boutons sur la ligne,
+    lesquels masqués, et la taille du terminal. Les listes sont normalisées ICI (espaces
+    ou virgules, doublons retirés) pour que le front n'ait rien à interpréter."""
+    def liste(key: str) -> list:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        vals = re.split(r"[\s,]+", str((spec or {}).get("value") or "").strip())
+        out = []
+        for v in vals:
+            if v and v not in out:
+                out.append(v)
+        return out
+
+    def nombre(key: str, dflt: int) -> int:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        val = (spec or {}).get("value")
+        return int(val) if isinstance(val, (int, float)) and not isinstance(val, bool) else dflt
+
+    return {
+        "header_line": liste("conf:ui.header_line"),
+        "header_hidden": liste("conf:ui.header_hidden"),
+        "session_line": liste("conf:ui.session_line"),
+        "chips_hidden": liste("conf:ui.chips_hidden"),
+        "chips_line": liste("conf:ui.chips_line"),
+        "term_font_px": nombre("conf:ui.term_font_px", 14),
+        "term_font_px_mobile": nombre("conf:ui.term_font_px_mobile", 11),
+    }
 
 
 def _context_thresholds() -> dict:
@@ -13297,6 +13371,9 @@ class Handler(BaseHTTPRequestHandler):
                 # seuil d'affichage n'est pas une donnée sensible, et le front en
                 # a besoin au premier rendu de la liste des sessions).
                 "context_thresholds": _context_thresholds(),
+                # RM3418 : composition des barres et taille du terminal. Le front n'a
+                # plus de liste en dur ; une conf d'instance la remplace sans livraison.
+                "ui": _ui_bars(),
             })
         if not authed:
             return self._send_auth_required()

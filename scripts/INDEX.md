@@ -153,6 +153,7 @@
 - `pm-provider-secret` — pose, remplace ou efface le SECRET d'une instance de provider
 - `pm-providers` — inspecte le registre de serveurs et la résolution d'instance
 - `pm-secret-instance` — quel coffre pour CE projet ? Réécrit `secret:<chemin>` en `secret://<in…
+- `pm-secret-watch` — un secret a transité dans le tour : notifier et ouvrir la rotation. RM3…
 
 ### Ordonnancement & notifications
 
@@ -253,6 +254,7 @@
 - `pm_roles` — quel rôle d'agent pour ce ticket ?
 - `pm_scope` — garde de PÉRIMÈTRE des outils PM mutants
 - `pm_searchdb` — l'index de REQUÊTAGE de karl-PM : une PROJECTION du Markdown
+- `pm_secret_scan` — reconnaître un secret dans un texte, sans jamais le recopier
 - `pm_secrets` — abstraction de gestionnaire de secrets (vault) — RM2681 (L0).
 - `pm_session` — Id de session court (entier incrémental) + registre des branches/worktr…
 - `pm_session_hook` — Reflète une création / transition de ticket PM dans le worklog de sessi…

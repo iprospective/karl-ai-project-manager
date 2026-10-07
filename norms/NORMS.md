@@ -895,7 +895,7 @@ pm-task-link add "$ID" 1834 --type relates
 Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
 `--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
 
-> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help`.
+> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help` · un secret a transité en séance, ou je touche au garde qui le détecte.
 > **Outils :** tous les `pm-*` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 Détail sorti de `session-tooling` (RM3037) pour tenir le budget de contexte : la **règle** — tout ce qui
@@ -960,6 +960,35 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Un secret qui transite : le garde système (RM3274)
+
+Le tripwire #11 t'interdit de faire transiter un secret dans un transcript, et la règle de
+RM2466 te demande de le signaler quand c'est arrivé. Depuis RM3274, **tu n'es plus le seul
+filet** : le hook `Stop` `pm-secret-watch` relit chaque tour et, s'il voit un secret — préfixe
+connu (`glpat-`, `ghp_`, `EAA…` Meta, `sk-…`, `AKIA…`, `AIza…`), mot-clé porteur, clé privée
+PEM, fragment de haute entropie — **ou si tu l'écris toi-même** (« affiché en clair », « token
+compromis », « à régénérer ») :
+
+1. écrit une notification **`critical`** adressée à l'owner — tous les secrets, sans palier
+   selon l'environnement ni selon que tu l'aies avoué (arbitrage Mathieu, 2026-09-21) ;
+2. **ouvre le ticket de rotation** : type `security`, priorité `immediat` (RM3275), lié au
+   ticket du tour ;
+3. journalise dans le `.log.md` du ticket courant.
+
+**Rien de tout cela ne contient la valeur** : libellé, endroit, empreinte `sha256[:12]` — et
+c'est à tenir si tu touches à ce code. Un garde qui recopie ce qu'il dénonce le propage dans
+des supports qui durent plus longtemps que le transcript (le fil, un ticket Redmine, un
+journal versionné).
+
+Deux gardes contre l'emballement : mémoire par empreinte (un même secret revu ne rouvre pas
+de ticket, la notification remonte avec son compteur) et plafond par session
+(`PM_SECRET_WATCH_MAX`, 3 par défaut — au-delà on alerte encore, on n'ouvre plus).
+
+**Ce garde ne t'exempte de rien.** Il rattrape l'oubli, il ne remplace pas le geste : tu
+signales toujours ce que tu as vu passer, et surtout tu évites de le faire transiter — un
+`SELECT` sur une table de configuration s'écrit en excluant `%TOKEN%`, `%KEY%`, `%SECRET%`.
+Essayer un texte à la main : `pm-secret-watch --text "…" --dry-run`.
 
 ## Le CYCLE DE SESSION — une procédure nommée (RM3162)
 

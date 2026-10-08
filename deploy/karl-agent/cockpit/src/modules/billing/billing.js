@@ -99,20 +99,31 @@ export function timeline(jour, { start, end } = {}) {
   for (const k of (jour && jour.ia) || []) {
     const x = minOf(k.heure);
     if (isNaN(x)) continue;
-    const cur = parMinute.get(k.heure) || { heure: k.heure, tours: 0, minutes: 0, tokens: 0, tickets: [], left: pct(x, from, span) };
+    const cur = parMinute.get(k.heure) || { heure: k.heure, tours: 0, minutes: 0, tokens: 0, tickets: [], clients: new Map(), left: pct(x, from, span) };
     cur.tours += 1;
     cur.minutes += Number(k.minutes) || 0;
     cur.tokens += Number(k.tokens) || 0;
     if (k.ticket && !cur.tickets.includes(k.ticket)) cur.tickets.push(k.ticket);
+    if (k.client) cur.clients.set(k.client, (cur.clients.get(k.client) || 0) + (Number(k.minutes) || 0));
     parMinute.set(k.heure, cur);
   }
-  const ia = [...parMinute.values()].sort((a, b) => (a.left - b.left));
+  // Le repère porte la couleur de SON client : la voie IA se lit alors comme la voie
+  // humaine, et on voit d'un coup d'œil pour qui l'agent a travaillé.
+  const ia = [...parMinute.values()].map(g => {
+    const dom = [...g.clients.entries()].sort((a, b) => b[1] - a[1])[0];
+    return { ...g, client: dom ? dom[0] : null, couleur: couleurClient(dom ? dom[0] : null) };
+  }).sort((a, b) => (a.left - b.left));
   const a0 = minOf(start), a1 = minOf(end);
   const normal = (!isNaN(a0) && !isNaN(a1) && a1 > a0)
     ? { left: pct(a0, from, span), width: pct(a1, from, span) - pct(a0, from, span), debut: start, fin: end }
     : null;
+  // Une journée large (24 h) ne tient pas 25 étiquettes : elles se chevauchent et la
+  // règle devient illisible. On garde toutes les graduations, on espace les ÉTIQUETTES.
+  const pas = span > 18 * 60 ? 180 : span > 12 * 60 ? 120 : 60;
   const heures = [];
-  for (let h = from; h <= to; h += 60) heures.push({ label: hhmm(h), left: pct(h, from, span) });
+  for (let h = from; h <= to; h += 60) {
+    heures.push({ label: (h % pas === 0) ? hhmm(h) : "", left: pct(h, from, span) });
+  }
   return { from, to, span, humain, ia, normal, heures };
 }
 
@@ -286,8 +297,13 @@ export function commits(jour) {
   const tous = ((jour && jour.commits) || []).map(c => ({
     heure: String(c.ts || "").slice(11, 16), sha: c.sha, depot: c.depot,
     client: c.client, sujet: c.sujet || "", auto: !!c.auto,
+    merge: !!c.merge, rm: c.rm || null, branche: c.branche || "", cible: c.cible || "",
   }));
-  return { travail: tous.filter(c => !c.auto), plomberie: tous.filter(c => c.auto), total: tous.length };
+  // Une LIVRAISON (MR fusionnée) ne se range pas avec les commits ordinaires : c'est
+  // du travail qui est sorti, et c'est ce qu'on montre en premier à un client.
+  return { travail: tous.filter(c => !c.auto && !c.merge),
+           fusions: tous.filter(c => c.merge),
+           plomberie: tous.filter(c => c.auto && !c.merge), total: tous.length };
 }
 
 /** Les tours d'agent de la journée, groupés par ticket — où l'IA a réellement travaillé. */
@@ -464,6 +480,11 @@ export function fil(jour) {
     out.push({ heure: c.heure, genre: "commit", source: c.depot, humain: true,
                cible: c.client || "", rm: null, texte: c.sujet, sha: c.sha });
   }
+  for (const c of commits(jour).fusions) {
+    out.push({ heure: c.heure, genre: "livraison", source: c.depot, humain: true,
+               cible: c.client || "", rm: c.rm, sha: c.sha,
+               texte: `${c.branche || c.sujet}${c.cible ? " → " + c.cible : ""}` });
+  }
   for (const c of commits(jour).plomberie) {
     out.push({ heure: c.heure, genre: "plomberie", source: c.depot, humain: false,
                cible: c.client || "", rm: null, texte: c.sujet, sha: c.sha });
@@ -490,4 +511,191 @@ export function totauxIA(jour) {
   return { tours: ia.length, minutes: Math.round(declare),
            paralleles: ia.filter(k => k.borne).length,
            horloge: Math.round(horloge) };
+}
+
+// ── Relier le temps IA au temps humain (RM3229) ───────────────────────────────
+//
+// Une plage humaine facturée doit pouvoir se justifier : ce qui s'y est passé, et ce
+// qui en est sorti. Ces fonctions font la couture — chaque tour d'agent, chaque commit,
+// chaque livraison est rattaché à l'intervalle humain qui le contient.
+
+const dedans = (x, a, b) => !isNaN(x) && x >= a && x <= b;
+
+/**
+ * Les intervalles humains de la journée, chacun avec ce qu'il contient.
+ *
+ * `orphelins` recueille ce qui ne tombe dans AUCUN intervalle : c'est le cas qui
+ * intéresse: un tour d'agent sans trace humaine autour veut dire soit qu'on a oublié
+ * une plage, soit que l'agent a tourné seul — et les deux se traitent différemment.
+ */
+export function correspondances(jour) {
+  const periodes = ((jour && jour.periodes) || []).map(([a, b], i) => ({
+    i, debut: a, fin: b, min: minOf(a), max: minOf(b),
+    minutes: Math.max(0, minOf(b) - minOf(a)),
+    ia: [], commits: [], fusions: [], prompts: [], redmine: [], clients: new Map(),
+  }));
+  const orphelins = { ia: [], commits: [], fusions: [], prompts: [], redmine: [] };
+  const loge = (x, genre, item) => {
+    const p = periodes.find(q => dedans(x, q.min, q.max));
+    (p ? p[genre] : orphelins[genre]).push(item);
+    return p || null;
+  };
+
+  for (const k of (jour && jour.ia) || []) {
+    const p = loge(minOf(k.heure), "ia", {
+      heure: k.heure, minutes: Number(k.minutes) || 0, modele: k.modele || "",
+      rm: k.ticket || null, client: k.client || null,
+      cible: [k.client, k.projet].filter(Boolean).join("/"),
+    });
+    if (p && k.client) p.clients.set(k.client, (p.clients.get(k.client) || 0) + (Number(k.minutes) || 0));
+  }
+  for (const t of traces(jour)) {
+    // Seules les traces HUMAINES font preuve ici : une trace d'agent est déjà comptée
+    // comme tour d'IA, la reprendre comme « ce que l'humain a écrit » serait mentir.
+    if (!t.humain) continue;
+    const item = { heure: t.heure, source: t.source, cible: t.cible, rm: t.rm, texte: t.extrait };
+    loge(minOf(t.heure), t.source.includes("redmine") ? "redmine" : "prompts", item);
+  }
+  for (const c of ((jour && jour.commits) || [])) {
+    const heure = String(c.ts || "").slice(11, 16);
+    const item = { heure, sha: c.sha, depot: c.depot, client: c.client, sujet: c.sujet,
+                   rm: c.rm || null, branche: c.branche || "", cible: c.cible || "" };
+    if (c.merge) loge(minOf(heure), "fusions", item);
+    else if (!c.auto) loge(minOf(heure), "commits", item);
+  }
+
+  for (const p of periodes) {
+    // Les bandes colorées donnent le client de la plage ; à défaut, les tours d'agent.
+    for (const b of (jour && jour.bandes) || []) {
+      if (dedans(minOf(b.debut), p.min, p.max) || dedans(minOf(b.fin), p.min, p.max)) {
+        for (const [c, m] of Object.entries(b.parts || {})) {
+          if (c && c !== "null") p.clients.set(c, (p.clients.get(c) || 0) + (Number(m) || 0));
+        }
+      }
+    }
+    p.clients = [...p.clients.entries()].sort((a, b) => b[1] - a[1])
+      .map(([c, m]) => ({ client: nomClient(c), couleur: couleurClient(c), minutes: Math.round(m) }));
+    p.preuves = p.ia.length + p.commits.length + p.fusions.length + p.prompts.length + p.redmine.length;
+  }
+  return { periodes, orphelins };
+}
+
+/**
+ * Les traits qui relient un tour d'agent à sa plage humaine.
+ *
+ * Un tour rattaché pointe vers le MILIEU de sa plage : plusieurs tours convergent
+ * alors visiblement vers la même plage. Un tour orphelin n'est relié à rien et le
+ * montre — c'est l'information, pas un défaut d'affichage.
+ */
+export function liens(jour, { from, span }) {
+  const pos = (m) => ((m - from) / span) * 100;
+  const periodes = ((jour && jour.periodes) || []).map(([a, b]) => ({ min: minOf(a), max: minOf(b), debut: a, fin: b }));
+  const out = [];
+  for (const k of (jour && jour.ia) || []) {
+    const x = minOf(k.heure);
+    if (isNaN(x)) continue;
+    const p = periodes.find(q => dedans(x, q.min, q.max));
+    out.push({
+      x1: pos(x),
+      x2: p ? pos((p.min + p.max) / 2) : pos(x),
+      couleur: couleurClient(k.client),
+      orphelin: !p,
+      titre: p
+        ? `${k.heure} · ${fmtMin(k.minutes)}${k.ticket ? " · RM" + k.ticket : ""} → plage ${p.debut}–${p.fin}`
+        : `${k.heure} · ${fmtMin(k.minutes)} — AUCUNE trace humaine à cette heure`,
+    });
+  }
+  return out.filter(l => l.x1 >= -1 && l.x1 <= 101);
+}
+
+/** Le compte rendu d'une mise en correspondance : ce qui tient, et ce qui ne tient pas. */
+export function bilanCorrespondance(jour) {
+  const { periodes, orphelins } = correspondances(jour);
+  const sansPreuve = periodes.filter(p => !p.preuves);
+  return {
+    periodes: periodes.length,
+    sansPreuve: sansPreuve.length,
+    iaOrphelins: orphelins.ia.length,
+    minutesOrphelines: Math.round(orphelins.ia.reduce((n, k) => n + k.minutes, 0)),
+    commitsOrphelins: orphelins.commits.length + orphelins.fusions.length,
+  };
+}
+
+// ── Les blocs destinés à Redmine, et ce qui les justifie (RM3229) ─────────────
+//
+// L'UNITÉ de ce qui sera inséré dans Redmine est le BLOC : du temps, une activité, UN
+// projet, si possible un ticket. Une plage de travail humain n'en est pas un — elle peut
+// nourrir plusieurs blocs si on a changé de client pendant. C'est le bloc qu'on valide,
+// c'est donc lui qu'il faut pouvoir justifier.
+
+/** Le nom lisible d'une activité Redmine, ou son numéro à défaut. */
+export function nomActivite(jour, id) {
+  const t = (jour && jour.activites) || {};
+  return t[String(id)] || (id ? `activité ${id}` : "");
+}
+
+/**
+ * Les blocs de la journée, chacun avec les preuves qui le soutiennent.
+ *
+ * Une preuve rejoint un bloc quand elle porte le MÊME ticket, ou à défaut le même
+ * client/projet. Un bloc sans la moindre preuve est signalé : c'est du temps réparti
+ * par la clé de refacturation, pas du travail directement observé — légitime, mais à
+ * regarder avant de le facturer.
+ */
+export function blocsRedmine(jour) {
+  const prompts = traces(jour).filter(t => t.humain);
+  const cm = commits(jour);
+  const ia = (jour && jour.ia) || [];
+
+  return ((jour && jour.proposition) || []).map(l => {
+    const cible = [l.client, l.projet].filter(Boolean).join("/");
+    const memeCible = (c, p) => c === l.client && (!l.projet || !p || p === l.projet);
+    const parTicket = (rm) => l.ticket && String(rm) === String(l.ticket);
+
+    const sesIa = ia.filter(k => parTicket(k.ticket) || (!l.ticket && memeCible(k.client, k.projet)));
+    const sesPrompts = prompts.filter(t => parTicket(t.rm) || (!l.ticket && t.cible === cible));
+    const sesCommits = cm.travail.filter(c => c.client === l.client);
+    const sesFusions = cm.fusions.filter(c => parTicket(c.rm) || c.client === l.client);
+
+    const heures = [...sesIa.map(k => k.heure), ...sesPrompts.map(t => t.heure)].sort();
+    return {
+      jour: l.jour, client: l.client, projet: l.projet || "", ticket: l.ticket || null,
+      minutes: l.minutes, duree: fmtMin(l.minutes),
+      activite: l.activite, activiteNom: nomActivite(jour, l.activite),
+      facturable: l.facturable !== false,
+      outillage: l.outillage_min || 0,
+      couleur: couleurClient(l.client),
+      ia: sesIa.map(k => ({ heure: k.heure, minutes: Number(k.minutes) || 0, modele: k.modele || "" })),
+      iaDuree: fmtMin(sesIa.reduce((n, k) => n + (Number(k.minutes) || 0), 0)),
+      prompts: sesPrompts, commits: sesCommits, fusions: sesFusions,
+      plage: heures.length ? `${heures[0]}–${heures[heures.length - 1]}` : "",
+      preuves: sesIa.length + sesPrompts.length + sesCommits.length + sesFusions.length,
+    };
+  }).sort((a, b) => b.minutes - a.minutes);
+}
+
+/** Les tours d'agent qui ne tombent dans aucune plage humaine — informatif, jamais facturé. */
+export function iaHorsPlage(jour) {
+  const periodes = ((jour && jour.periodes) || []).map(([a, b]) => [minOf(a), minOf(b)]);
+  return ((jour && jour.ia) || [])
+    .filter(k => { const x = minOf(k.heure); return !isNaN(x) && !periodes.some(([a, b]) => x >= a && x <= b); })
+    .map(k => ({ heure: k.heure, minutes: Number(k.minutes) || 0, duree: fmtMin(k.minutes),
+                 rm: k.ticket || null, cible: [k.client, k.projet].filter(Boolean).join("/"),
+                 couleur: couleurClient(k.client), modele: k.modele || "" }))
+    .sort((a, b) => (a.heure < b.heure ? -1 : 1));
+}
+
+/** Le bilan des blocs : ce qui tient, ce qui est à regarder. */
+export function bilanBlocs(jour) {
+  const b = blocsRedmine(jour);
+  const hors = iaHorsPlage(jour);
+  return {
+    blocs: b.length,
+    minutes: b.reduce((n, x) => n + x.minutes, 0),
+    sansPreuve: b.filter(x => !x.preuves).length,
+    sansTicket: b.filter(x => !x.ticket).length,
+    clients: [...new Set(b.map(x => x.client))].length,
+    iaHorsPlage: hors.length,
+    minutesHorsPlage: Math.round(hors.reduce((n, k) => n + k.minutes, 0)),
+  };
 }

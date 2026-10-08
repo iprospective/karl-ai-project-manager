@@ -30,8 +30,10 @@
 - `pm-task-metrics-push` — Pousse l'ESTIMATION d'une tâche vers Redmine.
 - `pm-task-move` — DÉPLACE une tâche d'un projet PM vers un autre (fichiers + Redmine).
 - `pm-task-partner` — rattache un ticket PM à un ticket d'un gestionnaire PARTENAIRE.
+- `pm-task-priority` — change la priorité d'un ticket : Redmine + frontmatter + log
 - `pm-task-protocol` — Protocole de test d'un ticket : CF Redmine + frontmatter
 - `pm-task-questions` — les questions d'un ticket, dans son CF Redmine 36 « Questions à tranche…
+- `pm-task-rename` — renommer le TITRE d'un ticket (frontmatter + Redmine). RM3242.
 - `pm-task-report` — Report des tokens/temps consommés (frontmatter + .log.md PM) → Redmine.
 - `pm-task-search` — recherche d'ANTÉRIORITÉ : ce sujet a-t-il déjà un ticket ?
 - `pm-task-show` — Affiche le détail d'une tâche (MD + tail log + Redmine récent).
@@ -152,6 +154,7 @@
 - `pm-provider-secret` — pose, remplace ou efface le SECRET d'une instance de provider
 - `pm-providers` — inspecte le registre de serveurs et la résolution d'instance
 - `pm-secret-instance` — quel coffre pour CE projet ? Réécrit `secret:<chemin>` en `secret://<in…
+- `pm-secret-watch` — un secret a transité dans le tour : notifier et ouvrir la rotation. RM3…
 
 ### Ordonnancement & notifications
 
@@ -183,11 +186,13 @@
 
 - `pm-acceptance-purge` — retire la section « Critères d'acceptation » des descriptions
 - `pm-bus-drain` — exécute les abonnements des modules sur les événements en attente
+- `pm-core-gitignore` — garantit qu'un dépôt de données PM n'emporte pas de secret
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-health-report` — calcule la santé du système PM et l'écrit
 - `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
 - `pm-karl-service` — une instance de karl-agent par développeur
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
+- `pm-mep-watch` — la file « à vérifier en prod » se rappelle à nous
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
@@ -195,14 +200,22 @@
 - `pm-snapshot` — point de restauration ZFS pré-MEP, pris sur le bon hyperviseur, depuis…
 - `pm-stores-migrate` — ramène les stores de session du HOME vers le `var/` du repo PM. RM2992.
 - `pm-token-check` — surveille la péremption des PAT GitLab de karl, rote à J-seuil
+- `pm-user-add` — créer ou compléter le compte PM d'un utilisateur (idempotent) (RM3208).…
 - `pm-user-conf-migrate` — Sort la conf PM d'un utilisateur de son home
+- `pm-user-disable` — retirer l'accès PM d'un utilisateur (réversible) (RM3208). Implémentati…
+- `pm-user-enable` — rendre l'accès retiré par disable (RM3208). Implémentation : `pm_user_c…
+- `pm-user-list` — comptes PM : registre + état système (RM3208). Implémentation : `pm_use…
+- `pm-user-passwd` — changer le mot de passe cockpit d'un utilisateur (RM3208). Implémentati…
+- `pm-user-remove` — supprimer le compte PM (jamais le compte humain) (RM3208). Implémentati…
 - `pm-workflow-sync` — Synchronise le workflow Redmine (transitions de statut) vers une
 - `pm-worklog-merge` — reprendre un worklog de session resté à l'ancien emplacement
 
 ## Bibliothèques (importées, pas lancées)
 
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
+- `pm_accounts` — le registre des comptes PM de l'instance
 - `pm_actor` — QUI agit, quand karl agit pour quelqu'un
+- `pm_batch` — composer un lot de tickets pour un agent : plan et consigne
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »
 - `pm_client_notify` — cœur de la notification client à la MEP
@@ -227,6 +240,7 @@
 - `pm_mail_bounce` — reconnaître et lire un avis de non-remise
 - `pm_mail_routing` — de l'expéditeur d'un email au couple client/projet
 - `pm_markdown` — Utilitaires markdown partagés par l'outillage PM
+- `pm_mep_script` — le script de MEP d'un ticket
 - `pm_modules` — le registre des MODULES de PM
 - `pm_monitor` — les OBSERVATEURS du parc, en lecture
 - `pm_norms_anchors` — ce qui doit survivre à une réécriture dense des normes
@@ -234,6 +248,7 @@
 - `pm_output` — contrat de sortie des scripts PM
 - `pm_partner` — liens vers les tickets d'un gestionnaire PARTENAIRE (N0, RM2654).
 - `pm_paths` — Résolution de chemins du système PM iprospective.
+- `pm_priority` — Source unique de l'énumération NORMS `priority`
 - `pm_proclive` — « une session d'agent tourne-t-elle encore sur ce sid ? ». RM2810.
 - `pm_provider_types` — le CATALOGUE des types de fournisseurs
 - `pm_questions_gate` — pas de mise en prod avec une question en suspens
@@ -243,6 +258,7 @@
 - `pm_roles` — quel rôle d'agent pour ce ticket ?
 - `pm_scope` — garde de PÉRIMÈTRE des outils PM mutants
 - `pm_searchdb` — l'index de REQUÊTAGE de karl-PM : une PROJECTION du Markdown
+- `pm_secret_scan` — reconnaître un secret dans un texte, sans jamais le recopier
 - `pm_secrets` — abstraction de gestionnaire de secrets (vault) — RM2681 (L0).
 - `pm_session` — Id de session court (entier incrémental) + registre des branches/worktr…
 - `pm_session_hook` — Reflète une création / transition de ticket PM dans le worklog de sessi…
@@ -254,6 +270,7 @@
 - `pm_think` — le fichier de réflexion d'un ticket (`RM<id>_<slug>.think.md`) et sa fu…
 - `pm_timesheet` — reconstitution du temps de travail HUMAIN à partir des traces d'agents
 - `pm_transcript` — lecture typée d'un transcript claude (JSONL). RM2305.
+- `pm_user_cli` — le compte PM UNIQUE d'un utilisateur : système, cockpit, profil
 - `pm_worklog_states` — comment un worklog de session CLASSE ce qu'il porte. RM3085 (lot L5 de…
 - `pm_worktrees` — d'où partent les worktrees, où vont les envs
 - `pm_ws_skeleton` — pont vers le verbe privilégié `pm-env-helper ws-init`

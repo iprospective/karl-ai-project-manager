@@ -34,9 +34,10 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
+import pm_priority  # RM3275 : énumération priority, source unique
 
 
-PRIORITY_WEIGHTS = {"low": 0.5, "normal": 1.0, "high": 2.0, "urgent": 4.0}
+PRIORITY_WEIGHTS = pm_priority.weights()  # RM3275 : source unique, poids doublant par cran
 # Équivalence € d'un point de bénéfice qualitatif (échelle 1-5) — repli quand
 # les gains € ne sont pas renseignés. Taux horaire humain lu dans pm.pricing.yml.
 BENEFIT_POINT_EUR = 100.0

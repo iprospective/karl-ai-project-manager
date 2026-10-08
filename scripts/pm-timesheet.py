@@ -350,12 +350,14 @@ def calculer(args, cfg, conf):
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
-    deduit, toutes, slugs = [], [], {}
+    deduit, toutes, slugs, activites = [], [], {}, {}
     if not args.sans_deduction:
         for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
             saisies = saisies_humaines(url, key, uid, debut, fin, basic)
-            if saisies and not slugs:
+            if not slugs:
                 slugs = slugs_projets_redmine(url, key, basic)
+            if not activites:
+                activites = activites_redmine(url, key, basic)
             if args.verbose:
                 print(f"  {len(saisies):5d}  saisies humaines à déduire "
                       f"({nom})", file=sys.stderr)
@@ -380,6 +382,7 @@ def calculer(args, cfg, conf):
     return {"resolver": resolver, "items": items, "segments": segments,
             "ajouts": ajouts, "transferts": transferts,
             "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
+            "activites": activites,
             "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
@@ -910,6 +913,22 @@ def traces_du_jour(res, jour):
     return sorted(sortie, key=lambda t: t["heure"])
 
 
+_ACTIVITES_CACHE = {}
+
+
+def activites_redmine(url, key, basic=None):
+    """{id → nom} des activités Redmine. Un bloc doit dire « Développement », pas « 9 »."""
+    if _ACTIVITES_CACHE:
+        return _ACTIVITES_CACHE
+    from redmine_utils import http_json
+    code, body = http_json("GET", f"{url}/enumerations/time_entry_activities.json",
+                           key, basic=basic)
+    if code == 200:
+        for a in body.get("time_entry_activities", []):
+            _ACTIVITES_CACHE[str(a.get("id"))] = a.get("name") or ""
+    return _ACTIVITES_CACHE
+
+
 def _cumul_transversal(res, jour):
     """Combien de temps transversal chaque client a reçu ce jour-là.
 
@@ -970,6 +989,7 @@ def vue_json(res, prop, commits=True):
                         "parts": {c: round(m) for c, m in sorted(
                             b["parts"].items(), key=lambda kv: -kv[1]) if round(m)}}
                        for b in W.bandes_par_client((res.get("segments") or {}).get(j, []))],
+            "activites": res.get("activites") or {},
             "transversal_par_client": {
                 c: round(v) for c, v in sorted(
                     _cumul_transversal(res, j).items(), key=lambda kv: -kv[1]) if round(v)},

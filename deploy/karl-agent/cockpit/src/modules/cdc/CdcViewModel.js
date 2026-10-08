@@ -45,10 +45,18 @@ export function cdcTabs(cdc) {
 export const THINK_STATES = [["valide", "✅ validé"], ["invalide", "❌ invalidé"], ["propose", "🟡 proposé"], ["attente", "🕐 en attente"], ["reserve", "⏸ en réserve"]];
 export const FEATURE_STATES = ["prévu", "en cours", "en pause", "écarté", "livré"];
 const escA = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-/** La cellule de gestes d'une entrée de think : état + suppression (RM3064). Chaîne HTML sûre (ids contrôlés par regex). */
-export function thinkActions(rm, id) {
+/** RM3381 — le texte visible d'une ligne de registre, pour pré-remplir la correction. Les registres
+ *  sont du HTML rendu : on prend la cellule qui suit l'id, balises retirées. Best-effort — c'est un
+ *  pré-remplissage, l'utilisateur voit et corrige ce qu'il obtient. */
+export function texteDeLigne(row) {
+  const cells = String(row || "").split(/<\/td>/i);
+  const brut = (cells[1] || cells[0] || "").replace(/<[^>]*>/g, " ");
+  return brut.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+}
+/** La cellule de gestes d'une entrée de think : état + suppression (RM3064) + correction (RM3381). Chaîne HTML sûre (ids contrôlés par regex). */
+export function thinkActions(rm, id, texte = "") {
   const opts = THINK_STATES.map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("");
-  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini" data-action="think-move" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Déplacer cette entrée vers un autre ticket (RM3258)">→</button> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
+  return '<td class="cdc-act"><select class="mini" data-action="think-state" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Changer l\'état de cette entrée"><option value="">état…</option>' + opts + '</select> <button class="mini" data-action="think-text" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" data-text="' + escA(texte) + '" title="Corriger le TEXTE de cette entrée, sans toucher à son état (RM3381)">✎</button> <button class="mini" data-action="think-move" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Déplacer cette entrée vers un autre ticket (RM3258)">→</button> <button class="mini cdc-del" data-action="think-delete" data-rm="' + escA(rm) + '" data-id="' + escA(id) + '" title="Supprimer cette entrée incohérente (confirmation)">✕</button></td>';
 }
 /** L'en-tête commun : les onglets du panneau (fonctionnalités, CDC, feuille de route), les CDC disponibles, celui en contexte. */
 export class CdcHeaderViewModel extends EntityViewModel {
@@ -122,7 +130,7 @@ export class ChaptersViewModel extends EntityViewModel {
     let h = String(htmlText || "").replace(/<td>(<del>|<s>)?((?:RM\d+-)?[DCQNF]\d{3}[a-z]?)(?=[\s<])/g, (m, del, id) => '<td id="sec-' + id + '">' + (del || "") + id)
       .replace(/\bRM(\d{3,5})\b(?!-)(?![^<]*<\/a>)/g, '<a href="#" class="cdcrm" data-action="ticket" data-rm="$1">RM$1</a>');   // pas le RM d'un id fusionné (RM3044-D001)
     let touched = false;
-    h = h.replace(/<tr>(\s*<td id="sec-RM(\d+)-([DCQNF]\d{3}[a-z]?)">[\s\S]*?)<\/tr>/g, (m, row, rm, id) => { touched = true; return "<tr>" + row + thinkActions(rm, id) + "</tr>"; });
+    h = h.replace(/<tr>(\s*<td id="sec-RM(\d+)-([DCQNF]\d{3}[a-z]?)">[\s\S]*?)<\/tr>/g, (m, row, rm, id) => { touched = true; return "<tr>" + row + thinkActions(rm, id, texteDeLigne(row)) + "</tr>"; });
     if (touched) h = h.replace(/<tr>(\s*<th>[\s\S]*?)<\/tr>/g, (m, row) => "<tr>" + row + '<th class="cdc-act"></th></tr>');
     return h;
   }

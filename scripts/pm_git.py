@@ -437,11 +437,39 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
     # doit pas empêcher un ticket d'être écrit.
     _index_touch(paths)
 
-    root_r = _run(["git", "-C", str(paths[0].parent), "rev-parse", "--show-toplevel"])
-    if root_r.returncode != 0:
-        _warn(f"{paths[0].parent} n'est pas dans un repo git — skip")
+    # RM3237 — un appel peut porter sur PLUSIEURS dépôts : un lien entre deux tickets de
+    # projets différents écrit le journal de chacun, donc deux dépôts de données. On
+    # calculait une seule racine (celle de paths[0]) et on IGNORAIT le reste — les fichiers
+    # de l'autre dépôt restaient non commités jusqu'au rattrapage (RM3013), c'est-à-dire
+    # plus d'une heure, et seulement si un autre outil repassait par là. On groupe donc par
+    # racine et on committe chaque dépôt, sous son propre verrou.
+    groupes = {}
+    for p in paths:
+        r = _run(["git", "-C", str(p.parent), "rev-parse", "--show-toplevel"])
+        if r.returncode != 0:
+            _warn(f"{p.parent} n'est pas dans un repo git — skip")
+            continue
+        groupes.setdefault(Path(r.stdout.strip()), []).append(p)
+    if not groupes:
         return None
-    root = Path(root_r.stdout.strip())
+
+    # La valeur de retour reste le sha du dépôt de paths[0] : les appelants l'utilisent
+    # pour tracer « leur » commit, et tous n'écrivent que dans un seul dépôt.
+    r0 = _run(["git", "-C", str(paths[0].parent), "rev-parse", "--show-toplevel"])
+    racine_principale = Path(r0.stdout.strip()) if r0.returncode == 0 else None
+
+    sha_principal = None
+    for root, ps in groupes.items():
+        sha = _autocommit_un_repo(root, ps, message, cfg, push)
+        if root == racine_principale:
+            sha_principal = sha
+    return sha_principal
+
+
+def _autocommit_un_repo(root, paths, message, cfg, push):
+    """Committe (et pousse) dans UN dépôt les chemins qui lui appartiennent — RM3237.
+    Extrait d'`autocommit` sans changement de comportement : même verrou, même sweep,
+    même sortie. Rend le sha court, ou None s'il n'y avait rien à committer."""
     rel = []
     for p in paths:
         try:

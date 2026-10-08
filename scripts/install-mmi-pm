@@ -18,15 +18,17 @@
 # symlink système, sudoers, chown). RM2062 / RM2032 / RM1945 / RM1680.
 #
 # Usage : sudo install-mmi-pm [CORE_DIR] [--no-lock] [--dry-run]
+#        install-mmi-pm [CORE_DIR] --print-sudoers   (rendu des règles sudoers, sans root, n'installe rien)
 set -euo pipefail
 
 SELF="$(readlink -f "$0")"
 CORE_DIR="$(dirname "$(dirname "$SELF")")"   # scripts/.. = racine de l'instance
-NO_LOCK=0; DRY=0
+NO_LOCK=0; DRY=0; PRINT=0
 for a in "$@"; do
   case "$a" in
     --no-lock) NO_LOCK=1;;
     --dry-run) DRY=1;;
+    --print-sudoers) PRINT=1;;
     -*) echo "install-mmi-pm: option inconnue '$a'" >&2; exit 1;;
     *)  CORE_DIR="$(readlink -f "$a")";;
   esac
@@ -36,7 +38,7 @@ die(){ echo "install-mmi-pm: $*" >&2; exit 1; }
 run(){ if [ "$DRY" = 1 ]; then echo "  [dry] $*"; else "$@"; fi; }
 step(){ echo "==> $*"; }
 
-[ "$DRY" = 1 ] || [ "$(id -u)" -eq 0 ] || die "root requis (users, symlink système, sudoers, verrou)"
+[ "$DRY" = 1 ] || [ "$PRINT" = 1 ] || [ "$(id -u)" -eq 0 ] || die "root requis (users, symlink système, sudoers, verrou)"
 [ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un checkout git"
 [ -f "$CORE_DIR/.env" ] || die "$CORE_DIR/.env absent — copier .env.example, remplir les secrets, puis relancer"
 [ -x "$CORE_DIR/bin/mmi-pm" ] || die "$CORE_DIR/bin/mmi-pm absent/inexécutable (checkout incomplet ?)"
@@ -44,6 +46,24 @@ step(){ echo "==> $*"; }
 set -a; . "$CORE_DIR/.env"; set +a
 : "${KARL_USER:?KARL_USER absent du .env}"
 : "${KARL_SUDO_USER:?KARL_SUDO_USER absent du .env}"
+
+# Rendu des règles sudoers : les deux comptes ET le chemin réel de l'instance (RM3208/A2 — le chemin était
+# figé sur /zfs/workspaces/.mmi-pm-core : installée ailleurs, ex. /opt/mmi-pm/core, aucune règle ne
+# s'appliquait et `sudo mmi-pm core update` était refusé). Un gabarit resté non substitué est une erreur.
+render_sudoers(){
+  local out
+  out="$(sed -e "s|<KARL_USER>|$KARL_USER|g" -e "s|<KARL_SUDO_USER>|$KARL_SUDO_USER|g" \
+             -e "s|<CORE_DIR>|$CORE_DIR|g" "$CORE_DIR/deploy/mmi-pm.sudoers.example")"
+  if printf '%s\n' "$out" | grep -v '^\s*#' | grep -qE '<[A-Z_]+>'; then
+    die "gabarit sudoers non substitué : $(printf '%s\n' "$out" | grep -v '^\s*#' | grep -oE '<[A-Z_]+>' | sort -u | tr '\n' ' ')"
+  fi
+  printf '%s\n' "$out"
+}
+if [ "$PRINT" = 1 ]; then
+  [ -f "$CORE_DIR/deploy/mmi-pm.sudoers.example" ] || die "$CORE_DIR/deploy/mmi-pm.sudoers.example absent"
+  render_sudoers
+  exit 0
+fi
 
 # 1. Prérequis ───────────────────────────────────────────────────────────────
 step "Prérequis"
@@ -77,10 +97,10 @@ step "Règles sudoers (/etc/sudoers.d/mmi-pm)"
 SRC="$CORE_DIR/deploy/mmi-pm.sudoers.example"
 [ -f "$SRC" ] || die "$SRC absent"
 if [ "$DRY" = 1 ]; then
-  echo "  [dry] substitue <KARL_USER>=$KARL_USER / <KARL_SUDO_USER>=$KARL_SUDO_USER → /etc/sudoers.d/mmi-pm (visudo -cf, 0440)"
+  echo "  [dry] substitue <KARL_USER>=$KARL_USER / <KARL_SUDO_USER>=$KARL_SUDO_USER / <CORE_DIR>=$CORE_DIR → /etc/sudoers.d/mmi-pm (visudo -cf, 0440)"
 else
   TMP="$(mktemp)"; trap 'rm -f "$TMP"' EXIT
-  sed -e "s|<KARL_USER>|$KARL_USER|g" -e "s|<KARL_SUDO_USER>|$KARL_SUDO_USER|g" "$SRC" > "$TMP"
+  render_sudoers > "$TMP"
   visudo -cf "$TMP" >/dev/null || die "sudoers généré invalide (visudo -cf a échoué) — rien installé"
   install -m 0440 -o root -g root "$TMP" /etc/sudoers.d/mmi-pm
   echo "  ✓ /etc/sudoers.d/mmi-pm installé (0440, validé)"

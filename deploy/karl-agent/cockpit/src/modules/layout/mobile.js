@@ -44,14 +44,37 @@ export function fullItem(full) {
   return { icon: full ? "↙" : "⛶", label: full ? "vue normale" : "plein écran", full: !!full };
 }
 
-/** Les boutons de la barre du haut gardés sur la ligne en mobile : répondre à la session,
- *  la voix, le fil, les réglages, l'aide. Le reste part sous « … ». */
+/** Défauts si la conf d'instance ne dit rien (RM3418 : elle le dit, via /cockpit-config). */
 export const HEADER_PRIMARY = ["yesatt", "yesall", "voicebtn", "feedbtn", "setbtn", "helpbtn"];
+export const SESSION_PRIMARY = ["yesbtn", "micbtn", "reattach"];
 
-/** Répartit des identifiants de boutons entre la ligne et le débordement. Pur. */
-export function headerSplit(ids, primary = HEADER_PRIMARY) {
-  const keep = (ids || []).filter(id => primary.includes(id));
-  return { primary: keep, extra: (ids || []).filter(id => !primary.includes(id)) };
+/**
+ * Répartit les éléments d'une barre (RM3418) : ce qui reste sur la LIGNE (dans l'ordre
+ * demandé), ce qui passe sous « … », ce qui ne s'affiche pas du tout. Pur.
+ * `line` et `hidden` viennent de la conf d'instance ; un identifiant inconnu est ignoré.
+ */
+export function barSplit(ids, line, hidden = []) {
+  const présents = ids || [];
+  const masqués = présents.filter(id => (hidden || []).includes(id));
+  const sur_ligne = (line || []).filter(id => présents.includes(id) && !masqués.includes(id));
+  return { line: sur_ligne, extra: présents.filter(id => !sur_ligne.includes(id) && !masqués.includes(id)), hidden: masqués };
+}
+
+/**
+ * L'ordre d'affichage demandé, en numéros de `order` CSS. Les éléments cités passent
+ * devant, dans l'ordre de la conf ; les autres suivent. Pur.
+ * Limite assumée : `order` ne joue qu'entre frères — un bouton groupé (`.hgo`) se range
+ * dans son groupe, et le groupe prend le rang de son premier bouton cité.
+ */
+export function barOrder(line) {
+  const rangs = {};
+  (line || []).forEach((id, i) => { rangs[id] = i + 1; });
+  return (id) => (rangs[id] === undefined ? 99 : rangs[id]);
+}
+
+/** « 🔓 bob (admin) » → « 🔓 bob » : en mobile, le rôle ne vaut pas une ligne. Pur. */
+export function lockCompact(text) {
+  return String(text || "").replace(/\s*\((?:admin|superadmin)\)\s*$/, "");
 }
 
 /** L'icône d'un libellé : ce qui précède le premier espace (« 🩺 Supervision » → « 🩺 »). Pur. */

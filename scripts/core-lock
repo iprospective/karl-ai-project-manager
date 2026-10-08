@@ -30,7 +30,7 @@
 set -euo pipefail
 
 ACTION="${1:-}"; shift || true
-CORE_DIR="/zfs/workspaces/.mmi-pm-core"
+CORE_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"   # RM3208/A2 : l'instance qui porte ce script (était figé sur /zfs/workspaces)
 DRY=0
 for a in "$@"; do
   case "$a" in

@@ -71,6 +71,7 @@ export const GLOSSARY = [
   // `inline: false` : « garde » est aussi un mot français ordinaire (« il garde
   // son statut ») — le souligner partout produirait surtout des faux positifs.
   // Il reste cherchable dans le glossaire, il n'est simplement pas surligné.
+  { t: "gate", c: "pm", a: ["gates"], d: "Point de passage obligé : un contrôle automatique qui BLOQUE une livraison tant qu'il n'est pas vert (un test, un hook de pré-commit, un invariant du doctor). La garde refuse une opération précise au moment où on la lance ; le gate, lui, barre la route à tout un lot de changements. Un gate qu'on ne vérifie que dans le sens « vert » est décoratif : il faut aussi prouver qu'il crie quand il doit." },
   { t: "garde", c: "pm", a: ["gardes"], inline: false, d: "Vérification posée dans le code, qui refuse une opération tant que ses conditions ne sont pas réunies (ex. refuser d'écrire sur un ticket d'un autre projet sans --cross-project). Le tripwire est la règle ; la garde est le cran d'arrêt qui la fait respecter." },
   { t: "optimistic locking", c: "pm", a: ["verrouillage optimiste"], d: "Verrouillage optimiste : avant d'écrire, on vérifie que personne n'a modifié la donnée entre-temps (via un champ de version)." },
   { t: "porcelain", c: "pm", d: "Mode « machine » d'une commande : sortie stable et simple à lire par un script (ex. juste l'identifiant)." },

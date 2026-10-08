@@ -16,6 +16,7 @@ presta_sync_files() {
     --exclude="admin*/autoupgrade/backup" \
     --exclude="app/config/parameters.php" \
     --exclude="/img/tmp" \
+    --exclude="/data" \
     --exclude="/var/cache/" \
     --exclude="/var/logs/" \
     --exclude="/themes/$THEME_NAME/assets/cache" \
@@ -46,6 +47,20 @@ presta_sync_files() {
 }
 
 # presta_adapt_db → adaptations de ps_configuration / ps_shop_url pour le local.
+# presta_sync_data → rapatrie depuis la PROD les seuls dossiers de DONNÉES déclarés au manifeste
+# `presta-data.map` (générique, cœur) + sa surcharge du site (`<racine>/.presta-data.map`, données
+# des modules) — RM3419, même déclaration que `presta-data-index.sh` et `presta-link-assets.sh`.
+#
+# Pourquoi un mode à part : `presta_sync_files` fait un `rsync --delete` de TOUT le site. C'est bon
+# pour une recette qui n'est pas sous git ; sur un worktree, ça écrase les fichiers du dépôt,
+# supprime les overrides dev-only et remplace les liens de données partagées par des dossiers
+# réels. Ici on ne touche QUE les chemins déclarés.
+#
+# Par défaut `--ignore-existing` : un fichier déjà présent n'est jamais écrasé (il peut venir du
+# dépôt). `DATA_OVERWRITE=1` dans la conf donne la priorité à la prod (`--delete` compris) — à
+# réserver aux envs qui ne sont pas sous git.
+presta_sync_data() { env_sync_data presta; }
+
 presta_adapt_db() {
   log "Adaptation de la configuration PrestaShop ($DB_TO)"
   local p="$DB_PREFIX"

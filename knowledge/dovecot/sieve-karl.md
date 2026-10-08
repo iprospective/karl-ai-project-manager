@@ -99,6 +99,12 @@ l'ancien octet pour octet sous `<state_dir>/sieve-backups/<boîte>/` (hors git :
 un filtre porte des adresses de clients), puis relit ce qu'il a écrit. `delete`
 refuse le script actif.
 
+**Revenir en arrière** : `pm-sieve backups roundcube` liste les sauvegardes (la plus
+récente en dernier), `pm-sieve restore roundcube` remet la dernière en place —
+`--backup <fichier>` pour en viser une autre. La restauration repasse par les mêmes
+gardes que l'écriture, et sauvegarde d'abord l'état courant : on peut défaire une
+restauration.
+
 **Roundcube réécrit le script `roundcube`** quand on passe par son interface de
 filtres : une règle qu'elle ne sait pas représenter (l'`allof` imbriqué de RM2667)
 peut y disparaître. Avant toute retouche par l'UI, `pm-sieve get` pour comparer

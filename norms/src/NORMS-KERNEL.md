@@ -26,6 +26,8 @@
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
+| je **crée un env de dev / de recette** : désactiver les protections anti-automatisation (CAPTCHA, 2FA, rate-limit) et poser le compte de l'agent — jamais les contourner, la prod les garde | `modules/environments.md` § « recettable par un agent » + `knowledge/<produit>/env-dev.md` | `pm-env-session create` |
+| je **nomme** une fonction, une méthode, un paramètre, une variable, un fichier source — **en anglais**, sauf base de code déjà écrite en français (un code *mixte* n'en est pas une) | `modules/methodes-travail.md` § « Langue du code » | — |
 | je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je modifie le **rendu front d'un site public** (projet `browser_test: true`) : valider au **NAVIGATEUR** avant de livrer | **tripwire #17** + `modules/testing.md` §7 | `tools/browser-check`, `pm-project-config --browser-test` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
@@ -107,6 +109,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 20. **Grouper les appels d'outils.** Chaque appel d'outil refacture **tout le contexte accumulé** en relecture — mesuré sur une session d'étude : ~105 k tokens par appel, **52 % de la facture** (RM3109). Le **nombre d'appels** est donc le premier poste de coût, avant le volume lu. Appels **indépendants ⇒ une seule réponse** (plusieurs `tool_use` dans le même bloc partent en parallèle et ne coûtent qu'**une** relecture) ; appels **séquentiels ⇒ une seule commande** chaînée (`cmd1; echo "=== SECTION 2 ==="; cmd2`). Ne **jamais** relister le même dossier : penser le filtre AVANT (`| head -N`, `grep -v '^test_'`). Lire le **plan** d'un document (`grep '^#' f.md`) puis sa seule section utile — jamais le fichier entier « pour voir ». Le groupage n'est irréductible que lorsque la commande N+1 **dépend** du résultat de N. → `modules/session-tooling-pratique.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
+
+21. **Conf PM jamais dans le home (RM3318).** Aucun fichier PM — réglage, préférence, clé, état, cache — ne s'écrit dans `~` (`~/.config`, `~/.local`…), **même les réglages personnels** d'un utilisateur. Leur place : **`<core>/var/users/<user>/`** (hors git, dossier `700`, fichiers `600`) — `.env` pour les clés (`REDMINE_API_KEY`, `PM_REPOS_DIR`, `PM_MAIL_*`…), fichiers dédiés à côté (`invoice.yml`, `timesheet.yml`) ; l'état produit en tournant va sous `<core>/var/<outil>/`. Chemin résolu **uniquement** par `pm_paths.user_conf_dir()` / `user_conf_file()` (jamais composé à la main ; `PM_CORE_DIR` depuis un worktree). L'ancien `~/.config/mmi-pm/` n'est lu qu'en repli transitoire ; le vider par `pm-user-conf-migrate.py`. Règle rappelée « une dizaine de fois » par Mathieu avant d'être écrite. → `modules/collaboration.md`
 
 ## Propriété, verrou & journal — tripwires structurels
 
@@ -226,7 +230,7 @@ les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en s
 `a_tester_demandeur`, normalisé par les scripts.
 
 ### priority
-`low` | `normal` | `high` | `urgent`
+`low` | `normal` | `high` | `urgent` | `immediat`
 
 ### close_reason
 `resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`

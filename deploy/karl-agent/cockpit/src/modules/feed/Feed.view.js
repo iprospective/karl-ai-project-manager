@@ -25,6 +25,6 @@ export function FeedCard(vm) {
   if (vm.empty) return html`${titre}${Head(vm)}<div class="empty">${vm.etat === "ouvert" ? "rien n'attend." : "le fil est vide."}</div>`;
   return html`${titre}${Head(vm)}
     <div class="cdc-hint">Une <b>file</b>, pas un journal : chaque entrée attend d'être lue puis traitée, et une notification traitée sort de la vue. Une alerte qui se répète ne s'ajoute pas, elle remonte avec son compteur. Le fil est lu au nom de <b>${vm.viewer || "personne — les entrées privées n'apparaissent pas"}</b>.</div>
-    <div class="cdc-tablewrap"><table class="cdc-table"><thead><tr><th></th><th>Niv.</th><th>Quand</th><th>Source</th><th>Notification</th><th class="cdc-act">${vm.etat === "ouvert" ? html`<button class="mini soft" data-action="done-all" title="Marquer traité tout ce qui attend dans cette vue">✓ tout</button>` : ""}</th></tr></thead>
+    <div class="cdc-tablewrap"><table class="cdc-table"><thead><tr><th></th><th>Niv.</th><th>Quand</th><th>Source</th><th>Notification</th><th class="cdc-act">${vm.etat === "ouvert" ? html`${vm.counts.neuf ? html`<button class="mini soft" data-action="lu-all" title="Marquer lues les ${String(vm.counts.neuf)} notification(s) non lue(s) de cette vue — elles restent dans la file">○ tout lire</button>` : ""}<button class="mini soft" data-action="done-all" title="Marquer traitées les ${String(vm.counts.open)} notification(s) qui attendent dans cette vue — elles sortent de la vue">✓ tout traiter</button>` : ""}</th></tr></thead>
     <tbody>${vm.rows().map(Ligne)}</tbody></table></div>`;
 }

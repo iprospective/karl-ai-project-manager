@@ -48,6 +48,19 @@ jobs:
       7 h du matin : le réveil doit être fait quand la journée commence, pas
       pendant.
 
+  # ── File « à vérifier en prod » (RM3278, lot B de RM2853) ───────────────────
+  mep-watch:
+    schedule: "15 8 * * *"
+    command: ["python3", "scripts/pm-mep-watch.py", "--apply"]
+    description: >
+      Signale au fil de notifications les tickets dont on peut PROUVER que le code est
+      en prod et qui attendent leur vérification finale depuis plus de 3 jours — et
+      ceux restés en `a_mep` alors que leur code y est déjà (statut en retard). Sans
+      lui, la file `en_mep` ne se rappelle à personne : mesuré à 18 tickets déployés
+      dont le plus ancien attendait 71 jours. N'écrit rien sur les tickets ; une entrée
+      par ticket, clé stable (pas de doublon), marquée traitée quand le ticket bouge.
+      8 h 15 : juste après le réveil des récurrents, avant la journée.
+
   # ── Reporting tokens/temps → Redmine (RM2160) ───────────────────────────────
   task-report:
     schedule: "*/30 * * * *"
@@ -137,6 +150,20 @@ jobs:
       destinataire déclaré (PM_NOTIFY_MAIL_TO), il le dit et ne fait rien : le fil
       garde tout, rien n'est perdu. Toutes les 15 min : assez tôt pour alerter,
       assez espacé pour grouper.
+
+  # ── Relève de la boîte de karl : nouveaux mails + rejets (RM3319) ────────────
+  mail-watch:
+    schedule: "*/5 * * * *"
+    command: ["python3", "scripts/karl-mail-fetch.py", "--days", "3"]
+    timeout: 240
+    description: >
+      Relève la boîte de karl en lecture seule (PEEK, jamais de suppression) : les
+      mails humains entrent dans la file du panneau 📧 et font clignoter la boîte aux
+      lettres 📬 du cockpit ; un REJET (MAILER-DAEMON, DSN) devient une alerte
+      critique du fil et une note sur le ticket du mail rejeté — un envoi « parti »
+      qui n'est jamais arrivé ne passe plus inaperçu (incident RM1839). Fenêtre de
+      3 jours : l'index des Message-ID fait le reste. Coffre verrouillé = relève
+      impossible, signalée par l'ordonnanceur comme tout job en échec.
 
   # ── Veille des publications attendues (RM2792 lot 4 / RM2429) ───────────────
   release-watch:

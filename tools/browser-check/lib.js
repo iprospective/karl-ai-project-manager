@@ -10,6 +10,9 @@
 /** Options reconnues : nom long → clé interne, et si l'option consomme une valeur. */
 const OPTIONS = {
   "--url": ["url", true],
+  "--scenario": ["scenario", true],
+  "--param": ["params", "multi"],
+  "--secret-env": ["secretsEnv", "multi"],
   "--expect-selector": ["expectSelector", true],
   "--click": ["click", true],
   "--expect-text": ["expectText", true],
@@ -44,6 +47,34 @@ function parseArgs(argv) {
       continue;
     }
     const [cle, prendValeur] = spec;
+    if (prendValeur === "multi") {
+      // RM3359 — `--param cle=valeur`, répétable. Un tableau, pas un écrasement : on passe
+      // plusieurs paramètres à un parcours, et le dernier ne doit pas effacer les autres.
+      if (i + 1 >= argv.length) {
+        erreurs.push(brut + " attend cle=valeur");
+        continue;
+      }
+      const brute = argv[++i];
+      const eq = brute.indexOf("=");
+      if (cle === "params") {
+        if (eq <= 0) {
+          erreurs.push(brut + " attend la forme cle=valeur, reçu : " + brute);
+        } else {
+          opts.params = opts.params || {};
+          opts.params[brute.slice(0, eq)] = brute.slice(eq + 1);
+        }
+      } else {
+        // `--secret-env mdp=PS_TEST_PASS` : la VALEUR vient de l'environnement, jamais de la
+        // ligne de commande — celle-ci est lisible par tout le système (`ps`).
+        if (eq <= 0) {
+          erreurs.push(brut + " attend la forme cle=NOM_DE_VARIABLE, reçu : " + brute);
+        } else {
+          opts.secretsEnv = opts.secretsEnv || {};
+          opts.secretsEnv[brute.slice(0, eq)] = brute.slice(eq + 1);
+        }
+      }
+      continue;
+    }
     if (!prendValeur) {
       opts[cle] = true;
       continue;
@@ -64,12 +95,15 @@ function parseArgs(argv) {
       opts[cle] = val;
     }
   }
-  if (!opts.help && !opts.url) {
-    erreurs.push("--url est obligatoire");
+  if (!opts.help && !opts.url && !opts.scenario) {
+    erreurs.push("--url ou --scenario est obligatoire");
+  }
+  if (opts.url && opts.scenario) {
+    erreurs.push("--url et --scenario sont exclusifs : un parcours porte ses propres URL");
   }
   // --expect-change n'a de sens qu'après un geste : sans clic, il compare une page à
   // elle-même et « échoue » toujours. Mieux vaut le dire que rendre un faux rouge.
-  if (opts.expectChange && !opts.click) {
+  if (opts.expectChange && !opts.click && !opts.scenario) {
     erreurs.push("--expect-change exige --click (sans geste, rien ne peut changer)");
   }
   return { opts, erreurs };

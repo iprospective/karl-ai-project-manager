@@ -91,8 +91,18 @@ Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes d
 remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
 
 - **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
-  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
-  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+  `<core>/var/users/<user>/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**.
+- **Conf PM par utilisateur : `<core>/var/users/<user>/`, jamais le home (RM3318).** Toute la conf
+  propre à un utilisateur — clés et préférences dans `.env` (`REDMINE_API_KEY`, tokens forge,
+  `PM_REPOS_DIR`, `PM_MAIL_SIGNATURE` / `PM_MAIL_FROM_NAME`…), réglages d'outils dans des fichiers
+  dédiés (`invoice.yml`, `timesheet.yml`) — vit sous `var/` du core : hors git, dossier `700`,
+  fichiers `600`. **Rien** dans `~/.config`, `~/.local` ni ailleurs dans le home : le home disperse
+  la conf entre machines et la sort de la sauvegarde du core. Résolution **unique** par
+  `pm_paths.user_conf_dir()` / `user_conf_file(nom)` (override `PM_USER_DIR` ; depuis un worktree,
+  `PM_CORE_DIR` désigne le core). L'ancien `~/.config/mmi-pm/` (RM2497) n'est plus lu qu'en repli
+  transitoire, avec avertissement ; `scripts/pm-user-conf-migrate.py` le vide (déplacement, fusion
+  des `.env`, conflits signalés, jamais tranchés en silence). `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
 - **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
   **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
 - **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),

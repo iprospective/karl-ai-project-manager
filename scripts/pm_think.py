@@ -96,7 +96,7 @@ def sheet_of(path) -> Path:
     """La fiche à partir de n'importe quel frère (`RM12_x.think.md` → `RM12_x.md`)."""
     p = Path(path)
     stem = p.name
-    for suf in (THINK_SUFFIX, LOG_SUFFIX, ".reporting.yml"):
+    for suf in (THINK_SUFFIX, LOG_SUFFIX, ".reporting.yml", ".script-mep.sh"):
         if stem.endswith(suf):
             return p.with_name(stem[: -len(suf)] + ".md")
     return p
@@ -113,10 +113,10 @@ def rm_id_of(path):
 
 
 def siblings(sheet) -> list:
-    """(fiche, log, think, reporting) — les frères d'une fiche, existants ou non."""
+    """(fiche, log, think, reporting, script de MEP) — les frères d'une fiche, existants ou non."""
     p = Path(sheet); stem = p.name[:-3]
     return [p, p.with_name(stem + LOG_SUFFIX), p.with_name(stem + THINK_SUFFIX),
-            p.with_name(stem + ".reporting.yml")]
+            p.with_name(stem + ".reporting.yml"), p.with_name(stem + ".script-mep.sh")]
 
 
 def iter_sheets(tasks_dir):
@@ -210,7 +210,9 @@ def counters(parsed: dict) -> dict:
     d = parsed.get("decision", {}).get("rows", [])
     f = parsed.get("feature", {}).get("rows", [])
     return {
-        "questions_open": sum(1 for r in q if not r["closed"] and r["state"] not in ("valide", "invalide")),
+        "questions_open": sum(1 for r in q if question_ouverte(r)),
+        # RM3357 : celles qui attendent un tiers, comptées à part — visibles, jamais bloquantes
+        "questions_reserve": sum(1 for r in q if question_en_reserve(r)),
         "notes_pending": sum(1 for r in n if not r["closed"] and r["state"] not in ("valide", "invalide")),
         "decisions": sum(1 for r in d if r["prefix"] == "D" and r["state"] == "valide"),
         "features": sum(1 for r in f if not r["closed"]),
@@ -545,11 +547,16 @@ def _insere(p: Path, text_: str, sec: dict, cells: list) -> None:
 
 def append(path, kind: str, text: str, *, prefix=None, rm_id=None, title="", **fields) -> str:
     """Ajoute une ligne normée ; crée le fichier depuis le gabarit s'il n'existe pas.
-    Retourne l'id attribué. Ne committe pas (l'appelant décide)."""
+    Retourne l'id attribué. Ne committe pas (l'appelant décide).
+
+    RM3356 — les cellules sont posées PAR NOM sur l'en-tête réel du fichier. Un carnet pas encore
+    migré (RM3262) a une table plus étroite : aligner les valeurs sur sa largeur, en position,
+    écrivait la signature dans « Question » et le texte dans « Bloque ». Six entrées ont été
+    écrites ainsi le jour du déploiement, entre la mise en place du code et la migration."""
     p = Path(path)
     text_, parsed, sec = _section_prete(p, kind, rm_id, title)
     rid = next_id(parsed, kind, prefix or KINDS[kind][0])
-    _insere(p, text_, sec, row_cells(kind, rid, text, **fields))
+    _insere(p, text_, sec, _apparie(KINDS[kind][2], sec["header"], row_cells(kind, rid, text, **fields)))
     # RM3262 : une décision qui cite Qnnn REND cette question tranchée — on l'inscrit dans sa
     # colonne « Tranchée par ». Ici plutôt que dans le CLI : la moisson écrit aussi des décisions.
     if kind == "decision":
@@ -586,6 +593,50 @@ def find_row(parsed: dict, rid: str):
             if r["id"].upper() == cible:
                 return kind, r
     return None, None
+
+
+#: une cellule qui contient une signature (« 2026-09-21 · Mathieu · s:… ») là où on attend du texte
+_SIGNATURE_CELL = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s·\s")
+
+
+def reparer_decalage(path) -> list:
+    """RM3356 — remet en place les lignes dont le texte a glissé d'une colonne. Rend les ids réparés.
+
+    On ne répare QUE les lignes dont on est sûr : la colonne de signature est VIDE et la colonne du
+    texte contient une signature. Le décalage est alors d'exactement un cran, et le remettre en
+    place est sans ambiguïté. Toute autre forme est laissée telle quelle — une réparation qui
+    devine abîmerait ce qu'elle prétend sauver. Idempotente."""
+    p = Path(path)
+    if not p.is_file():
+        return []
+    parsed = parse(p.read_text(encoding="utf-8"))
+    lines = p.read_text(encoding="utf-8").splitlines()
+    faits = []
+    for kind, sec in parsed.items():
+        if kind not in KINDS:
+            continue
+        i_sig = col_index(sec["header"], SIGNATURE_COL)
+        i_txt = col_index(sec["header"], TEXTE_COL[kind])
+        if i_sig is None or i_txt is None or i_txt <= i_sig:
+            continue
+        for r in sec["rows"]:
+            cells = list(r["cells"])
+            if i_txt >= len(cells) or (cells[i_sig] or "").strip():
+                continue
+            if not _SIGNATURE_CELL.match(cells[i_txt] or ""):
+                continue
+            # la cellule vide en trop saute : tout recule d'un cran, la signature rejoint sa colonne
+            decale = (cells[:i_sig] + cells[i_sig + 1:] + [""] * len(sec["header"]))[:len(sec["header"])]
+            # l'état, lui, a été PERDU à l'écriture (la ligne était tronquée) : on ne l'invente pas,
+            # on rend la ligne à son état de départ — en attente, comme toute entrée non triée.
+            i_etat = col_index(sec["header"], "État")
+            if i_etat is not None and not (decale[i_etat] or "").strip():
+                decale[i_etat] = STATE_ICON["attente"]
+            lines[r["line"]] = "| " + " | ".join(decale) + " |"
+            faits.append(r["id"])
+    if faits:
+        p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return faits
 
 
 def move_row(src, rid: str, dst, *, rm_id=None, title=""):
@@ -845,6 +896,21 @@ QUESTIONS_BEGIN = "<!-- questions:begin — section RÉGÉNÉRÉE depuis le .thi
 QUESTIONS_END = "<!-- questions:end -->"
 #: une question est CLOSE quand elle est tranchée (validée) ou écartée (invalidée) ; le reste attend
 _Q_CLOSES = ("valide", "invalide")
+#: RM3357 — « ⏸ réserve » = la question attend un TIERS (un client, un hébergeur, un fournisseur),
+#: pas nous. Elle ne bloque donc plus la clôture et ne compte plus parmi les questions ouvertes —
+#: mais elle reste comptée et listée à part, sous son propre intitulé : on ne la cache pas, on cesse
+#: de la présenter comme un arbitrage en attente de notre décision.
+_Q_TIERS = ("reserve",)
+
+
+def question_ouverte(r) -> bool:
+    """Cette question attend-elle NOTRE arbitrage ? (ni tranchée, ni écartée, ni en réserve)"""
+    return not r["closed"] and r["state"] not in _Q_CLOSES and r["state"] not in _Q_TIERS
+
+
+def question_en_reserve(r) -> bool:
+    """Elle attend un tiers : visible, comptée à part, jamais bloquante."""
+    return not r["closed"] and r["state"] in _Q_TIERS
 
 
 def _decision_liee(parsed: dict, qid: str) -> str:
@@ -908,16 +974,24 @@ def questions_text(parsed: dict) -> str:
     rows = (parsed.get("question", {}) or {}).get("rows", [])
     if not rows:
         return "*Aucune question consignée sur ce ticket.*"
-    ouvertes = [r for r in rows if not r["closed"] and r["state"] not in _Q_CLOSES]
-    L = [f"**{len(ouvertes)} ouverte(s) sur {len(rows)}** — un ticket ne se ferme pas avec une question "
-         "en attente. Vue régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : "
-         "trancher se fait là, pas ici.", ""]
+    ouvertes = [r for r in rows if question_ouverte(r)]
+    reserve = [r for r in rows if question_en_reserve(r)]
+    entete = f"**{len(ouvertes)} ouverte(s) sur {len(rows)}**"
+    if reserve:
+        entete += f", plus **{len(reserve)} en attente d'un tiers**"
+    L = [entete + " — un ticket ne se ferme pas avec une question en attente de NOTRE arbitrage ; "
+         "celles qui attendent un tiers (client, hébergeur, fournisseur) ne bloquent pas. Vue "
+         "régénérée depuis le `.think.md` du ticket (`mmi-pm task-questions`) : trancher se fait là, "
+         "pas ici.", ""]
     sec_q = parsed.get("question", {}) or {}
     for r in rows:
         libelle = " ".join(str(texte(sec_q, r, "question")).split())
         tranchee = r["closed"] or r["state"] in _Q_CLOSES
-        ligne = f"- {'[x]' if tranchee else '[ ]'} **{r['id']}** — {libelle}"
-        if tranchee:
+        marque = "[x]" if tranchee else "[ ]"
+        ligne = f"- {marque} **{r['id']}** — {libelle}"
+        if question_en_reserve(r):
+            ligne += "  \n  → *⏸ en attente d'un tiers*"
+        elif tranchee:
             rep = _decision_liee(parsed, r["id"])
             ligne += f"  \n  → {rep}" if rep else "  \n  → *(tranchée ; la décision n'est pas reliée)*"
         L.append(ligne)
@@ -947,7 +1021,7 @@ def cochees_a_la_main(texte: str, parsed: dict) -> list:
         bloc = bloc.split(QUESTIONS_BEGIN, 1)[1].split(QUESTIONS_END, 1)[0]
     cochees = {m.group(1) for m in re.finditer(r"- \[x\]\s+\*\*(Q\d{3}[a-z]?)\*\*", bloc, re.I)}
     ouvertes = {r["id"] for r in (parsed.get("question", {}) or {}).get("rows", [])
-                if not r["closed"] and r["state"] not in _Q_CLOSES}
+                if question_ouverte(r)}
     return sorted(cochees & ouvertes)
 
 

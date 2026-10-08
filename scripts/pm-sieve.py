@@ -28,7 +28,8 @@ Usage :
     pm-sieve put roundcube --from-file f.sieve  # gardes 1-2-3, puis relecture
     pm-sieve activate roundcube
     pm-sieve delete ancien                      # refusé si c'est le script actif
-    pm-sieve backups [roundcube]                # sauvegardes locales
+    pm-sieve backups [roundcube]                # sauvegardes locales, la plus récente en dernier
+    pm-sieve restore roundcube [--backup <f>]   # remet une sauvegarde en place (gardes du put)
 
 Config : `pm.config.yml :: sieve` — `host`, `port`, `accounts` (boîte → URI du vault).
 """
@@ -154,6 +155,43 @@ def same_account(authenticated, requested):
 
 def backup_name(script, now=None):
     return f"{script}.{time.strftime('%Y%m%d-%H%M%S', time.localtime(now))}.sieve"
+
+
+def libre(backup_dir, nom):
+    """Chemin de sauvegarde non pris. L'horodatage est à la seconde : deux écritures dans la
+    même seconde (une restauration juste après un put) écraseraient la première."""
+    f = backup_dir / nom
+    i = 2
+    while f.exists():
+        f = backup_dir / f"{nom[:-len('.sieve')]}-{i}.sieve"
+        i += 1
+    return f
+
+
+def backups_of(backup_dir, script):
+    """Sauvegardes d'un script, de la plus ancienne à la plus récente (le nom porte l'horodatage)."""
+    if not backup_dir.is_dir():
+        return []
+    return sorted(backup_dir.glob(f"{script}.*.sieve"))
+
+
+def pick_backup(backup_dir, script, choisie=None):
+    """Sauvegarde à restaurer : celle demandée, sinon la plus récente. Refus explicite si rien."""
+    if choisie:
+        f = Path(choisie)
+        if not f.is_file():
+            raise SieveError(f"sauvegarde introuvable : {f}")
+        return f
+    dispo = backups_of(backup_dir, script)
+    if not dispo:
+        raise SieveError(f"aucune sauvegarde de {script} sous {backup_dir} — rien restauré")
+    return dispo[-1]
+
+
+def lire(path):
+    """Lit un script SANS traduire les fins de ligne : un script Sieve est en CRLF, et
+    `read_text()` le rendrait en LF — la promesse « octet pour octet » se perdrait ici."""
+    return Path(path).read_bytes().decode("utf-8")
 
 
 def check_name(name):
@@ -301,7 +339,7 @@ def put(cli, name, text, *, account, authenticated, backup_dir, dry_run, log=pri
     if old is not None:
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_dir.chmod(0o700)
-        saved = backup_dir / backup_name(name)
+        saved = libre(backup_dir, backup_name(name))
         saved.write_bytes(old.encode("utf-8"))
         saved.chmod(0o600)
         if saved.read_bytes() != old.encode("utf-8"):
@@ -356,10 +394,12 @@ def connect(host, port, timeout=20):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=("list", "get", "diff", "put", "activate", "delete", "backups"))
+    ap.add_argument("action",
+                    choices=("list", "get", "diff", "put", "activate", "delete", "backups", "restore"))
     ap.add_argument("script", nargs="?")
     ap.add_argument("--account", default=None, help=f"boîte (défaut {DEFAULT_ACCOUNT})")
     ap.add_argument("--from-file", type=Path, help="script Sieve local (diff, put)")
+    ap.add_argument("--backup", help="restore : sauvegarde précise (défaut : la plus récente)")
     ap.add_argument("--dry-run", action="store_true", help="put : diff + validation serveur, rien écrit")
     args = ap.parse_args(argv)
 
@@ -371,19 +411,19 @@ def main(argv=None):
 
     try:
         if args.action == "backups":
-            files = sorted(backup_root.glob(f"{args.script or '*'}.*.sieve"))
+            files = backups_of(backup_root, args.script or "*")
             for f in files:
                 print(f"{f}  ({f.stat().st_size} octets)")
             if not files:
                 print(f"(aucune sauvegarde sous {backup_root})")
             return 0
-        if args.action in ("get", "diff", "put", "activate", "delete"):
+        if args.action in ("get", "diff", "put", "activate", "delete", "restore"):
             if not args.script:
                 ap.error(f"{args.action} exige un nom de script")
             check_name(args.script)
         if args.action in ("diff", "put") and not args.from_file:
             ap.error(f"{args.action} exige --from-file")
-        text = args.from_file.read_text(encoding="utf-8") if args.from_file else None
+        text = lire(args.from_file) if args.from_file else None
         if account not in accounts:
             raise SieveError(f"boîte {account} inconnue — déclarer son URI de vault dans "
                              "pm.config.yml :: sieve.accounts")
@@ -414,6 +454,13 @@ def main(argv=None):
                     raise SieveError(f"boîte authentifiée {user!r} ≠ {account!r} — rien activé")
                 cli.setactive(args.script)
                 print(f"✓ {args.script} actif")
+            elif args.action == "restore":
+                src = pick_backup(backup_root, args.script, args.backup)
+                print(f"↩ restauration de {src.name}", file=sys.stderr)
+                # La sauvegarde repasse par put : mêmes gardes (boîte, validation serveur,
+                # sauvegarde de l'état COURANT avant de le remplacer, relecture).
+                put(cli, args.script, lire(src), account=account,
+                    authenticated=user, backup_dir=backup_root, dry_run=args.dry_run)
             elif args.action == "delete":
                 delete(cli, args.script, account=account, authenticated=user)
                 print(f"✓ {args.script} supprimé")

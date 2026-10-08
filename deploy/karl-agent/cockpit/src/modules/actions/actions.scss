@@ -15,3 +15,14 @@
 .chipsrow .cgroup { font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--muted); margin: 0 2px 0 8px; }
 .chipsrow .cgroup:first-child { margin-left: 0; }
+
+/* RM3418 — un BLOC par groupe : le titre et ses chips se tiennent ensemble, au lieu d'une
+   rangée continue où « Dev » et « Session » se confondaient. Les chips sorties de la ligne
+   (conf d'instance, mobile) attendent sous « … ». */
+.cblock { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 0;
+  border-right: 1px solid var(--line); }
+.cblock:last-of-type { border-right: 0; }
+.chipsrow .cblock .cgroup { margin-left: 0; }
+html[data-layout="mobile"] .chipsrow .chip.bar-extra { display: none; }
+html[data-layout="mobile"] .chipsrow.bar-more { flex-wrap: wrap; }
+html[data-layout="mobile"] .chipsrow.bar-more .chip.bar-extra { display: inline-flex; }

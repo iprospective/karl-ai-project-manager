@@ -30,6 +30,10 @@ onboarding agent), voir d'abord [README.md](README.md).
   `core-update` demande sudo lui-même ; RM3033 — `bin/mmi-pm` n'est plus qu'une coquille) et un helper
   confiné `pm-env-helper` (NOPASSWD ciblé). Détail : `docs/cdc/*privsep*`,
   `docs/cdc/*mmi-pm-cli*`.
+- **Parité CLI ↔ cockpit (RM3208).** Une route du cockpit qui **modifie l'état** ne porte pas la logique :
+  elle lance un script `pm-*` ou appelle un module `pm_*` que le CLI utilise aussi (`pm_accounts` pour les
+  comptes, `pm_batch` pour les lots, `pm_notify`…). `scripts/test_cockpit_cli_parity.py` le vérifie sur le
+  dispatch réel ; une exception s'y ajoute **nommément**, avec sa raison ou le ticket qui la traitera.
 - **Cockpit / karl-agent.** Le service HTTP (loopback) est `scripts/karl-agent.py` ;
   `deploy/karl-agent/` porte l'UI `cockpit/` (servie **en même origine**), le vhost
   Apache HTTPS et les units systemd. Depuis la 3.0.0 (RM2889) le front est en

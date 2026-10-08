@@ -40,6 +40,24 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert.deepStrictEqual(new VM.FeaturesViewModel({ data, q: "outillage pm" }).rows().map(r => r.id), ["F006"], "le filtre porte aussi sur le domaine technique");
   assert.deepStrictEqual(f.counts.map(c => c.etat + ":" + c.n), ["livré:3", "en cours:1", "prévu:1", "écarté:1"], "comptes par état, écarté regroupé");
   assert.deepStrictEqual(f.rows()[3].tickets, [20, 21], "tickets multiples d'une entrée curée"); assert.strictEqual(f.rows()[2].parent, 5);
+  const CDCS_T = [{ key: "i/pm/pm", label: "pm", chapters: [] }];
+  // RM3306 — isoler les fonctionnalités qu'AUCUN ticket ne porte : elles n'apparaissent dans aucune
+  // liste de travail, donc « on la ticketera plus tard » devient « jamais » si rien ne les compte.
+  {
+    const av = new VM.FeaturesViewModel({ data, sort: "id" });
+    assert.deepStrictEqual(av.sansTicket, { n: 1, aFaire: 0, on: false }, "F006 est sans ticket, mais livrée : une trace, rien à faire");
+    const ap = new VM.FeaturesViewModel({ data: { ...data, entrees: [...data.entrees, { id: "F007", libelle: "Décidée, pas ticketée", domaine: "Karl", etat: "prévu", date: "2026-09-04" }] }, sort: "id" });
+    assert.deepStrictEqual(ap.sansTicket, { n: 2, aFaire: 1, on: false }, "une fonctionnalité PRÉVUE sans ticket compte, elle, comme à faire");
+    const filtre = new VM.FeaturesViewModel({ data, q: VM.SANS_TICKET, sort: "id" });
+    assert.deepStrictEqual(filtre.rows().map(r => r.id), ["F006"], "le mot-clé isole les entrées sans ticket, sans chercher le texte");
+    assert.strictEqual(filtre.sansTicket.on, true, "…et la pastille se sait active");
+    assert.deepStrictEqual(new VM.FeaturesViewModel({ data, q: "sans ticket", sort: "id" }).rows().map(r => r.id), ["F006"],
+                           "le texte « sans ticket » reste une recherche ordinaire — elle trouve le libellé, pas le filtre");
+    const h = String(V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs: CDCS_T, current: CDCS_T[0], page: "cdc-features" }), ap));
+    assert(/data-action="sans-ticket"/.test(h) && /sans ticket 2/.test(h) && /· 1 à faire/.test(h), "la pastille dit le compte et ce qui reste à faire");
+    assert(!/data-action="sans-ticket"/.test(String(V.FeaturesPage(new VM.CdcHeaderViewModel({ cdcs: CDCS_T, current: CDCS_T[0], page: "cdc-features" }),
+      new VM.FeaturesViewModel({ data: { ...data, entrees: data.entrees.filter(e => e.id !== "F006") }, sort: "id" })))), "aucune sans ticket : pas de pastille");
+  }
   f = new VM.FeaturesViewModel({ data, sort: "etat", desc: true }); assert.strictEqual(f.rows()[0].id, "F005", "tri par état inversé : écarté d'abord");
   f = new VM.FeaturesViewModel({ data, sort: "date" }); assert.strictEqual(f.rows()[0].id, "F005", "tri par date");
   f = new VM.FeaturesViewModel({ data, q: "rm21" }); assert.deepStrictEqual(f.rows().map(r => r.id), ["F004"], "filtre sur un RM couvert"); assert.strictEqual(f.count, "1 / 6");
@@ -105,6 +123,20 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.length === 0 || edits.every(e => e[0] !== "think"), "suppression refusée sans confirmation");
   ok = true; await F.click("think-delete", { rm: "44", id: "D001" }); assert(edits.some(e => e[0] === "think" && e[1].action === "delete" && e[1].rm === "44" && e[1].id === "D001"), "suppression confirmée → service");
   const n1 = calls.filter(x => x.startsWith("feat:")).length; await ctl3.svc.featureEdit({ id: "F003", etat: "écarté" }); await ctl3.open("cdc-features"); assert(edits.some(e => e[0] === "feature" && e[1].id === "F003" && e[1].etat === "écarté" && e[1].client === "i") && calls.filter(x => x.startsWith("feat:")).length === n1 + 1, "état d'une fonctionnalité → service, registre rechargé");
+  // RM3381 : corriger le texte d'une entrée depuis le registre — pré-rempli avec ce qui est affiché
+  assert.strictEqual(VM.texteDeLigne('<td id="sec-RM44-Q001">Q001</td><td>Faut-il <b>indexer</b> ? &amp; ensuite</td><td>🕐</td>'),
+                     "Faut-il indexer ? & ensuite", "le pré-remplissage prend la cellule du texte, balises et entités retirées");
+  assert.strictEqual(VM.texteDeLigne(""), "", "ligne vide : pas de pré-remplissage inventé");
+  assert(/data-action="think-text"[^>]*data-text="le texte"/.test(VM.thinkActions("44", "Q001", "le texte")), "le geste porte le texte actuel");
+  assert(/data-text="il a dit &quot;non&quot;"/.test(VM.thinkActions("44", "Q001", 'il a dit "non"')), "…échappé : un guillemet ne casse pas l'attribut");
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q001", action: "text", text: "corrigé" });
+  assert(edits.some(e => e[0] === "think" && e[1].action === "text" && e[1].text === "corrigé"), "le service transmet la correction");
+  // RM3370 : le drapeau « trancher sans décision » traverse enfin le service — il était déstructuré
+  // et laissé tomber, si bien que le geste de RM3269 n'atteignait jamais le serveur.
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", force: true });
+  assert(edits.some(e => e[0] === "think" && e[1].force === true && e[1].state === "valide"), "le service transmet `force`");
+  edits.length = 0; await svc.thinkEdit({ rm: "44", id: "Q002", action: "state", state: "valide", comment: "la réponse" });
+  assert(edits.some(e => e[0] === "think" && e[1].comment === "la réponse" && e[1].force === undefined), "…et ne l'invente jamais");
   ctl3.unmount();   // comme ci-dessus : deux contrôleurs sur le même hôte répondraient tous deux au clic
   // RM3258 : déplacer une entrée vers un autre ticket — même route, le front ne dit que la cible
   let cible = "3015"; const ctlMv = mountCdc(F, { service: svc, storage: store, md: mdToHtml, later: (fn) => { fn(); return 1; }, confirm: () => true, prompt: () => cible, notify: () => {}, sessionProjects: () => [] });

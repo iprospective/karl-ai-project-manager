@@ -77,6 +77,12 @@ export function mountBilling({ card } = {}, ctx = {}) {
     if (a === "reload") return load(true);
     if (a === "ticket") return ctx.showTicket && ctx.showTicket(el.dataset.rm);
     if (a === "save") return garde(() => svc.adjust(), "journée ajustée");
+    if (a === "pause-midi") {
+      // Un clic : la pause proposée est posée et enregistrée. Elle n'écrit rien dans
+      // Redmine — elle entre dans la proposition, qui reste à valider.
+      svc.setField("pause", String(vm().pause.proposition));
+      return garde(() => svc.adjust(), "pause de midi notée");
+    }
     if (a === "clear") return garde(() => svc.clearOverride(), "ajustement retiré");
     if (a === "dry") {
       return garde(async () => {

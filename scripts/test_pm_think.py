@@ -851,6 +851,40 @@ src_gate = (SCRIPTS / "pm_questions_gate.py").read_text(encoding="utf-8")
 check("la garde de MEP ne bloque plus sur une question en réserve",
       '_NON_BLOQUANTS = _CLOSES + ("reserve",)' in src_gate and "in _NON_BLOQUANTS" in src_gate)
 
+# ── RM3380 : une écriture dans un carnet se répercute aux registres du PROJET ─────
+# Les registres (cdc-questions.md & co.) sont GÉNÉRÉS depuis les .think.md. Le cockpit les
+# régénérait après chaque geste, la ligne de commande non : 127 fichiers périmés sur le seul projet
+# PM après deux jours de tri. Une question tranchée ici restait affichée ouverte là-bas.
+import importlib.util as _ilu3380
+_s3380 = _ilu3380.spec_from_file_location("pm_task_think", SCRIPTS / "pm-task-think.py")
+TT = _ilu3380.module_from_spec(_s3380); _s3380.loader.exec_module(TT)
+check("le projet se lit dans le chemin de la fiche",
+      TT.projet_de("/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md") == "acme/boutique",
+      TT.projet_de("/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md"))
+check("hors arbre PM : pas de projet, et donc rien à régénérer", TT.projet_de("/tmp/RM42_t.md") == "")
+appels = []
+TT.subprocess = type("S", (), {"run": staticmethod(lambda *a, **k: appels.append(a[0]) or type("R", (), {"returncode": 0})())})
+sh3380 = "/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md"
+check("une écriture régénère le projet de la fiche",
+      TT.repercuter([sh3380]) == ["acme/boutique"] and any("pm-think-merge.py" in " ".join(c) for c in appels))
+appels.clear()
+check("un déplacement entre deux projets les régénère tous les DEUX",
+      TT.repercuter([sh3380, "/x/projects/clients/beta/projects/api/tasks/RM43_t.md"]) == ["acme/boutique", "beta/api"])
+appels.clear()
+check("deux fiches du MÊME projet ne le régénèrent qu'une fois",
+      TT.repercuter([sh3380, "/x/projects/clients/acme/projects/boutique/tasks/RM44_t.md"]) == ["acme/boutique"]
+      and len(appels) == 1)
+appels.clear()
+check("--no-merge (rafale scriptée) n'appelle rien", TT.repercuter([sh3380], actif=False) == [] and not appels)
+check("--dry-run n'appelle rien non plus", TT.repercuter([sh3380], dry=True) == [] and not appels)
+src_tt = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("les quatre écritures répercutent (état, amendement, suppression, déplacement, ajout)",
+      src_tt.count("repercuter([") == 4, str(src_tt.count("repercuter([")))
+check("l'option --no-merge existe et se dit", '"--no-merge"' in src_tt and "rafale scriptée" in src_tt)
+src_sch3380 = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
+check("la migration des carnets régénère aussi, avant de committer",
+      "repercuter(" in src_sch3380 and src_sch3380.index("repercuter(") < src_sch3380.index("pm_git.autocommit"))
+
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)
 print("OK — pm_think / pm-task-think / pm-think-merge / pm-think-harvest")

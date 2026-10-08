@@ -19,6 +19,28 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   assert.strictEqual(M.actionMessage({ text: "passe RM{id} en cours pour {id}" }, "42"), "passe RM42 en cours pour 42", "RM2720 : {id} vaut le TICKET"); assert.strictEqual(M.actionMessage(null, "1"), "");
   const ACTS = [{ label: "État", text: "où en es-tu ?", group: "session" }, { label: "Fin", text: "termine", group: "session", enter: false }, { label: "→ en cours", text: "passe RM{id}", ticket_only: true }, { label: "Autre", text: "x", group: "divers" }];
   const chips = M.chipList(ACTS, "42"); assert.deepStrictEqual(chips.map(c => c.group !== undefined ? "G:" + c.group : c.i), ["G:session", 0, 1, "G:divers", 3], "les actions ticket_only ne sont pas dans la barre ; un groupe est annoncé une fois"); assert(/sans Enter/.test(chips[2].title) && chips[1].title === "où en es-tu ?"); assert.deepStrictEqual(M.pmActions(ACTS).map(a => a.label), ["→ en cours"]);
+  // RM3418 : des BLOCS par groupe, un filtrage par la conf d'instance, un débordement en mobile
+  const blocs = M.chipBlocks(ACTS, "42", { hidden: [], line: null });
+  assert.deepStrictEqual(blocs.map(b => [b.group, b.chips.map(c => c.i)]), [["session", [0, 1]], ["divers", [3]]], "un bloc par groupe, les ticket_only exclus");
+  assert(blocs.every(b => b.chips.every(c => c.extra === false)), "sans `line`, rien n'est en débordement (c'est le bureau)");
+  // la conf travaille sur les CLÉS du catalogue (commit, gitstatus, point…)
+  const KACTS = [{ key: "point", label: "📊 point", text: "où en es-tu ?", group: "Session" },
+                 { key: "done", label: "🏁 done", text: "termine", group: "Session" },
+                 { key: "commit", label: "💾 commit+push", text: "commite", group: "Dev" },
+                 { key: "tests", label: "🧪 tests", text: "lance les tests", group: "Dev" }];
+  const filtres = M.chipBlocks(KACTS, "42", { hidden: ["commit"] });
+  assert.deepStrictEqual(filtres.map(b => [b.group, b.chips.map(c => c.key)]), [["Session", ["point", "done"]], ["Dev", ["tests"]]], "une clé masquée par la conf disparaît partout");
+  assert.deepStrictEqual(M.chipBlocks(KACTS, "42", { hidden: ["commit", "tests"] }).map(b => b.group), ["Session"], "un groupe entièrement masqué ne laisse pas de bloc vide");
+  const mobile = M.chipBlocks(KACTS, "42", { hidden: ["commit"], line: ["point"] });
+  assert.deepStrictEqual(mobile.flatMap(b => b.chips).map(c => [c.key, c.extra]), [["point", false], ["done", true], ["tests", true]], "la conf garde « point » sur la ligne, le reste passe sous « … »");
+  const vmM = new VM.ChipsViewModel({ actions: KACTS, attached: "42", ui: { chips_hidden: ["commit"], chips_line: ["point"] }, mobile: true });
+  const htmlM = String(V.Chips(vmM));
+  assert(/class="cblock"/.test(htmlM) && (htmlM.match(/cblock/g) || []).length === 2, "deux blocs rendus (Session, Dev)");
+  assert(/chips-more/.test(htmlM) && /bar-extra/.test(htmlM), "un « … » apparaît dès qu'une chip est en débordement");
+  assert(!/commit\+push/.test(htmlM), "…et la chip masquée n'est pas dans le HTML");
+  const vmD = new VM.ChipsViewModel({ actions: KACTS, attached: "42", ui: { chips_hidden: ["commit"] }, mobile: false });
+  assert(!/chips-more/.test(String(V.Chips(vmD))), "au bureau, pas de débordement : tout ce qui n'est pas masqué s'affiche");
+  assert.deepStrictEqual(M.chipBlocks([], "42"), [], "aucune action : aucun bloc (la barre se masque)");
   assert.deepStrictEqual(M.dispositionItems("parke").map(d => [d.value, d.on]), [["a_traiter", false], ["parke", true], ["termine", false]]); assert(M.dispositionItems(null)[0].on, "défaut : à traiter"); assert.strictEqual(M.tmuxLabel("42"), "karl-RM42"); assert.strictEqual(M.tmuxLabel("slug"), "karl-slug");
   const cv = new VM.ChipsViewModel({ actions: ACTS, attached: "42" }); assert(cv.shown); const h = String(V.Chips(cv)); assert(/<span class="cgroup">session<\/span><button class="chip" title="où en es-tu \?" data-action="chip" data-i="0">État<\/button>/.test(h) && /data-i="1">Fin</.test(h) && !/en cours/.test(h) && !/onclick=/.test(h)); assert(!new VM.ChipsViewModel({ actions: ACTS, attached: null }).shown && !new VM.ChipsViewModel({ actions: [ACTS[2]], attached: "42" }).shown, "sans session ou sans action de session : rien");
   const dm = String(V.DispositionMenu(new VM.DispositionMenuViewModel({ session: { rm_id: "7", disposition: "termine" } }))); assert(/<button data-v="a_traiter">🟡 à traiter<\/button><button data-v="parke">🔖 en pause<\/button><button data-v="termine" class="on">✅ terminé<\/button><div class="sep"><\/div><button data-kill="1">✕ fermer la session<\/button>/.test(dm)); assert.strictEqual(String(V.PresetOptions(["a", "b"], "📺 ")), '<option value="a">📺 a</option><option value="b">📺 b</option>');

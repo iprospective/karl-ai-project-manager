@@ -88,9 +88,12 @@ Le site ne le voit jamais — son pool FPM tourne en 7.4. **Seules les commandes
 main tombent dedans**, c'est-à-dire pendant une MEP, au pire moment.
 
 ```bash
-php7.4 bin/console prestashop:module upgrade <module>   # ✅
-php    bin/console …                                    # ❌ fatal
+php7.4 bin/console cache:clear --env=prod   # ✅
+php    bin/console …                        # ❌ fatal
 ```
+
+(Exemple choisi à dessein : `prestashop:module upgrade` n'est **pas** utilisable chez nous,
+cf. § 4 — la version de PHP n'y est pour rien.)
 
 Même règle sur le conteneur de dev, où `php` est aussi en 8.5.
 
@@ -110,6 +113,29 @@ git pull --ff-only <remote> <branche>
 
 `--ff-only` pour qu'un cas non prévu **échoue** au lieu de fabriquer silencieusement un
 merge dans un arbre déjà sale.
+
+### Submodules : `sync` avant `update`, et dans la MÊME commande que le pull
+
+Un `git pull` qui déplace un pointeur de submodule laisse le dossier **vide** jusqu'à
+l'`update` qui suit : les deux s'enchaînent toujours dans la même commande, sinon le site
+tourne quelques secondes sans le module.
+
+```bash
+git pull --ff-only <remote> <branche> && git submodule sync -q && git submodule update --init
+```
+
+`sync` n'est pas décoratif : il **reporte dans le dépôt local l'URL du `.gitmodules`**.
+Sans lui, un module dont le dépôt a changé de groupe garde l'ancien remote et continue de
+tirer au mauvais endroit tant que l'ancienne URL répond (GitLab redirige après un
+transfert — donc **rien ne casse, et c'est le problème** : on croit le recâblage fait).
+Rencontré sur `modules/pisceenflags` (groupe `prestashop` → `pisceen-dercya`, RM3230).
+
+⚠ **Vérifier l'URL d'un submodule : `git config remote.origin.url`, jamais
+`git remote get-url origin`.** Le second applique les réécritures `url.*.insteadOf` de la
+machine — sur la prod pisceen, `gitlab:` devient `https://gitlab.iprospective.fr/` — et ne
+rend donc **jamais** la forme canonique attendue. Un contrôle écrit avec `get-url` échoue
+toujours et fait croire à un recâblage raté (RM3230 : la MEP s'est arrêtée là, sur un
+faux négatif, alors que tout était en place).
 
 ## 4. ⚠ Upgrade de module en CLI : le faux « rien à faire »
 
@@ -164,16 +190,70 @@ printf("%s : %s → %s | upgrades dispo=%d appliqués=%d succès=%s\n",
 exit($res['success'] ? 0 : 1);
 ```
 
-Vérifié sur l'env de dev pisceen le 2026-08-14 :
+Vérifié sur l'env de dev pisceen le 2026-08-14, puis le 2026-09-22 :
 
 ```
 cins_newproductfields : 1.0.1 → 1.0.2 | upgrades dispo=1 appliqués=1 succès=oui
+pisceenflags          : 1.5.0 → 1.8.0 | upgrades dispo=1 appliqués=1 succès=oui
 ```
 
-**Corollaire** : `php7.4 bin/console prestashop:module upgrade <module>` fonctionne et
-n'a pas ce défaut, mais il est **lent** (boot du kernel Symfony + appels à
-`api-addons.prestashop.com` qui partent en timeout). Le script ci-dessus est l'option rapide
-en MEP ; la console reste la référence si on n'est pas pressé.
+⚠ **`succès=NON` ne veut pas dire « échec ».** Relancé alors qu'il n'y a plus rien à jouer,
+`runUpgradeModule()` rend `available_upgrade=0` **et** `success=false` — c'est sa façon de
+dire « aucun upgrade à appliquer », l'état en base ne bouge pas. Le seul vrai échec est
+`dispo≥1` **et** `appliqués=0`, ou des erreurs dans `getErrors()`. Lire les trois nombres,
+pas le seul `succès`.
+
+**Module sans dossier `upgrade/`** : il n'y a rien à jouer, donc rien ne se passe — la
+version en base reste en arrière pendant que le code est à jour. Écrire alors la version
+directement, c'est ce que fait le cœur en fin d'upgrade :
+
+```bash
+php7.4 -r 'require "config/config.inc.php";
+  $m = Module::getInstanceByName("<module>");
+  exit(Module::upgradeModuleVersion("<module>", $m->version) ? 0 : 1);'
+```
+
+Un module qu'on maintient **mérite son dossier `upgrade/`** : un fichier
+`upgrade/upgrade-X.Y.Z.php` qui réenregistre les hooks attendus coûte dix lignes et
+rattrape le cas réel — une greffe perdue laisse le module installé et muet (RM3296).
+
+### ⚠ `bin/console prestashop:module upgrade` ne marche pas ici — ce n'est pas la référence
+
+Jusqu'au 2026-10-01 ce document présentait `php7.4 bin/console prestashop:module upgrade
+<module>` comme la commande de référence, « lente mais fiable ». **C'est faux sur notre
+parc** : elle refuse, toujours, avec un message qui n'apprend rien —
+
+```
+L'action upgrade est impossible pour le module <module>. Malheureusement, le module n'a pas
+fourni plus de détails.
+```
+
+Mesuré sur l'env de dev pisceen (2026-09-22 et 2026-10-01), versions abaissées en base
+pour forcer une vraie montée :
+
+| module | nature | résultat |
+|---|---|---|
+| `pisceenflags` | local, **sans** `upgrade/` | refus |
+| `pisceenflags` | local, **avec** `upgrade/` | refus |
+| `ps_imageslider` | **natif** PrestaShop | refus, après **14 minutes** |
+
+Les trois enseignements, dans cet ordre :
+
+1. **Ce n'est pas le module.** Un module natif échoue comme un module maison : inutile de
+   chercher ce qui manquerait au nôtre. L'absence de dossier `upgrade/` **n'est pas** la
+   cause (hypothèse tenue un temps en RM3230, démentie en RM3296).
+2. **La commande coûte un quart d'heure pour rien** — `Module::getModulesOnDisk()` interroge
+   `api-addons.prestashop.com`, injoignable depuis nos serveurs, et chaque appel attend son
+   timeout. Un `timeout` trop court la tue **sans aucune sortie** : silence et version
+   inchangée, qu'on prend alors pour « rien à faire ».
+3. **La bonne méthode est le script d'amorçage ci-dessus**, qui joue réellement les fichiers
+   d'upgrade (vérifié) en quelques secondes.
+
+Cause probable, par lecture du cœur et **non isolée en test** : `ModuleManager::upgrade()`
+termine par `$module->onUpgrade()`, qui écrit en base `attributes['version_available']` —
+renseigné par le catalogue Addons, donc **vide chez nous** ; la méthode rend `false`, et le
+message générique ci-dessus tombe. Si quelqu'un veut trancher pour de bon : instrumenter
+`src/Adapter/Module/Module.php::onUpgrade` sur un env de dev.
 
 ## 5. Purge de cache : conditionnelle, pas réflexe
 
@@ -297,5 +377,7 @@ Points d'attention spécifiques :
 ## Voir aussi
 
 - `norms/src/modules/git-mep.md` — règles de branche/MR, tripwire sécurité prod, snapshot
-- `norms/src/modules/git-mep-pratique.md` — dépannage du transport git
+- `norms/src/modules/git-mep-pratique.md` — dépannage du transport git, et § *Script de MEP*
+  (une MEP non générique s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, conservé à
+  côté de la fiche du ticket — premier cas : RM3219, puis RM3230 pour un submodule déplacé)
 - Skill `mmi-presta-dev-vhost` — provisionnement d'un environnement de dev PrestaShop

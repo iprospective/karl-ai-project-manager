@@ -2,8 +2,10 @@
 """pm-core-update — met à jour le code déployé de l'instance PM et le re-verrouille (RM3033, porté de `bin/mmi-pm core update`).
 
 Le checkout de l'instance (`.mmi-pm-core`) est ROOT-owned (verrou 3 couches, RM2032) : ce verbe est LE SEUL geste privilégié du
-CLI. Lancé sans être root, il se ré-exécute lui-même par `sudo` (mot de passe demandé — barrière humaine §13a, jamais NOPASSWD),
-sauf en `--dry-run`, qui prévisualise sans privilège. Exception (RM3070 L1) : un checkout qui APPARTIENT au compte qui
+CLI. Lancé sans être root, il se ré-exécute lui-même par `sudo`, sauf en `--dry-run`, qui prévisualise sans privilège. La règle
+sudoers de ce verbe est **NOPASSWD** depuis RM2571 (arbitrage Mathieu du 2026-09-30, pour le bouton du cockpit) : le re-exec passe
+donc par `sudo -n` quand la règle est posée — sinon il retombe sur un `sudo` interactif, qui demande le mot de passe. La barrière
+humaine du §13a n'est pas levée : elle est portée par l'authentification du cockpit et un droit nommé, sur une commande étroite. Exception (RM3070 L1) : un checkout qui APPARTIENT au compte qui
 le lance (installation mono, non verrouillée) se met à jour sans sudo ; le verrou et les déploiements système
 (/usr/local) sont alors sautés, et dits. Enchaînement (inchangé depuis le bash) :
   1. agent SSH éphémère (RM2239) + multiplexing SSH (RM2069) : UNE saisie de passphrase pour fetch + pull + submodules ;
@@ -478,6 +480,31 @@ def update(core_dir: Path, dry: bool) -> int:
     return 0
 
 
+def nopasswd_dispo(entry) -> bool:
+    """La règle sudoers NOPASSWD du core update est-elle posée pour ce compte ? (RM2571)
+
+    Lue dans `sudo -n -l`, jamais essayée. Une règle `(root) NOPASSWD: <entry> core update*` répond
+    oui ; une règle sans étiquette (mot de passe) ou absente répond non, et le re-exec redevient
+    interactif."""
+    try:
+        r = subprocess.run(["sudo", "-n", "-l"], capture_output=True, text=True, timeout=5,
+                           env={**os.environ, "LC_ALL": "C"})
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if r.returncode != 0:
+        return False
+    cible = f"{entry} core update"
+    for ligne in r.stdout.splitlines():
+        ligne = ligne.strip()
+        if not ligne.startswith("(") or "NOPASSWD:" not in ligne:
+            continue
+        for motif in ligne.partition(")")[2].split(","):
+            motif = motif.replace("NOPASSWD:", "").replace("SETENV:", "").strip()
+            if motif == "ALL" or motif == cible or (motif.endswith("*") and cible.startswith(motif[:-1])):
+                return True
+    return False
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dry-run", action="store_true", help="prévisualise sans sudo ni écriture")
@@ -488,10 +515,15 @@ def main(argv=None):
         # Le re-exec passe par `<core>/bin/mmi-pm core update` : c'est LE chemin que la règle sudoers autorise en root
         # (deploy/mmi-pm.sudoers.example, ligne 2 — `bin/mmi-pm core update*`). Un `sudo python3 …` direct serait refusé
         # sur une instance dont le compte n'a que ces droits. bin/mmi-pm relaie au dispatcher → ce script, en root.
-        log("opération privilégiée (code root-owned) → re-exec sudo (mot de passe requis)")
         entry = core_dir / "bin" / "mmi-pm"
         extra = [x for x in (argv if argv is not None else sys.argv[1:]) if x not in ("--dry-run",)]
-        os.execvp("sudo", ["sudo", str(entry), "core", "update", *extra])
+        # RM2571 : `-n` d'abord si la règle NOPASSWD est posée (c'est ce qui permet le bouton du
+        # cockpit) ; sinon sudo interactif, comme avant. On SONDE (`sudo -n -l`, silencieux quand il
+        # aboutit) au lieu d'essayer : un refus de `sudo -n` est journalisé et mailé à root (RM3341).
+        sans_mdp = nopasswd_dispo(entry)
+        log("opération privilégiée (code root-owned) → re-exec sudo"
+            + (" -n (règle NOPASSWD posée, RM2571)" if sans_mdp else " (mot de passe requis)"))
+        os.execvp("sudo", ["sudo", *(["-n"] if sans_mdp else []), str(entry), "core", "update", *extra])
     return update(core_dir, a.dry_run)
 
 

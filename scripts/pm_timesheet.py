@@ -1814,6 +1814,10 @@ def trou_de_midi(periodes, plage=None, minimum=None):
 #: garde — ils situent l'activité — mais séparés, pour qu'ils ne noient pas le reste.
 _COMMIT_AUTO_RE = re.compile(r"^(pm\(|Merge branch|Merge remote)")
 
+#: Un commit de fusion EST la trace locale d'une MR : inutile d'interroger la forge
+#: pour savoir ce qui a été livré ce jour-là. Le nom de branche porte le ticket.
+_MERGE_RE = re.compile(r"^Merge branch '([^']+)'(?: into '?([^']+)'?)?")
+
 
 def depots_git(racine="/zfs/workspaces", profondeur=3):
     """Les dépôts de premier niveau sous les workspaces.
@@ -1843,11 +1847,12 @@ def collect_commits(depuis, jusqu_a, auteur=None, racine="/zfs/workspaces"):
     d0 = depuis.strftime("%Y-%m-%d %H:%M")
     d1 = jusqu_a.strftime("%Y-%m-%d %H:%M")
     for depot in depots_git(racine):
-        argv = ["git", "-C", str(depot), "log", "--all", "--no-merges",
+        # Le filtre d'auteur est appliqué en Python, pas par git : les commits de FUSION
+        # sont signés du compte qui merge sur la forge (« Manager Karl »), jamais de
+        # l'humain — un `--author` les ferait disparaître, et avec eux les livraisons.
+        argv = ["git", "-C", str(depot), "log", "--all",
                 f"--since={d0}", f"--until={d1}",
                 "--pretty=%H%x1f%aI%x1f%an%x1f%s", "--date=iso"]
-        if auteur:
-            argv.insert(-1, f"--author={auteur}")
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.SubprocessError):
@@ -1866,10 +1871,22 @@ def collect_commits(depuis, jusqu_a, auteur=None, racine="/zfs/workspaces"):
                 ts = datetime.fromisoformat(iso).replace(tzinfo=None)
             except ValueError:
                 continue
-            sortie.append({"ts": ts.isoformat(timespec="seconds"), "sha": sha[:8],
-                           "depot": depot.name, "client": depot.parent.name,
-                           "auteur": nom, "sujet": sujet[:160],
-                           "auto": bool(_COMMIT_AUTO_RE.match(sujet))})
+            fusion = _MERGE_RE.match(sujet)
+            if auteur and not fusion and auteur.lower() not in nom.lower():
+                continue
+            entree = {"ts": ts.isoformat(timespec="seconds"), "sha": sha[:8],
+                      "depot": depot.name, "client": depot.parent.name,
+                      "auteur": nom, "sujet": sujet[:160],
+                      "auto": bool(_COMMIT_AUTO_RE.match(sujet))}
+            if fusion:
+                # Une livraison : elle vaut mieux qu'un commit ordinaire pour justifier
+                # une journée — c'est du travail qui est SORTI.
+                branche = fusion.group(1)
+                rm = re.match(r"(\d{3,6})-", branche)
+                entree.update({"merge": True, "branche": branche,
+                               "cible": fusion.group(2) or "",
+                               "rm": rm.group(1) if rm else None, "auto": False})
+            sortie.append(entree)
     return sorted(sortie, key=lambda c: c["ts"])
 
 

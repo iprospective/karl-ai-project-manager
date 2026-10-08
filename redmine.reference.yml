@@ -145,12 +145,18 @@ trackers:
   # 20 "Task type" (TODO : créer la valeur enum "Audit/Analyse" puis task_type_cf).
 
 # ── Priorités (priorité NORMS → id) ───────────────────────────────────────────
-# Source de vérité = pm-task-add.py::PRIORITY_TO_ID.
+# SOURCE DE VÉRITÉ de l'énumération NORMS `priority` (RM3275). Les scripts ne
+# recopient plus la table : ils passent par `scripts/pm_priority.py`, qui lit ce
+# bloc. L'ordre de force se DÉDUIT de l'id croissant — ajouter une priorité ici
+# suffit à la rendre connue, triable et pondérée partout.
+# L'instance porte aussi « A définir » (id 24), qui n'est pas un degré d'urgence
+# mais une absence de choix : délibérément hors de cette table (cf. RM3275).
 priorities:
-  low:    1   # "Bas"
-  normal: 2   # "Normal"
-  high:   3   # "Haut"
-  urgent: 4   # "Urgent"
+  low:      1   # "Bas"
+  normal:   2   # "Normal"
+  high:     3   # "Haut"
+  urgent:   4   # "Urgent"
+  immediat: 5   # "Immédiat" — passe devant le travail en cours (RM3275)
 
 # ── Activités de saisie de temps (id → nom) ───────────────────────────────────
 # Utilisées par RM1806/RM1819 pour qualifier le time_entry d'un commit selon le

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # modules pm_* voisins
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -43,7 +44,7 @@ VALID_STATUSES = {
     "a_tester_verifier",  # déprécié — alias de a_tester_demandeur (rétrocompat)
 }
 
-VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
+VALID_PRIORITIES = set(pm_priority.labels())  # RM3275 : source unique
 
 VALID_CLOSE_REASONS = {
     "resolu", "abandonne", "doublon", "wont_fix", "invalide", "hors_perimetre",

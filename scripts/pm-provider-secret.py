@@ -2,7 +2,7 @@
 """pm-provider-secret — pose, remplace ou efface le SECRET d'une instance de provider (RM3068).
 
 Le secret d'un provider ne vit jamais dans `pm.config.yml` (versionné) : il vit dans un fichier
-d'environnement, **par développeur** (`~<dev>/.config/mmi-pm/.env`) ou **global** à l'instance
+d'environnement, **par développeur** (`<core>/var/users/<dev>/.env`, RM3318) ou **global** à l'instance
 (réservé aux administrateurs, écrit par `sudo`). Ce script est le SEUL écrivain de ces clés, et il
 respecte trois règles qui font toute la sécurité de la fonction :
 
@@ -128,14 +128,14 @@ def env_path(scope: str, user: str = None) -> Path:
     if scope == "global":
         core = os.environ.get("PM_CORE_DIR") or str(Path(__file__).resolve().parent.parent)
         return Path(core) / ".env"
-    home = Path(pwd.getpwnam(user).pw_dir) if user else Path.home()
-    return home / ".config" / "mmi-pm" / ".env"
+    import pm_paths          # RM3318 : `<core>/var/users/<user>/.env`, jamais le home
+    return pm_paths.user_conf_dir(user) / ".env"
 
 
 def ecrit(path: Path, variable: str, valeur, unset=False) -> str:
     """Pose, remplace ou efface la variable. Écriture atomique, 0600, le reste du fichier intact.
     Rend « posée » · « remplacée » · « effacée » · « absente ». Ne rend, ni ne logue, aucune valeur."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lignes = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
     rx = re.compile(rf"^\s*(?:export\s+)?{re.escape(variable)}\s*=")
     presente = any(rx.match(l) for l in lignes)

@@ -8,6 +8,8 @@ export const refId = (ref) => String(ref == null ? "" : ref).replace(/^RM/i, "")
 export function worklogSections(buckets) {
   const b = buckets || {};
   return [
+    { key: "encours", icon: "🔨", label: "en cours", items: b.encours || [] },           // RM3323 : commencé, avant le reste
+    { key: "corriger", icon: "🔧", label: "à corriger", items: b.corriger || [] },        // RM3323 : revenu après test
     { key: "todo", icon: "⏳", label: "reste à faire", items: b.todo || [] },
     { key: "testing", icon: "🧪", label: "à tester / valider", items: b.testing || [] },   // RM2930 : une action, avant la MEP
     { key: "mep", icon: "🚀", label: "à mettre en prod", items: b.mep || [] },             // RM2860 : le dev est fini

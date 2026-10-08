@@ -14,6 +14,11 @@ surface CLI (command-catalog) et porte la **console de test/revue** des tickets 
 ./install-mmi-pm            # depuis un clone frais ; voir --help
 ```
 
+**Ailleurs que dans `/zfs/workspaces`** (ex. `/opt/mmi-pm/core`, RM3208) : renseigner `KARL_USER` et
+`KARL_SUDO_USER` dans le `.env` (documentés dans `.env.example`), vérifier les règles sudoers générées avec
+`install-mmi-pm <core> --print-sudoers` (sans root), puis installer. Chaque utilisateur se crée ensuite par
+**`sudo mmi-pm user add <login>`** — compte de rôle, groupe `pm`, compte cockpit, profil (`--dry-run` pour voir).
+
 Mise à jour d'une instance : `mmi-pm core-update` (sudo demandé par la commande ; pull + re-verrou 3 couches
 via `core-lock` ; une seule passphrase SSH — multiplexing RM2069 + agent éphémère RM2239).
 
@@ -65,7 +70,7 @@ mmi-pm timesheet --month 2026-08 --apply  # crée les saisies dans Redmine (idem
 ```
 
 Une journée à la fois : `mmi-pm timesheet --day 2026-08-26 [--start 09:30 --end 18:30
---client matnat]`, puis `--apply`. Réglages dans `~/.config/mmi-pm/timesheet.yml`.
+--client matnat]`, puis `--apply`. Réglages dans `<core>/var/users/<user>/timesheet.yml`.
 
 Reconstitue le temps de travail **humain** à partir des traces des agents
 (transcripts, journaux de tickets, bases opencode), le répartit par
@@ -81,7 +86,7 @@ mmi-pm invoice --month 2026-08            # rapport .md + proposition .yml — r
 
 Regroupe le temps saisi dans Redmine par client et par activité, au tarif de la dernière
 facture, avec la note publique habituelle et les mises en production du mois. L'ERP est
-le provider `erp` du registre ; réglages : `invoice.example.yml` → `~/.config/mmi-pm/invoice.yml`.
+le provider `erp` du registre ; réglages : `invoice.example.yml` → `<core>/var/users/<user>/invoice.yml`.
 
 ## Le carnet de réflexion : de la question au ticket
 

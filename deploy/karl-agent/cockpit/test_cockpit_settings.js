@@ -102,7 +102,7 @@ function fakeElement() {
   assert(/moniteur tmux/i.test(themeOn) && !/onchange=/.test(themeOn), "libellé explicite, aucun gestionnaire inline");
   // la préférence : affichée par défaut, décochable, et appliquée immédiatement
   const applied = [];
-  const memStore = { m: {}, getItem(k) { return k in this.m ? this.m[k] : null; }, setItem(k, v) { this.m[k] = String(v); } };
+  const memStore = { m: {}, getItem(k) { return k in this.m ? this.m[k] : null; }, setItem(k, v) { this.m[k] = String(v); }, removeItem(k) { delete this.m[k]; } };
   const { mountSettings: MS } = await import(path.join(DIR, "src/modules/settings/settings.controller.js"));
   const composed = [];
   const s3 = MS(fakeElement(), fakeElement(), { storage: memStore, applyMonitor: (on) => applied.push(on), applyComposer: (on) => composed.push(on), repo: { list: async () => [] } });
@@ -119,6 +119,17 @@ function fakeElement() {
   s3.setMobileComposer(true);
   assert.strictEqual(s3.mobileComposer(), true); assert.deepStrictEqual(composed, [false, true]);
   assert.strictEqual(memStore.getItem("karlMobileComposer"), "1", "préférence de CE navigateur");
+  // RM3418 : taille du terminal, préférence de CE navigateur (vide = défaut d'instance)
+  assert.strictEqual(s3.termFont(), "", "sans préférence, le défaut d'instance s'applique");
+  const fonts = [];
+  const s4 = MS(fakeElement(), fakeElement(), { storage: memStore, applyTermFont: (v) => fonts.push(v), repo: { list: async () => [] } });
+  s4.setTermFont("11");
+  assert(s4.termFont() === "11" && memStore.getItem("karlTermFont") === "11" && fonts[0] === "11", "la taille choisie est retenue et appliquée tout de suite");
+  s4.setTermFont("");
+  assert(s4.termFont() === "" && memStore.getItem("karlTermFont") === null && fonts[1] === null, "revenir au défaut EFFACE la préférence (pas un 0 qui traîne)");
+  s4.unmountAll();
+  const themeF = String(ThemeCard({ local: "auto", hint: "", termFont: "11" }));
+  assert(/data-term-font/.test(themeF) && /value="11" selected/.test(themeF), "le select est dans la carte Thème & affichage, sur la valeur courante");
   const themeC = String(ThemeCard({ local: "auto", hint: "", mobileComposer: true }));
   assert(/data-mobile-composer checked/.test(themeC) && /second formulaire sous le terminal/.test(themeC), "la case est dans la carte Thème & affichage");
   s3.unmountAll();

@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.60.0] - 2026-09-22
+## [2.63.0] - 2026-10-08
 
 ### Ajouté
 - Module `redmine-sync` — **« un paragraphe, une ligne » : pas de coupe à 80 colonnes**
@@ -15,6 +15,48 @@
 - KERNEL — la ligne-déclencheur « livrable documentaire » porte la règle, et une seconde
   est ajoutée pour **« je rédige une description ou une note de ticket »** : la demande
   vaut pour les champs Redmine autant que pour les documents.
+
+## [2.62.0] - 2026-10-06
+
+### Ajouté
+- **Script de MEP par ticket, conservé et visible au cockpit** (RM3225, module `git-mep-pratique` §
+  Actions au déploiement). Une MEP qui demande plus que le workflow générique s'automatise dans
+  `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, versionné et jamais supprimé (`pm-task-move`
+  l'emporte). Contrat minimal : `set -euo pipefail`, contrôle par défaut, `--apply`, idempotent, gardes
+  avant le point de non-retour, vérification finale, rollback en en-tête. Lancement par
+  `ssh <alias> 'bash -s [-- --apply]' < script`. Affiché sur la fiche du cockpit (bloc « Mise en
+  production », avec les actions au déploiement, jusque-là absentes du cockpit), au passage en `a_mep`
+  et par `pm-task-deploy`. Lecture unique : `scripts/pm_mep_script.py`. Premier cas : RM3219.
+
+## [2.61.0] - 2026-09-30
+
+### Ajouté
+- **L'agent a un compte et une boîte de courrier d'essai** (RM3360, module `testing` §9). Un
+  parcours de test s'arrêtait au dernier écran, alors que la moitié de ce qu'une commande promet
+  se passe après : accusé de réception, confirmation, expédition. L'agent dispose d'une identité
+  d'essai (compte boutique dev/test/préprod + boîte lisible), adresse et mot de passe dans sa
+  conf `var/users/<user>/.env`, transmis aux scénarios par l'environnement — jamais sur une ligne
+  de commande, que `ps` rend lisible. Deux règles fermes : jamais en production, et un envoi de
+  test ne part pas chez un tiers. Piège documenté : le catch-all `/.+@.+/` de
+  `/etc/postfix/virtual-regexp` sur le poste de dev redirige tout le courrier local vers
+  l'exploitant.
+
+## [2.60.0] - 2026-09-28
+
+### Modifié
+- **Conf PM jamais dans le home** (RM3318, nouveau tripwire 21 du KERNEL ; détail
+  `collaboration` § Multi-utilisateur). Toute la conf propre à un utilisateur — clés et
+  préférences (`.env` : `REDMINE_API_KEY`, tokens forge, `PM_REPOS_DIR`, `PM_MAIL_*`), réglages
+  d'outils (`invoice.yml`, `timesheet.yml`) — vit sous `<core>/var/users/<user>/`, hors git
+  (`700`/`600`). L'ancien `~/.config/mmi-pm/` (RM2497) n'est plus lu qu'en repli transitoire,
+  avec avertissement, et se vide par `scripts/pm-user-conf-migrate.py`. Résolveur unique :
+  `pm_paths.user_conf_dir()` / `user_conf_file()`. La distinction « état dans var, réglages
+  dans ~/.config » est abandonnée.
+
+### Ajouté
+- `karl-mail-send.py` lit les préférences de l'expéditeur humain : `PM_MAIL_SIGNATURE`
+  (ajoutée en fin de corps, sans doublon ; `--no-signature` pour s'en passer) et
+  `PM_MAIL_FROM_NAME` (nom d'affichage).
 
 ## [2.59.0] - 2026-09-19
 

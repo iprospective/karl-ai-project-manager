@@ -37,16 +37,26 @@ const JOUR = {
   journal: { destin: "refacture", cle: { pisceen: 0.5, calicote: 0.5 }, absence: null,
              client_h: 3.5, pot_ouvre_h: 1.98, pot_hors_h: 1.33, alerte_absence: false },
   proposition: [
-    { jour: "2026-09-18", client: "pisceen", projet: "dolibarr", ticket: 3217, minutes: 45, activite: 10, outillage_min: 7 },
-    { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6 },
-    { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8 },
+    { jour: "2026-09-18", client: "pisceen", projet: "dolibarr", ticket: 3217, minutes: 45, activite: 10, outillage_min: 7, facturable: true },
+    { jour: "2026-09-18", client: "pisceen", projet: "infra", ticket: null, minutes: 15, activite: 9, outillage_min: 6, facturable: true },
+    { jour: "2026-09-18", client: "calicote", projet: "infra", ticket: 3199, minutes: 30, activite: 13, outillage_min: 8, facturable: true },
+    { jour: "2026-09-18", client: "iprospective", projet: "pm-ai-agents", ticket: null, minutes: 15, activite: 9, outillage_min: null, facturable: false },
   ],
-  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration" },
-               { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]" }],
+  bandes: [
+    { debut: "08:51", fin: "09:31", client: "pisceen", minutes: 40, parts: { pisceen: 32, calicote: 8 } },
+    { debut: "13:32", fin: "13:52", client: "calicote", minutes: 20, parts: { calicote: 20 } },
+    { debut: "18:33", fin: "20:17", client: null, minutes: 104, parts: { null: 104 } },
+  ],
+  transversal_par_client: { pisceen: 55, calicote: 36 },
+  activites: { "9": "Développement", "10": "Audit/Analyse", "13": "SysAdmin/Conf/Debug" },
+  pause: { declaree_h: null, trou: { debut: "12:36", fin: "13:32", minutes: 56 },
+           cible: { client: "iprospective", projet: null, commentaire: "repas midi", heures: 1 } },
+  deja_saisi: [{ minutes: 60, ticket: 3186, libelle: "revue de la migration", client: "pisceen", projet: "pisceen-presta" },
+               { minutes: 45, ticket: null, libelle: "infra, dont 12 min d'outillage [timesheet:2026-09-18#pisceen/-@9]", client: "pisceen", projet: "infra" }],
   regie: [{ client: "matnat", motif: "presence", minutes: 90 }],
-  ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5 },
-       { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3 },
-       { heure: "18:40", ticket: 3199, client: "calicote", projet: "infra", modele: "claude-opus-4-8", tokens: 400000, minutes: 2 }],
+  ia: [{ heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 1200000, minutes: 4.5, minutes_reelles: 4.5, borne: false },
+       { heure: "08:55", ticket: 3217, client: "pisceen", projet: "dolibarr", modele: "claude-opus-5", tokens: 800000, minutes: 3, minutes_reelles: 3, borne: false },
+       { heure: "18:40", ticket: 3199, client: "calicote", projet: "infra", modele: "claude-opus-4-8", tokens: 400000, minutes: 10, minutes_reelles: 2, borne: true }],
   traces: [
     { heure: "08:51", source: "claude-history", humain: true, chars: 120, extrait: "étudie et chiffre RM3217", client: "pisceen", projet: "dolibarr", ticket: 3217 },
     { heure: "08:55", source: "claude-transcript", humain: false, chars: 40, extrait: "(tour d'agent)", client: "pisceen", projet: "dolibarr", ticket: 3217 },
@@ -56,6 +66,7 @@ const JOUR = {
     { ts: "2026-09-18T12:31:00", sha: "0679ddb0", depot: "infra", client: "calicote", sujet: "RM3199 : journal — première synchronisation IMAP", auto: false },
     { ts: "2026-09-18T13:42:00", sha: "09877eee", depot: "infra", client: "calicote", sujet: "RM3199 : journal — 7 boîtes migrées", auto: false },
     { ts: "2026-09-18T23:27:00", sha: "009d9ee1", depot: "ai-project-management", client: "iprospective", sujet: "pm(tick): RM3229 métriques temps/tokens", auto: true },
+    { ts: "2026-09-18T13:45:00", sha: "aa11bb22", depot: "ai-project-management", client: "iprospective", sujet: "Merge branch '3199-infra' into 'dev'", auto: false, merge: true, branche: "3199-infra", cible: "dev", rm: "3199" },
   ],
   surcharge: null, valide: false,
 };
@@ -95,7 +106,15 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.timeline({}, {}).from, 8 * 60, "journée vide : 8 h → 19 h");
   const etroite = M.timeline({ periodes: [["10:05", "10:20"]] }, {});
   assert(etroite.to - etroite.from >= 60, "une plage minuscule garde une heure de large (sinon la frise est illisible)");
-  console.log("✓ frise : bornes, positions, groupement des tours d'agent");
+  // Une journée de 24 h ne tient pas 25 étiquettes d'heure : elles se chevauchaient.
+  { const large = M.timeline({ periodes: [["00:30", "23:30"]] }, {});
+    const vues = large.heures.filter(h => h.label);
+    assert.strictEqual(large.heures.length, 25, "toutes les graduations restent");
+    assert.strictEqual(vues.length, 9, "…mais une étiquette toutes les 3 h seulement");
+    const moyen = M.timeline({ periodes: [["09:00", "18:00"]] }, {});
+    assert.strictEqual(moyen.heures.filter(h => h.label).length, moyen.heures.length,
+                       "une journée courte garde toutes ses étiquettes"); }
+  console.log("✓ frise : bornes, positions, groupement des tours d'agent, règle lisible");
 
   // — heures normales : la mesure propose, l'ajustement tranche —
   const hn = M.heuresNormales(JOUR);
@@ -120,15 +139,15 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
   // — totaux et état —
   const t = M.totaux(JOUR);
-  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 90, 105, 90, 195]);
-  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 10, 2400000], "le temps IA est compté à part du temps humain");
+  assert.deepStrictEqual([t.mesure, t.propose, t.deja, t.regie, t.total], [410, 105, 105, 90, 210]);
+  assert.deepStrictEqual([t.tours, t.ia, t.tokens], [3, 18, 2400000], "le temps IA est compté à part du temps humain, et DÉCLARÉ — jamais raboté du recouvrement entre tours parallèles");
   assert.strictEqual(M.etat(JOUR), "a_valider");
   assert.strictEqual(M.etat(Object.assign(clone(JOUR), { valide: true })), "validee");
   assert.strictEqual(M.etat({ proposition: [], deja_saisi: [{ minutes: 60 }], mesure_min: 0 }), "manuelle");
   assert.strictEqual(M.etat({ proposition: [], deja_saisi: [], mesure_min: 0 }), "vide");
   assert.strictEqual(M.etat(null), "vide");
   const grp = M.parClient(JOUR);
-  assert.deepStrictEqual(grp.map(g => [g.client, g.minutes]), [["pisceen", 60], ["calicote", 30]], "groupé par client, le plus gros d'abord");
+  assert.deepStrictEqual(grp.map(g => [g.client, g.minutes]), [["pisceen", 60], ["calicote", 30], ["iprospective", 15]], "groupé par client, le plus gros d'abord");
   assert.strictEqual(M.fmtTokens(2400000), "2,4 M"); assert.strictEqual(M.fmtTokens(43000), "43 k");
   console.log("✓ totaux, état, groupement par client");
 
@@ -152,7 +171,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.traces(null).length, 0);
 
   const cm = M.commits(JOUR);
-  assert.deepStrictEqual([cm.total, cm.travail.length, cm.plomberie.length], [3, 2, 1], "la plomberie PM est comptée à part, pas mélangée au travail");
+  assert.deepStrictEqual([cm.total, cm.travail.length, cm.fusions.length, cm.plomberie.length], [4, 2, 1, 1], "livraisons et plomberie comptées à part du travail");
+  assert.strictEqual(cm.fusions[0].rm, "3199", "une livraison porte son ticket");
   assert.strictEqual(cm.travail[0].heure, "12:31", "l'heure du commit se lit directement");
   assert.strictEqual(cm.plomberie[0].sujet.startsWith("pm(tick)"), true);
   assert.deepStrictEqual(M.commits({}).travail, []);
@@ -160,13 +180,137 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   const groupes = M.toursIA(JOUR);
   assert.strictEqual(groupes.length, 2, "les tours d'agent se groupent par cible");
   assert.deepStrictEqual([groupes[0].cle, groupes[0].tours, groupes[0].minutes, groupes[0].tokens],
-                         ["RM3217", 2, 8, 2000000], "…en cumulant tours, minutes et tokens");
-  assert.strictEqual(groupes[0].premier, "08:55", "…et en gardant la plage horaire");
+                         ["RM3199", 1, 10, 400000], "…en cumulant tours, minutes déclarées et tokens");
+  assert.strictEqual(groupes[1].premier, "08:55", "…et en gardant la plage horaire");
 
   const cp = M.clientsEtProjets([{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }]);
   assert.deepStrictEqual(cp.clients, ["calicote", "pisceen"], "les clients, triés");
   assert.deepStrictEqual(cp.projets("pisceen"), ["dolibarr", "infra"], "les projets du client choisi");
   assert.deepStrictEqual(cp.projets("inconnu"), [], "un client sans projet ne casse rien");
+  assert.strictEqual(M.libelleLieu("distanciel"), "distanciel (maison)");
+  assert.strictEqual(M.libelleLieu(""), "", "un lieu non renseigné ne s'invente pas");
+  assert.strictEqual(M.libelleLieu("ailleurs"), "");
+  // — la pause de midi : signalée quand elle manque, jamais devinée —
+  const pz = M.pause(JOUR);
+  assert.strictEqual(pz.visible, true, "un trou de 56 min à midi, c'est une pause visible");
+  assert.strictEqual(pz.manquante, false);
+  assert(/12:36–13:32/.test(pz.texte));
+  const sansPause = M.pause({ pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1 } } });
+  assert.deepStrictEqual([sansPause.manquante, sansPause.proposition, sansPause.ou], [true, 1, "iprospective"], "sans trou ni déclaration : à signaler, avec la cible configurée");
+  assert.strictEqual(sansPause.texte, "aucune pause visible ce jour-là");
+  const declaree = M.pause({ pause: { declaree_h: 1, trou: null, cible: { client: "iprospective" } } });
+  assert.strictEqual(declaree.manquante, false, "déclarée : plus rien à signaler");
+  assert(/pause déclarée : 1 h sur iprospective/.test(declaree.texte));
+  assert.strictEqual(M.pause({}).manquante, false, "journée sans bloc pause : on ne réclame rien");
+
+  assert.deepStrictEqual(M.nonFacturable(JOUR), { count: 1, minutes: 15 }, "le temps sur soi est compté à part");
+  assert.deepStrictEqual(M.nonFacturable({ proposition: [{ minutes: 30, facturable: true }] }), { count: 0, minutes: 0 });
+  console.log("✓ pause de midi : visible, déclarée ou manquante ; temps non facturable");
+
+  // — couleurs, bandes, notice —
+  assert.strictEqual(M.couleurClient("pisceen"), M.couleurClient("pisceen"), "une couleur stable pour un client");
+  assert.notStrictEqual(M.couleurClient("pisceen"), M.couleurClient("calicote"), "deux clients, deux couleurs");
+  assert.strictEqual(M.couleurClient(null), "var(--muted)", "le non-attribué reste neutre");
+  assert.strictEqual(M.nomClient(null), "non attribué");
+  assert.strictEqual(M.nomClient("null"), "non attribué", "le null du JSON ne doit pas s'afficher tel quel");
+
+  const bd = M.bandes(JOUR, { from: 8 * 60, to: 21 * 60, span: 780 });
+  assert.strictEqual(bd.length, 3);
+  assert.strictEqual(bd[0].client, "pisceen");
+  assert(bd.every(b => b.left >= 0 && b.left + b.width <= 100.01), "aucune bande ne déborde");
+  assert(/pisceen 32 min · calicote 8 min/.test(bd[0].titre), "le survol dit la répartition que la couleur cache");
+  assert.strictEqual(bd[2].client, "non attribué");
+
+  const lg = M.legende(JOUR);
+  assert.deepStrictEqual(lg.map(x => x.client), ["non attribué", "pisceen", "calicote"], "la notice classe par poids");
+  assert.strictEqual(lg.find(x => x.client === "pisceen").duree, "32 min");
+
+  const bp = M.bandePause(JOUR, { from: 8 * 60, to: 21 * 60, span: 780 });
+  assert(bp && /pause 12:36–13:32/.test(bp.titre) && bp.declaree === false, "la pause a sa bande");
+  assert.strictEqual(M.bandePause({ pause: { trou: null } }, { from: 0, span: 60 }), null);
+
+  assert.deepStrictEqual(M.transversalParClient(JOUR).map(x => [x.client, x.duree]),
+                         [["pisceen", "55 min"], ["calicote", "36 min"]], "le transversal se lit en minutes, pas en pourcentage");
+
+  // — le fil unique, trié —
+  const fl = M.fil(JOUR);
+  assert.strictEqual(fl.length, 10, "traces + commits + livraison + plomberie + tours d'agent");
+  const heures = fl.map(x => x.heure);
+  assert.deepStrictEqual(heures, [...heures].sort(), "trié par heure, tous genres confondus");
+  assert.deepStrictEqual([...new Set(fl.map(x => x.genre))].sort(), ["commit", "ia", "livraison", "plomberie", "trace"]);
+  assert(/en parallèle du tour suivant/.test(fl.find(x => x.genre === "ia" && x.chevauche).texte),
+         "un tour parallèle est SIGNALÉ, pas raboté");
+
+  // — le chevauchement des temps IA —
+  // Le bornage a été essayé puis RETIRÉ (2026-09-22) : deux agents en parallèle produisent
+  // bien deux fois du travail, même si l'horloge n'avance qu'une fois. On signale, on ne rabote pas.
+  const ti = M.totauxIA(JOUR);
+  assert.deepStrictEqual([ti.tours, ti.minutes, ti.paralleles, ti.horloge], [3, 18, 1, 10],
+                         "le chiffre est le DÉCLARÉ ; l'horloge n'est qu'une information");
+  console.log("✓ couleurs par client, notice, bande de pause, cumul transversal, fil unique, temps IA borné");
+
+  // — relier le temps IA au temps humain —
+  const fr = M.timeline(JOUR, {});
+  assert(fr.ia.every(k => k.couleur), "chaque repère IA porte une couleur");
+  assert.strictEqual(fr.ia[0].client, "pisceen", "…celle de son client dominant");
+
+  const ln = M.liens(JOUR, fr);
+  assert.strictEqual(ln.length, 3, "un trait par tour d'agent");
+  assert.strictEqual(ln.filter(l => l.orphelin).length, 0, "ici, tous les tours tombent dans une plage");
+  assert(/→ plage 08:51–09:31/.test(ln[0].titre), "le trait dit vers quelle plage il monte");
+
+  // le cas qui compte : un tour d'agent sans trace humaine autour
+  const horsPlage = Object.assign(clone(JOUR), {
+    ia: [...JOUR.ia, { heure: "03:12", ticket: null, client: "pisceen", projet: "infra",
+                       modele: "claude-opus-5", tokens: 1000, minutes: 7 }] });
+  const ln2 = M.liens(horsPlage, M.timeline(horsPlage, {}));
+  const orph = ln2.find(l => l.orphelin);
+  assert(orph && /AUCUNE trace humaine/.test(orph.titre), "un tour hors plage n'est relié à rien, et le DIT");
+  assert.strictEqual(orph.x1, orph.x2, "…son trait ne pointe nulle part");
+
+  // — le dossier de chaque plage —
+  const co = M.correspondances(JOUR);
+  assert.strictEqual(co.periodes.length, 3);
+  assert.strictEqual(co.periodes[0].ia.length, 2, "les tours tombent dans la bonne plage");
+  assert.strictEqual(co.periodes[0].prompts.length, 1, "ce que l'humain a écrit y figure");
+  assert.strictEqual(co.periodes[1].fusions.length, 1, "une livraison est rattachée à sa plage");
+  assert.strictEqual(co.periodes[1].fusions[0].rm, "3199");
+  assert(co.periodes[0].clients.some(x => x.client === "pisceen"), "la plage dit pour qui elle a été travaillée");
+  assert(co.periodes.every(p => typeof p.preuves === "number"));
+
+  const bl = M.bilanCorrespondance(horsPlage);
+  assert.deepStrictEqual([bl.periodes, bl.iaOrphelins, bl.minutesOrphelines], [3, 1, 7],
+                         "le bilan chiffre ce qui ne tient pas");
+  assert.strictEqual(M.bilanCorrespondance({ periodes: [["09:00", "10:00"]] }).sansPreuve, 1,
+                     "une plage sans la moindre preuve est comptée — c'est celle qu'il faut regarder");
+  console.log("✓ liaison IA ↔ humain : traits, orphelins, dossier de preuves par plage");
+
+  // — les BLOCS : l'unité qui part dans Redmine —
+  const blocs = M.blocsRedmine(JOUR);
+  assert.strictEqual(blocs.length, 4, "un bloc par ligne de proposition");
+  assert(blocs.every(b => b.client && typeof b.minutes === "number" && b.activite),
+         "un bloc porte au minimum du temps, une activité et UN client");
+  assert(blocs.every(b => !String(b.projet).includes(",")), "jamais deux projets dans un bloc");
+  assert.strictEqual(blocs[0].duree, "45 min", "trié du plus gros au plus petit");
+  assert.strictEqual(M.nomActivite(JOUR, 10), "Audit/Analyse", "l'activité se lit en clair");
+  assert.strictEqual(M.nomActivite(JOUR, 99), "activité 99", "…et à défaut, son numéro");
+  { const avecTicket = blocs.find(b => b.ticket === 3217);
+    assert(avecTicket && avecTicket.ia.length === 2, "les tours d'agent du MÊME ticket rejoignent son bloc");
+    assert.strictEqual(avecTicket.iaDuree, "8 min"); }
+  { const nf = blocs.find(b => b.client === "iprospective");
+    assert.strictEqual(nf.facturable, false, "un bloc sur soi n'est pas facturable"); }
+  const bib = M.bilanBlocs(JOUR);
+  assert.deepStrictEqual([bib.blocs, bib.clients], [4, 3]);
+  assert.strictEqual(bib.minutes, 105, "le total des blocs est celui de la proposition");
+
+  // — les tours hors plage : montrés, jamais facturés —
+  const hp = M.iaHorsPlage(horsPlage);
+  assert.strictEqual(hp.length, 1, "le tour de 03:12 est hors de toute plage");
+  assert.deepStrictEqual([hp[0].heure, hp[0].duree, hp[0].cible], ["03:12", "7 min", "pisceen/infra"],
+                         "…et il est montré en détail, pas seulement compté");
+  assert.strictEqual(M.iaHorsPlage(JOUR).length, 0, "ici, tous les tours sont dans une plage");
+  console.log("✓ blocs Redmine : un temps, une activité, un projet ; preuves et tours hors plage");
+
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
   // — service : charger, ajuster, valider —
@@ -220,14 +364,14 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.titre, "vendredi 18 septembre 2026");
   assert.strictEqual(vm.prev, "2026-09-17"); assert.strictEqual(vm.next, "2026-09-19");
   assert.strictEqual(vm.etatLabel, "à valider");
-  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 30", "3 tours · 10 min"]);
+  assert.deepStrictEqual(vm.chiffres.map(c => c.valeur), ["6 h 50", "1 h 45", "1 h 45", "3 tours · 18 min"]);
   assert.deepStrictEqual([vm.auto.count, vm.auto.minutes], [1, 45], "l'écran sait ce que l'outil a posé ici");
   assert.strictEqual(vm.manuelles, 1, "…et combien de saisies sont à la main, donc protégées");
   assert.strictEqual(vm.reprenable, true);
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: { deja_saisi: [{ minutes: 60, libelle: "à la main" }] } }).reprenable, false, "rien posé par l'outil : pas de bouton de reprise");
   assert(/20:17/.test(vm.hors), "l'écran dit ce que le bornage a laissé dehors");
   assert.strictEqual(vm.action.geste, "apply");
-  assert(/1 h 30/.test(vm.action.label), "le bouton annonce ce qu'il va écrire");
+  assert(/1 h 45/.test(vm.action.label), "le bouton annonce ce qu'il va écrire");
   assert.strictEqual(new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { valide: true, proposition: [] }) }).action.disabled, true, "une journée validée sans reste ne se revalide pas");
   // Décision du 2026-09-21 : juin à août se repassent journée par journée. Corriger les heures
   // d'une journée déjà validée peut faire apparaître un complément — le bouton doit le proposer,
@@ -253,8 +397,15 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(vm.traces.length, 3);
   assert.strictEqual(vm.tracesHumaines, 2);
   assert.strictEqual(vm.commits.travail.length, 2);
-  assert.strictEqual(vm.ia[0].duree, "8 min");
-  assert.strictEqual(vm.ia[0].plage, "08:55");
+  assert.strictEqual(vm.ia[0].duree, "10 min", "la durée déclarée du tour, telle quelle");
+  assert.strictEqual(vm.ia[1].plage, "08:55");
+  assert.strictEqual(vm.nonFacturable.label, "15 min", "l'écran chiffre ce qui ne sera facturé à personne");
+  assert.strictEqual(vm.groupes.find(g => g.client === "iprospective").facturable, false);
+  assert.strictEqual(vm.groupes.find(g => g.client === "pisceen").facturable, true);
+  assert.deepStrictEqual([vm.dejaSaisi[0].client, vm.dejaSaisi[0].projet], ["pisceen", "pisceen-presta"], "le déjà-noté dit OÙ, en deux colonnes");
+  { const ici = new BillingViewModel({ day: "2026-09-18", jour: JOUR, form: { lieu: "presentiel" } });
+    assert.strictEqual(ici.lieu, "présentiel");
+    assert.strictEqual(ici.lieux.find(l => l.value === "presentiel").selected, true); }
   console.log("✓ ViewModel : en-tête, chiffres, bouton selon l'état, transversal, régie");
 
   // — vue : sûre, sans on*, et la frise porte des positions —
@@ -268,10 +419,26 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/bl-o-auto[^>]*>outil</.test(frag) && /bl-o-main[^>]*>à la main</.test(frag), "chaque saisie déjà notée dit d'où elle vient");
   assert(!/\[timesheet:/.test(frag), "la marque technique ne fuit jamais à l'écran");
   assert(/<select[^>]*data-field="client"/.test(frag) && /<select[^>]*data-field="projet"/.test(frag), "client et projet se choisissent dans un menu");
-  assert(/traces de la journée — 3 \(2 humaines\)/.test(frag), "les traces sont listées avec leur compte");
-  assert(/commits — 2 de travail/.test(frag) && /plomberie PM \(1\)/.test(frag), "les commits séparent travail et plomberie");
-  assert(/temps IA — 3 tours · 10 min sur 2 cible\(s\)/.test(frag), "le temps IA est détaillé par cible");
+  assert(/<select[^>]*data-field="lieu"/.test(frag) && /distanciel \(maison\)/.test(frag), "le lieu de travail se choisit à la journée");
+  assert(/bl-cl[^>]*>pisceen</.test(frag), "le déjà-noté montre le client en colonne");
+  assert(/non facturé/.test(frag), "un groupe sur soi est marqué non facturé");
+  assert(/12:36–13:32/.test(frag), "l'écran dit que la pause apparaît");
+  { const manque = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1, commentaire: "repas midi" } } }), form: {} });
+    const f2 = String(V.Card(manque));
+    assert(/data-action="pause-midi"/.test(f2) && /aucune pause visible/.test(f2), "pause manquante : un bouton pour la noter en un clic"); }
+  assert(/ce qui s'est passé — 10 actions/.test(frag), "un seul fil : traces, commits et tours d'agent réunis");
+  assert(/2 traces humaines · 2 commits · 1 livraison\(s\) · 3 tours d'agent/.test(frag), "…et le détail de sa composition");
   assert(/RM3199 : journal/.test(frag), "le sujet du commit se lit");
+  assert(/bl-leg-i/.test(frag) && /background:hsl\(/.test(frag), "la notice donne une couleur par client");
+  assert(/bl-pause-band/.test(frag), "la pause a sa propre bande, neutre");
+  assert(/bl-tc-i/.test(frag), "le transversal montre son cumul par client");
+  assert(/en parallèle du tour suivant/.test(frag), "un tour d'agent parallèle le signale");
+  assert(/<svg class="bl-liens"/.test(frag) && /<line /.test(frag), "les traits relient les deux voies");
+  assert(/bl-ia[^>]*background:hsl\(/.test(frag), "les repères IA sont colorés par client");
+  assert(/plages humaines et leurs preuves/.test(frag), "le dossier des plages est là");
+  assert(/blocs à insérer dans Redmine — 4 bloc\(s\) · 3 client\(s\)/.test(frag), "les blocs Redmine sont la première section");
+  assert(/Audit\/Analyse/.test(frag), "chaque bloc dit son activité en clair");
+  assert(/3199/.test(frag), "une livraison y figure");
   const xss = new BillingViewModel({ day: "2026-09-18", jour: Object.assign(clone(JOUR), { deja_saisi: [{ minutes: 5, ticket: null, libelle: "<img src=x onerror=alert(1)>" }] }), form: {} });
   assert(!/<img/.test(String(V.Card(xss))), "un libellé venu de Redmine est échappé");
   assert(/journée illisible/.test(String(V.Card(new BillingViewModel({ day: "2026-09-18", error: "502" })))), "l'erreur se lit dans l'écran");
@@ -314,12 +481,20 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(ctl.svc.form().projet, "", "changer de client remet le projet à zéro — une paire client/projet inexistante n'a pas de sens");
   await card.click("save");
   assert.strictEqual(runs2[0][0], "timesheet-day-adjust");
+  // la pause en un clic : elle passe par l'ajustement, elle n'écrit RIEN dans Redmine
+  { jour2 = Object.assign(clone(JOUR), { pause: { declaree_h: null, trou: null, cible: { client: "iprospective", heures: 1 } } });
+    await ctl.load(false); runs2.length = 0;
+    await card.click("pause-midi");
+    assert.strictEqual(runs2[0][0], "timesheet-day-adjust", "la pause n'est pas une écriture Redmine");
+    assert.strictEqual(runs2[0][1].pause, "1", "elle pose la durée configurée");
+    assert(!runs2.some(([n]) => n === "timesheet-day-apply"), "…et ne valide rien au passage");
+    jour2 = clone(JOUR); await ctl.load(false); }
   assert(toasts.some(([m]) => /ajustée/.test(m)));
 
   repond = false; runs2.length = 0;
   await card.click("apply");
   assert.strictEqual(runs2.length, 0, "un refus de confirmation n'écrit rien");
-  assert(/pisceen : 1 h/.test(demandes[demandes.length - 1]) && /Total 1 h 30/.test(demandes[demandes.length - 1]),
+  assert(/pisceen : 1 h/.test(demandes[demandes.length - 1]) && /Total 1 h 45/.test(demandes[demandes.length - 1]),
          "la confirmation NOMME les clients et le total — un « êtes-vous sûr ? » ne protégerait de rien");
   repond = true; jour2 = Object.assign(clone(JOUR), { valide: true });
   await card.click("apply");

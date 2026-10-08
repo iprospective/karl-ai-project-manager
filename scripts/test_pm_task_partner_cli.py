@@ -95,7 +95,7 @@ def _load_cfg(pm_dir):
     """Charge la config PM d'un arbre de test, puis REDÉSARME le CF partenaire.
 
     Nettoyage APRÈS le load, jamais avant : `PMConfig.load` charge le `.env` de
-    l'utilisateur (~/.config/mmi-pm/.env), qui peut porter
+    l'utilisateur (var/users/<user>/.env, RM3318), qui peut porter
     REDMINE_CF_PARTNER_ISSUE_ID — un pop prématuré serait annulé par le load suivant.
     Sans ça, `push_cf` part sur le réseau et ces tests dépendent de la machine qui
     les exécute (RM2657). Tout rechargement de config dans un test passe par ici.

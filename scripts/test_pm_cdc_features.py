@@ -12,6 +12,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import yaml
 
 HERE = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("pm_cdc_features", HERE / "pm-cdc-features.py"); M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
@@ -217,6 +218,58 @@ with tempfile.TemporaryDirectory() as tmp:
           and (chap_file.read_text(), road_file.read_text()) == avant)
     chap_file.write_text("édité à la main\n", encoding="utf-8")
     check("--build seul répare, inchangé", run("--build").returncode == 0 and run("--check").returncode == 0)
+
+# ── RM3306 : suivre ce qu'aucun ticket ne porte ───────────────────────────────────
+# « une fonctionnalité appelle un ticket, pas forcément tout de suite » (RM3266-D004) — sans
+# compteur, « pas tout de suite » devient « jamais » : une fonctionnalité non ticketée
+# n'apparaît dans AUCUNE liste de travail (ni task-list, ni worklog, ni tableau de bord).
+ENTS = [{"id": "F001", "libelle": "avec ticket", "etat": "livré", "tickets": [10]},
+        {"id": "F002", "libelle": "ancienne forme", "etat": "livré", "rm": 11},
+        {"id": "F003", "libelle": "trace livrée", "etat": "livré"},
+        {"id": "F004", "libelle": "écartée", "etat": "écarté (doublon)"},
+        {"id": "F005", "libelle": "décidée, pas ticketée", "etat": "prévu"},
+        {"id": "F006", "libelle": "commencée sans ticket", "etat": "en cours"}]
+s = M.sans_ticket(ENTS)
+check("les entrées AVEC ticket sont hors sujet (`tickets` comme l'ancien `rm`)",
+      [e["id"] for e in s["soldees"] + s["a_faire"]] == ["F003", "F004", "F005", "F006"])
+check("livrée ou écartée sans ticket : une TRACE, rien à faire",
+      [e["id"] for e in s["soldees"]] == ["F003", "F004"])
+check("prévue ou en cours sans ticket : il lui manque un ticket",
+      [e["id"] for e in s["a_faire"]] == ["F005", "F006"])
+check("la synthèse compte les deux, et nomme ce qui reste",
+      "4 fonctionnalité(s) ne citent aucun ticket" in M.ligne_sans_ticket(ENTS)
+      and "2 à faire" in M.ligne_sans_ticket(ENTS), M.ligne_sans_ticket(ENTS))
+check("toutes soldées : la synthèse le dit autrement, sans alarmer",
+      "traces" in M.ligne_sans_ticket([ENTS[2], ENTS[3]]) and "à faire" not in M.ligne_sans_ticket([ENTS[2], ENTS[3]]))
+check("aucune sans ticket : pas de ligne du tout", M.ligne_sans_ticket([ENTS[0]]) == "")
+check("le chapitre généré porte la synthèse",
+      "ne citent aucun ticket" in M.build({"projet": "t/p", "entrees": ENTS, "domaines": []}))
+with tempfile.TemporaryDirectory() as tmp3:
+    d3 = pathlib.Path(tmp3); docs3 = d3 / "docs"; tasks3 = d3 / "tasks"
+    docs3.mkdir(parents=True); tasks3.mkdir()
+    base = [sys.executable, str(HERE / "pm-cdc-features.py"), "--docs-dir", str(docs3), "--tasks-dir", str(tasks3), "--project", "t/p"]
+    run3 = lambda *a: subprocess.run(base + list(a), capture_output=True, text=True)
+    run3("--init", "--no-sync", "--build")
+    reg3 = docs3 / "cdc" / "fonctionnalites.yml"
+    reg = yaml.safe_load(reg3.read_text(encoding="utf-8"))
+    # que les entrées SANS ticket : celles qui en citent viseraient des tickets absents de ce
+    # décor, et `--sync` les corrigerait — ce n'est pas ce qu'on mesure ici.
+    # `domaine_technique` est posé, sinon `--sync` le complèterait et `--check` dirait « périmé »
+    # pour cette raison-là — indépendante de ce qu'on mesure ici.
+    reg["entrees"] = [dict(e, manuel=True, domaine="Karl", domaine_technique="À classer")
+                      for e in ENTS if not M.tickets_de(e)]
+    reg3.write_text(M.dump(reg), encoding="utf-8")   # sérialisation de l'outil : sinon `--check` bute sur la FORME, pas sur le fond
+    run3("--sync", "--build")        # flux normal : c'est lui qui pose le domaine technique
+    r_chk = run3("--check")
+    check("…et rien ne devient bloquant : une fonctionnalité sans ticket reste légitime (RM3099-D001)",
+          r_chk.returncode == 0, (r_chk.stdout + r_chk.stderr)[-200:])
+    r_st = run3("--sans-ticket")   # lecture seule : ni sync, ni écriture
+    check("--sans-ticket liste les deux lots, et sort 0 (ce n'est pas une garde)",
+          r_st.returncode == 0 and "2 à faire" in r_st.stdout and "F005" in r_st.stdout and "F003" in r_st.stdout,
+          (r_st.stdout + r_st.stderr)[-200:])
+    _av = reg3.read_text(encoding="utf-8")
+    run3("--sans-ticket")
+    check("--sans-ticket ne touche à rien (lecture seule)", reg3.read_text(encoding="utf-8") == _av)
 
 print("\n" + ("ÉCHEC : " + ", ".join(fails) if fails else "OK — pm-cdc-features"))
 sys.exit(1 if fails else 0)

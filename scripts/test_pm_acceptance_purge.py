@@ -206,7 +206,29 @@ chk("purge : le champ est poussé AVANT le retrait de la section",
 chk("purge : --fold et --convert-bullets existent, dry-run toujours par défaut",
     '"--fold"' in src and '"--convert-bullets"' in src and "if not args.go:" in src)
 
+# ── RM3373 : à la création, les critères en LISTE partent aussi dans le champ ──
+NUM = "## Demande\nx\n\n## Critères d'acceptation\n1. le dictionnaire est la source ✔\n2. la migration se rejoue\n"
+desc, crit = A.split_for_creation(NUM)
+chk("création : une liste numérotée devient des cases décochées",
+    crit == "- [ ] le dictionnaire est la source ✔\n- [ ] la migration se rejoue")
+chk("création : la description perd sa section", "Critères" not in desc)
+desc, crit = A.split_for_creation("## Critères d'acceptation\n- le service répond\n")
+chk("création : une puce simple aussi", crit == "- [ ] le service répond")
+chk("création : des cases déjà posées ne sont pas converties (état conservé)",
+    A.split_for_creation("## Critères d'acceptation\n- [x] déjà faite\n")[1] == "- [x] déjà faite")
+chk("création : une section de prose ne fabrique aucun critère",
+    A.split_for_creation("## Critères d'acceptation\nUn paragraphe de contexte.\n")[1] is None)
+chk("création : --no-convert rend l'ancien comportement", A.split_for_creation(NUM, convert=False)[1] is None)
+chk("création : rien à convertir sans section", A.split_for_creation("## Demande\nx\n")[1] is None)
+
+boot = (HERE / "pm-project-bootstrap.py").read_text(encoding="utf-8")
+chk("bootstrap : la création passe par le découpage et pousse le CF",
+    "pm_acceptance.split_for_creation" in boot and "extra_custom_fields=extra" in boot)
+chk("bootstrap : la fiche porte le miroir local", "fm[pm_acceptance.FM_KEY] = criteres" in boot)
+chk("bootstrap : sans CF résolu, la description garde ses critères (rien ne se perd)",
+    'description, criteres = tpl["body"].strip(), None' in boot)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — retrait de la section de critères (RM3241) et repliement dans le champ (RM3285)")
+print("OK — critères : retrait (RM3241), repliement (RM3285), création en liste (RM3373)")

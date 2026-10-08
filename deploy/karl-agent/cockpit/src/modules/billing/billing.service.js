@@ -56,7 +56,8 @@ export class BillingService {
     const s = (this.jour && this.jour.surcharge) || {};
     return Object.assign({
       debut: base.debut, fin: base.fin, pause: base.pause,
-      client: s.client || "", projet: s.projet || "", source: base.source, hors: base.hors,
+      client: s.client || "", projet: s.projet || "", lieu: s.lieu || "",
+      source: base.source, hors: base.hors,
     }, this.edit || {});
   }
 
@@ -75,7 +76,7 @@ export class BillingService {
     const f = this.form();
     const args = { day: this.day };
     for (const [k, v] of [["start", f.debut], ["end", f.fin], ["client", f.client],
-                          ["projet", f.projet], ["pause", f.pause]]) {
+                          ["projet", f.projet], ["pause", f.pause], ["lieu", f.lieu]]) {
       if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
     }
     this.busy = "adjust";

@@ -132,9 +132,11 @@ def saisies_humaines(url, key, user_id, debut, fin, basic=None):
         for t in body.get("time_entries", []):
             if (t.get("comments") or "").startswith("Tick IA"):
                 continue
+            pr = t.get("project") or {}
             out.append({"jour": t["spent_on"], "minutes": float(t["hours"]) * 60,
                         "rm": str(t["issue"]["id"]) if t.get("issue") else None,
-                        "entity": None, "libelle": t.get("comments") or ""})
+                        "entity": None, "libelle": t.get("comments") or "",
+                        "projet_id": pr.get("id"), "projet_nom": pr.get("name") or ""})
         offset += 100
         if offset >= body.get("total_count", 0):
             break
@@ -174,6 +176,8 @@ def _libelle(ligne, marque):
     Seule la part d'outillage mutualisé (PM, infrastructure, produits) mérite
     d'être dite, puisqu'elle est incluse dans le temps sans être visible.
     """
+    if ligne.get("pause"):
+        return f"{ligne.get('commentaire') or 'repas midi'} {marque}"[:255]
     part = ligne.get("outillage_min") or 0
     if ligne.get("ticket"):
         base = "Travail assisté" + (f", dont {part} min d'outillage" if part >= 5 else "")
@@ -195,6 +199,10 @@ def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
     l'erreur en cascade fait chercher un problème de droits là où il n'y en a pas.
     On résout donc l'identifiant en id avant d'écrire.
     """
+    if ligne.get("project_id"):
+        # La pause vise un projet Redmine DIRECTEMENT : inventer un projet PM « interne »
+        # pour y loger un repas n'aurait pas de sens.
+        return ligne["project_id"]
     cle = f"{ligne.get('client')}/{ligne.get('projet')}"
     depuis_conf = (conf.get("project_map") or {}).get(cle)
     if depuis_conf:
@@ -337,15 +345,19 @@ def calculer(args, cfg, conf):
     events = [e for e, _rm in items]
 
     regles = W.regles_depuis_config(conf, cfg)
-    alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
+    alloc, periodes, totaux, par_heure, par_heure_cible, segments = W.allocate(
         W.build_intervals(events, params), params)
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
-    deduit, toutes = [], []
+    deduit, toutes, slugs, activites = [], [], {}, {}
     if not args.sans_deduction:
         for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
             saisies = saisies_humaines(url, key, uid, debut, fin, basic)
+            if not slugs:
+                slugs = slugs_projets_redmine(url, key, basic)
+            if not activites:
+                activites = activites_redmine(url, key, basic)
             if args.verbose:
                 print(f"  {len(saisies):5d}  saisies humaines à déduire "
                       f"({nom})", file=sys.stderr)
@@ -367,7 +379,11 @@ def calculer(args, cfg, conf):
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
-    return {"resolver": resolver, "items": items, "ajouts": ajouts, "transferts": transferts,
+    return {"resolver": resolver, "items": items, "segments": segments,
+            "ajouts": ajouts, "transferts": transferts,
+            "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
+            "activites": activites,
+            "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
@@ -387,17 +403,51 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
-                         resolver=res.get("resolver"),
+                         resolver=res.get("resolver"), regles=res.get("regles"),
                          activite_defaut=res.get("activite_defaut"),
                          refacture=res.get("refacture"),
                          meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),
                                "evenements": res["events"],
                                "sources": [{"kind": k, "path": p, "evenements": n}
                                            for k, p, n in res["sources"]]})
+    ajouter_pauses(prop, res)
     chemin_yml = dossier / f"{libelle}.yml"
     chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
                           encoding="utf-8")
     return chemin_md, chemin_yml, prop
+
+
+def ajouter_pauses(prop, res):
+    """Ajoute à la proposition la pause de midi DÉCLARÉE sur une journée.
+
+    Déclarée seulement : une pause qu'on n'a pas notée ne se crée pas toute seule. Elle
+    se note sur soi (entité `self`), avec l'activité « Pause » — c'est du temps qui ne
+    se facture pas, mais qui manque à la journée tant qu'il n'est pas noté.
+
+    La déduction en amont la protège d'un doublon : sa marque lui est propre
+    (`…#<client>/-@<activité pause>`), et `--apply` ne recrée jamais une marque connue.
+    """
+    pconf = W.conf_pause(res.get("conf") or {})
+    if not pconf.get("client"):
+        return prop
+    deja = {(s["jour"], round(float(s["minutes"]))) for s in res.get("saisies", [])
+            if pconf["commentaire"] and pconf["commentaire"] in (s.get("libelle") or "")}
+    for jour, surcharge in sorted((res.get("surcharges") or {}).items()):
+        heures = surcharge.get("pause_h")
+        if not heures or float(heures) <= 0:
+            continue
+        minutes = int(round(float(heures) * 60))
+        if (jour, minutes) in deja:
+            continue
+        prop["lignes"].append({
+            "jour": jour, "client": pconf["client"], "projet": pconf.get("projet"),
+            "ticket": None, "minutes": minutes,
+            "activite": pconf.get("activity_id") or 27,
+            "outillage_min": None, "valide": True, "facturable": False,
+            "pause": True, "commentaire": pconf.get("commentaire") or "repas midi",
+            "project_id": pconf.get("project_id"),
+        })
+    return prop
 
 
 def appliquer(chemin_yml, cfg, conf, args):
@@ -671,6 +721,9 @@ def main():
     ap.add_argument("--client", help="avec --day : client principal de la journée")
     ap.add_argument("--projet", help="avec --day : projet PM du client principal")
     ap.add_argument("--pause", type=float, help="avec --day : pause en heures (défaut 1 h au-delà de 6 h)")
+    ap.add_argument("--lieu", choices=["presentiel", "distanciel"],
+                    help="avec --day : journée chez le client (présentiel) ou à la maison "
+                         "(distanciel). Noté avec la journée — il conditionne le déplacement.")
     ap.add_argument("--exclusif", action="store_true",
                     help="avec --day : journée presque exclusivement pour le client principal")
     ap.add_argument("--clear-override", action="store_true", help="avec --day : retire l'ajustement")
@@ -681,7 +734,7 @@ def main():
     ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
     ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
     ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
-    ap.add_argument("--config", help="réglages (défaut : ~/.config/mmi-pm/timesheet.yml)")
+    ap.add_argument("--config", help="réglages (défaut : <core>/var/users/<user>/timesheet.yml)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les saisies Redmine depuis la proposition validée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
@@ -704,12 +757,14 @@ def main():
 
     if not args.month and not args.day and not (args.depuis and args.jusqu_a):
         ap.error("--month AAAA-MM, --day AAAA-MM-JJ, ou --from et --to")
-    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet, args.pause)) \
+    ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet,
+                                         args.pause, args.lieu)) \
         or args.exclusif or args.clear_override or args.validate_empty
     if ajuste and not args.day:
         ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
 
     cfg = PMConfig.load()
+    W.configurer_etat(cfg)          # <core>/var/timesheet — données d'exploitation du PM
     conf = W.charger_config(args.config, cfg=cfg)
     dossier = Path(args.out) if args.out else W.ETAT
     _d, _f, libelle = _periode(args)
@@ -770,7 +825,7 @@ def ajuster_journee(args):
         print(f"✓ journée {args.day} : surcharge retirée")
         return
     for champ, valeur in (("debut", args.start), ("fin", args.end), ("client", args.client),
-                          ("projet", args.projet), ("pause_h", args.pause)):
+                          ("projet", args.projet), ("pause_h", args.pause), ("lieu", args.lieu)):
         if valeur is not None:
             jour[champ] = valeur
     if args.exclusif:
@@ -782,9 +837,50 @@ def ajuster_journee(args):
     if jour.get("debut") and jour.get("fin"):
         h = W.heures_travaillees(jour["debut"], jour["fin"], jour.get("pause_h"))
         print(f"✓ journée {args.day} : {jour['debut']}–{jour['fin']} ({h:g} h)"
-              + (f", client principal {jour['client']}" if jour.get("client") else ""))
+              + (f", client principal {jour['client']}" if jour.get("client") else "")
+              + (f", {jour['lieu']}" if jour.get("lieu") else ""))
     elif args.validate_empty:
         print(f"✓ journée {args.day} : validée sans ajout")
+
+
+def slugs_projets_redmine(url, key, basic=None):
+    """{id numérique → identifiant textuel} des projets Redmine.
+
+    Le chaînon manquant : une saisie de temps porte l'id NUMÉRIQUE de son projet,
+    quand les manifestes PM déclarent l'identifiant TEXTUEL (`matnat-infra`). Sans
+    cette table, aucune saisie ne se rattache à son client.
+    """
+    from redmine_utils import http_json
+    out, offset = {}, 0
+    while True:
+        code, body = http_json("GET", f"{url}/projects.json?limit=100&offset={offset}",
+                               key, basic=basic)
+        if code != 200:
+            break
+        for pr in body.get("projects", []):
+            out[str(pr.get("id"))] = pr.get("identifier") or ""
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+    return out
+
+
+def table_clients_redmine(cfg):
+    """{id de projet Redmine → (client PM, projet PM)}, parcourue UNE fois.
+
+    `find_project_by_redmine_id` re-balaye tous les projets à chaque appel : l'utiliser
+    par saisie ferait des centaines de parcours pour une seule journée.
+    """
+    table = {}
+    try:
+        for ent, proj, _chemin in cfg.iter_projects():
+            fm = cfg.project_meta(ent, proj)
+            rid = (fm.get("redmine") or {}).get("project_id")
+            if rid is not None:
+                table[str(rid)] = (ent, proj)
+    except Exception:
+        pass
+    return table
 
 
 def _cible_lisible(event):
@@ -817,6 +913,49 @@ def traces_du_jour(res, jour):
     return sorted(sortie, key=lambda t: t["heure"])
 
 
+_ACTIVITES_CACHE = {}
+
+
+def activites_redmine(url, key, basic=None):
+    """{id → nom} des activités Redmine. Un bloc doit dire « Développement », pas « 9 »."""
+    if _ACTIVITES_CACHE:
+        return _ACTIVITES_CACHE
+    from redmine_utils import http_json
+    code, body = http_json("GET", f"{url}/enumerations/time_entry_activities.json",
+                           key, basic=basic)
+    if code == 200:
+        for a in body.get("time_entry_activities", []):
+            _ACTIVITES_CACHE[str(a.get("id"))] = a.get("name") or ""
+    return _ACTIVITES_CACHE
+
+
+def _cumul_transversal(res, jour):
+    """Combien de temps transversal chaque client a reçu ce jour-là.
+
+    La clé de répartition dit des pourcentages ; ce cumul dit des minutes. C'est
+    lui qu'on relit pour juger si la refacturation est juste.
+    """
+    cumul = collections.Counter()
+    for (j, cible), minutes in (res.get("refacture") or {}).items():
+        if j == jour:
+            cumul[cible[0]] += minutes
+    return cumul
+
+
+def _ou(saisie, table, slugs=None):
+    """Où une saisie a été notée : client PM si on le connaît, et le projet.
+
+    Deux colonnes plutôt qu'un libellé collé : un client se lit d'un coup d'œil, et
+    c'est à cette maille que la facture se fait. La résolution tente l'id numérique,
+    puis l'identifiant textuel ; à défaut, le nom Redmine tient lieu de projet.
+    """
+    pid = str(saisie.get("projet_id"))
+    ent, proj = (table or {}).get(pid, (None, None))
+    if not ent and slugs:
+        ent, proj = (table or {}).get(slugs.get(pid) or "", (None, None))
+    return {"client": ent, "projet": proj or saisie.get("projet_nom") or ""}
+
+
 def vue_json(res, prop, commits=True):
     """La matière de l'écran de validation (cockpit) : une entrée par journée.
 
@@ -826,6 +965,8 @@ def vue_json(res, prop, commits=True):
     """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
                    | {s["jour"] for s in res.get("saisies", [])})
+    table_clients = res.get("table_clients") or {}
+    slugs = res.get("slugs_redmine") or {}
     sortie = []
     for j in jours:
         surcharge = (res.get("surcharges") or {}).get(j) or {}
@@ -838,16 +979,37 @@ def vue_json(res, prop, commits=True):
             "journal": res["journal"].get(j, {}),
             "proposition": [l for l in prop["lignes"] if l["jour"] == j],
             "deja_saisi": [{"minutes": round(s["minutes"]), "ticket": s.get("rm"),
-                            "libelle": s.get("libelle", "")} for s in saisies],
+                            "libelle": s.get("libelle", ""),
+                            **_ou(s, table_clients, slugs)} for s in saisies],
             "regie": [{"client": c[0], "motif": m, "minutes": round(v)}
                       for (d, c, m), v in res["ajouts"].items() if d == j],
+            "bandes": [{"debut": b["debut"].strftime("%H:%M"),
+                        "fin": b["fin"].strftime("%H:%M"),
+                        "client": b["client"], "minutes": round(b["minutes"]),
+                        "parts": {c: round(m) for c, m in sorted(
+                            b["parts"].items(), key=lambda kv: -kv[1]) if round(m)}}
+                       for b in W.bandes_par_client((res.get("segments") or {}).get(j, []))],
+            "activites": res.get("activites") or {},
+            "transversal_par_client": {
+                c: round(v) for c, v in sorted(
+                    _cumul_transversal(res, j).items(), key=lambda kv: -kv[1]) if round(v)},
             "ia": [{"heure": k["heure"], "ticket": k["ticket"], "client": k["client"],
                     "projet": k["projet"], "modele": k["modele"], "tokens": k["tokens"],
-                    "minutes": k["minutes"]}
-                   for k in (res.get("resolver").ticks(j) if res.get("resolver") else [])],
+                    "minutes": k["minutes"], "minutes_reelles": k["minutes_reelles"],
+                    "borne": k["borne"]}
+                   for k in W.ticks_sans_chevauchement(
+                       res.get("resolver").ticks(j) if res.get("resolver") else [])],
             "traces": traces_du_jour(res, j),
             "commits": (W.commits_du_jour(j, auteur=(res.get("params") or {}).get("git_author")
                                           or "Mathieu Moulin") if commits else []),
+            "pause": {
+                "declaree_h": surcharge.get("pause_h"),
+                "trou": W.trou_de_midi(
+                    [[a.strftime("%H:%M"), b.strftime("%H:%M")]
+                     for a, b in res["periodes"].get(j, [])]),
+                "cible": {k: v for k, v in (W.conf_pause(res.get("conf") or {})).items()
+                          if k in ("client", "projet", "commentaire", "heures")},
+            },
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

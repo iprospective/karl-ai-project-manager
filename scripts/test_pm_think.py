@@ -114,7 +114,7 @@ check("4 rubriques", set(p) == {"note", "question", "decision", "feature"})
 check("ligne barrée = fermée", p["question"]["rows"][1]["closed"] and p["question"]["rows"][1]["id"] == "Q002")
 check("état lu dans la colonne État", p["question"]["rows"][0]["state"] == "propose" and p["note"]["rows"][1]["state"] == "attente")
 c = pm_think.counters(p)
-check("compteurs", c == {"questions_open": 1, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
+check("compteurs", c == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 1, "decisions": 1, "features": 1}, str(c))
 check("next_id par préfixe", pm_think.next_id(p, "decision", "D") == "D003" and pm_think.next_id(p, "decision", "C") == "C002")
 check("has_text : verbatim avec guillemets retrouvé sans", pm_think.has_text(p, "note", "une autre"))
 check("has_text : texte court exact seulement", not pm_think.has_text(p, "question", "Où"))
@@ -135,7 +135,7 @@ check("barre verticale neutralisée, session courte", "Texte / avec barre" in tx
 check("set_state", pm_think.set_state(th, "N001", "valide", dest="D001") and "| N001 | " in th.read_text() and "| ✅ | D001 |" in th.read_text())
 check("set_state inconnu → False", not pm_think.set_state(th, "Z999", "valide"))
 cnt = pm_think.counters(pm_think.load(th))
-check("compteurs après ajouts", cnt == {"questions_open": 1, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
+check("compteurs après ajouts", cnt == {"questions_open": 1, "questions_reserve": 0, "notes_pending": 0, "decisions": 1, "features": 1}, str(cnt))
 check("set_counters écrit le bloc think:", pm_think.set_counters(sheet43, cnt) and "think:\n  questions_open: 1\n" in sheet43.read_text())
 check("set_counters idempotent", not pm_think.set_counters(sheet43, cnt))
 
@@ -788,6 +788,102 @@ check("cockpit : commentaire vide → confirmation explicite, puis force",
       "SANS consigner de décision" in _ui and "body.force = true" in _ui)
 check("cockpit : écarter garde son motif facultatif",
       "Motif de l'écartement (facultatif)" in _ui)
+
+# ── RM3356 : écrire dans un carnet pas encore migré, et réparer ce qui a glissé ───
+# Six entrées réelles ont été écrites le jour du déploiement de RM3262, entre la mise en place du
+# code (qui écrit 7 cellules) et la migration du carnet (encore à 5) : tronquées, elles ont mis la
+# signature dans « Question » et le texte dans « Bloque ».
+dec = Path(tempfile.mkdtemp(prefix="rm3356-"))
+vieux = dec / "RM70_a.think.md"
+vieux.write_text("# RM70\n\n## Questions ouvertes\n\n"
+                 "| # | Question | Bloque | Urgence | État |\n|---|---|---|---|---|\n", encoding="utf-8")
+pm_think.append(vieux, "question", "Faut-il indexer X ou Y ?", by="M", when="2026-09-29", urgence="haute")
+sv = pm_think.load(vieux)["question"]; rv = sv["rows"][0]
+check("écriture dans un carnet ANCIEN : le texte va dans « Question »",
+      pm_think.texte(sv, rv, "question") == "Faut-il indexer X ou Y ?", str(rv["cells"]))
+check("…l'urgence aussi, et l'état est lisible", pm_think.cell(sv, rv, "Urgence") == "haute" and rv["state"] == "attente")
+check("…la signature est perdue SCIEMMENT (le carnet n'a pas la colonne), jamais décalée",
+      "Mathieu" not in " ".join(rv["cells"]))
+
+casse = dec / "RM71_b.think.md"
+casse.write_text("# RM71\n\n## Questions ouvertes\n\n"
+                 "| # | Date · auteur | Question | Bloque | Urgence | État | Tranchée par |\n|---|---|---|---|---|---|---|\n"
+                 "| Q001 |  | 2026-09-21 · Mathieu · s:f07acc64 | le vrai texte de la question |  | moyenne |  |  |\n"
+                 "| Q002 | 2026-09-20 · Mathieu | une ligne saine | ce que ça bloque | haute | 🕐 |  |\n", encoding="utf-8")
+faits = pm_think.reparer_decalage(casse)
+pc = pm_think.load(casse)["question"]; q1 = pc["rows"][0]; q2 = pc["rows"][1]
+check("réparation : seule la ligne décalée est touchée", faits == ["Q001"], str(faits))
+check("…le texte revient dans « Question »", pm_think.texte(pc, q1, "question") == "le vrai texte de la question", str(q1["cells"]))
+check("…la signature rejoint sa colonne", "s:f07acc64" in pm_think.cell(pc, q1, "Date · auteur"))
+check("…l'urgence retrouve la sienne", pm_think.cell(pc, q1, "Urgence") == "moyenne")
+check("…l'état perdu à l'écriture est remis « en attente », jamais deviné", q1["state"] == "attente")
+check("…la ligne saine n'a pas bougé", pm_think.texte(pc, q2, "question") == "une ligne saine"
+      and pm_think.cell(pc, q2, "Bloque") == "ce que ça bloque")
+check("réparation idempotente", pm_think.reparer_decalage(casse) == [])
+src_sch = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
+check("la réparation passe AVANT la migration (sinon elle reporte le décalage fidèlement)",
+      src_sch.index("for rid in reparer(f)") < src_sch.index("apres = migrer_texte(avant)"))
+
+# ── RM3357 : une question qui attend un TIERS ne bloque pas notre clôture ─────────
+# Sur 140 questions ouvertes, une bonne moitié attendaient MatNat, un client ou un hébergeur —
+# comptées et affichées comme les arbitrages qui, eux, reviennent au demandeur. Le compteur mêlait
+# « ce que je dois trancher » et « ce que j'attends de quelqu'un d'autre ».
+res = Path(tempfile.mkdtemp(prefix="rm3357-")) / "RM80_a.think.md"
+qa = pm_think.append(res, "question", "Faut-il indexer X ou Y ?", by="M", state="attente")
+qr = pm_think.append(res, "question", "Quel est le coût du contrat Wildix ? (attend le client)", by="M", state="reserve")
+qv = pm_think.append(res, "question", "Déjà tranchée", by="M", state="valide")
+pr = pm_think.load(res)
+c3 = pm_think.counters(pr)
+check("une question en réserve ne compte plus parmi les ouvertes",
+      c3["questions_open"] == 1 and c3["questions_reserve"] == 1, str(c3))
+rows = {r["id"]: r for r in pr["question"]["rows"]}
+check("question_ouverte : ni tranchée, ni écartée, ni en réserve",
+      pm_think.question_ouverte(rows[qa]) and not pm_think.question_ouverte(rows[qr]) and not pm_think.question_ouverte(rows[qv]))
+check("question_en_reserve ne vaut que pour la réserve",
+      pm_think.question_en_reserve(rows[qr]) and not pm_think.question_en_reserve(rows[qa]))
+vue = pm_think.questions_text(pr)
+check("le CF 36 la montre, sous son propre intitulé",
+      "en attente d'un tiers" in vue and "Wildix" in vue, vue[:200])
+check("…et distingue les deux comptes", "1 ouverte(s) sur 3" in vue and "1 en attente d'un tiers" in vue, vue[:200])
+check("une question en réserve n'est pas « cochée à la main » à rapporter",
+      pm_think.cochees_a_la_main("- [x] **" + qr + "** — x", pr) == [])
+src_gate = (SCRIPTS / "pm_questions_gate.py").read_text(encoding="utf-8")
+check("la garde de MEP ne bloque plus sur une question en réserve",
+      '_NON_BLOQUANTS = _CLOSES + ("reserve",)' in src_gate and "in _NON_BLOQUANTS" in src_gate)
+
+# ── RM3380 : une écriture dans un carnet se répercute aux registres du PROJET ─────
+# Les registres (cdc-questions.md & co.) sont GÉNÉRÉS depuis les .think.md. Le cockpit les
+# régénérait après chaque geste, la ligne de commande non : 127 fichiers périmés sur le seul projet
+# PM après deux jours de tri. Une question tranchée ici restait affichée ouverte là-bas.
+import importlib.util as _ilu3380
+_s3380 = _ilu3380.spec_from_file_location("pm_task_think", SCRIPTS / "pm-task-think.py")
+TT = _ilu3380.module_from_spec(_s3380); _s3380.loader.exec_module(TT)
+check("le projet se lit dans le chemin de la fiche",
+      TT.projet_de("/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md") == "acme/boutique",
+      TT.projet_de("/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md"))
+check("hors arbre PM : pas de projet, et donc rien à régénérer", TT.projet_de("/tmp/RM42_t.md") == "")
+appels = []
+TT.subprocess = type("S", (), {"run": staticmethod(lambda *a, **k: appels.append(a[0]) or type("R", (), {"returncode": 0})())})
+sh3380 = "/x/projects/clients/acme/projects/boutique/tasks/RM42_t.md"
+check("une écriture régénère le projet de la fiche",
+      TT.repercuter([sh3380]) == ["acme/boutique"] and any("pm-think-merge.py" in " ".join(c) for c in appels))
+appels.clear()
+check("un déplacement entre deux projets les régénère tous les DEUX",
+      TT.repercuter([sh3380, "/x/projects/clients/beta/projects/api/tasks/RM43_t.md"]) == ["acme/boutique", "beta/api"])
+appels.clear()
+check("deux fiches du MÊME projet ne le régénèrent qu'une fois",
+      TT.repercuter([sh3380, "/x/projects/clients/acme/projects/boutique/tasks/RM44_t.md"]) == ["acme/boutique"]
+      and len(appels) == 1)
+appels.clear()
+check("--no-merge (rafale scriptée) n'appelle rien", TT.repercuter([sh3380], actif=False) == [] and not appels)
+check("--dry-run n'appelle rien non plus", TT.repercuter([sh3380], dry=True) == [] and not appels)
+src_tt = (SCRIPTS / "pm-task-think.py").read_text(encoding="utf-8")
+check("les quatre écritures répercutent (état, amendement, suppression, déplacement, ajout)",
+      src_tt.count("repercuter([") == 4, str(src_tt.count("repercuter([")))
+check("l'option --no-merge existe et se dit", '"--no-merge"' in src_tt and "rafale scriptée" in src_tt)
+src_sch3380 = (SCRIPTS / "pm-think-schema.py").read_text(encoding="utf-8")
+check("la migration des carnets régénère aussi, avant de committer",
+      "repercuter(" in src_sch3380 and src_sch3380.index("repercuter(") < src_sch3380.index("pm_git.autocommit"))
 
 if FAIL:
     print(f"✗ {len(FAIL)} échec(s) : " + ", ".join(FAIL)); sys.exit(1)

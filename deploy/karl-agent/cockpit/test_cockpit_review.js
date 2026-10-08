@@ -139,6 +139,18 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     assert(/data-action="think-move" data-id="Q001"/.test(pane), "le volet Réflexion offre le déplacement");
     assert(/data-action="think-delete" data-id="Q001"/.test(pane), "…et la suppression");
     assert(!/onclick=/.test(pane), "gestes délégués, aucun on*");
+    // RM3357 : une question qui attend un TIERS n'est ni ouverte ni bloquante, mais reste visible
+    {
+      const th357 = { file: "f", counts: { questions_open: 1, questions_reserve: 2, notes_pending: 0 },
+        questions: [{ id: "Q001", icon: "🕐", text: "à trancher par nous", open: true },
+                    { id: "Q002", icon: "⏸", text: "attend le client", reserve: true }],
+        decisions: [], features: [], notes: [] };
+      const h357 = String(V.ThinkPane(th357));
+      assert(/2 en attente d'un tiers/.test(h357), "le volet distingue les deux comptes");
+      assert(/attend un tiers/.test(h357) && /attend le client/.test(h357), "…et marque la ligne concernée");
+      const bloc = h357.slice(h357.indexOf("Q002"));
+      assert(!/data-action="think-state"/.test(bloc), "une question en réserve n'offre pas ✅/❌ : ce n'est pas à nous de trancher");
+    }
     // RM3262 : la signature accompagne l'entrée, sans voler la vedette à son texte
     const signe = String(V.ThinkPane({ file: "f", counts: {}, decisions: [], features: [], notes: [],
       questions: [{ id: "Q001", icon: "❓", text: "vraie question ?", signature: "2026-09-01 · Mathieu", open: true }] }));
@@ -167,6 +179,33 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
     await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-move", id: "Q001" } }); await settle();
     assert.strictEqual(vus.length, n0, "saisie invalide : rien ne part sur le réseau");
     assert(ev.some(x => x[0] === "toast" && x[2]), "…et on le dit");
+    // RM3370 — trancher une question depuis la REVUE : avec sa décision, ou sans mais explicitement.
+    // L'ancien libellé disait « facultatif » alors que le serveur exige la décision (RM3269) : laissé
+    // vide, le geste renvoyait une erreur brute parlant de --decide-with et --force.
+    reponse = "on part sur SQLite";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q001", state: "valide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "state", state: "valide", comment: "on part sur SQLite" },
+                           "la réponse saisie part comme la décision qui tranche");
+    reponse = "";   // vide : on propose de trancher SANS décision (confirm → true dans ce montage)
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q001", state: "valide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "state", state: "valide", force: true },
+                           "sans réponse et après accord : trancher sans décision, explicitement");
+    assert(ev.some(x => x[0] === "toast" && /SANS décision/.test(x[1])), "…et on le dit, pour qu'on y revienne");
+    reponse = "";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-state", id: "Q002", state: "invalide" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q002", action: "state", state: "invalide" },
+                           "écarter n'exige aucune décision — écarter n'est pas trancher");
+    // RM3381 — corriger le TEXTE d'une entrée : une question moissonnée est un verbatim, pas un énoncé.
+    reponse = "Faut-il indexer sur X ou sur Y ?";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "faut il indexer ?" } }); await settle();
+    assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "Q001", action: "text", text: "Faut-il indexer sur X ou sur Y ?" },
+                           "la correction part seule — ni état, ni commentaire");
+    const n1 = vus.length; reponse = "  faut il indexer ?  ";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "faut il indexer ?" } }); await settle();
+    assert.strictEqual(vus.length, n1, "texte inchangé : rien ne part sur le réseau");
+    reponse = "";
+    await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-text", id: "Q001", text: "x" } }); await settle();
+    assert.strictEqual(vus.length, n1, "texte vidé : rien non plus");
     await ctr2.el.fire("click", "[data-action]", { dataset: { action: "think-delete", id: "N003" } }); await settle();
     assert.deepStrictEqual(vus[vus.length - 1], { rm: "42", id: "N003", action: "delete" }, "supprimer depuis la revue");
     ctr2.unmount();

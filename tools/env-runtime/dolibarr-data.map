@@ -1,0 +1,14 @@
+# dolibarr-data.map — dossiers de DONNÉES d'un Dolibarr (RM3419).
+#
+# Format : <nom dans data/>|<chemin relatif à la racine du site>. Cf. env-data-manifest.sh.
+#
+# Dolibarr fait ça bien : TOUT ce qu'un utilisateur dépose vit sous un seul dossier,
+# `$dolibarr_main_data_root` — par convention `documents/` à côté de `htdocs/`. Une ligne suffit,
+# là où PrestaShop en demande une quinzaine pour le seul cœur. C'est l'intérêt de déclarer les
+# données plutôt que de les coder : la forme de l'appli n'impose rien au reste de l'outillage.
+#
+# ⚠ Le chemin réel est celui de `$dolibarr_main_data_root` dans `htdocs/conf/conf.php` : s'il
+# sort de la racine du site (cas de `erp-test-documents/` chez pisceen), il se déclare dans la
+# surcharge du site (`.dolibarr-data.map`), seule à connaître l'installation.
+
+documents|documents

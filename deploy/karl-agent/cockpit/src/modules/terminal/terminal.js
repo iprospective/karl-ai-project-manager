@@ -30,6 +30,18 @@ export function termBase(cfg, loc) {
   const proxied = loc.port === "" || loc.port === "80" || loc.port === "443";
   return proxied ? loc.origin + "/ttyd" : loc.protocol + "//" + loc.hostname + ":7681";
 }
+/**
+ * RM3418 — la taille de la typo du terminal : la préférence de CE navigateur si elle
+ * existe, sinon le défaut d'instance (un pour le bureau, un plus petit pour le mobile —
+ * à 14 px, 80 colonnes ne tiennent pas sur 390 px de large). Bornée : une valeur
+ * aberrante rendrait le terminal inutilisable, et personne ne saurait pourquoi. Pur.
+ */
+export function termFontPx({ ui = {}, mobile = false, pref = null } = {}) {
+  const dflt = mobile ? (ui.term_font_px_mobile || 11) : (ui.term_font_px || 14);
+  const n = Number(pref);
+  const val = Number.isFinite(n) && n > 0 ? n : dflt;
+  return Math.max(7, Math.min(24, Math.round(val)));
+}
 /** L'URL de l'iframe ttyd de repli. */
 export function ttydUrl(cfg, loc, rmId) { const base = (cfg && cfg.ttyd_base) || (loc.protocol + "//" + loc.hostname + ":7681"); return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId); }
 /** RM2527 : un envoi texte pendant qu'un menu est ouvert SÉLECTIONNE des options — on refuse au clavier, on exige un geste explicite. */

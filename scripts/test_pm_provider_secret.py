@@ -49,8 +49,8 @@ print("\n[RM3068] la valeur ne passe QUE par l'entrée standard")
 src = (HERE / "pm-provider-secret.py").read_text()
 check("aucune option --value / --secret dans le CLI", "--value" not in src and '"--secret"' not in src)
 with tempfile.TemporaryDirectory() as tmp:
-    home = pathlib.Path(tmp); envd = home / ".config" / "mmi-pm"; envd.mkdir(parents=True)
-    e = dict(os.environ, HOME=str(home))
+    home = pathlib.Path(tmp); envd = home / "var" / "users" / "moi"     # RM3318 : conf dans var/, pas le home
+    e = dict(os.environ, HOME=str(home), PM_USER_DIR=str(envd))
     r = subprocess.run([sys.executable, str(HERE / "pm-provider-secret.py"), "--instance", "vw", "--key", "CLIENTID",
                         "--type", "vaultwarden"], input="s3cr3t\n", capture_output=True, text=True, env=e)
     check("écrit dans le .env du dev courant", r.returncode == 0 and "s3cr3t" in (envd / ".env").read_text(), r.stdout + r.stderr)
@@ -69,7 +69,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("utilisateur inconnu refusé", r.returncode != 0 and "inconnu" in (r.stdout + r.stderr))
 
 print("\n[RM3068] portées")
-check("scope user = le .env du dev", str(P.env_path("user")).endswith("/.config/mmi-pm/.env"))
+import getpass
+_udir = os.environ.pop("PM_USER_DIR", None)          # le défaut, pas l'override du lanceur
+check("scope user = le .env du dev, dans var/users/<user>/ (RM3318)",
+      str(P.env_path("user")).endswith(f"/var/users/{getpass.getuser()}/.env")
+      and "/.config/" not in str(P.env_path("user")), str(P.env_path("user")))
+if _udir is not None:
+    os.environ["PM_USER_DIR"] = _udir
 os.environ["PM_CORE_DIR"] = "/tmp/faux-core"
 check("scope global = le .env de l'instance", str(P.env_path("global")) == "/tmp/faux-core/.env")
 del os.environ["PM_CORE_DIR"]

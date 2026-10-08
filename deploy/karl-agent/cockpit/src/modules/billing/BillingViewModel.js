@@ -1,7 +1,10 @@
 // modules/billing/BillingViewModel — ce que l'écran « Facturation » présente d'une journée. Inerte. RM3229, L3.
 import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, etat,
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
-         poseParOutil, traces, commits, toursIA, clientsEtProjets } from "./billing.js";
+         poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
+         libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
+         transversalParClient, fil, totauxIA, liens, correspondances,
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -26,6 +29,22 @@ export class BillingViewModel {
     return liste.map(x => ({ value: x, selected: x === cur }));
   }
 
+  /** Le temps IA : déclaré et borné. L'écart est le chevauchement de tours parallèles. */
+  get iaTotaux() { return totauxIA(this.j); }
+
+  /** La pause de midi : déclarée, visible dans les traces, ou manquante. */
+  get pause() { return pause(this.j); }
+
+  /** Ce que la journée ne facturera à personne (son propre temps). */
+  get nonFacturable() {
+    const nf = nonFacturable(this.j);
+    return { ...nf, label: nf.minutes ? fmtMin(nf.minutes) : "" };
+  }
+
+  /** Présentiel ou distanciel : renseigné à la journée, il conditionne le déplacement. */
+  get lieux() { return LIEUX.map(l => ({ ...l, selected: l.value === (this.f.lieu || "") })); }
+  get lieu() { return libelleLieu(this.f.lieu); }
+
   /** Les traces horodatées — la pièce à conviction de la journée. */
   get traces() { return traces(this.j); }
   get tracesHumaines() { return this.traces.filter(t => t.humain).length; }
@@ -49,7 +68,38 @@ export class BillingViewModel {
   get validee() { return this.etat === "validee"; }
   get vide() { return !this.j || this.etat === "vide"; }
   get t() { return totaux(this.j); }
-  get frise() { return timeline(this.j, { start: this.f.debut, end: this.f.fin }); }
+  get frise() {
+    const t = timeline(this.j, { start: this.f.debut, end: this.f.fin });
+    return { ...t, bandes: bandes(this.j, t), pause: bandePause(this.j, t), liens: liens(this.j, t) };
+  }
+  /** La notice de la frise : un client, sa couleur, son cumul. */
+  get legende() { return legende(this.j); }
+  /** Le cumul de transversal reçu par chaque client — en minutes, pas en pourcentage. */
+  get transversalCumul() { return transversalParClient(this.j); }
+  /** Tout ce qui s'est passé, dans l'ordre. */
+  get fil() { return fil(this.j); }
+
+  /** Les blocs qui partiront dans Redmine, chacun avec ses preuves. L'unité de validation. */
+  get blocs() { return blocsRedmine(this.j); }
+  /** Les tours d'agent hors de toute plage humaine — montrés, jamais facturés. */
+  get iaHorsPlage() { return iaHorsPlage(this.j); }
+  get bilanBlocs() { return bilanBlocs(this.j); }
+
+  /** Chaque plage humaine et ce qui la justifie — la pièce maîtresse du dossier. */
+  get correspondances() {
+    const { periodes, orphelins } = correspondances(this.j);
+    return {
+      periodes: periodes.map(p => ({
+        ...p, duree: fmtMin(p.minutes),
+        iaDuree: fmtMin(p.ia.reduce((n, k) => n + k.minutes, 0)),
+        vide: !p.preuves,
+      })),
+      orphelins,
+      aOrphelins: !!(orphelins.ia.length || orphelins.commits.length
+                     || orphelins.fusions.length || orphelins.prompts.length),
+    };
+  }
+  get bilan() { return bilanCorrespondance(this.j); }
   get ajuste() { return this.f.source === "ajuste"; }
 
   /** Les heures normales, et ce qu'elles font une fois la pause déduite. */
@@ -72,7 +122,11 @@ export class BillingViewModel {
       { cle: "mesure", label: "mesuré", valeur: fmtMin(t.mesure), aide: "temps humain observé dans les traces, plages fusionnées" },
       { cle: "deja", label: "déjà noté", valeur: fmtMin(t.deja), aide: "saisies de temps déjà présentes dans Redmine ce jour-là" },
       { cle: "propose", label: "proposé", valeur: fmtMin(t.propose), aide: "ce que la validation ajouterait dans Redmine" },
-      { cle: "ia", label: "IA", valeur: `${t.tours} tours · ${fmtMin(t.ia)}`, aide: `${fmtTokens(t.tokens)} tokens` },
+      { cle: "ia", label: "IA", valeur: `${this.iaTotaux.tours} tours · ${fmtMin(this.iaTotaux.minutes)}`,
+        aide: `${fmtTokens(t.tokens)} tokens`
+              + (this.iaTotaux.paralleles > 0
+                 ? ` — ${this.iaTotaux.paralleles} tour(s) en parallèle d'un autre (${fmtMin(this.iaTotaux.horloge)} d'horloge) : le travail produit dépasse le temps écoulé, c'est normal`
+                 : "") },
     ];
   }
 
@@ -80,6 +134,7 @@ export class BillingViewModel {
   get groupes() {
     return parClient(this.j).map(g => ({
       client: g.client, total: fmtMin(g.minutes),
+      facturable: g.lignes.some(l => l.facturable !== false),
       lignes: g.lignes.map(l => ({
         projet: l.projet, ticket: l.ticket ? `RM${l.ticket}` : "", rm: l.ticket || null,
         minutes: fmtMin(l.minutes),
@@ -92,6 +147,7 @@ export class BillingViewModel {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({
       minutes: fmtMin(s.minutes), ticket: s.ticket ? `RM${s.ticket}` : "", rm: s.ticket || null,
       libelle: libelleLisible(s), auto: estAutomatique(s),
+      client: s.client || "", projet: s.projet || "",
     }));
   }
 

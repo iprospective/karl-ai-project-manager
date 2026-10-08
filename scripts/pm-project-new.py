@@ -283,6 +283,15 @@ def main():
     #    persister vide tant qu'aucun aspect.
     for sub in ("project", "docs", "memory", "tasks"):
         (mmi_dir / sub).mkdir(parents=True, exist_ok=True)
+
+    # RM3371 — le dépôt de données est l'endroit où l'on a naturellement envie de déposer la
+    # conf du projet, donc ses secrets. Sans cette règle, un `.env` y part au premier
+    # `git add` : les 53 dépôts existants étaient dans ce cas. `.env.example` reste autorisé,
+    # un modèle SANS valeur documente la conf attendue.
+    gi = mmi_dir / ".gitignore"
+    if not gi.is_file():
+        gi.write_text("# — secrets : jamais dans un dépôt de données PM (RM3371) —\n"
+                      ".env\n.env.*\n!.env.example\n", encoding="utf-8")
     (mmi_dir / "docs" / ".gitkeep").write_text("", encoding="utf-8")
     print(f"  ✓ Struct PM co-localisée créée : {mmi_dir}/")
 

@@ -23,7 +23,7 @@ export class MailRepository extends Repository {
     const qs = "?done=" + (done ? "1" : "0") + (key ? "&key=" + encodeURIComponent(key) : "");
     return this.store.ensure(`queue${qs}`, async () => {
       const d = await get(this.path("list") + qs);
-      return { emails: this.factory.many(d.emails || []), pending: d.pending || 0 };
+      return { emails: this.factory.many(d.emails || []), pending: d.pending || 0, bounces: d.bounces || [] };
     });
   }
 }

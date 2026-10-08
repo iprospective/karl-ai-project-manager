@@ -50,7 +50,7 @@ def main():
     if args.private:
         cmd.append("--private")
     # Identité par utilisateur (T1/RM2497) : on ne force PLUS karl. La clé perso du
-    # dev (REDMINE_API_KEY, ~/.config/mmi-pm/.env) est déjà dans l'environnement via
+    # dev (REDMINE_API_KEY, var/users/<user>/.env) est déjà dans l'environnement via
     # PMConfig ; redmine-post-note.py la préfère (fallback karl). L'action est ainsi
     # attribuée au bon compte. Le sous-process hérite de os.environ tel quel.
     r = subprocess.run(cmd, check=False, capture_output=True, text=True)

@@ -38,7 +38,7 @@ SKIP_RC = 77          # convention Unix (automake) : test non applicable ici
 #: Variables qui ramèneraient un test vers le runtime réel. Alignées sur
 #: `test_support.INHERITED` — un test hermétique ne doit dépendre d'aucune.
 INHERITED = ("PM_CORE_DIR", "PM_DEV_DIR", "PM_CONFIG", "PM_DIR", "PROJECTS_PATH",
-             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV")
+             "PM_CONF_DIR", "PM_STATE_DIR", "PM_LOG_DIR", "PM_USER_ENV", "PM_USER_DIR")
 
 
 def discover(motifs):
@@ -107,6 +107,26 @@ def main(argv=None):
     fil = tempfile.mkdtemp(prefix="pm-test-notify-")
     atexit.register(shutil.rmtree, fil, True)      # jetable, y compris sur interruption
     env["PM_NOTIFY_DIR"] = fil
+    # RM3318 — même leçon pour la conf UTILISATEUR : purgée de PM_USER_*, la résolution
+    # retombait sur la vraie conf de la personne qui lance la suite (et, en transition, sur son
+    # ancien ~/.config/mmi-pm/.env). Un dossier vide et jetable, qui isole complètement.
+    if not a.inherit:
+        udir = tempfile.mkdtemp(prefix="pm-test-user-")
+        atexit.register(shutil.rmtree, udir, True)
+        env["PM_USER_DIR"] = udir
+
+    # RM3341 — et même leçon pour sudo. Un test qui sonde ou tente une élévation pour de vrai
+    # déclenchait, sans règle NOPASSWD, un refus journalisé puis MAILÉ à root (`mail_badpass`) :
+    # des rafales de « SECURITY information » à chaque passage de la suite. Aucun test n'a à
+    # s'élever — ceux qui parlent de sudo le simulent. Un faux `sudo`, en tête de PATH, échoue
+    # donc sans rien tenter, y compris sous --inherit : ce n'est pas du runtime, c'est un effet.
+    shim = tempfile.mkdtemp(prefix="pm-test-sudo-")
+    atexit.register(shutil.rmtree, shim, True)
+    faux = Path(shim) / "sudo"
+    faux.write_text('#!/bin/sh\necho "mmi-pm test : sudo neutralisé (RM3341) — sudo $*" >&2\nexit 1\n',
+                    encoding="utf-8")
+    faux.chmod(0o755)
+    env["PATH"] = shim + os.pathsep + env.get("PATH", os.defpath)
 
     verts, rouges, ignores = [], [], []
     t0 = time.monotonic()

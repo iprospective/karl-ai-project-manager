@@ -13,10 +13,13 @@ export function deviceName(ua) {
 }
 
 /** Ce que l'interface montre : écran de login plein-cadre tant qu'on n'est pas connecté, cadenas, carte des comptes (superadmin seul). */
-export function authState({ required, token, user, admin, loginEnabled }) {
+export function authState({ required, token, user, admin, loginEnabled, compact = false }) {
   const logged = !!(token && user);
+  // RM3418 : en mobile (`compact`), le cadenas dit QUI est connecté, pas son rôle — la
+  // mention « (admin) » suffisait à faire passer la barre du haut sur deux lignes.
+  const role = admin && !compact ? " (admin)" : "";
   return { required: !!required, logged, gateShown: !!required && !logged, sessionShown: logged,
-    lockText: logged ? "🔓 " + user + (admin ? " (admin)" : "") : "🔒 auth requise", usersShown: !!(logged && admin && loginEnabled) };
+    lockText: logged ? "🔓 " + user + role : (compact ? "🔒" : "🔒 auth requise"), usersShown: !!(logged && admin && loginEnabled) };
 }
 
 /** Appareils enregistrés — celui-ci est marqué. */

@@ -7,14 +7,17 @@
 // `onApply(state)` — le routeur de la disposition ne connaît pas les domaines qu'il expose.
 import { rightPanelReduce, clampWidth, clampCenterH } from "./panels.js";
 import { LayoutService } from "./layout.service.js";
-import { detectLayout, forcedLayout, pageOf, navItems } from "./mobile.js";
+import { detectLayout, forcedLayout, pageOf, navItems, keyboardOpen, fullItem, barSplit, barOrder, lockCompact, iconOf, sayLabel, HEADER_PRIMARY, SESSION_PRIMARY } from "./mobile.js";
 import { MobileNav } from "./Layout.view.js";
 import { paint } from "../../core/dom.js";
 
 export function mountLayout(hosts = {}, ctx = {}) {
   const h = hosts, svc = ctx.service || new LayoutService({ storage: ctx.storage });
   const root = ctx.root || (typeof document !== "undefined" ? document : null);
-  const state = { right: { tab: "infos", collapsed: true, manual: false }, left: false, resizing: false, rightEdge: 0, panel: null, loaded: {}, shield: null, mobile: { layout: "desktop", page: "left" },
+  // RM3270 : `full` = plein écran sur le centre (clavier ouvert ou bascule manuelle) ; `auto` retient que
+  // c'est le clavier qui l'a demandé, pour ressortir tout seul quand il redescend ; `say` = le bouton du
+  // haut dont on vient d'afficher le nom (le second appui, lui, agit).
+  const state = { right: { tab: "infos", collapsed: true, manual: false }, left: false, resizing: false, rightEdge: 0, panel: null, loaded: {}, shield: null, mobile: { layout: "desktop", page: "left", full: false, auto: false, say: null, more: { header: false, session: false } },
     center: { shown: false, hidden: null, resizing: false, bottom: 0 } };   // RM3051 : split de la zone centrale
   const cls = (el, c, on) => { if (el && el.classList) el.classList.toggle(c, !!on); };
   const all = (sel) => (h.rpanel && h.rpanel.querySelectorAll ? [...h.rpanel.querySelectorAll(sel)] : []);
@@ -161,6 +164,7 @@ export function mountLayout(hosts = {}, ctx = {}) {
   }
   // ── gabarit mobile (RM3003) : une colonne à la fois, barre du bas ; mêmes contrôleurs, mêmes vues ──
   const media = ctx.media || null;                                   // MediaQueryList « écran étroit » prêtée par boot (null sous node)
+  const vp = ctx.viewport || null;                                   // visualViewport : le seul à voir monter le clavier (null sous node)
   const isMobile = () => state.mobile.layout === "mobile";
   function detectMobile() {
     const layout = detectLayout({ forced: ctx.forced === undefined ? forcedLayout(ctx.search, svc.layoutPref()) : ctx.forced, narrow: !!(media && media.matches) });
@@ -169,13 +173,115 @@ export function mountLayout(hosts = {}, ctx = {}) {
     return layout;
   }
   function applyMobile() {
-    if (root && root.documentElement && root.documentElement.dataset) root.documentElement.dataset.layout = state.mobile.layout;
-    if (h.main && h.main.dataset) h.main.dataset.mpage = state.mobile.page;
+    const m = state.mobile;
+    if (!isMobile() && m.full) { m.full = false; m.auto = false; }      // le bureau n'a pas de plein écran : il a de la place
+    if (root && root.documentElement && root.documentElement.dataset) {
+      root.documentElement.dataset.layout = m.layout;
+      root.documentElement.dataset.mfull = m.full ? "1" : "0";          // RM3270 : le CSS efface la barre du haut et les autres colonnes
+    }
+    if (h.main && h.main.dataset) h.main.dataset.mpage = m.full ? "center" : m.page;
+    condenseBars(isMobile());
     paintMobileNav();
   }
   function paintMobileNav() {
     if (!h.mnav) return;
-    paint(h.mnav, isMobile() ? MobileNav(navItems(state.mobile.page, { attention: ctx.attention ? ctx.attention() : 0, attached: ctx.attached ? ctx.attached() : null })) : "");
+    paint(h.mnav, isMobile() ? MobileNav(navItems(state.mobile.page, { attention: ctx.attention ? ctx.attention() : 0, attached: ctx.attached ? ctx.attached() : null }), fullItem(state.mobile.full)) : "");
+  }
+  /** RM3270 : le second formulaire (composer) sous le terminal — masqué en mobile sauf si on le demande.
+   *  Le bureau n'est pas concerné : le CSS ne lit `data-mcomposer` que sous `data-layout="mobile"`. */
+  function applyComposer(on) {
+    if (root && root.documentElement && root.documentElement.dataset) root.documentElement.dataset.mcomposer = on ? "1" : "0";
+    return !!on;
+  }
+  /** Plein écran : le centre seul. `auto` = demandé par le clavier, donc repartira tout seul. */
+  function setFull(on, auto = false) {
+    if (!isMobile()) return false;
+    state.mobile.full = !!on; state.mobile.auto = !!on && !!auto;
+    if (on) state.mobile.page = "center";
+    applyMobile();
+    return state.mobile.full;
+  }
+  const toggleFull = () => setFull(!state.mobile.full, false);
+  /** Le clavier monte → plein écran ; il redescend → on ressort, mais seulement si c'est lui qui l'avait demandé. */
+  function onViewport() {
+    if (!isMobile() || !vp) return;
+    const open = keyboardOpen({ viewportH: vp.height, windowH: ctx.windowH ? ctx.windowH() : (typeof window !== "undefined" ? window.innerHeight : 0) });
+    if (open && !state.mobile.full) setFull(true, true);
+    else if (!open && state.mobile.full && state.mobile.auto) setFull(false);
+  }
+  // ── barres au doigt (RM3270, généralisé RM3418) : icônes seules, le reste sous « … » ──
+  //
+  // Deux barres suivent la même règle — celle du haut (`header`) et celle de la session
+  // (`tabactions`). Ce qui reste sur la ligne, ce qui passe sous « … » et ce qui ne
+  // s'affiche pas vient de la CONF D'INSTANCE (`/cockpit-config` → `ui`, RM3418) : plus
+  // aucune liste de boutons dans le front.
+  const ui = () => (ctx.ui ? (ctx.ui() || {}) : {});
+  const BARRES = [
+    { nom: "header", el: () => h.header, plus: () => h.hdrmore, ligne: () => ui().header_line || HEADER_PRIMARY, masques: () => ui().header_hidden || [] },
+    { nom: "session", el: () => h.tabactions, plus: () => h.sessmore, ligne: () => ui().session_line || SESSION_PRIMARY, masques: () => ui().session_hidden || [] },
+  ];
+  const barreElements = (bar) => {
+    const el = bar.el();
+    if (!el || !el.querySelectorAll) return [];
+    // les `select` comptent aussi (auto-oui, disposition des panes) : ce sont des commandes
+    return [...el.querySelectorAll("button[id],select[id],span[id].lock")].filter(n => n.id !== (bar.plus() || {}).id);
+  };
+  /** En mobile : icônes seules, ordre de la conf, secondaires sous « … ». Réversible au bouton près. */
+  function condenseBar(bar, on) {
+    const el = bar.el(); if (!el) return null;
+    const nodes = barreElements(bar);
+    if (!nodes.length) return null;
+    const rangs = barOrder(bar.ligne());
+    const { line, hidden } = barSplit(nodes.map(n => n.id), bar.ligne(), bar.masques());
+    nodes.forEach(n => {
+      // un `select` ne se condense pas (ses options SONT son texte) ; un bouton et le bloc
+      // de connexion, oui — ils n'ont qu'un libellé, et l'icône suffit au doigt.
+      const estCadenas = !!(n.classList && n.classList.contains && n.classList.contains("lock"));
+      const condensable = n.tagName !== "SELECT" && (n.tagName === undefined || n.tagName === "BUTTON" || estCadenas);
+      if (on && n.dataset.full === undefined && condensable) n.dataset.full = n.textContent;   // le libellé d'origine, pour le retour au bureau
+      const plein = n.dataset.full === undefined ? n.textContent : n.dataset.full;
+      if (on && condensable) {
+        // le bloc de connexion garde son nom, mais perd le rôle (RM3418 : pas de « (admin) » en mobile)
+        const voulu = estCadenas ? lockCompact(plein) : iconOf(plein);
+        if (n.textContent !== voulu) n.textContent = voulu;
+      } else if (!on && n.dataset.full !== undefined) { n.textContent = n.dataset.full; delete n.dataset.full; }
+      cls(n, "bar-extra", on && !line.includes(n.id));
+      cls(n, "bar-hidden", on && hidden.includes(n.id));
+      if (n.style) n.style.order = on ? String(rangs(n.id)) : "";
+      // un bouton groupé range son groupe avec lui (`order` ne joue qu'entre frères)
+      const groupe = n.parentElement && n.parentElement !== el ? n.parentElement : null;
+      if (groupe && groupe.style) {
+        const actuel = Number(groupe.style.order || 99);
+        groupe.style.order = on ? String(Math.min(actuel, rangs(n.id))) : "";
+      }
+    });
+    cls(el, "bar-more", on && !!state.mobile.more[bar.nom]);
+    if (!on) { state.mobile.more[bar.nom] = false; }
+    return { line, hidden };
+  }
+  function condenseBars(on) {
+    BARRES.forEach(b => condenseBar(b, on));
+    if (!on) state.mobile.say = null;
+  }
+  /** Premier appui : le nom s'affiche et le geste est arrêté. Second appui sur le MÊME bouton : il passe. */
+  function barTap(ev) {
+    if (!isMobile()) return;
+    const n = ev.target && ev.target.closest ? ev.target.closest("button[id]") : null;
+    if (!n) return;
+    const bar = BARRES.find(b => { const el = b.el(); return el && el.contains && el.contains(n); });
+    if (!bar || n.id === (bar.plus() || {}).id) return;
+    if (state.mobile.say === n.id) { state.mobile.say = null; condenseBar(bar, true); return; }   // 2e appui : on laisse faire
+    state.mobile.say = n.id;
+    n.textContent = sayLabel({ text: n.dataset.full, title: n.getAttribute ? n.getAttribute("title") : "" });   // le nom, le temps du choix
+    if (ev.preventDefault) ev.preventDefault();
+    if (ev.stopPropagation) ev.stopPropagation();
+  }
+  /** Le « … » d'une barre : révèle ce qui en est sorti (boutons secondaires ET informations). */
+  function toggleMore(nom) {
+    const bar = BARRES.find(b => b.nom === nom) || BARRES[0];
+    state.mobile.more[bar.nom] = !state.mobile.more[bar.nom];
+    cls(bar.el(), "bar-more", isMobile() && state.mobile.more[bar.nom]);
+    return state.mobile.more[bar.nom];
   }
   /** Va sur une page du gabarit mobile — sans effet au bureau. Le centre l'appelle quand une vue s'ouvre, la droite quand un onglet se montre. */
   function mobileGo(page) { if (!isMobile()) return null; state.mobile.page = pageOf(page); applyMobile(); return state.mobile.page; }
@@ -192,12 +298,26 @@ export function mountLayout(hosts = {}, ctx = {}) {
   listen(h.centerhandle, "mousedown", startCenterResize); listen(h.centerhandle, "dblclick", () => resetCenterH());
   listen(root, "mousemove", doCenterResize); listen(root, "mouseup", endCenterResize);
   listen(h.startOpen, "change", (e) => svc.setStartOpen(!!e.target.checked)); listen(h.defTab, "change", (e) => svc.setDefaultTab(e.target.value));
-  listen(h.mnav, "click", (e) => { const b = e.target && e.target.closest ? e.target.closest("[data-mpage]") : null; if (b) mobileGo(b.dataset.mpage); });
+  listen(h.mnav, "click", (e) => {
+    const n = e.target && e.target.closest ? e.target.closest("[data-mpage],[data-mfull]") : null;
+    if (!n) return;
+    if (n.dataset.mfull) toggleFull(); else mobileGo(n.dataset.mpage);   // RM3270 : la bascule plein écran partage la barre
+  });
   if (media && media.addEventListener) listen(media, "change", () => detectMobile());
+  // RM3270/RM3418 : le nom d'abord, l'action ensuite — en CAPTURE, pour passer avant le dispatcher `data-cmd` de la page
+  [h.header, h.tabactions].filter(el => el && el.addEventListener).forEach(el => {
+    el.addEventListener("click", barTap, true);
+    disposers.push(() => el.removeEventListener("click", barTap, true));
+  });
+  listen(h.hdrmore, "click", () => toggleMore("header"));
+  listen(h.sessmore, "click", () => toggleMore("session"));
+  if (vp && vp.addEventListener) listen(vp, "resize", onViewport);      // le clavier logiciel ne change QUE le viewport visible
   return { dispatch, switchRight, showRight, toggleRight, collapseRight, rightVisible, toggleLeft, restore, setRightWidth, resetWidth, switchPanel, restorePanel, panel: () => state.panel, right: () => state.right, left: () => state.left, state,
     showCenter, showSurface, centerSplit, setCenterSplit, resetCenterH, applyCenter,
     // RM3123 : exposés pour le test — le bouclier du glisser ne se voit qu'en les appelant
     startResize, doResize, endResize, startCenterResize, endCenterResize,
     mobile: () => Object.assign({}, state.mobile), isMobile, mobileGo, centerShown, refreshMobileNav, detectMobile,
+    // RM3270 : plein écran (clavier ou bascule), barre du haut condensée, débordement « … »
+    setFull, toggleFull, onViewport, condenseBars, condenseBar, barTap, toggleMore, applyComposer, barres: () => BARRES,
     unmount() { disposers.forEach(d => d()); disposers.length = 0; } };
 }

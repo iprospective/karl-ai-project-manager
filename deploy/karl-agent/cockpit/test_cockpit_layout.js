@@ -188,4 +188,98 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
     L.resetCenterH();
     assert(props["--reviewpane-h"] === undefined && st.d.karlCenterH === undefined, "double-clic : retour au défaut CSS");
     console.log("✓ split de la zone centrale (RM3051) : OFF par défaut, session masquée puis rendue à l'identique, bascule à chaud, hauteur bornée et mémorisée"); }
+
+  // — RM3270/RM3418 : l'écran utile au doigt — plein écran au clavier, barres pilotées par la conf —
+  { const { mountLayout: ML } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
+    const MB = await import(path.join(DIR, "src/modules/layout/mobile.js"));
+    // — modèle —
+    assert(MB.keyboardOpen({ viewportH: 380, windowH: 800 }) && !MB.keyboardOpen({ viewportH: 780, windowH: 800 }), "le clavier se voit au viewport qui rétrécit");
+    assert(!MB.keyboardOpen({}) && !MB.keyboardOpen({ viewportH: 380, windowH: 0 }), "sans mesure, pas de conclusion");
+    assert.deepStrictEqual(MB.fullItem(false), { icon: "⛶", label: "plein écran", full: false });
+    assert.strictEqual(MB.fullItem(true).label, "vue normale");
+    // RM3418 : la répartition vient de la CONF (ligne / « … » / jamais affiché)
+    assert.deepStrictEqual(MB.barSplit(["a", "b", "c", "d"], ["c", "a"], ["d"]), { line: ["c", "a"], extra: ["b"], hidden: ["d"] }, "la ligne suit l'ordre de la conf ; le reste sous « … » ; les masqués à part");
+    assert.deepStrictEqual(MB.barSplit(["a"], ["zz"], []), { line: [], extra: ["a"], hidden: [] }, "un identifiant inconnu de la conf est ignoré");
+    assert.deepStrictEqual(MB.barSplit(["a", "b"], ["a", "b"], ["a"]), { line: ["b"], extra: [], hidden: ["a"] }, "masqué gagne sur « gardé sur la ligne »");
+    assert.deepStrictEqual(MB.barSplit(null, null, null), { line: [], extra: [], hidden: [] }, "sans rien, rien");
+    const rang = MB.barOrder(["x", "y"]);
+    assert(rang("x") === 1 && rang("y") === 2 && rang("z") === 99, "l'ordre demandé passe devant, le reste suit");
+    assert.strictEqual(MB.lockCompact("🔓 bob (admin)"), "🔓 bob", "en mobile, le cadenas dit qui, pas son rôle");
+    assert.strictEqual(MB.lockCompact("🔓 bob"), "🔓 bob"); assert.strictEqual(MB.lockCompact(null), "");
+    assert.strictEqual(MB.iconOf("🩺 Supervision"), "🩺"); assert.strictEqual(MB.iconOf("❓"), "❓"); assert.strictEqual(MB.iconOf("  ⬆ MAJ dispo "), "⬆"); assert.strictEqual(MB.iconOf(null), "");
+    assert.strictEqual(MB.sayLabel({ text: "📋 CDC", title: "CDC vivant — onglets" }), "📋 CDC");
+    assert.strictEqual(MB.sayLabel({ text: "🔧", title: "Réglages — thème, voix" }), "🔧 Réglages", "un bouton sans libellé emprunte le début de son infobulle");
+    // — contrôleur —
+    const mkb = (id, txt, extra) => Object.assign(fakeEl(id, extra), { textContent: txt, tagName: "BUTTON", getAttribute: () => "" });
+    const boutons = [mkb("setbtn", "🔧"), mkb("cdcbtn", "📋 CDC"), mkb("yesatt", "✔ Oui"), mkb("hdrmore", "…"), mkb("pmbtn", "⚙ commandes pm")];
+    const lock = Object.assign(fakeEl("lock", { classes: ["lock"] }), { textContent: "🔓 bob (admin)", tagName: "SPAN", getAttribute: () => "" });
+    const tous = [...boutons, lock];
+    tous.forEach(n => { n.parentElement = null; });
+    const header = Object.assign(fakeEl("header"), { querySelectorAll: () => tous, contains: (n) => tous.includes(n) });
+    const sessBtns = [mkb("yesbtn", "✔ Oui"), mkb("autoyes", "⏱ auto-oui…"), mkb("sessmore", "…")];
+    sessBtns.forEach(n => { n.parentElement = null; });
+    const tabactions = Object.assign(fakeEl("tabactions"), { querySelectorAll: () => sessBtns, contains: (n) => sessBtns.includes(n) });
+    const mainM = fakeEl("main"), mnav = fakeEl("mnav");
+    let inner = ""; Object.defineProperty(mnav, "innerHTML", { get() { return inner; }, set(v) { inner = v; } });
+    const rootM = { documentElement: { dataset: {}, style: { setProperty() {}, removeProperty() {} } }, addEventListener() {}, removeEventListener() {} };
+    const vp = { height: 800, L: [], addEventListener(t, f) { this.L.push([t, f]); }, removeEventListener(t, f) { this.L = this.L.filter(([a, b]) => !(a === t && b === f)); } };
+    const stM = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
+    const UI = { header_line: ["yesatt", "setbtn"], header_hidden: ["pmbtn"], session_line: ["yesbtn"] };
+    const lay = ML({ main: mainM, mnav, header, hdrmore: boutons[3], tabactions, sessmore: sessBtns[2] },
+      { storage: stM, root: rootM, media: { matches: true, addEventListener() {}, removeEventListener() {} }, search: "",
+        viewport: vp, windowH: () => 800, ui: () => UI });
+    lay.restore();
+    // barre du haut : icônes seules, ordre de la conf, masqués absents, cadenas sans rôle
+    assert.strictEqual(boutons[1].textContent, "📋", "le libellé cède la place à l'icône");
+    assert.strictEqual(boutons[1].dataset.full, "📋 CDC", "le libellé d'origine est gardé pour le retour au bureau");
+    assert(boutons[1].has("bar-extra") && !boutons[0].has("bar-extra") && !boutons[2].has("bar-extra"), "seuls les non-cités passent sous « … »");
+    assert(boutons[4].has("bar-hidden"), "un bouton listé « masqué » dans la conf ne s'affiche pas du tout");
+    assert.strictEqual(lock.textContent, "🔓 bob", "le cadenas perd « (admin) » en mobile");
+    assert(lock.has("bar-extra"), "…et passe sous « … » : c'est une information, pas une commande");
+    assert(boutons[2].style.order === "1" && boutons[0].style.order === "2" && boutons[1].style.order === "99", "l'ordre de la conf est appliqué en `order` CSS");
+    assert.strictEqual(boutons[3].textContent, "…", "le bouton de débordement ne se condense pas");
+    // barre de session : même règle, sa propre conf — auto-oui n'est plus sur la ligne
+    assert(sessBtns[1].has("bar-extra") && !sessBtns[0].has("bar-extra"), "auto-oui sort de la ligne (conf session_line)");
+    // double appui : le premier montre le nom et retient le geste, le second laisse passer
+    let passe = 0, stopped = 0;
+    const tap = (b) => { const ev = { target: { closest: () => b }, preventDefault() { passe--; }, stopPropagation() { stopped++; } }; passe++; lay.barTap(ev); return ev; };
+    tap(boutons[1]);
+    assert(boutons[1].textContent === "📋 CDC" && stopped === 1 && passe === 0, "1er appui : le nom s'affiche, le clic est retenu");
+    tap(boutons[1]);
+    assert(stopped === 1 && passe === 1 && boutons[1].textContent === "📋", "2e appui sur le même bouton : le clic passe, l'icône revient");
+    tap(sessBtns[0]); assert.strictEqual(stopped, 2, "la barre de session suit la même règle");
+    // « … » de chaque barre, indépendants
+    assert.strictEqual(lay.toggleMore("header"), true); assert(header.has("bar-more") && !tabactions.has("bar-more"));
+    assert.strictEqual(lay.toggleMore("session"), true); assert(tabactions.has("bar-more"));
+    assert.strictEqual(lay.toggleMore("header"), false); assert(!header.has("bar-more") && tabactions.has("bar-more"), "un « … » n'entraîne pas l'autre");
+    // plein écran : bascule manuelle, page forcée au centre, barre du bas repeinte
+    assert.strictEqual(rootM.documentElement.dataset.mfull, "0");
+    assert.strictEqual(lay.toggleFull(), true);
+    assert(rootM.documentElement.dataset.mfull === "1" && mainM.dataset.mpage === "center", "plein écran : le centre seul");
+    assert(/data-mfull="1"/.test(inner) && /vue normale/.test(inner), "la bascule est dans la barre du bas, et dit comment en sortir");
+    assert.strictEqual(lay.toggleFull(), false); assert.strictEqual(rootM.documentElement.dataset.mfull, "0");
+    // clavier : entrée automatique, et sortie automatique parce que c'est lui qui l'avait demandée
+    vp.height = 380; vp.L.find(([t]) => t === "resize")[1]();
+    assert(lay.mobile().full && lay.mobile().auto, "clavier ouvert → plein écran automatique");
+    vp.height = 800; vp.L.find(([t]) => t === "resize")[1]();
+    assert(!lay.mobile().full, "clavier refermé → retour à la vue normale");
+    lay.toggleFull(); vp.height = 800; vp.L.find(([t]) => t === "resize")[1]();
+    assert(lay.mobile().full, "le plein écran demandé à la main reste");
+    // second formulaire (composer)
+    assert.strictEqual(lay.applyComposer(false), false); assert.strictEqual(rootM.documentElement.dataset.mcomposer, "0");
+    lay.applyComposer(true); assert.strictEqual(rootM.documentElement.dataset.mcomposer, "1");
+    // retour au bureau : libellés rendus, plein écran tombé, plus d'ordre imposé
+    lay.toggleFull();
+    const layD = ML({ main: fakeEl("mainD"), mnav: fakeEl("mnavD"), header, hdrmore: boutons[3], tabactions, sessmore: sessBtns[2] },
+      { storage: stM, root: rootM, media: { matches: false, addEventListener() {}, removeEventListener() {} }, search: "", forced: null, ui: () => UI });
+    layD.restore();
+    assert(boutons[1].textContent === "📋 CDC" && boutons[1].dataset.full === undefined && !boutons[1].has("bar-extra"), "au bureau, la barre du haut est rendue telle qu'elle était");
+    assert(lock.textContent === "🔓 bob (admin)" || lock.textContent === "🔓 bob", "le cadenas est repeint par son module au bureau");
+    assert.strictEqual(boutons[1].style.order, "", "plus d'ordre imposé au bureau");
+    assert(!boutons[4].has("bar-hidden"), "et plus rien de masqué");
+    assert.strictEqual(layD.toggleFull(), false, "pas de plein écran au bureau");
+    lay.unmount(); layD.unmount();
+    assert.strictEqual(vp.L.length, 0, "unmount retire l'écouteur du viewport");
+    assert.strictEqual(header.listenerCount, 0, "unmount retire l'écouteur de capture de la barre du haut");
+    console.log("✓ barres au doigt (RM3270/RM3418) : conf d'instance (ligne, « … », masqués, ordre), cadenas compact, double appui, plein écran au clavier"); }
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

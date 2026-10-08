@@ -105,6 +105,15 @@ _src = (HERE / "pm-cf-mirror-backfill.py").read_text(encoding="utf-8")
 chk("la boucle sait d'où vient la valeur « Redmine »",
     "remote_de_la_description = remote is not None" in _src and "cf_vide_vers_push(" in _src)
 
+# ── RM3261 : un ticket DÉJÀ migré ne se signale plus à chaque passage ────────
+act, _, _ = bf.decide_acceptance("- [ ] un", "- [ ] un", ERRANT, remote_from_cf=True)
+chk("cases errantes mais champ dédié rempli et d'accord : plus rien à protéger",
+    act == "sync")
+act, _, motifs = bf.decide_acceptance("- [ ] un", "- [ ] un", ERRANT, remote_from_cf=False)
+chk("… alors que la même valeur venue de la DESCRIPTION reste verrouillée", act == "conflit")
+act, _, _ = bf.decide_acceptance("- [x] un", "- [ ] un", ERRANT, remote_from_cf=True)
+chk("migré mais en désaccord : le conflit tient", act == "conflit")
+
 # ── le registre ──────────────────────────────────────────────────────────────
 chk("`acceptance` est un miroir déclaré", "acceptance" in bf.MIRRORS)
 chk("… adossé au CF « Critères d'acceptation »",

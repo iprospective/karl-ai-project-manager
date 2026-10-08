@@ -21,6 +21,7 @@ repo projects (présence/nom de "clients/", de "projects/", etc.) — tout
 passe par les patterns définis dans pm.config.yml.
 """
 import os
+import pwd
 import re
 import sys
 from pathlib import Path
@@ -95,7 +96,7 @@ def _load_env_file(path: Path) -> None:
 
     Tolère un fichier illisible (`PermissionError`) : un dev NON-admin n'a pas le droit
     de lire le `.env` secret (fallback karl, admin-only) → on l'ignore silencieusement,
-    ses propres clés (`~/.config/mmi-pm/.env`) et le `pm.env` d'instance suffisent."""
+    ses propres clés (`<core>/var/users/<user>/.env`) et le `pm.env` d'instance suffisent."""
     if not path.is_file():
         return
     try:
@@ -128,22 +129,120 @@ def _secrets_env(pm_dir: Path) -> Optional[Path]:
     return None
 
 
-def _user_env() -> Optional[Path]:
+#: Sous-dossier de `state_dir` où vit la conf PROPRE à chaque utilisateur (RM3318).
+USERS_SUBDIR = "users"
+#: Ancien emplacement (RM2497), abandonné par RM3318 : la conf PM ne va JAMAIS dans `~`.
+#: Lu seulement en repli transitoire, avec un avertissement, le temps de la migration.
+LEGACY_USER_SUBDIR = Path(".config") / "mmi-pm"
+_LEGACY_WARNED: set = set()
+
+
+def _user_name(user: Optional[str] = None) -> str:
+    return user or pwd.getpwuid(os.geteuid()).pw_name
+
+
+def _is_file(p: Path) -> bool:
+    """`is_file()` qui répond « non » au lieu de lever sur un dossier d'autrui (700)."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
+
+
+def core_state_dir(pm_dir: Optional[Path] = None) -> Path:
+    """`state_dir` du core, calculable AVANT le chargement de `pm.config.yml` (RM3318).
+
+    Même résolution que la racine `roots.state_dir` (`${PM_STATE_DIR:-auto}`), et même règle que
+    `_secrets_env` pour un clone ou un worktree de dev : `PM_CORE_DIR` désigne le core, dont le
+    `var/` porte la conf des utilisateurs — pas celui du worktree, détruit à la livraison."""
+    raw = os.environ.get("PM_STATE_DIR")
+    if raw and raw != "auto":
+        return Path(raw).expanduser()
+    core = os.environ.get("PM_CORE_DIR")
+    if core:
+        return Path(core).expanduser().resolve() / "var"
+    base = Path(pm_dir) if pm_dir else Path(__file__).resolve().parent.parent
+    return base.resolve() / "var"
+
+
+def user_conf_dir(user: Optional[str] = None, pm_dir: Optional[Path] = None) -> Path:
+    """Dossier de conf PM d'un utilisateur : `<core>/var/users/<user>/` (RM3318).
+
+    Tout ce qui est propre à un utilisateur — clés (`.env`), `invoice.yml`, `timesheet.yml`… —
+    vit ici, hors git, JAMAIS dans son home. Override `PM_USER_DIR` (utilisateur courant seul)."""
+    if user is None and os.environ.get("PM_USER_DIR"):
+        return Path(os.environ["PM_USER_DIR"]).expanduser()
+    return core_state_dir(pm_dir) / USERS_SUBDIR / _user_name(user)
+
+
+def legacy_user_conf_dir(user: Optional[str] = None) -> Path:
+    """Ancien dossier `~/.config/mmi-pm/` (RM2497) — lecture de transition uniquement."""
+    if user is None:
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        if xdg:
+            return Path(xdg).expanduser() / "mmi-pm"
+        return Path.home() / LEGACY_USER_SUBDIR
+    return Path(pwd.getpwnam(user).pw_dir) / LEGACY_USER_SUBDIR
+
+
+def user_conf_file(name: str, user: Optional[str] = None, pm_dir: Optional[Path] = None,
+                   warn: bool = True) -> Path:
+    """Fichier de conf `name` d'un utilisateur. Rend, dans l'ordre :
+    `<core>/var/users/<user>/<name>` s'il existe ; sinon l'ancien `~/.config/mmi-pm/<name>` s'il
+    existe (avertissement : lancer `pm-user-conf-migrate.py`) ; sinon le nouveau chemin, là où il
+    faut le CRÉER. Aucun appelant ne doit composer lui-même un chemin de conf utilisateur."""
+    new = user_conf_dir(user, pm_dir) / name
+    if _is_file(new) or (user is None and os.environ.get("PM_USER_DIR")):
+        return new                # un override explicite isole : aucun repli sur l'ancien home
+    try:
+        old = legacy_user_conf_dir(user) / name
+    except KeyError:              # utilisateur inconnu du système
+        return new
+    if _is_file(old):
+        if warn and str(old) not in _LEGACY_WARNED:
+            _LEGACY_WARNED.add(str(old))
+            print(f"⚠ conf PM lue dans {old} : emplacement obsolète (jamais de conf PM dans ~). "
+                  f"Déplacer vers {new.parent} : scripts/pm-user-conf-migrate.py (RM3318)",
+                  file=sys.stderr)
+        return old
+    return new
+
+
+def _user_env(pm_dir: Optional[Path] = None) -> Optional[Path]:
     """`.env` de secrets PROPRE à l'utilisateur courant — identité par dev (T1/RM2497).
 
-    Porte la clé API Redmine perso (`REDMINE_API_KEY`) et les tokens forge du dev.
-    Il est chargé AVANT le `.env` d'instance et le prime donc (car `_load_env_file`
-    n'écrase pas l'existant → priorité : env de session > user > instance).
-    Résolution : override `PM_USER_ENV`, sinon `$XDG_CONFIG_HOME/mmi-pm/.env`,
-    sinon `~/.config/mmi-pm/.env`. `None` si absent (→ fallback karl, rétrocompat)."""
+    Porte la clé API Redmine perso (`REDMINE_API_KEY`), les tokens forge du dev et ses
+    préférences (`PM_REPOS_DIR`, `PM_MAIL_*`). Il est chargé AVANT le `.env` d'instance et le prime
+    donc (car `_load_env_file` n'écrase pas l'existant → priorité : env de session > user > instance).
+    Résolution : override `PM_USER_ENV`, sinon `user_conf_file(".env")` — `<core>/var/users/<user>/.env`
+    (RM3318), repli transitoire sur `~/.config/mmi-pm/.env`. `None` si absent (→ fallback karl)."""
     override = os.environ.get("PM_USER_ENV")
     if override:
         cand = Path(override).expanduser()
         return cand if cand.is_file() else None
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
-    cand = base / "mmi-pm" / ".env"
-    return cand if cand.is_file() else None
+    cand = user_conf_file(".env", pm_dir=pm_dir)
+    return cand if _is_file(cand) else None
+
+
+def _legacy_user_env(chosen: Optional[Path]) -> Optional[Path]:
+    """Ancien `~/.config/mmi-pm/.env` encore présent À CÔTÉ du nouveau (RM3318, transition).
+
+    Chargé APRÈS le nouveau, donc sans rien écraser : il ne fait que combler les clés absentes.
+    Sans lui, créer `var/users/<user>/.env` pour une seule préférence (ex. `PM_MAIL_*`) masquerait
+    d'un coup la clé Redmine restée dans l'ancien fichier — perte d'identité silencieuse."""
+    if os.environ.get("PM_USER_ENV") or os.environ.get("PM_USER_DIR"):
+        return None
+    try:
+        old = legacy_user_conf_dir() / ".env"
+    except KeyError:
+        return None
+    if not _is_file(old) or (chosen is not None and old.resolve() == chosen.resolve()):
+        return None
+    if str(old) not in _LEGACY_WARNED:
+        _LEGACY_WARNED.add(str(old))
+        print(f"⚠ conf PM encore présente dans {old} (jamais de conf PM dans ~) : "
+              "scripts/pm-user-conf-migrate.py (RM3318)", file=sys.stderr)
+    return old
 
 
 def _instance_env(pm_dir: Path) -> Optional[Path]:
@@ -195,7 +294,9 @@ class PMConfig:
                  state_dir: Optional[Path] = None,
                  log_dir: Optional[Path] = None,
                  zfs_backup: Optional[dict] = None,
-                 mail: Optional[dict] = None):
+                 mail: Optional[dict] = None,
+                 snapshot: Optional[dict] = None,
+                 sieve: Optional[dict] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
@@ -215,6 +316,12 @@ class PMConfig:
         # Réglages de courrier (RM3024) — section `mail:`. Même traitement que
         # `providers` : optionnelle, exposée telle quelle, vide si absente.
         self.mail = mail or {}
+        # Point de restauration pré-MEP (RM2989) — section `snapshot:`. Même
+        # traitement : optionnelle, exposée telle quelle. Consommée par pm-snapshot.
+        self.snapshot = snapshot or {}
+        # Filtres Sieve (RM3171) — section `sieve:` (hôte, port, boîte → URI du vault).
+        # Même traitement : optionnelle, exposée telle quelle. Consommée par pm-sieve.
+        self.sieve = sieve or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -225,13 +332,16 @@ class PMConfig:
 
         # 2. Charge la config/secrets, priorité décroissante (premier-écrit-gagne ;
         #    `_load_env_file` n'écrase pas l'existant, os.environ de session prime) :
-        #      user  ~/.config/mmi-pm/.env  (identité par dev, RM2497)
+        #      user  <core>/var/users/<user>/.env  (identité par dev, RM2497 → RM3318)
         #      inst  pm.env                 (instance, NON-secret, group-readable, RM2438 T1)
         #      secr  .env                   (fallback karl, admin-only, peut être illisible)
         #    Sans user ni pm.env, `.env` monolithique seul → comportement karl inchangé.
-        user_env = _user_env()
+        user_env = _user_env(pm_dir)
         if user_env:
             _load_env_file(user_env)
+        legacy_env = _legacy_user_env(user_env)       # RM3318 : transition, comble seulement
+        if legacy_env:
+            _load_env_file(legacy_env)
         inst_env = _instance_env(pm_dir)
         if inst_env:
             _load_env_file(inst_env)
@@ -300,7 +410,9 @@ class PMConfig:
         return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
                    conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir,
                    zfs_backup=cfg.get("zfs_backup", {}),
-                   mail=cfg.get("mail", {}))
+                   mail=cfg.get("mail", {}),
+                   snapshot=cfg.get("snapshot", {}),
+                   sieve=cfg.get("sieve", {}))
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:

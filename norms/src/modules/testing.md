@@ -142,5 +142,38 @@ stable** — les chiffres en champs, jamais dans le texte — de sorte qu'une d�
 produise une entrée qui remonte, et non une par jour. Le ticket vient après, si l'humain
 décide qu'il y a du travail.
 
-Exemple de référence : `pm-context-budget --check` (invariant : le plafond) et
-`pm-context-budget --notify` (tendance : la marge de 10 %), travail `norms-budget-watch`.
+Exemple de référence — et contre-exemple devenu exemple : le **budget de contexte**. Le
+plafond a longtemps été tenu comme un invariant dur (`--check` en gate du doctor et de la
+suite). Résultat : deux tests rouges pendant des mois pour un dépassement de quelques
+dizaines de tokens sur trente mille, quatre tickets ouverts sur le même seuil (RM2974,
+RM2994, RM3035, RM3046), et les vrais invariants affichés juste au-dessus qu'on ne lisait
+plus. RM3417 l'a basculé : marge **et** plafond notifient (`--notify`, travail
+`norms-budget-watch`, et la porte du doctor), aucun des deux ne bloque, aucun des deux ne
+donne de ticket. **Le test à écrire pour une tendance n'est pas « le seuil est tenu » mais
+« le capteur alerte ».**
+
+### 9. L'agent a un compte et une BOÎTE DE COURRIER d'essai (RM3360)
+
+Un parcours de test s'arrêtait jusqu'ici au dernier écran. Or la moitié de ce qu'une commande
+promet se passe **après** : l'accusé de réception, le mail de confirmation, celui de
+l'expédition. Ne pas les vérifier laisse dehors la partie que le client voit en premier.
+
+L'agent dispose donc d'une identité d'essai propre — compte client sur les boutiques de
+**dev / test / préprod**, et **boîte de courrier** qu'il peut lire. Adresse et mot de passe
+vivent dans sa conf (`var/users/<user>/.env` : `AGENT_TEST_EMAIL`, `AGENT_TEST_PASS`), jamais
+dans un scénario ni sur une ligne de commande — `ps` la rend lisible par tout le système. Les
+scénarios les reçoivent par l'environnement (`browser-check --secret-env`).
+
+Ce que ça autorise, et qui manquait : un test de bout en bout peut **affirmer qu'un mail est
+arrivé**, avec le bon objet et le bon contenu, au lieu de s'arrêter à « la page de
+confirmation s'est affichée ».
+
+Deux règles qui ne se négocient pas :
+
+1. **Jamais en production.** Ni le compte, ni le parcours, ni l'envoi. Un test qui commande
+   pour de vrai crée une commande pour de vrai.
+2. **Un envoi de test ne part pas chez un tiers.** Sur un environnement non-prod, la sortie
+   mail est neutralisée ou détournée vers cette boîte. Le piège est connu : sur le poste de
+   dev, `/etc/postfix/virtual-regexp` porte un catch-all `/.+@.+/` qui redirige **tout** le
+   courrier local vers l'adresse de l'exploitant — donc une erreur d'outillage lui arrive
+   directement, et une adresse client recopiée d'une base de prod lui arriverait aussi.

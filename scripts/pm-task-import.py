@@ -168,6 +168,12 @@ def main():
     tasks_dir.mkdir(parents=True, exist_ok=True)
     md_path = tasks_dir / f"RM{rm_id}_{slug}.md"
     log_path = tasks_dir / f"RM{rm_id}_{slug}.log.md"
+    # RM3241 : un ticket dont la description a été purgée n'a plus ses critères que
+    # dans le CF 33 — sans ce report, la fiche adoptée naîtrait « À définir ».
+    import pm_acceptance
+    criteres = pm_acceptance.cf_text_of_issue(issue)
+    if criteres:
+        fm[pm_acceptance.FM_KEY] = criteres
     md_path.write_text(render_md(fm, issue.get("description") or ""), encoding="utf-8")
     log_path.write_text(render_log(
         rm_id, now, title="Adoption (pm-task-import)",

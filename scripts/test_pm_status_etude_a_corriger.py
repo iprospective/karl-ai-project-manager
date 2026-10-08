@@ -87,11 +87,16 @@ check("aucun journal : on ne devine pas", ST.study_author_uid(1, []) is None)
 check("introuvable ⇒ attribution conservée ET signalée", "auteur de l'étude introuvable" in src)
 
 print("\n[RM3228] le reste du PM le connaît")
-ka = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+# RM3208/W1 : les tables de lot vivent dans `pm_batch` (partagé cockpit ↔ `pm-session-status batch`),
+# le cockpit les réexporte. Le contrôle porte donc sur le module, source unique.
+ka = (HERE / "pm_batch.py").read_text(encoding="utf-8")
 check("lot « analyser » du cockpit : l'étude renvoyée se reprend", '"etude_chiffrage_a_corriger": ("etudier"' in ka)
 check("lot « à tester » : elle est écartée avec sa raison", '"etude_chiffrage_a_corriger": "étude renvoyée' in ka)
 import pm_worklog_states                           # noqa: E402
-check("worklog : elle compte dans le « à faire »", NOM in pm_worklog_states.TODO)
+# RM3323 : un retour a sa propre section, « à corriger » — toujours du travail à reprendre, visible,
+# mais plus noyé parmi ce que personne n'a encore commencé.
+check("worklog : elle compte dans « à corriger » (travail à reprendre)",
+      NOM in pm_worklog_states.FIX and pm_worklog_states.bucket(NOM) == "corriger")
 check("registre des fonctionnalités : ticket « prévu »", NOM in load("pcf", "pm-cdc-features.py").PREVUS)
 wf = (HERE.parent / "workflow.reference.yml").read_text(encoding="utf-8")
 check("workflow.reference.yml porte la transition observée dans Redmine", NOM in wf)

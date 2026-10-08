@@ -206,6 +206,70 @@ check("droits restreints sur une entrée",
 kmf.index_file().write_text("{ pas du json")
 check("index corrompu → vide, non fatal", kmf.load_index() == {})
 
+# — RM3319 : un rejet n'est plus rangé en silence —
+BOUNCE = email.message_from_string("""From: MAILER-DAEMON@mail.iprospective.net (Mail Delivery System)
+Subject: Undelivered Mail Returned to Sender
+To: karl@iprospective.fr
+Auto-Submitted: auto-replied
+Message-ID: <bounce-1@mail.iprospective.net>
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status; boundary="B"
+
+--B
+Content-Type: text/plain
+
+Your message could not be delivered.
+
+--B
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; mail.iprospective.net
+
+Final-Recipient: rfc822; florian@calyclay.com
+Action: failed
+Status: 5.1.1
+Diagnostic-Code: smtp; 550 5.1.1 User unknown
+
+--B
+Content-Type: text/rfc822-headers
+
+Subject: [RM1839] Serveur du bureau
+Message-ID: <orig-1@iprospective.fr>
+
+--B--
+""")
+os.environ["PM_NOTIFY_DIR"] = str(tmp / "notify")
+fake_b = FakeIMAP(["INBOX"], [("INBOX", BOUNCE),
+                              ("INBOX", mail(mid="<5@x>", frm="no-reply@gitlab.iprospective.fr", subject="Pipeline"))])
+idx_b = {}
+res_b = kmf.collect(fake_b, ["INBOX"], args, "karl@iprospective.fr", idx_b, [])
+check("RM3319 : rejet compté à part, pas comme robot",
+      res_b["stats"]["bounce"] == 1 and res_b["stats"]["machine"] == 1)
+check("RM3319 : rejet absent de la file de triage", res_b["entries"] == [])
+ent = idx_b.get(kmf.msg_key("<bounce-1@mail.iprospective.net>"), {})
+check("RM3319 : index « bounce » avec résumé et ticket",
+      ent.get("status") == "bounce" and ent.get("rm_id") == 1839 and "florian@calyclay.com" in ent.get("summary", ""))
+
+appels = []
+_run = kmf.subprocess.run
+kmf.subprocess.run = lambda argv, **kw: appels.append(argv)
+try:
+    kmf.signal_bounces(res_b["bounces"])
+finally:
+    kmf.subprocess.run = _run
+import pm_notify  # noqa: E402
+fil = pm_notify.feed("ouvert")
+check("RM3319 : notification critique au fil, liée au ticket",
+      len(fil) == 1 and fil[0].get("level") == "critical" and str(fil[0].get("rm")) == "1839"
+      and "rejeté" in fil[0].get("msg", ""))
+notes = [a for a in appels if len(a) > 1 and str(a[1]).endswith("pm-task-comment.py")]
+check("RM3319 : note posée sur le ticket d'origine",
+      len(notes) == 1 and notes[0][2] == "1839" and "Envoi rejeté" in notes[0][4]
+      and "florian@calyclay.com" in notes[0][4] and "5.1.1" in notes[0][4])
+kmf.signal_bounces(res_b["bounces"], note_ticket=False)
+check("RM3319 : le même rejet ne duplique pas l'alerte (empreinte du fil)",
+      len(pm_notify.feed("ouvert")) == 1)
+
 print()
 if fails:
     print(f"✗ {len(fails)} test(s) en échec : {', '.join(fails)}")

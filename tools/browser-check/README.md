@@ -96,3 +96,58 @@ La préprod ne sert qu'à la recette d'intégration, une fois la branche fusionn
 
 Le verdict est séparé de l'observation pour une raison simple : sans cette coupure, on ne
 peut tester l'outil de test qu'en lançant un navigateur — donc on ne le teste pas.
+
+## Mode parcours — plusieurs étapes, avec connexion (RM3359)
+
+Un clic ne suffit pas à dérouler un tunnel de commande. Le mode parcours joue une suite
+d'étapes décrites dans un fichier, et se rejoue avec des paramètres différents.
+
+```bash
+node tools/browser-check/browser-check.js --scenario parcours/tunnel.json \
+  --param base=https://boutique.example --param paiement=virement \
+  --secret-env motdepasse=BOUTIQUE_TEST_PASS
+```
+
+### Étapes disponibles
+
+| Action | Clés | Effet |
+|---|---|---|
+| `goto` | `url` | charge la page (échoue hors 2xx/3xx) |
+| `remplir` | `selecteur`, `valeur` | vide le champ et saisit |
+| `choisir` | `selecteur`, `valeur` | sélectionne dans une liste |
+| `cliquer` | `selecteur` (+ `apres` en ms) | clique et attend |
+| `attendre` | `ms` | pause |
+| `attendre-selecteur` | `selecteur` (+ `ms`) | attend l'apparition |
+| `memoriser` | `selecteur` | relève l'état, pour le comparer ensuite |
+| `verifier-selecteur` | `selecteur` | l'élément est là |
+| `verifier-texte` | `texte` | le texte est dans la page |
+| `verifier-change` | `selecteur` | le contenu a changé depuis `memoriser` |
+| `capture` | `fichier` | copie d'écran |
+
+### Ce que le mode garantit
+
+- **Le parcours est validé EN ENTIER avant la première étape.** Une clé manquante à l'étape 10
+  arrête tout avant l'étape 1 : s'interrompre au milieu d'un tunnel laisse un panier à moitié
+  rempli et une base sale, ce qui disqualifie un test qu'on rejoue en série.
+- **Un paramètre absent est une erreur**, jamais une chaîne vide. Un mot de passe vide donnerait
+  « identifiants invalides », et on chercherait le bug dans le site.
+- **Les secrets ne passent pas par la ligne de commande** (`ps` la rend lisible par tout le
+  système) : `--secret-env cle=NOM_DE_VARIABLE` va les chercher dans l'environnement, et ils
+  sont masqués dans les sorties, qu'on colle souvent dans un ticket.
+- **On s'arrête à la première étape ratée**, avec son numéro, son motif et une capture d'écran.
+  Enchaîner donnerait quinze échecs pour une seule cause.
+
+### Exemple
+
+```json
+{
+  "nom": "Ajout au panier depuis la fiche produit",
+  "etapes": [
+    { "action": "goto", "url": "{{base}}/fr/p/2025-un-produit" },
+    { "action": "verifier-selecteur", "selecteur": ".js-palier-form" },
+    { "action": "memoriser", "selecteur": ".cart-products-count" },
+    { "action": "cliquer", "selecteur": ".js-palier-form button[type=submit]", "apres": 4000 },
+    { "action": "verifier-change", "selecteur": ".cart-products-count" }
+  ]
+}
+```

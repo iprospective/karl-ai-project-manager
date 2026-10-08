@@ -127,6 +127,21 @@ périodiquement** (ou en cas de comportement inattendu), **revérifier que la
 config locale colle à l'instance live**. En cas de drift → corriger `.env` /
 `knowledge/redmine/api.md` / les constantes des scripts, puis committer.
 
+**Depuis le cockpit** (v2.59.0, RM2940) : catégorie « maintenance » du catalogue des
+commandes — « Vérifier la config Redmine » (`redmine-config-check`) et « Vérifier la
+cohérence PM » (`pm-doctor`), toutes deux en lecture seule. Premier passage : le CF 9,
+renommé côté Redmine, portait encore son ancien nom dans la référence.
+
+**Une seule instance servie en écriture.** `redmine.reference.yml` est bindé sur une
+instance ; tout l'outillage qui ÉCRIT l'état d'un ticket (statut, création, temps) vise
+celle-là, quel que soit le primaire déclaré par le projet. Un Redmine tiers en
+**primaire** n'est donc pas servi : `pm-task-status-update` le **refuse** et `pm-doctor`
+le signale en erreur, au lieu d'un PUT accepté sans effet. Les instances partenaires en
+**secondaire** ne sont pas concernées — leurs statuts passent par la table
+`sync.mirror.map` du projet (RM2746), qui porte ses propres ids. Le mapping complet par
+instance attend un projet qui en a réellement besoin (décision du 2026-09-19 : aucun
+des 66 projets n'est dans ce cas).
+
 **Quoi resynchroniser, et endpoints de référence** (lecture, clé API) :
 
 | Dimension | Endpoint | Référence locale |

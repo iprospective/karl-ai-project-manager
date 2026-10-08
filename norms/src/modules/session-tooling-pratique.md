@@ -1,4 +1,4 @@
-> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help`.
+> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help` · un secret a transité en séance, ou je touche au garde qui le détecte.
 > **Outils :** tous les `pm-*` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 Détail sorti de `session-tooling` (RM3037) pour tenir le budget de contexte : la **règle** — tout ce qui
@@ -37,6 +37,8 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | Session | **archiver les transcripts** (+ `history.jsonl`, worklogs) et surveiller que ça tourne | `pm-sessions-archive.py` (`--check`, `--install-timer`) (RM2997) |
 | Machine | **sauvegarde ZFS** — snapshots au fil de l'eau, purge bornée, surveillance | `pm-zfs-backup.py` (`--status`, `--check`) (RM3023) · `knowledge/zfs/sauvegarde.md` |
+| Courrier | **filtres Sieve d'une boîte** — lire, comparer, écrire (boîte vérifiée, validation serveur avant écriture, sauvegarde octet pour octet), activer, supprimer (jamais l'actif) | `pm-sieve.py list|get|diff|put|activate|delete|backups` (RM3171) · `knowledge/dovecot/sieve-karl.md` |
+| MEP | **point de restauration ZFS pré-MEP** (tripwire #10) sur le bon hyperviseur, via atlas | `pm-snapshot.py <id> [--dry-run]` (RM2989) |
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
@@ -61,6 +63,35 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Un secret qui transite : le garde système (RM3274)
+
+Le tripwire #11 t'interdit de faire transiter un secret dans un transcript, et la règle de
+RM2466 te demande de le signaler quand c'est arrivé. Depuis RM3274, **tu n'es plus le seul
+filet** : le hook `Stop` `pm-secret-watch` relit chaque tour et, s'il voit un secret — préfixe
+connu (`glpat-`, `ghp_`, `EAA…` Meta, `sk-…`, `AKIA…`, `AIza…`), mot-clé porteur, clé privée
+PEM, fragment de haute entropie — **ou si tu l'écris toi-même** (« affiché en clair », « token
+compromis », « à régénérer ») :
+
+1. écrit une notification **`critical`** adressée à l'owner — tous les secrets, sans palier
+   selon l'environnement ni selon que tu l'aies avoué (arbitrage Mathieu, 2026-09-21) ;
+2. **ouvre le ticket de rotation** : type `security`, priorité `immediat` (RM3275), lié au
+   ticket du tour ;
+3. journalise dans le `.log.md` du ticket courant.
+
+**Rien de tout cela ne contient la valeur** : libellé, endroit, empreinte `sha256[:12]` — et
+c'est à tenir si tu touches à ce code. Un garde qui recopie ce qu'il dénonce le propage dans
+des supports qui durent plus longtemps que le transcript (le fil, un ticket Redmine, un
+journal versionné).
+
+Deux gardes contre l'emballement : mémoire par empreinte (un même secret revu ne rouvre pas
+de ticket, la notification remonte avec son compteur) et plafond par session
+(`PM_SECRET_WATCH_MAX`, 3 par défaut — au-delà on alerte encore, on n'ouvre plus).
+
+**Ce garde ne t'exempte de rien.** Il rattrape l'oubli, il ne remplace pas le geste : tu
+signales toujours ce que tu as vu passer, et surtout tu évites de le faire transiter — un
+`SELECT` sur une table de configuration s'écrit en excluant `%TOKEN%`, `%KEY%`, `%SECRET%`.
+Essayer un texte à la main : `pm-secret-watch --text "…" --dry-run`.
 
 ## Le CYCLE DE SESSION — une procédure nommée (RM3162)
 

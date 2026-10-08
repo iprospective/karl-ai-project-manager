@@ -1,5 +1,6 @@
 // viewmodels/tickets/MetaViewModel — l'encart ℹ, décidé : la session (infos) et ses tickets (facettes). RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
+import { ReviewViewModel } from "../review/ReviewViewModel.js";   // RM3256 : le registre d'entités décrit le ticket, une seule fois
 import { ENGINE_LABEL, cval, fmtTokens, fmtMin, tmuxName, logEntries, FACETS, facetOf } from "./ticketMeta.js";
 import { sinceLabel, modelWindow, ctxPct, throughput, fmtUsd, fmtRate, fmtWin } from "../ticket/ticketFormat.js";
 
@@ -165,7 +166,25 @@ export class TicketMetaViewModel extends EntityViewModel {
       rels: rels.map(x => ({ label: x.label, ids: x.ids.map(String) })), hasDesc: !!r.description, hasLog: !!r.log_tail };
   }
   brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card, provider: r.provider }); }
+  /** RM3256 — l'entité « ticket » du registre (RM3002), construite depuis la résolution que le
+   *  panneau a déjà. C'est elle qui décrit les CHAMPS du ticket ; le panneau ne garde que ce qui
+   *  lui est propre : ses gestes, le brief projet, ses sessions. */
+  entityVm() { return new ReviewViewModel({ r: this.r || {} }, { rm: this.sel, now: this.now }); }
   desc() { const r = this.r; return (r && r.description) || ""; }
+  /** RM3175 : les critères, lus par la fonction unique de RM2882 — avec leur PROVENANCE, qui dit
+   *  où cocher : le champ dédié (`pm-task-acceptance`) ou la description (ticket non migré). */
+  criteria() {
+    const a = (this.r && this.r.acceptance) || {};
+    const items = (a.items || []).map(i => ({ done: !!i.done, label: String(i.label || "") }));
+    return { items, source: a.source || null, done: items.filter(i => i.done).length, total: items.length,
+      rm: this.sel };
+  }
+  impl() { const r = this.r; return String((r && r.implementation) || ""); }
+  /** RM3175 : la MEP d'un ticket tient en deux choses — les gestes (CF 8) et la recette (CF 30). */
+  deploy() {
+    const r = this.r || {}, tp = r.test_protocol || null;
+    return { actions: (r.deploy_actions || []).map(String), protocol: tp && tp.text ? { text: String(tp.text), source: tp.source || "" } : null };
+  }
   log() { return logEntries(this.r && this.r.log_tail); }
   /** RM2173/2373/2519 : la conso ENREGISTRÉE par le PM (≠ conso live de l'onglet infos). */
   conso() {

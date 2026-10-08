@@ -56,8 +56,9 @@ export class WorklogViewModel extends EntityViewModel {
     return { ref, rm: ticket ? refId(ref) : "", ticket, label: it.label || "", next: it.next || "", note: it.note || "", branches: brs, selected: !!(this.e.selected && this.e.selected.has(ref)),
       status: statusInfo(it), stage: mrStage((this.w.mr_stage || {})[ref]), progress: worklogProgress(it), points: { points: ((it.checklist || {}).items || []).slice(), points_truncated: !!(it.checklist || {}).truncated } };
   }
-  /** RM2798 : par client/projet dans chaque statut ; un seul groupe ⇒ pas d'en-tête. */
-  buckets() { const out = {}; for (const s of this.secs) { const groupes = groupWorklogItems(s.items); out[s.key] = groupes.length <= 1 ? [{ key: null, items: s.items.map(it => this.item(it)) }] : groupes.map(g => ({ key: g.key, items: g.items.map(it => this.item(it)) })); } return out; }
+  /** RM2798 : par client/projet dans chaque statut ; un seul groupe ⇒ pas d'en-tête.
+   *  RM2852 : rangés par proximité avec le projet de la session (servi par le worklog). */
+  buckets() { const out = {}; const session = { client: this.w.client || "", project: this.w.project || "" }; for (const s of this.secs) { const groupes = groupWorklogItems(s.items, session); out[s.key] = groupes.length <= 1 ? [{ key: null, items: s.items.map(it => this.item(it)) }] : groupes.map(g => ({ key: g.key, items: g.items.map(it => this.item(it)) })); } return out; }
   orphans() { return (this.e.branches || []).filter(b => !this.used.has(b)); }
   tabs(orphanCount) { const tabs = worklogTabList(this.secs, this.docs.length, orphanCount, this.mrTodo); let sub = this.e.sub; if (!tabs.some(t => t.key === sub)) sub = tabs.length ? tabs[0].key : "documents"; return { tabs: tabs.map(t => ({ key: t.key, label: t.label, n: t.n, active: t.key === sub })), sub }; }
   /** RM2935 : les documents groupés par ticket, noms débarrassés de leurs quotes YAML. */

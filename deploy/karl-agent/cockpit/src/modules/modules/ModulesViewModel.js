@@ -3,9 +3,12 @@
 import { EntityViewModel } from "../../core/EntityViewModel.js";
 
 const ETAT = { actif: { cls: "ok", icone: "✓" }, "désactivé": { cls: "off", icone: "○" },
+               "éteint (forcé)": { cls: "due", icone: "⊘" },
                "bloqué": { cls: "wait", icone: "⚠" }, erreur: { cls: "due", icone: "✗" } };
+const ETEINTS = ["désactivé", "éteint (forcé)", "erreur"];
 
-/** e = { data: {modules, order, cycles, inventory, bus, root, core_version}, error, open } */
+/** e = { data: {modules, order, cycles, inventory, bus, root, core_version, allow_force}, error, open,
+ *        refus: {nom: message}, confirming: nom, confirmText } — RM3145 L1 */
 export class ModulesViewModel extends EntityViewModel {
   constructor(e, ctx) { super(e || {}, ctx); this.d = this.e.data || {}; }
   get error() { return this.e.error || ""; }
@@ -15,6 +18,8 @@ export class ModulesViewModel extends EntityViewModel {
   get open() { return this.e.open || ""; }
   get cycles() { return this.d.cycles || []; }
   get bus() { return this.d.bus || { pending: 0, errors: 0, last_errors: [] }; }
+  /** RM3145 Q003 — le forçage est-il PERMIS ici ? Sans ce réglage, le geste n'est même pas offert. */
+  get allowForce() { return !!this.d.allow_force; }
 
   rows() {
     return (this.d.modules || []).map(m => ({
@@ -31,6 +36,19 @@ export class ModulesViewModel extends EntityViewModel {
                                                ok: t.ok, errors: t.errors || [] })),
       motifs: (m.errors || []).concat(m.blocked || []),
       open: m.name === this.open,
+      // ── RM3145 lot 1 : les gestes ──
+      native: m.native !== false,
+      forced: !!m.forced,
+      // ceux qu'on casserait MAINTENANT (actifs) — pas seulement ceux qui le déclarent
+      breaks: m.breaks || [],
+      canDisable: !ETEINTS.includes(m.state),
+      canEnable: ETEINTS.includes(m.state) && m.state !== "erreur",
+      refus: (this.e.refus || {})[m.name] || "",
+      // le forçage n'est offert qu'après un refus ET si l'instance le permet : deux sécurités distinctes
+      canForce: !!((this.e.refus || {})[m.name]) && !!this.d.allow_force,
+      confirming: this.e.confirming === m.name,
+      // la confirmation FORTE : recopier le nom — un simple « OK » se clique par réflexe
+      confirmOk: this.e.confirming === m.name && (this.e.confirmText || "") === m.name,
     }));
   }
 

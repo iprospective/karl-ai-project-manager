@@ -166,26 +166,89 @@ export function mountReview(el, ctx = {}) {
    *  RM3227 : trancher une QUESTION demande un commentaire facultatif — la réponse. Le serveur le
    *  consigne en décision « Qnnn : … », ce qu'affiche la vue Redmine des questions (CF 36). La
    *  saisie tient lieu de confirmation : Annuler n'écrit rien, OK à vide tranche sans réponse. */
+  /** RM3370 — trancher une question depuis la REVUE : avec sa décision (le cas courant), ou sans,
+   *  mais alors explicitement. L'ancien libellé disait « facultatif » ; le serveur, lui, exige la
+   *  décision depuis RM3269 — laisser vide renvoyait donc une erreur brute parlant de `--decide-with`
+   *  et `--force`. Le panneau CDC avait déjà cette conduite ; la revue, où l'on travaille, non. */
   async function thinkState(n) {
     const rm = String(state.current || ""), id = n.dataset.id, etat = n.dataset.state;
     if (!rm || !id) return;
-    let comment = "";
+    let comment = "", force = false;
     if (/^Q/.test(id)) {
-      const verbe = etat === "invalide" ? "Écarter " : "Trancher ";
-      const saisie = prompt(verbe + id + " sur RM" + rm + " (« " + etat + " »)\nRéponse / commentaire (facultatif) :", "");
+      const tranche = etat !== "invalide";
+      const saisie = prompt((tranche ? "Trancher " : "Écarter ") + id + " sur RM" + rm + "\n"
+        + (tranche ? "La DÉCISION qui tranche cette question (elle sera consignée « " + id + " : … ») :"
+                   : "Motif de l'écartement (facultatif) :"), "");
       if (saisie === null) return;
       comment = saisie.trim();
+      if (tranche && !comment) {
+        if (!ask(id + " : trancher SANS consigner de décision ?\n\n"
+                 + "Le pourquoi restera manquant. La question sera retrouvable dans « ce qui manque » "
+                 + "(questions tranchées sans décision).")) return;
+        force = true;
+      }
     } else if (!ask("Marquer " + id + " comme « " + etat + " » sur RM" + rm + " ?")) return;
     n.disabled = true;
     try {
-      await ctx.cdc.thinkEdit(comment ? { rm, id, action: "state", state: etat, comment } : { rm, id, action: "state", state: etat });
-      notify(id + " → " + etat + (comment ? " · réponse consignée" : ""));
+      const body = { rm, id, action: "state", state: etat };
+      if (comment) body.comment = comment;
+      if (force) body.force = true;
+      await ctx.cdc.thinkEdit(body);
+      notify(id + " → " + etat + (comment ? " · décision consignée" : force ? " · SANS décision (à reprendre)" : ""), force);
       T.reload(rm);
     } catch (e) { notify(e.message, true); } finally { n.disabled = false; }
   }
 
+  /** RM3258 — une entrée consignée au mauvais ticket : elle part telle quelle (verbatim, date, auteur),
+   *  sous un nouvel id chez la cible. Le serveur refond les registres des DEUX projets. */
+  async function thinkMove(n) {
+    const rm = String(state.current || ""), id = n.dataset.id;
+    if (!rm || !id) return;
+    const saisie = prompt("Déplacer " + id + " de RM" + rm + " vers quel ticket ?\nNuméro RM :", "");
+    if (saisie === null) return;
+    const to = String(saisie).trim().replace(/^RM/i, "");
+    if (!/^\d+$/.test(to)) { notify("numéro de ticket attendu", true); return; }
+    n.disabled = true;
+    try { await ctx.cdc.thinkEdit({ rm, id, action: "move", to }); notify(id + " déplacée vers RM" + to); T.reload(rm); }
+    catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+  /** RM3381 — corriger le TEXTE d'une entrée. Une question moissonnée est le verbatim d'un message,
+   *  rarement un énoncé : elle se corrige. L'état n'est pas touché (RM3161), et l'ancien texte part
+   *  au journal du ticket. Saisie pré-remplie : on corrige, on ne retape pas. */
+  async function thinkText(n) {
+    const rm = String(state.current || ""), id = n.dataset.id, avant = String(n.dataset.text || "");
+    if (!rm || !id) return;
+    const saisie = prompt("Corriger " + id + " sur RM" + rm + "\n(l'état n'est pas touché ; l'ancien texte reste au journal)", avant);
+    if (saisie === null) return;
+    const texte = String(saisie).trim();
+    if (!texte || texte === avant.trim()) { notify("texte inchangé"); return; }
+    n.disabled = true;
+    try { await ctx.cdc.thinkEdit({ rm, id, action: "text", text: texte }); notify(id + " corrigée"); T.reload(rm); }
+    catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+  /** RM3064 : la suppression existait dans la vue CDC ; elle manquait ICI, là où la clôture est refusée. */
+  async function thinkDelete(n) {
+    const rm = String(state.current || ""), id = n.dataset.id;
+    if (!rm || !id) return;
+    if (!ask("Supprimer " + id + " du carnet de RM" + rm + " ? (définitif — préférer → pour la déplacer)")) return;
+    n.disabled = true;
+    try { await ctx.cdc.thinkEdit({ rm, id, action: "delete" }); notify(id + " supprimée"); T.reload(rm); }
+    catch (e) { notify(e.message, true); } finally { n.disabled = false; }
+  }
+
+  /** RM3225 : copier une commande (lancement du script de MEP). Même repli que le terminal. */
+  async function copyText(n) {
+    const txt = n.dataset.text || "";
+    let ok = false;
+    if (ctx.clipboard) { try { await ctx.clipboard.writeText(txt); ok = true; } catch (e) { /* repli */ } }
+    if (!ok && ctx.copyFallback) ok = !!ctx.copyFallback(txt);
+    notify(ok ? "commande copiée" : "copie impossible — sélectionner la commande", !ok);
+  }
+
   const gestures = {
-    reload: () => T.reload(state.current), "think-state": (n) => thinkState(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
+    copy: (n) => copyText(n),
+    reload: () => T.reload(state.current), "think-state": (n) => thinkState(n),
+    "think-move": (n) => thinkMove(n), "think-delete": (n) => thinkDelete(n), "think-text": (n) => thinkText(n), close: () => close(state.current), tag: (n) => ctx.filterByTag && ctx.filterByTag(n.dataset.tag),
     verdict: (n) => verdict(n.dataset.rm, n.dataset.kind, n), pm: (n) => ctx.sendPmAction && ctx.sendPmAction(Number(n.dataset.i), n.dataset.rm, n),
     "open-contact": (n) => ctx.openContact && ctx.openContact(n.dataset.value),   // RM3149
     attach: (n) => ctx.attach && ctx.attach(n.dataset.sid), spawn: (n) => spawnTicket(n.dataset.rm, n), send: (n) => sendToSession(n.dataset.rm, n),

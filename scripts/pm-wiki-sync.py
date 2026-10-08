@@ -52,11 +52,12 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pm_paths import PMConfig  # noqa: E402
+from pm_paths import PMConfig, core_state_dir  # noqa: E402
 import redmine_utils as rm  # noqa: E402
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
 from pm_doc import get_doc_provider, DocProviderError, wiki_title_for_slug  # seam DocProvider (P3/RM2545)  # noqa: E402
 from pm_lock import resource_lock, atomic_write, LockTimeout  # verrous par ressource (T7/RM2551)  # noqa: E402
+import pm_secret_scan  # noqa: E402  RM3274 : garde anti-secret partagé avec pm-secret-watch
 
 try:
     import yaml
@@ -146,22 +147,22 @@ def rewrite_links_foldback(body, title_to_basename):
 
 
 # ── Garde anti-secret (spec §5) ──────────────────────────────────────────
-_SECRET_PATTERNS = [
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "clé privée PEM"),
-    (re.compile(r"(?i)\bpassword\s*[:=]\s*\S+"), "password: <valeur>"),
-    (re.compile(r"(?i)\bpasswd\s*[:=]\s*\S+"), "passwd: <valeur>"),
-    (re.compile(r"(?i)\bsecret\s*[:=]\s*\S+"), "secret: <valeur>"),
-    (re.compile(r"(?i)\bapi[_-]?key\s*[:=]\s*\S+"), "api_key: <valeur>"),
-    (re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"), "jeton haute entropie (≥32c base64)"),
-]
+# RM3274 : les motifs et l'heuristique de départage des chemins (RM2826) vivent
+# maintenant dans `pm_secrets`, partagés avec la surveillance du transcript
+# (`pm-secret-watch`). Deux copies auraient divergé — et c'est précisément sur
+# un motif manquant d'un côté que l'on perd un secret.
 _ALLOW_MARK = "<!-- wiki-sync: allow -->"
+
+# Réexports : des tests et des appelants historiques passent par ces noms.
+_SECRET_PATTERNS = pm_secret_scan._SECRET_PATTERNS
+_RX_BASE64 = pm_secret_scan._RX_BASE64
+_ressemble_a_un_chemin = pm_secret_scan._ressemble_a_un_chemin
+_jetons_haute_entropie = pm_secret_scan._jetons_haute_entropie
 
 
 def scan_secrets(body):
     """Libellés des motifs secrets détectés (vide si OK ou si marque allow présente)."""
-    if _ALLOW_MARK in body:
-        return []
-    return [label for rx, label in _SECRET_PATTERNS if rx.search(body)]
+    return pm_secret_scan.scan_secrets(body, allow_mark=_ALLOW_MARK)
 
 
 # ── Wrappers gérés (ajoutés au push, retirés à la canonicalisation) ──────
@@ -427,6 +428,30 @@ class LockBusy(Exception):
     """Levée quand un autre sync du même projet tient déjà le lock au-delà du délai."""
 
 
+_GITIGNORE_ETAT = """# État runtime de pm-wiki-sync — jamais versionné (RM2825).
+# Le verrou vit désormais hors de ce dossier ; cette ligne reste le filet pour les
+# projets synchronisés avant le correctif, et pour tout résidu.
+.lock
+"""
+
+
+def _ignorer_le_verrou_residuel(state_dir):
+    """Pose un `.gitignore` dans le dossier d'état, pour les projets déjà synchronisés.
+
+    Le verrou n'est plus écrit ici (cf. `ProjectLock._chemin_du_verrou`), mais les projets
+    synchronisés avant le correctif en gardent un, parfois déjà suivi par git. Ce fichier
+    évite qu'il revienne dans l'index. Le rattrapage des `.lock` DÉJÀ suivis reste un
+    `git rm --cached` à faire une fois par projet concerné — on ne touche pas à l'index
+    d'un dépôt sous les pieds de l'utilisateur.
+    """
+    cible = Path(state_dir) / ".gitignore"
+    try:
+        if not cible.exists():
+            cible.write_text(_GITIGNORE_ETAT, encoding="utf-8")
+    except OSError:
+        pass   # un dossier non inscriptible ne doit pas empêcher la synchro
+
+
 class ProjectLock:
     """Sérialise deux syncs concurrents d'un même projet (spec §9).
 
@@ -435,14 +460,65 @@ class ProjectLock:
     (supprime le TOCTOU RM1834). Contention = attente bornée ; au-delà de `timeout`,
     LockBusy → le projet est skippé et re-tenté au sync suivant (skip préservé)."""
 
-    def __init__(self, state_dir, *, timeout=10.0):
-        self.path = state_dir / ".lock"
+    def __init__(self, state_dir, *, timeout=10.0, lock_path=None):
         self.state_dir = state_dir
+        self.path = Path(lock_path) if lock_path else self._chemin_du_verrou(state_dir)
         self._timeout = timeout
         self._cm = None
 
+    @staticmethod
+    def _chemin_du_verrou(state_dir):
+        """Où écrire le `.lock` : hors du volume PM VERSIONNÉ du projet (RM2825).
+
+        Le dossier d'état `.mmi-pm/.wiki-sync/` est versionné. Y déposer un verrou en fait
+        un fichier que git peut créer, supprimer ou restaurer sous les pieds du processus
+        qui le détient : un `git checkout` ou un `git stash` pendant une synchro suffit à le
+        fausser. Et en sessions parallèles, deux workers synchronisant deux projets
+        produisent des commits qui se marchent dessus sur un fichier qui n'a aucune raison
+        d'être partagé. Constaté le 2026-08-25 sur pisceen/presta, où le `.lock` s'est
+        retrouvé dans l'index avec les fichiers légitimes.
+
+        Ordre de préférence, et pourquoi :
+
+        1. `<core>/var/wiki-sync/` — déjà couvert par le `.gitignore` du core, et surtout
+           PARTAGÉ entre utilisateurs : c'est la seule option qui sérialise vraiment deux
+           synchros lancées par deux comptes différents sur le même projet.
+        2. `$XDG_RUNTIME_DIR/mmi-pm/wiki-sync/` — si le `var/` du core n'est pas
+           inscriptible. Dégradé et assumé : ce dossier est propre à chaque utilisateur,
+           donc deux comptes ne se verrouillent plus mutuellement. Mieux que pas de verrou.
+        3. l'ancien emplacement, dans le dossier d'état du projet — dernier repli, pour ne
+           jamais empêcher une synchro de tourner.
+
+        Le nom est dérivé du chemin du dossier d'état : un verrou par projet, sans collision
+        entre deux projets de même nom chez deux clients différents.
+        """
+        etat = Path(state_dir)
+        cle = hashlib.sha1(str(etat.resolve()).encode("utf-8")).hexdigest()[:12]
+        nom = "%s-%s.lock" % (etat.parent.parent.name or "projet", cle)
+
+        candidats = []
+        try:
+            candidats.append(core_state_dir() / "wiki-sync")
+        except Exception:
+            pass
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if runtime:
+            candidats.append(Path(runtime) / "mmi-pm" / "wiki-sync")
+
+        for base in candidats:
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+                if os.access(str(base), os.W_OK):
+                    return base / nom
+            except OSError:
+                continue
+
+        return etat / ".lock"
+
     def __enter__(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        _ignorer_le_verrou_residuel(self.state_dir)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._cm = resource_lock(self.path, timeout=self._timeout)
         try:
             self._cm.__enter__()

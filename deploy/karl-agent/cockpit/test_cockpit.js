@@ -339,6 +339,72 @@ box.fire("keydown", {}); box.fire("input", key("é"));
 assert.deepStrictEqual(sent, ["é"], "la session vivante reçoit l'accent");
 assert.deepStrictEqual(zombieSent, [], "la session démontée ne capte plus rien");
 console.log("✓ hook de saisie : accents repris, pas de doublon, écouteurs libérés au démontage");
+
+// — RM3286 : défilement TACTILE du terminal — xterm.js ne gère pas le toucher —
+const touchScrollLinesRaw = pick("touchScrollLines");
+// le résultat vient d'un autre contexte vm : on le recopie ici, sinon deepStrictEqual bute sur le prototype
+const touchScrollLines = (dy, h, acc) => Object.assign({}, touchScrollLinesRaw(dy, h, acc));
+assert.deepStrictEqual(touchScrollLines(50, 17, 0), { lines: 2, rest: 16, pixels: 34 }, "un glissement vers le haut descend dans l'historique");
+assert.deepStrictEqual(touchScrollLines(-50, 17, 0), { lines: -2, rest: -16, pixels: -34 }, "…et l'inverse remonte, symétriquement");
+assert.deepStrictEqual(touchScrollLines(5, 17, 0), { lines: 0, rest: 5, pixels: 0 }, "un micro-mouvement ne défile pas : il s'accumule");
+assert.deepStrictEqual(touchScrollLines(5, 17, 13), { lines: 1, rest: 1, pixels: 17 }, "…et le reliquat finit par donner une ligne (le texte suit le doigt)");
+assert.strictEqual(touchScrollLines(50, 0, 0).lines, 2, "hauteur de ligne inconnue → défaut xterm, jamais de division par zéro");
+assert.deepStrictEqual(touchScrollLines(0, 17, 0), { lines: 0, rest: 0, pixels: 0 }, "doigt immobile : rien");
+
+// installTouchScroll : le geste devient une MOLETTE (xterm choisit ensuite : l'envoyer à
+// l'application qui suit la souris — tmux —, ou défiler son tampon). Cycle de vie des
+// écouteurs, un seul doigt, appui simple préservé.
+const mITS = />>> installTouchScroll\n(\s*function installTouchScroll[\s\S]*?)\n  \/\/ <<< installTouchScroll/.exec(termSrc);
+assert(mITS, "marqueurs >>> installTouchScroll / <<< installTouchScroll introuvables");
+const wheels = [];
+class FakeWheelEvent { constructor(type, init) { Object.assign(this, { type }, init); } }
+const installTouchScroll = vm.runInNewContext("(" + mITS[1] + ")", { touchScrollLines: touchScrollLinesRaw, WheelEvent: FakeWheelEvent });
+function fakeTouchBox() {
+  const ls = { touchstart: [], touchmove: [], touchend: [], touchcancel: [] };
+  const screen = { dispatchEvent: (ev) => { wheels.push(ev); return true; } };
+  return { clientHeight: 240, querySelector: (sel) => (sel === ".xterm-screen" ? screen : null),
+    addEventListener: (t, f) => ls[t].push(f), removeEventListener: (t, f) => { const i = ls[t].indexOf(f); if (i >= 0) ls[t].splice(i, 1); },
+    count: () => Object.values(ls).reduce((n, a) => n + a.length, 0),
+    fire(t, ev) { for (const f of ls[t].slice()) f(ev); } };
+}
+const scrolled = []; let prevented = 0;
+const box3286 = fakeTouchBox();
+const term3286 = { rows: 24, scrollLines: (n) => scrolled.push(n) };   // 240 px / 24 lignes = 10 px la ligne
+const stopTouch = installTouchScroll(box3286, term3286);
+const touch = (y) => ({ touches: [{ clientY: y, clientX: 40 }], cancelable: true, preventDefault: () => prevented++ });
+box3286.fire("touchstart", touch(500));
+box3286.fire("touchmove", touch(497));
+assert.deepStrictEqual(wheels, [], "3 px : sous une ligne, on ne défile pas et on NE CONFISQUE PAS le geste");
+assert.strictEqual(prevented, 0, "…donc l'appui simple garde le focus et le clavier");
+box3286.fire("touchmove", touch(470));
+assert.strictEqual(wheels.length, 1, "30 px de plus → une molette");
+assert.strictEqual(wheels[0].type, "wheel");
+assert.strictEqual(wheels[0].deltaY, 30, "…de 3 lignes, en pixels (deltaMode 0), comme une vraie molette");
+assert.strictEqual(wheels[0].deltaMode, 0);
+assert.strictEqual(wheels[0].clientX, 40, "la position du doigt voyage avec : tmux s'en sert pour viser le bon pane");
+assert(wheels[0].cancelable && wheels[0].bubbles, "elle doit remonter jusqu'aux écouteurs d'xterm");
+assert.deepStrictEqual(scrolled, [], "on n'appelle PLUS scrollLines : dans l'écran alternatif il ne ferait rien");
+assert.strictEqual(prevented, 1, "là seulement, le geste est capté (pas de défilement de page par-dessus)");
+box3286.fire("touchmove", touch(500));
+assert.strictEqual(wheels.length, 2, "retour vers le bas de l'écran → molette en sens inverse");
+assert.strictEqual(wheels[1].deltaY, -30);
+const capteApresDeuxDefilements = 2;   // chaque défilement réel capte le geste : deux jusqu'ici
+box3286.fire("touchend", {});
+box3286.fire("touchmove", touch(400));
+assert.strictEqual(wheels.length, 2, "doigt levé : plus rien ne défile");
+box3286.fire("touchstart", { touches: [{ clientY: 500 }, { clientY: 300 }] });
+box3286.fire("touchmove", { touches: [{ clientY: 400 }, { clientY: 300 }], cancelable: true, preventDefault: () => prevented++ });
+assert.strictEqual(wheels.length, 2, "deux doigts : c'est un pincer-zoomer, on n'y touche pas");
+assert.strictEqual(prevented, capteApresDeuxDefilements, "…et on ne le bloque pas non plus (aucune capture de plus)");
+// repli : sans WheelEvent (vieux moteur), on défile au moins le tampon local
+const boxOld = fakeTouchBox();
+const stopOld = vm.runInNewContext("(" + mITS[1] + ")", { touchScrollLines: touchScrollLinesRaw })(boxOld, term3286);
+boxOld.fire("touchstart", touch(500)); boxOld.fire("touchmove", touch(470));
+assert.deepStrictEqual(scrolled, [3], "WheelEvent indisponible → repli sur le tampon local, jamais d'erreur");
+stopOld();
+stopTouch();
+assert.strictEqual(box3286.count(), 0, "écouteurs tactiles retirés au dispose (le conteneur survit aux remontages)");
+console.log("✓ défilement tactile (RM3286) : le geste devient une molette (tmux la reçoit), appui simple et pincer-zoomer préservés, écouteurs libérés");
 // — sortFrozen (RM2346) : MIGRÉ (RM2889) — voir test_cockpit_sessions.js —
 
 // — ttsMode / sttMode (RM2532/RM2533) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —

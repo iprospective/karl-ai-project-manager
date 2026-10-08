@@ -11,8 +11,13 @@ les deux écrivaient sinon deux squelettes voués à diverger au premier champ a
 schéma. Tables, slug et détection des critères sont repris à l'identique.
 """
 import re
+import sys
 import unicodedata
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -55,7 +60,8 @@ TYPE_LABELS = {
     "assistance": "assistance — support",
     "autre": "autre",
 }
-PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+# RM3275 : plus de table en dur — la source est redmine.reference.yml, via pm_priority.
+PRIORITY_TO_ID = pm_priority.ids()
 
 
 # Inverse du tracker → type NORMS, pour ADOPTER un ticket qui existe déjà. La
@@ -169,7 +175,9 @@ def render_md(fm, description=""):
                              default_flow_style=False).rstrip()
     desc = description or "_(pas de description fournie au moment de la création)_"
     md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
-    if not has_acceptance_criteria(desc):
+    # RM3241 : critères déjà dans leur champ (`acceptance`, miroir du CF 33) ⇒ la
+    # description n'en porte plus, et le bandeau « À définir » mentirait.
+    if not has_acceptance_criteria(desc) and not str(fm.get("acceptance") or "").strip():
         # RM2789 — marqueur VISIBLE mais NON COMPTABLE. En case à cocher, il bloquait la
         # livraison sans que personne puisse le cocher, et le seul recours désactivait le
         # garde-fou pour les vrais critères aussi.

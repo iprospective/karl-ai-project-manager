@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -38,7 +39,7 @@ except ImportError:
     console = None
 
 
-PRIORITY_WEIGHTS = {"low": 0.5, "normal": 1.0, "high": 2.0, "urgent": 4.0}
+PRIORITY_WEIGHTS = pm_priority.weights()  # RM3275 : source unique, poids doublant par cran
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 LOG_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.log\.md$")
 

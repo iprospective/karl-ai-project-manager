@@ -8,6 +8,12 @@
 .cdc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
 .cdc-q { flex: 1 1 200px; min-width: 140px; font-size: 12px; padding: 4px 8px; }
 .cdc-counts { font-size: 11.5px; color: var(--muted); }
+/* RM3306 : le filtre « sans ticket ». Discret tant que rien n'est à faire (ce sont des traces),
+   il se met en avant dès qu'une fonctionnalité non ticketée reste à faire — c'est elle qui
+   n'apparaît dans aucune liste de travail. */
+.cdc-noticket { margin-left: 6px; }
+.cdc-noticket b { color: var(--warn); font-weight: 600; }
+.cdc-noticket.on { border-color: var(--accent); color: var(--accent); }
 .cdc-hint { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
 .cdc-tablewrap { overflow-x: auto; }
 .cdc-table { width: 100%; border-collapse: collapse; font-size: 12px; }

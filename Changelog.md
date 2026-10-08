@@ -18,6 +18,102 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   rédige désormais la proposition et la présente à valider ; un projet vide est refusé avec le
   remède ; le serveur reprend le projet du routage quand la proposition n'en tranche pas ; sur une
   réponse dans un fil, le bouton annonce la note (« ✓ Note sur RM<id> »).
+
+- **Mettre à jour le code de l'instance depuis le cockpit (RM2571, réouvert).** Le bouton « ⬆ MAJ dispo »
+  ne faisait que dire la commande à taper ; il l'applique désormais. Arbitrage Mathieu du 2026-09-30 : la
+  règle sudoers du seul verbe `bin/mmi-pm core update` passe en **NOPASSWD**, pour un utilisateur `pm`
+  autorisé — toujours en mono-utilisateur, administrateur en multi (`POST /core/update`). La barrière
+  humaine du §13a n'est pas levée, elle se **déplace** : authentification du cockpit + droit nommé, sur une
+  commande étroite (jamais `ALL`), journalisée par sudo, par le journal PM et par un journal de run.
+  Comme la mise à jour **redémarre karl-agent** quand son propre code a changé, le travail est détaché et
+  suivi par `GET /core/update-log`, qui relit un fichier : le front reprend le suivi au chargement, et une
+  erreur réseau pendant le redémarrage n'est plus prise pour un échec. Sans la règle, le cockpit le dit et
+  renvoie la commande du terminal plutôt que d'échouer au clic ; en CLI, `pm-core-update` tente `sudo -n`
+  puis retombe sur le sudo interactif.
+
+- **Les données d'un env : une déclaration, trois outils (RM3419).** La liste des dossiers de données
+  d'une appli devient une donnée partagée — `<type>-data.map` + la surcharge du **dépôt du site**
+  (`.<type>-data.map`, seule visible depuis un worktree), résolue par `env-data-manifest.sh`. Trois
+  consommateurs : l'index `data/` (RM3401), le nouveau `env-link-data.sh` (les données d'un env de dev
+  pointent vers l'env socle au lieu d'y être recopiées) et `tools/synchro --data` (rapatrie ces
+  dossiers-là depuis la prod, sans le `rsync --delete` de tout l'arbre qui écraserait un worktree).
+  `env-link-data.sh` pose le plus gros lien possible — dossier entier quand il ne porte aucun fichier
+  du dépôt, sinon il descend, et ne tombe au fichier que dans les feuilles mixtes : 27 liens au lieu de
+  38 000 sur un `img/p` réel. Deux gardes payées en réel (RM3218) : jamais un fichier suivi par git,
+  jamais sous un ancêtre déjà lié (on écrirait par-dessus le socle). Manifestes livrés : presta (cœur),
+  dolibarr (une ligne, tout est sous `documents/`), wordpress.
+
+- **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
+  s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé
+  (`pm-task-move` l'emporte). La fiche du cockpit gagne un bloc « 🚀 Mise en production » — actions au
+  déploiement (jusque-là absentes du cockpit), commandes de lancement copiables, texte du script, déplié
+  en `a_mep` / `en_mep` ; `pm-task-status-update` (entrée en `a_mep`) et `pm-task-deploy` l'affichent
+  aussi. Lecture unique `scripts/pm_mep_script.py` (+ contrôle du contrat, signalé sans bloquer).
+  Au passage, `karl-agent` lit enfin les environnements écrits en liste YAML en colonne 0 (`- name:
+  prod`, forme de pisceen : le cockpit n'en voyait aucun) et retire le commentaire de fin de ligne
+  d'une URL. NORMS v2.55.0.
+- **`data/` : l'index des données d'un PrestaShop** (RM3401, pour RM3186). `tools/env-runtime/presta-data-index.sh`
+  crée, dans `data/`, **un lien symbolique relatif par dossier de données** du site — images produit,
+  rubriques, CMS, fabricants… plus `upload/` et `download/` — d'après un manifeste
+  (`presta-data.map`, surchargeable par projet pour les données des modules). **Rien n'est déplacé** :
+  les données restent là où PrestaShop les écrit, et aucun lien n'est posé DANS son arbre, donc une
+  mise à jour du cœur ou d'un module ne peut pas les casser. Les liens étant relatifs, ils se
+  commitent et git les reproduit dans chaque worktree et en prod. `--check` signale un lien pendant
+  ou faux, `--ensure` répare, et un vrai dossier déjà en place dans `data/` **arrête** le script au
+  lieu d'être écrasé. Un `data/.htaccess` refuse tout accès HTTP (les liens y mènent à `upload/`).
+  La synchro prod→dev exclut `/data`.
+- **Corriger le texte d'une entrée de carnet depuis le cockpit** (RM3381) : ✎ sur chaque entrée, dans
+  la revue d'un ticket et dans le registre du projet. La saisie arrive pré-remplie avec le texte
+  actuel, l'état n'est pas touché (RM3161 : amender n'est pas revirer), l'ancien texte part au
+  journal du ticket, et un texte inchangé ou vide n'écrit rien. Une question moissonnée est le
+  verbatim d'un message, rarement un énoncé : elle se corrigeait seulement en ligne de commande.
+
+- **La file « à vérifier en prod » se rappelle à nous** (RM3278, lot B de l'étude RM2853).
+  `en_mep` veut dire « déployé, dernière vérification avant fermeture » — mais rien ne relançait
+  cette file : 18 tickets déployés en attente le 2026-09-30, le plus ancien depuis 71 jours.
+  `pm-mep-watch` les signale au fil de notifications, **preuve à l'appui** : filiation des commits
+  depuis le checkout de prod, ou merge dans la branche que la prod suit (le pull côté serveur n'est
+  pas supposé, c'est dit). Sans preuve, rien n'est notifié. Signale aussi les tickets restés en
+  `a_mep` dont le code est déjà en prod — statut en retard. Job quotidien du registre de
+  l'ordonnanceur, aucun cron dédié, aucune écriture sur les tickets.
+
+- **Les critères écrits en liste partent dans le champ dès la création** (RM3373). Neuf jours après la
+  reprise RM3241/RM3285, 63 sections étaient réapparues — 37 sur des tickets créés en trois jours.
+  Cause : la conversion des critères écrits en puces ou en liste numérotée n'existait que dans la
+  purge, pas à la création (RM3320, RM3321) ; et `pm-project-bootstrap`, dont les gabarits portent
+  une section, ne passait pas par le découpage (RM3309). Les deux chemins sont corrigés : cases
+  créées **décochées** — à la création, rien n'est fait — et une section de prose ne fabrique
+  toujours aucun critère.
+- **Trancher une question depuis le cockpit fonctionne enfin** (RM3370) : la réponse saisie devient la
+  décision (le cas courant), et la laisser vide propose explicitement de **trancher sans décision** —
+  tracé, retrouvable par `--orphans`. Deux défauts se cumulaient : la revue annonçait la réponse comme
+  « facultative » alors que RM3269 l'exige, et le service du cockpit **laissait tomber le drapeau
+  `force`** en le déstructurant, si bien que le geste « sans décision » de la vue CDC n'atteignait
+  jamais le serveur. Le refus, enfin, se dit dans les mots du cockpit au lieu de citer `--decide-with`.
+- **Synchro : recette d'un site WordPress** (RM3250) : `tools/synchro/lib/wordpress.sh`, jusqu'ici
+  une coquille vide, clone un WordPress de production vers sa recette — URL et chemin disque
+  remplacés par wp-cli (données sérialisées comprises), mails coupés et `noindex` posés par un
+  mu-plugin de recette que `--delete` ne supprime pas, extensions listées désactivées,
+  `wp-config.php` et compte MySQL propres à la recette (mot de passe jamais en argument).
+  Nouvelle stratégie de dump `remote-mysqldump-socket` : aucun mot de passe de prod à détenir.
+  Le framework gagne un README.
+- **browser-check : mode parcours** (RM3359) : `--scenario <fichier.json>` déroule une suite
+  d'étapes (connexion, saisie, sélection, clic, assertions) au lieu d'un clic unique, avec des
+  paramètres `{{variables}}` fournis en ligne de commande. Les secrets viennent de
+  l'environnement (`--secret-env`) et sont masqués dans les sorties. Le parcours est validé
+  ENTIÈREMENT avant la première étape, et s'arrête à la première qui casse, avec son numéro,
+  son motif et une capture d'écran.
+- **Une question qui attend un TIERS ne bloque plus la clôture** (RM3357) : l'état `⏸ réserve`
+  existait mais ne fermait rien. Il vaut désormais « en attente d'un client, d'un hébergeur, d'un
+  fournisseur » : compté à part (`questions_reserve`), affiché sous son propre intitulé dans le CF 36
+  et le volet Réflexion, sans ✅/❌ — ce n'est pas à nous de trancher. La garde de MEP et le refus de
+  clôture ne regardent plus que les arbitrages qui nous reviennent.
+- **Fin des mails « SECURITY information » en rafale** (RM3341). La sonde `peut_sudo` du cockpit
+  (RM3070 L2) exécutait `sudo -n -u root true` : chaque refus était journalisé et mailé à root
+  (`mail_badpass`) — un mail toutes les 5 min cockpit ouvert, des rafales à chaque suite de tests.
+  Elle LIT désormais les règles (`sudo -n -l`, silencieux) au lieu de les essayer, et un refus reste
+  acquis jusqu'au redémarrage. `mmi-pm test` place un faux `sudo` en tête de PATH : aucun test ne
+  s'élève pour de vrai.
 - **Suivre les fonctionnalités qu'aucun ticket ne porte** (RM3306) : `pm-cdc-features --sans-ticket`
   les liste, en séparant les soldées (livrées ou écartées — ce sont des traces) de celles qui restent
   à faire, à qui il manque un ticket. Le chapitre généré porte la synthèse, et le cockpit a une
@@ -245,6 +341,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le
   cockpit sonde l'hôte réellement servi — celui de `test_url` — au lieu de le déduire du
   dossier, ce qui l'aurait fait passer pour mort. Nouveau placeholder `{host}` pour `post_create`.
+- **Un ticket se renomme enfin depuis le PM** (RM3242) : `pm-task-rename <id> --title "…" --note "motif"`
+  réécrit le titre du frontmatter ET de Redmine, sous verrou, puis **relit Redmine** (qui répond 204 même
+  quand il ignore le champ faute de droit). L'ancien titre reste dans le journal et dans la note Redmine :
+  c'est sous ce nom qu'on cherchera encore le ticket. Les fichiers ne sont pas renommés — le slug est
+  référencé ailleurs, et NORMS n'exige que le préfixe `RM<id>_`. Jusqu'ici, un ticket dont l'objet
+  avait changé gardait un titre qui mentait (RM3186 : « déplacer » les données sur un ticket qui décide
+  de ne rien déplacer), ou portait un bandeau d'avertissement en tête de description (RM2783).
 - **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
   --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
   description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local
@@ -336,6 +439,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   arrivaient déjà et étaient jetés ; s'y ajoutent la mesure avec son seuil (« 28 048 / 29 000
   (97 %) » plutôt que « la précharge a entamé sa marge ») et la **fenêtre** de répétition — « ×12
   sur 3 j » et « ×12 sur 10 min » appellent des réactions opposées.
+- **Le CLI fait ce que le cockpit faisait seul — V1 (RM3208, prérequis d'un déploiement
+  client sans cockpit).** Trois gestes n'existaient que dans le serveur du cockpit, dont la logique était
+  enfermée dans ses routes HTTP :
+  - **les comptes** : les comptes du cockpit sont ceux des utilisateurs du CLI. Leur logique passe dans
+    `pm_accounts` (verrou inter-processus, 0600, propriétaire préservé quand on écrit en root, compte possible
+    sans mot de passe), et **`mmi-pm user add|passwd|disable|enable|remove|list`** crée le compte PM
+    *unique* : compte de rôle `<login>-pm`, groupe `pm`, registre, gabarit de conf utilisateur (`<core>/var/users/<login>/.env`, RM3318), skills et
+    hooks — idempotent, `--dry-run`, mot de passe jamais en argument, `disable` réversible, `remove` ne
+    touche jamais au compte humain. Le runbook de provisionnement se réduit à cet appel.
+  - **le lot de tickets** (« traiter / passer à tester / analyser ») : composition extraite dans `pm_batch`,
+    et **`pm-session-status batch <tickets> [--mode …]`** affiche la même consigne pour la session courante.
+    Le marquage des notifications existait déjà : `pm-notify --read/--done`.
+  - **l'installation hors `/zfs/workspaces`** : les règles sudoers figeaient `/zfs/workspaces/.mmi-pm-core`,
+    que l'installeur ne substituait pas — installée en `/opt/mmi-pm/core`, aucune règle ne s'appliquait et
+    `sudo mmi-pm core update` était refusé. Le gabarit porte `<CORE_DIR>`, `install-mmi-pm --print-sudoers`
+    montre le rendu sans root, `core-lock` et `provision-core` s'auto-localisent, et `.env.example` déclare
+    enfin `KARL_USER` / `KARL_SUDO_USER`, que l'installeur exigeait.
+  - **garde anti-régression** : `test_cockpit_cli_parity.py` lit le dispatch du cockpit et échoue sur toute
+    route qui écrit l'état sans script CLI ni module partagé, hors exceptions nominatives (pilotage des
+    sessions, affichage du cockpit, et trois routes renvoyées en V2, RM3210). Une exception périmée échoue aussi.
+  - reste en revue avant tout code : la normalisation du modèle de propriété (`core-lock` pose `.env` et
+    `var/` sur le groupe `KARL_USER`, `pm-perms` attend `pm`).
 
 - **Un module livré n'est plus invisible après un core update** (RM3178) : le démon ne redémarrait que
   si `scripts/karl-agent.py` avait changé. Or il **importe au moins treize modules** du même dossier —
@@ -1206,6 +1331,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : création des brouillons** (RM2891, lot 2). `mmi-pm invoice --month AAAA-MM --apply`
+  relit la proposition **amendée** — aucun recalcul, ce que l'humain a relu est ce qui part — et crée
+  une facture **brouillon** par client dans l'ERP : lignes de service (jamais de marchandise), tarif
+  de la dernière facture, note publique au modèle. **Jamais de validation** : une facture émise ne se
+  rattrape pas, la validation reste un geste humain dans Dolibarr. Idempotence par marque
+  `[invoice:<client>#<mois>]` en note privée — Dolibarr n'ayant aucun lien natif vers les saisies
+  Redmine, c'est elle qui empêche de facturer deux fois le même mois.
 - **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
   Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
   (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en

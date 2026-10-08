@@ -3,7 +3,8 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          ETAT_LABEL, heuresTravaillees, isWeekend, estAutomatique, libelleLisible,
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
-         transversalParClient, fil, totauxIA } from "./billing.js";
+         transversalParClient, fil, totauxIA, liens, correspondances,
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -69,7 +70,7 @@ export class BillingViewModel {
   get t() { return totaux(this.j); }
   get frise() {
     const t = timeline(this.j, { start: this.f.debut, end: this.f.fin });
-    return { ...t, bandes: bandes(this.j, t), pause: bandePause(this.j, t) };
+    return { ...t, bandes: bandes(this.j, t), pause: bandePause(this.j, t), liens: liens(this.j, t) };
   }
   /** La notice de la frise : un client, sa couleur, son cumul. */
   get legende() { return legende(this.j); }
@@ -77,6 +78,28 @@ export class BillingViewModel {
   get transversalCumul() { return transversalParClient(this.j); }
   /** Tout ce qui s'est passé, dans l'ordre. */
   get fil() { return fil(this.j); }
+
+  /** Les blocs qui partiront dans Redmine, chacun avec ses preuves. L'unité de validation. */
+  get blocs() { return blocsRedmine(this.j); }
+  /** Les tours d'agent hors de toute plage humaine — montrés, jamais facturés. */
+  get iaHorsPlage() { return iaHorsPlage(this.j); }
+  get bilanBlocs() { return bilanBlocs(this.j); }
+
+  /** Chaque plage humaine et ce qui la justifie — la pièce maîtresse du dossier. */
+  get correspondances() {
+    const { periodes, orphelins } = correspondances(this.j);
+    return {
+      periodes: periodes.map(p => ({
+        ...p, duree: fmtMin(p.minutes),
+        iaDuree: fmtMin(p.ia.reduce((n, k) => n + k.minutes, 0)),
+        vide: !p.preuves,
+      })),
+      orphelins,
+      aOrphelins: !!(orphelins.ia.length || orphelins.commits.length
+                     || orphelins.fusions.length || orphelins.prompts.length),
+    };
+  }
+  get bilan() { return bilanCorrespondance(this.j); }
   get ajuste() { return this.f.source === "ajuste"; }
 
   /** Les heures normales, et ce qu'elles font une fois la pause déduite. */

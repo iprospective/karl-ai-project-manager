@@ -1,7 +1,24 @@
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
-> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur · je choisis une priorité, ou j'hésite entre `urgent` et `immediat`.
+> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates`, `pm-task-priority` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
+
+## Priorité `immediat` — le cran qui passe devant le travail en cours (RM3275)
+
+`immediat` (Redmine id 5) ne veut pas dire « urgent, mais vraiment » : il désigne ce pour quoi
+on **lâche ce qu'on est en train de faire** — secret compromis, production à l'arrêt, perte de
+données en cours. Le test est comportemental : si personne n'interrompt son travail, c'est
+`urgent`. Sans ce garde-fou le cran dérive en doublon d'`urgent` en quelques semaines et ne
+distingue plus rien.
+
+Énumération et poids viennent de `redmine.reference.yml :: priorities` via `pm_priority.py` —
+aucun script ne recopie la table. Changer la priorité d'un ticket **existant** :
+`pm-task-priority <id> <priorité>` (Redmine + frontmatter + journal dans le même mouvement) ;
+jamais à la main, jamais par l'UI seule, qui laisserait le frontmatter en arrière.
+
+« A définir » (id 24) existe côté Redmine mais n'est pas un degré d'urgence : hors énumération
+NORMS, traitée comme priorité inconnue — elle ne double personne dans une file.
+
 
 Détaché de `status-workflow.md` par RM2582. La table des transitions est une
 **référence** : le KERNEL impose déjà de la demander à l'outil
@@ -37,6 +54,17 @@ la prise) sont restées dans `status-workflow.md`.
 | `a_mep` | `en_mep` | déployé en **PROD** : **3 branches** MR `preprod`→`prod_branch` / **2 branches** MR `dev`→`prod_branch` + pull prod |
 | `en_mep` | `ferme` | *(RM2893 : `en_mep` = en prod)* vérif **prod** OK — `close_reason: resolu` |
 | `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
+
+**La file `en_mep` se rappelle à nous (RM3278).** `en_mep` est une file d'attente HUMAINE :
+le code est en prod, il reste à jouer la colonne « Prod » du protocole de test, puis à fermer.
+Rien ne la relançait — mesuré le 2026-09-30 : 18 tickets déployés en attente, le plus ancien
+depuis 71 jours. Le job `mep-watch` (registre de l'ordonnanceur) les signale au fil de
+notifications, **à condition de pouvoir prouver** que le code est en prod : filiation des
+commits depuis le checkout de prod, ou merge dans la branche que la prod suit
+(`project/environments.md`, champ `branch`) — jamais une date, jamais un `git log --grep`.
+Sans preuve, rien n'est notifié : un ticket dont la MEP n'a pas eu lieu est un autre problème.
+Un ticket resté en `a_mep` alors que son code est déjà en prod est signalé aussi : son statut
+est en retard. Rapport à la demande : `mmi-pm mep-watch`.
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |

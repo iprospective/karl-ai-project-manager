@@ -1,5 +1,30 @@
 # Changelog des normes
 
+## [2.62.0] - 2026-10-06
+
+### Ajouté
+- **Script de MEP par ticket, conservé et visible au cockpit** (RM3225, module `git-mep-pratique` §
+  Actions au déploiement). Une MEP qui demande plus que le workflow générique s'automatise dans
+  `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, versionné et jamais supprimé (`pm-task-move`
+  l'emporte). Contrat minimal : `set -euo pipefail`, contrôle par défaut, `--apply`, idempotent, gardes
+  avant le point de non-retour, vérification finale, rollback en en-tête. Lancement par
+  `ssh <alias> 'bash -s [-- --apply]' < script`. Affiché sur la fiche du cockpit (bloc « Mise en
+  production », avec les actions au déploiement, jusque-là absentes du cockpit), au passage en `a_mep`
+  et par `pm-task-deploy`. Lecture unique : `scripts/pm_mep_script.py`. Premier cas : RM3219.
+
+## [2.61.0] - 2026-09-30
+
+### Ajouté
+- **L'agent a un compte et une boîte de courrier d'essai** (RM3360, module `testing` §9). Un
+  parcours de test s'arrêtait au dernier écran, alors que la moitié de ce qu'une commande promet
+  se passe après : accusé de réception, confirmation, expédition. L'agent dispose d'une identité
+  d'essai (compte boutique dev/test/préprod + boîte lisible), adresse et mot de passe dans sa
+  conf `var/users/<user>/.env`, transmis aux scénarios par l'environnement — jamais sur une ligne
+  de commande, que `ps` rend lisible. Deux règles fermes : jamais en production, et un envoi de
+  test ne part pas chez un tiers. Piège documenté : le catch-all `/.+@.+/` de
+  `/etc/postfix/virtual-regexp` sur le poste de dev redirige tout le courrier local vers
+  l'exploitant.
+
 ## [2.60.0] - 2026-09-28
 
 ### Modifié

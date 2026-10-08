@@ -56,7 +56,11 @@ PRIORITY_TO_NORMS = {
     "low": "low", "basse": "low",
     "normal": "normal", "normale": "normal",
     "high": "high", "haute": "high",
-    "urgent": "urgent", "urgente": "urgent", "immediate": "urgent", "immédiate": "urgent",
+    "urgent": "urgent", "urgente": "urgent",
+    # RM3275 : « Immédiat » est désormais une priorité NORMS à part entière ;
+    # avant, faute de valeur, elle se repliait silencieusement sur « urgent ».
+    "immediat": "immediat", "immédiat": "immediat",
+    "immediate": "immediat", "immédiate": "immediat",
 }
 
 

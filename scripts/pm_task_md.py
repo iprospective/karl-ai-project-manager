@@ -11,8 +11,13 @@ les deux écrivaient sinon deux squelettes voués à diverger au premier champ a
 schéma. Tables, slug et détection des critères sont repris à l'identique.
 """
 import re
+import sys
 import unicodedata
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -55,7 +60,8 @@ TYPE_LABELS = {
     "assistance": "assistance — support",
     "autre": "autre",
 }
-PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+# RM3275 : plus de table en dur — la source est redmine.reference.yml, via pm_priority.
+PRIORITY_TO_ID = pm_priority.ids()
 
 
 # Inverse du tracker → type NORMS, pour ADOPTER un ticket qui existe déjà. La

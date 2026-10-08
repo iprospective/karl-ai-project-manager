@@ -193,6 +193,37 @@ credentials root-only sur la box) — il ne peut ni lire ni écrire hors du clon
 et jamais la BDD partagée. Un post-SQL en échec laisse le clone en l'état
 (corriger le manifeste, ou `db-drop` puis recréer).
 
+## PrestaShop : overrides « domaine-agnostique » (RM2812, distant RM3196)
+
+`presta-dev-overrides.sh` dépose les quatre overrides qui font répondre un env sur le
+`ServerName` qu'on veut **sans rediriger**. Sans eux, PrestaShop renvoie un 301 vers le
+domaine inscrit dans `ps_shop_url` — donc vers l'env principal, voire vers la production.
+
+```bash
+# env local (worktree du conteneur dev) — appelé par le post_create des manifestes
+presta-dev-overrides.sh <worktree>
+
+# env DISTANT : le script se transporte lui-même, avec ses assets
+presta-dev-overrides.sh /home/siteadm/dercya/public/pisceen-presta-test \
+    --on dercya-www@dev.iprospective.net
+```
+
+`--on` envoie script et assets dans **un seul flux tar** sur stdin de ssh, qui extrait
+dans un dossier temporaire, exécute, puis nettoie par un `trap`. Rien ne reste sur l'hôte
+distant : une copie laissée en place vieillirait en silence, et on déposerait un jour des
+overrides périmés sans s'en apercevoir. Le code de sortie distant est propagé — un refus
+ne passe pas pour un succès.
+
+La logique de dépôt ne connaît pas le réseau : à distance comme en local elle ne voit
+qu'un chemin local, sur l'hôte où elle tourne. Les garde-fous sont donc les mêmes des deux
+côtés — refus sur collision avec un override métier, `info/exclude`, `skip-worktree`,
+contrôle `php -l`.
+
+**Exige un dépôt git** (il écrit dans `.git/info/exclude`) : un PrestaShop posé hors git
+est refusé, avec le message qui le dit. Cas rencontré : `pisceen-presta-v9-dev`.
+
+**Après exécution : purger `var/cache/`** — sans ça le `class_index` ignore les overrides.
+
 ## PrestaShop : neutralisation des services cloud (RM2932)
 
 `presta-nonprod-sql.sh` **émet sur stdout** le SQL qui rend un PrestaShop non-prod
@@ -246,3 +277,34 @@ jamais bloquant (un teardown refusé — worktree sale — laisse le ticket se
 fermer et l'env se gère à la main). Conditions : tâche co-localisée, manifeste
 `repos:` **mono-repo**, bare présent. Opt-out global :
 `pm.config.yml :: env_runtime.auto_session: false`.
+
+## Les DONNÉES d'un env : une déclaration, trois outils (RM3419)
+
+La liste des dossiers de données d'une appli est une **donnée**, pas du code. Elle vit dans
+`<type>-data.map` à côté de ces scripts (le **cœur** de l'appli), avec deux surcharges possibles :
+une variante par version majeure (`<type>-data-<majeure>.map`) et surtout **celle du site**, à la
+racine du dépôt du code (`.<type>-data.map`) — c'est là que se déclarent les dossiers de données
+des **modules/extensions**, propres à chaque installation.
+
+⚠ La surcharge du site vit dans le **dépôt du code**, pas dans le volet PM : un env est un
+`git worktree`, il n'a pas de `.mmi-pm` (celui-ci est à la racine du workspace). Une déclaration
+posée là ne serait vue par aucun env.
+
+| Outil | Ce qu'il en fait |
+|---|---|
+| `presta-data-index.sh` | un dossier `data/` de liens relatifs vers chaque donnée (RM3401) |
+| `env-link-data.sh` | dans un env de dev, les données pointent vers l'**env socle** au lieu d'y être recopiées |
+| `tools/synchro --data` | rapatrie **ces dossiers-là** depuis la prod, sans toucher au reste de l'arbre |
+
+Les applis ne se ressemblent pas, et c'est tout l'intérêt de déclarer : **Dolibarr** range tout
+sous `documents/` — une ligne suffit ; **PrestaShop** éparpille une quinzaine de dossiers pour le
+seul cœur, plus ceux de chaque module, et garde une longue traîne d'images de modules jamais
+exhaustivement déclarée (d'où le `--scan` de `env-link-data.sh`, limité à une liste blanche
+d'extensions d'images). **WordPress** tient dans `wp-content/uploads`.
+
+Deux pièges payés en réel (RM3218) :
+
+- **Ne jamais lier un catalogue de traduction** : le Finder de Symfony ne suit pas les liens
+  symboliques, le front repasse en anglais alors que les fichiers sont là (RM3410).
+- **Ne jamais descendre sous un ancêtre déjà lié** : on écrirait un lien par-dessus le fichier du
+  **socle**, c'est-à-dire qu'on corromprait la source unique. `env-link-data.sh` garde contre ça.

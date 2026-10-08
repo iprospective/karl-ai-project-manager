@@ -29,6 +29,9 @@ GATED_STATUSES = ("a_mep_prod", "en_mep")
 WARN_STATUSES = ("a_mep",)
 #: une question est close quand elle est tranchée (validée) ou écartée (invalidée)
 _CLOSES = ("valide", "invalide")
+#: RM3357 — et elle ne BLOQUE pas quand elle attend un tiers (⏸ réserve) : la garde protège des
+#: arbitrages que NOUS n'avons pas rendus, pas des réponses qu'un client nous doit.
+_NON_BLOQUANTS = _CLOSES + ("reserve",)
 
 # Deux façons dont un lot de commits nomme ses tickets (RM2809) :
 #   « RM2857 : … »                       → commit direct
@@ -105,7 +108,7 @@ def open_questions_of_sheet(sheet) -> list:
     sec = ((pm_think.load(tp) or {}).get("question", {}) or {})
     out = []
     for r in sec.get("rows", []):
-        if r.get("closed") or r.get("state") in _CLOSES:
+        if r.get("closed") or r.get("state") in _NON_BLOQUANTS:
             continue
         # RM3262 : le libellé par NOM de colonne — un carnet migré porte « Date · auteur » en 2ᵉ
         # position, et la garde aurait affiché la date à la place de la question.

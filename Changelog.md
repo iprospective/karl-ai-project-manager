@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Mettre à jour le code de l'instance depuis le cockpit (RM2571, réouvert).** Le bouton « ⬆ MAJ dispo »
+  ne faisait que dire la commande à taper ; il l'applique désormais. Arbitrage Mathieu du 2026-09-30 : la
+  règle sudoers du seul verbe `bin/mmi-pm core update` passe en **NOPASSWD**, pour un utilisateur `pm`
+  autorisé — toujours en mono-utilisateur, administrateur en multi (`POST /core/update`). La barrière
+  humaine du §13a n'est pas levée, elle se **déplace** : authentification du cockpit + droit nommé, sur une
+  commande étroite (jamais `ALL`), journalisée par sudo, par le journal PM et par un journal de run.
+  Comme la mise à jour **redémarre karl-agent** quand son propre code a changé, le travail est détaché et
+  suivi par `GET /core/update-log`, qui relit un fichier : le front reprend le suivi au chargement, et une
+  erreur réseau pendant le redémarrage n'est plus prise pour un échec. Sans la règle, le cockpit le dit et
+  renvoie la commande du terminal plutôt que d'échouer au clic ; en CLI, `pm-core-update` tente `sudo -n`
+  puis retombe sur le sudo interactif.
+
 - **Les données d'un env : une déclaration, trois outils (RM3419).** La liste des dossiers de données
   d'une appli devient une donnée partagée — `<type>-data.map` + la surcharge du **dépôt du site**
   (`.<type>-data.map`, seule visible depuis un worktree), résolue par `env-data-manifest.sh`. Trois

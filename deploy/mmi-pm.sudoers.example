@@ -6,10 +6,15 @@
 #   - Service PM = KARL_SUDO_USER (ex. mathieu-pm) → ops de structure/index/sync PM ;
 #   - Agent runtime = KARL_USER (ex. mathieu) → lit/exécute le code, code dans les projets.
 #
-# Trois droits sudo (TOUS avec MOT DE PASSE — PAS de NOPASSWD, barrière humaine, §13a) :
+# Trois droits sudo (avec MOT DE PASSE, barrière humaine §13a — SAUF la règle 2, cf. ci-dessous) :
 #   1. PM ops courantes (structure, index, sync…)        -> en KARL_SUDO_USER
-#   2. Déploiement du code + (re)verrou                  -> en root
+#   2. Déploiement du code + (re)verrou                  -> en root, **NOPASSWD**
 #      (`mmi-pm core update` = git pull du code root-owned + délègue à `core-lock`)
+#      RM2571, arbitrage Mathieu du 2026-09-30 : la mise à jour se déclenche DEPUIS LE COCKPIT, par un
+#      utilisateur `pm` autorisé (toujours en mono-utilisateur, administrateur en multi). La barrière
+#      humaine n'est pas levée, elle se DÉPLACE : authentification du cockpit + droit nommé, au lieu
+#      d'une saisie de mot de passe dans un terminal. Le droit reste ÉTROIT — une commande nommée, pas
+#      `ALL` — et le geste est journalisé (sudo, journal PM, journal de run dans `var/`).
 #   3. Verrou/déverrou de propriété + bootstrap          -> en root
 #      (`core-lock lock|unlock`, `provision-core` ; chown inter-utilisateur exige root)
 #
@@ -28,7 +33,7 @@
 # 2. Déploiement du code (root-owned) : pull + re-verrou via core-lock → root.
 #    RM3033 : `mmi-pm core-update` (dispatcher python) se ré-exécute lui-même par ce chemin exact — la règle reste la seule
 #    porte root du CLI, ne pas la remplacer par `python3 …`.
-<KARL_USER> ALL=(root) <CORE_DIR>/bin/mmi-pm core update*
+<KARL_USER> ALL=(root) NOPASSWD: <CORE_DIR>/bin/mmi-pm core update*
 
 # 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.
 <KARL_USER> ALL=(root) <CORE_DIR>/scripts/core-lock *

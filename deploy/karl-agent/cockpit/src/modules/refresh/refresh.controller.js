@@ -6,7 +6,7 @@
 // worklog, tableau de bord, poste) ; les briefs sont semés en `partial` dans le store de résolution (RM3005).
 import { RefreshService } from "./refresh.service.js";
 import { PushService } from "./push.service.js";
-import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText, versionMismatch } from "./refresh.js";
+import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText, coreUpdateRunState, coreUpdateLogText, versionMismatch } from "./refresh.js";
 
 export function mountRefresh(hosts = {}, ctx = {}) {
   const svc = ctx.service || new RefreshService({ stores: ctx.stores || {} });
@@ -26,7 +26,53 @@ export function mountRefresh(hosts = {}, ctx = {}) {
     core = d; const st = coreUpdateState(d); const b = hosts.updbtn; if (!b) return;
     b.style.display = st.on ? "" : "none"; if (st.on) { b.textContent = st.text; b.title = st.title; }
   }
-  function showCoreUpdate() { if (!core) return; if (ctx.alert) ctx.alert(coreUpdateText(core)); }
+  // ── RM2571 : appliquer la mise à jour DEPUIS le cockpit ───────────────────
+  // Le serveur détache le travail (il redémarre karl-agent quand son propre code a changé) : on suit
+  // par /core/update-log, et une erreur réseau pendant ce redémarrage n'est PAS un échec — on
+  // continue de sonder. Sans ça, le bouton annoncerait une panne au milieu d'un geste réussi.
+  let suivi = null;
+  function renderCoreRun(d) {
+    const st = coreUpdateRunState(d); const b = hosts.updbtn; if (!b) return;
+    if (!st.on) return;
+    b.style.display = ""; b.textContent = st.text; b.title = st.title;
+    b.disabled = !!st.busy;
+  }
+  function pollCoreUpdate(done) {
+    if (suivi) return;
+    const battre = async () => {
+      let d = null;
+      try { d = await svc.coreUpdateLog(); } catch (e) { d = null; }      // redémarrage en cours
+      if (d) renderCoreRun(d);
+      if (d && !d.running) {
+        suivi = null;
+        if (ctx.alert) ctx.alert(coreUpdateLogText(d));
+        refreshCoreUpdate(true);                                          // la version a changé
+        if (done) done(d);
+        return;
+      }
+      suivi = later(battre, 2000);
+    };
+    suivi = later(battre, 1500);
+  }
+  async function runCoreUpdate() {
+    if (!core) return;
+    if (!core.can_update) { if (ctx.alert) ctx.alert(coreUpdateText(core)); return; }
+    if (ctx.confirm && !ctx.confirm(coreUpdateText(core))) return;
+    try {
+      const r = await svc.coreUpdateRun();
+      renderCoreRun({ running: true, started_at: r && r.started_at, by: r && r.by, lines: [] });
+      pollCoreUpdate();
+    } catch (e) { if (ctx.notify) ctx.notify("mise à jour refusée : " + e.message, true); }
+  }
+  /** Clic : une MAJ dispo se lance ; un run en cours (ou fini) montre son journal. */
+  async function showCoreUpdate() {
+    let d = null;
+    try { d = await svc.coreUpdateLog(); } catch (e) { d = null; }
+    if (d && d.running) { if (ctx.alert) ctx.alert(coreUpdateLogText(d)); pollCoreUpdate(); return; }
+    if (core && core.available) return runCoreUpdate();
+    if (d && d.started_at) { if (ctx.alert) ctx.alert(coreUpdateLogText(d)); return; }
+    if (core && ctx.alert) ctx.alert(coreUpdateText(core));
+  }
   const on = {
     health: renderHealth, healthKo: renderHealthKo, coreupdate: renderCoreUpdate,
     sessions: (list) => (ctx.onSessions ? ctx.onSessions(list) : null),
@@ -55,10 +101,13 @@ export function mountRefresh(hosts = {}, ctx = {}) {
   function start() {
     if (started) return; started = true;
     tick();
+    // RM2571 : une mise à jour peut être EN COURS alors que le cockpit vient (re)démarrer — c'est même
+    // le cas nominal, puisqu'elle redémarre karl-agent. On reprend son suivi au chargement.
+    try { Promise.resolve(svc.coreUpdateLog()).then((d) => { if (d && d.running) { renderCoreRun(d); pollCoreUpdate(); } }).catch(() => {}); } catch (e) { /* service sans suivi */ }
     listen(ctx.root || (typeof document !== "undefined" ? document : null), "visibilitychange", () => { if (hidden()) return; if (!timer) tick(); });
   }
   listen(hosts.updbtn, "click", () => showCoreUpdate());
-  return { fetch, refreshSessions, refreshHealth, loadPending, refreshCoreUpdate, showCoreUpdate, renderHealth, renderHealthKo, renderCoreUpdate, tick, start,
+  return { fetch, refreshSessions, refreshHealth, loadPending, refreshCoreUpdate, showCoreUpdate, runCoreUpdate, pollCoreUpdate, renderCoreRun, renderHealth, renderHealthKo, renderCoreUpdate, tick, start,
     stale: () => svc.stale, hot: () => svc.hot, core: () => core, svc, push,
-    unmount() { if (timer) { clearTimeout(timer); timer = null; } push.disconnect(); disposers.forEach(d => d()); disposers.length = 0; } };
+    unmount() { if (timer) { clearTimeout(timer); timer = null; } if (suivi) { clearTimeout(suivi); suivi = null; } push.disconnect(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

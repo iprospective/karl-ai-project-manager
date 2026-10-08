@@ -9,9 +9,10 @@ Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
 score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
 ```
 
-Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
+Avec `priority_weight` = `pm_priority.weights()` : 0,5 au cran le plus bas, ×2 par cran.
 
 Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
+
 Sortie : top N tâches triées par score décroissant, par client/projet ou global.
 
 ## ROI assisté par IA (RM1717)

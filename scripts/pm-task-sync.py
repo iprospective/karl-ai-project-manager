@@ -31,6 +31,7 @@ from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.
 from pm_paths import PMConfig
 import pm_cf_mirror
 import pm_git
+import pm_priority  # RM3275 : énumération priority, source unique
 import pm_tags
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
@@ -103,7 +104,9 @@ def cf_value(issue, cf_id):
             return c.get("value")
     return None
 
-REDMINE_TO_NORMS_PRIORITY = {1: "low", 2: "normal", 3: "high", 4: "urgent"}
+# RM3275 : déduit de pm_priority (source : redmine.reference.yml). Un id hors
+# énumération (« A définir », 24) n'y figure pas : fetch retombe sur le défaut.
+REDMINE_TO_NORMS_PRIORITY = {pid: label for label, pid in pm_priority.ids().items()}
 
 
 def fetch_issue(url, key, issue_id):

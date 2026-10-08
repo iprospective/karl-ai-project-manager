@@ -29,6 +29,7 @@ from pm_paths import PMConfig
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_acceptance                     # RM3373 : critères → champ dédié, dès la création
 import pm_cf_mirror
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -45,7 +46,7 @@ NORMS_TYPE_TO_TRACKER = {
     "assistance": 3,    # Assistance
     # tout le reste → 4 (Tâche)
 }
-NORMS_PRIORITY_TO_REDMINE = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+NORMS_PRIORITY_TO_REDMINE = pm_priority.ids()  # RM3275 : source unique
 
 FRENCH_STOPWORDS = {
     "le", "la", "les", "un", "une", "des", "du", "de", "d", "l", "à", "au",

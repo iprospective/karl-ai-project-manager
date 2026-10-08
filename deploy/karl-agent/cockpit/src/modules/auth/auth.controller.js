@@ -25,7 +25,7 @@ export function mountAuth({ gate, card, users, lock } = {}, ctx = {}) {
 
   /** L'état connecté gouverne tout : écran de login, cadenas, carte de session, carte des comptes. */
   function render() {
-    const c = cfg(); const st = authState({ required: c.auth_required, token: svc.token(), user: svc.user(), admin: svc.admin(), loginEnabled: c.login_enabled });
+    const c = cfg(); const st = authState({ required: c.auth_required, token: svc.token(), user: svc.user(), admin: svc.admin(), loginEnabled: c.login_enabled, compact: ctx.mobile ? !!ctx.mobile() : false });
     if (gate && gate.classList) gate.classList.toggle("show", st.gateShown);
     if (!st.required) return st;
     if (!st.logged) { const u = el.user(); if (u && u.focus) later(() => u.focus(), 0); }

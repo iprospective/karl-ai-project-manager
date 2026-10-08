@@ -39,6 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_cf_mirror
+import pm_mep_script
 import pm_git
 import pm_scope
 
@@ -101,6 +102,12 @@ def main():
         else:
             print(f"(aucune action de déploiement sur RM{args.rm_id} — "
                   f"pm-task-deploy.py {args.rm_id} --add \"…\")")
+        # RM3225 : le script de MEP conservé à côté de la fiche fait partie de la procédure
+        _s = pm_mep_script.describe(md_path)
+        if _s:
+            print(f"script de MEP : {_s['file']} ({_s['lines']} lignes)\n"
+                  f"  contrôle  : {_s['launch']['check']}\n  exécution : {_s['launch']['apply']}"
+                  + (f"\n  ⚠ contrat : manque {', '.join(_s['lint'])}" if _s['lint'] else ""))
         return
 
     if args.pull:

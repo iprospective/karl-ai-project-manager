@@ -234,6 +234,7 @@ from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 :
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_priority as _pm_priority   # noqa: E402  RM3275 : énumération priority, source unique
 import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -6611,7 +6612,10 @@ def _read_project_envs(project_dir: Path) -> list:
         if re.match(r"^environments:\s*$", line):
             in_block = True
             continue
-        if in_block and re.match(r"^\S", line):   # autre clé top-level → fin du bloc
+        # autre clé top-level → fin du bloc. RM3225 : un item de liste en colonne 0
+        # (`- name: prod`, YAML valide et forme de pisceen) n'est PAS une clé — le prendre
+        # pour la fin du bloc rendait la liste vide, et le cockpit sans aucun environnement.
+        if in_block and re.match(r"^\S", line) and not line.startswith("- "):
             break
         if not in_block:
             continue
@@ -6625,8 +6629,15 @@ def _read_project_envs(project_dir: Path) -> list:
         if cur is not None:
             mu = re.match(r"url:\s*(.+)", s)
             if mu:
-                u = mu.group(1).strip().strip("'\"")
+                u = mu.group(1).strip()
+                if not u.startswith(("'", '"')):          # RM3225 : commentaire YAML en fin de ligne
+                    u = re.sub(r"\s+#.*$", "", u)
+                u = u.strip("'\"")
                 cur["url"] = "" if u in _NULLISH else u
+            # RM3225 : l'alias ssh sert à composer la commande de lancement du script de MEP.
+            ma = re.match(r"ssh_alias:\s*(\S+)", s)
+            if ma and ma.group(1).strip("'\"") not in _NULLISH:
+                cur["ssh_alias"] = ma.group(1).strip("'\"")
     if cur:
         envs.append(cur)
     return envs
@@ -6881,6 +6892,18 @@ def _ticket_think(task_file, limite: int = 40) -> dict:
             "counts": pm_think.counters(parsed), "file": th.name}
 
 
+def _ticket_mep_script(task_file, envs=None):
+    """Le script de MEP du ticket (RM3225) : texte borné, commandes de lancement, manques
+    au contrat — ou None. L'alias ssh vient de l'environnement de prod du projet s'il le
+    déclare, sinon de l'en-tête du script. Illisible : None, la fiche s'ouvre quand même."""
+    try:
+        import pm_mep_script
+        prod = next((e for e in (envs or []) if e.get("name") == "prod"), {})
+        return pm_mep_script.describe(Path(task_file), alias=prod.get("ssh_alias"))
+    except Exception:      # noqa: BLE001
+        return None
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -7005,6 +7028,11 @@ def op_resolve(rm_id: str) -> dict:
         # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
         # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
         "think": _ticket_think(tf),
+        # RM3225 : la MISE EN PRODUCTION du ticket — ses actions au déploiement (CF 8, miroir
+        # frontmatter) et son script de MEP conservé à côté de la fiche. Ni l'un ni l'autre
+        # n'était visible au cockpit : la procédure ne se lisait que dans Redmine ou sur disque.
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()],
+        "mep_script": _ticket_mep_script(tf, envs),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.
@@ -9205,7 +9233,7 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
 # sous-processus. Les entrées client sont passées en argv (liste, jamais via un
 # shell) → aucune injection possible ; type/priorité validés contre une liste.
-PRIORITIES = ["low", "normal", "high", "urgent"]
+PRIORITIES = _pm_priority.labels()  # RM3275 : source unique (redmine.reference.yml)
 _TASK_TYPES_CACHE = None
 
 
@@ -11703,7 +11731,7 @@ def op_mail_create(payload: dict) -> dict:
     args = ["--create", _mail_key(payload)]
     for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
                                  ("--title", "title", r".{1,120}"),
-                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--priority", "priority", _pm_priority.choices_re()),  # RM3275
                                  ("--note-on", "note_on", r"\d{1,8}")):
         v = str(payload.get(field) or "").strip()
         if v:
@@ -11924,6 +11952,16 @@ def op_test_queue(qs: dict) -> list:
 #: Reste un RÉGLAGE : on peut vouloir autre chose ici — une consigne du jour, une autre procédure.
 PROMPT_RELANCE_DEFAUT = "Fais le cycle de session."
 
+# RM3418 — composition par défaut des barres du cockpit. Ici et pas dans le front :
+# c'est le serveur qui sert la conf d'instance, et le front ne fait que l'appliquer.
+UI_HEADER_LINE_DEFAUT = "yesatt yesall voicebtn feedbtn setbtn helpbtn"
+UI_SESSION_LINE_DEFAUT = "yesbtn micbtn reattach"
+# commit+push : la norme impose déjà commit+push immédiat à chaque étape · git status :
+# le panneau git le montre en lecture directe · session-atester : doublon du « à tester » PM.
+UI_CHIPS_HIDDEN_DEFAUT = "commit gitstatus session-atester"
+UI_CHIPS_LINE_DEFAUT = "atester commenter majdesc point done"
+
+
 _PM_SETTINGS_CONF = [
     {"key": "conf:sessions.relance_prompt", "label": "Prompt du bouton « relancer la session »",
      "group": "Sessions", "type": "text", "maxlen": 4000, "rows": 5,
@@ -11945,6 +11983,41 @@ _PM_SETTINGS_CONF = [
      "path": ["install", "mode"],
      "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
              "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
+    # RM3418 — la composition des BARRES du cockpit, et la taille du terminal. Réglages
+    # d'INSTANCE (admin) : l'ordre et la visibilité des boutons étaient codés en dur dans
+    # le front, donc intouchables sans livrer une version. Listes d'identifiants séparés
+    # par des espaces ou des virgules ; un identifiant inconnu est ignoré sans bruit.
+    {"key": "conf:ui.header_line", "label": "Barre du haut — boutons gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_HEADER_LINE_DEFAUT, "path": ["ui", "header_line"],
+     "help": "Dans l'ordre d'affichage. Les autres passent sous « … ». "
+             "Identifiants des boutons de l'en-tête (helpbtn, setbtn, feedbtn, yesatt…)."},
+    {"key": "conf:ui.header_hidden", "label": "Barre du haut — boutons jamais affichés (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": "", "path": ["ui", "header_hidden"],
+     "help": "Masqués même sous « … ». Vide = aucun."},
+    {"key": "conf:ui.session_line", "label": "Barre de session — commandes gardées sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_SESSION_LINE_DEFAUT, "path": ["ui", "session_line"],
+     "help": "Les autres passent sous « … » (auto-oui, disposition des panes, lecture à voix haute…)."},
+    {"key": "conf:ui.chips_hidden", "label": "Chips de session — masqués",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_HIDDEN_DEFAUT, "path": ["ui", "chips_hidden"],
+     "help": "Clés du catalogue d'actions (commit, gitstatus, session-atester…). "
+             "Masqués au bureau comme en mobile : ce qu'une norme impose déjà ou qu'un "
+             "panneau montre mieux n'a pas à occuper la barre."},
+    {"key": "conf:ui.chips_line", "label": "Chips de session — gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_LINE_DEFAUT, "path": ["ui", "chips_line"],
+     "help": "Les autres passent sous « … », en mobile seulement."},
+    {"key": "conf:ui.term_font_px", "label": "Terminal — taille de la typo (bureau)",
+     "group": "Cockpit", "type": "number", "min": 8, "max": 24, "admin": True,
+     "default": 14, "path": ["ui", "term_font_px"]},
+    {"key": "conf:ui.term_font_px_mobile", "label": "Terminal — taille de la typo (mobile)",
+     "group": "Cockpit", "type": "number", "min": 7, "max": 20, "admin": True,
+     "default": 11, "path": ["ui", "term_font_px_mobile"],
+     "help": "Un écran de téléphone fait 390 px de large : à 14 px, une ligne de 80 colonnes "
+             "ne tient pas. Chaque navigateur peut encore l'ajuster dans ses réglages."},
     # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
     {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
      "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
@@ -12220,6 +12293,35 @@ def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
     return spec["value"] if spec else "auto"
+
+
+def _ui_bars() -> dict:
+    """RM3418 — ce que le front doit savoir des barres : quels boutons sur la ligne,
+    lesquels masqués, et la taille du terminal. Les listes sont normalisées ICI (espaces
+    ou virgules, doublons retirés) pour que le front n'ait rien à interpréter."""
+    def liste(key: str) -> list:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        vals = re.split(r"[\s,]+", str((spec or {}).get("value") or "").strip())
+        out = []
+        for v in vals:
+            if v and v not in out:
+                out.append(v)
+        return out
+
+    def nombre(key: str, dflt: int) -> int:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        val = (spec or {}).get("value")
+        return int(val) if isinstance(val, (int, float)) and not isinstance(val, bool) else dflt
+
+    return {
+        "header_line": liste("conf:ui.header_line"),
+        "header_hidden": liste("conf:ui.header_hidden"),
+        "session_line": liste("conf:ui.session_line"),
+        "chips_hidden": liste("conf:ui.chips_hidden"),
+        "chips_line": liste("conf:ui.chips_line"),
+        "term_font_px": nombre("conf:ui.term_font_px", 14),
+        "term_font_px_mobile": nombre("conf:ui.term_font_px_mobile", 11),
+    }
 
 
 def _context_thresholds() -> dict:
@@ -13423,6 +13525,9 @@ class Handler(BaseHTTPRequestHandler):
                 # seuil d'affichage n'est pas une donnée sensible, et le front en
                 # a besoin au premier rendu de la liste des sessions).
                 "context_thresholds": _context_thresholds(),
+                # RM3418 : composition des barres et taille du terminal. Le front n'a
+                # plus de liste en dur ; une conf d'instance la remplace sans livraison.
+                "ui": _ui_bars(),
             })
         if not authed:
             return self._send_auth_required()

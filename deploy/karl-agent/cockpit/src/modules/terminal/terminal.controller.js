@@ -8,7 +8,7 @@ import { mount, paint } from "../../core/dom.js";
 import { TerminalService } from "./terminal.service.js";
 import { ComposerViewModel } from "./ComposerViewModel.js";
 import { ComposerWarn, ComposerHistory } from "./Composer.view.js";
-import { termAvailable, termBase, ttydUrl, composerGuard, truncate, sessionCookie, iframeReachable } from "./terminal.js";
+import { termAvailable, termBase, ttydUrl, composerGuard, truncate, sessionCookie, iframeReachable, termFontPx } from "./terminal.js";
 
 export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   const svc = ctx.service || new TerminalService({ storage: ctx.storage });
@@ -43,7 +43,10 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
     }
     unmountTerm();
     if (host) host.style.display = "block";
-    state.session = win.KarlTerm.attach(host, String(rmId), { base: termBase(c, l) });
+    // RM3418 : taille de typo = préférence de ce navigateur, sinon défaut d'instance (mobile plus petit)
+    const fontSize = termFontPx({ ui: (c || {}).ui || {}, mobile: ctx.mobile ? !!ctx.mobile() : false,
+      pref: ctx.storage ? ctx.storage.getItem("karlTermFont") : null });
+    state.session = win.KarlTerm.attach(host, String(rmId), { base: termBase(c, l), fontSize });
     memProbeStart(rmId); composerShow(true); fit(); return "xterm";
   }
   function unmountTerm() {

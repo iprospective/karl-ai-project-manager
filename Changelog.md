@@ -25,6 +25,37 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   renvoie la commande du terminal plutôt que d'échouer au clic ; en CLI, `pm-core-update` tente `sudo -n`
   puis retombe sur le sudo interactif.
 
+- **Les données d'un env : une déclaration, trois outils (RM3419).** La liste des dossiers de données
+  d'une appli devient une donnée partagée — `<type>-data.map` + la surcharge du **dépôt du site**
+  (`.<type>-data.map`, seule visible depuis un worktree), résolue par `env-data-manifest.sh`. Trois
+  consommateurs : l'index `data/` (RM3401), le nouveau `env-link-data.sh` (les données d'un env de dev
+  pointent vers l'env socle au lieu d'y être recopiées) et `tools/synchro --data` (rapatrie ces
+  dossiers-là depuis la prod, sans le `rsync --delete` de tout l'arbre qui écraserait un worktree).
+  `env-link-data.sh` pose le plus gros lien possible — dossier entier quand il ne porte aucun fichier
+  du dépôt, sinon il descend, et ne tombe au fichier que dans les feuilles mixtes : 27 liens au lieu de
+  38 000 sur un `img/p` réel. Deux gardes payées en réel (RM3218) : jamais un fichier suivi par git,
+  jamais sous un ancêtre déjà lié (on écrirait par-dessus le socle). Manifestes livrés : presta (cœur),
+  dolibarr (une ligne, tout est sous `documents/`), wordpress.
+
+- **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
+  s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé
+  (`pm-task-move` l'emporte). La fiche du cockpit gagne un bloc « 🚀 Mise en production » — actions au
+  déploiement (jusque-là absentes du cockpit), commandes de lancement copiables, texte du script, déplié
+  en `a_mep` / `en_mep` ; `pm-task-status-update` (entrée en `a_mep`) et `pm-task-deploy` l'affichent
+  aussi. Lecture unique `scripts/pm_mep_script.py` (+ contrôle du contrat, signalé sans bloquer).
+  Au passage, `karl-agent` lit enfin les environnements écrits en liste YAML en colonne 0 (`- name:
+  prod`, forme de pisceen : le cockpit n'en voyait aucun) et retire le commentaire de fin de ligne
+  d'une URL. NORMS v2.55.0.
+- **`data/` : l'index des données d'un PrestaShop** (RM3401, pour RM3186). `tools/env-runtime/presta-data-index.sh`
+  crée, dans `data/`, **un lien symbolique relatif par dossier de données** du site — images produit,
+  rubriques, CMS, fabricants… plus `upload/` et `download/` — d'après un manifeste
+  (`presta-data.map`, surchargeable par projet pour les données des modules). **Rien n'est déplacé** :
+  les données restent là où PrestaShop les écrit, et aucun lien n'est posé DANS son arbre, donc une
+  mise à jour du cœur ou d'un module ne peut pas les casser. Les liens étant relatifs, ils se
+  commitent et git les reproduit dans chaque worktree et en prod. `--check` signale un lien pendant
+  ou faux, `--ensure` répare, et un vrai dossier déjà en place dans `data/` **arrête** le script au
+  lieu d'être écrasé. Un `data/.htaccess` refuse tout accès HTTP (les liens y mènent à `upload/`).
+  La synchro prod→dev exclut `/data`.
 - **Corriger le texte d'une entrée de carnet depuis le cockpit** (RM3381) : ✎ sur chaque entrée, dans
   la revue d'un ticket et dans le registre du projet. La saisie arrive pré-remplie avec le texte
   actuel, l'état n'est pas touché (RM3161 : amender n'est pas revirer), l'ancien texte part au
@@ -304,6 +335,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   garde le nom du repo ; `teardown` retire le vhost sous le nom que `create` a posé, et le
   cockpit sonde l'hôte réellement servi — celui de `test_url` — au lieu de le déduire du
   dossier, ce qui l'aurait fait passer pour mort. Nouveau placeholder `{host}` pour `post_create`.
+- **Un ticket se renomme enfin depuis le PM** (RM3242) : `pm-task-rename <id> --title "…" --note "motif"`
+  réécrit le titre du frontmatter ET de Redmine, sous verrou, puis **relit Redmine** (qui répond 204 même
+  quand il ignore le champ faute de droit). L'ancien titre reste dans le journal et dans la note Redmine :
+  c'est sous ce nom qu'on cherchera encore le ticket. Les fichiers ne sont pas renommés — le slug est
+  référencé ailleurs, et NORMS n'exige que le préfixe `RM<id>_`. Jusqu'ici, un ticket dont l'objet
+  avait changé gardait un titre qui mentait (RM3186 : « déplacer » les données sur un ticket qui décide
+  de ne rien déplacer), ou portait un bandeau d'avertissement en tête de description (RM2783).
 - **Reprise des critères d'acceptation : le CF 33 est enfin rempli (RM3240).** `pm-cf-mirror-backfill
   --field acceptance --adopt-sections` lisait « Redmine » à double source : CF 33 vide ⇒ section de la
   description. Comparée à la même section côté MD, elle donnait « déjà synchrone », et seul le miroir local
@@ -1287,6 +1325,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : création des brouillons** (RM2891, lot 2). `mmi-pm invoice --month AAAA-MM --apply`
+  relit la proposition **amendée** — aucun recalcul, ce que l'humain a relu est ce qui part — et crée
+  une facture **brouillon** par client dans l'ERP : lignes de service (jamais de marchandise), tarif
+  de la dernière facture, note publique au modèle. **Jamais de validation** : une facture émise ne se
+  rattrape pas, la validation reste un geste humain dans Dolibarr. Idempotence par marque
+  `[invoice:<client>#<mois>]` en note privée — Dolibarr n'ayant aucun lien natif vers les saisies
+  Redmine, c'est elle qui empêche de facturer deux fois le même mois.
 - **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
   Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
   (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en

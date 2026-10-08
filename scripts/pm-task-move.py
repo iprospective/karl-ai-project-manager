@@ -54,13 +54,16 @@ def project_redmine_id(cfg, entity, project):
 
 
 def task_files(md_path):
-    """(md, log, reporting, think) — le reporting n'existe que si la tâche a été tickée,
-    le think (RM3053) que si elle a une réflexion consignée."""
+    """(md, log, reporting, think, script de MEP) — le reporting n'existe que si la tâche a
+    été tickée, le think (RM3053) que si elle a une réflexion consignée, le script de MEP
+    (RM3225) que si sa mise en production en a demandé un. Un script de MEP laissé derrière
+    serait perdu pour le ticket : il se conserve avec lui."""
     stem = md_path.name[:-3]
     return (md_path,
             md_path.parent / f"{stem}.log.md",
             md_path.parent / f"{stem}.reporting.yml",
-            md_path.parent / f"{stem}.think.md")
+            md_path.parent / f"{stem}.think.md",
+            md_path.parent / f"{stem}.script-mep.sh")
 
 
 def append_log(log_path, message):

@@ -51,6 +51,11 @@ PM_HOOKS = [
     # RM3053 : moisson automatique du transcript → .think.md du ticket courant (questions,
     # décisions, demandes verbatim) — après le tick, qui a déjà résolu le ticket du tour
     ("Stop", "", "pm-think-harvest.py", "", 60),
+    # RM3274 : un secret qui a transité dans le tour ne doit pas dépendre de la vigilance
+    # de l'agent pour être signalé. Après le tick (qui a résolu le ticket du tour) et après
+    # la moisson : ce hook écrit une notification critical, ouvre le ticket de rotation et
+    # journalise — sans jamais recopier la valeur détectée.
+    ("Stop", "", "pm-secret-watch.py", "", 90),
     # report conso consolidé en fin de session
     ("SessionEnd", None, "pm-task-report.py", " --all --apply", 180),
     ("SessionEnd", None, "pm-think-harvest.py", "", 60),

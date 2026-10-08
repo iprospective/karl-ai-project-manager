@@ -277,3 +277,34 @@ jamais bloquant (un teardown refusé — worktree sale — laisse le ticket se
 fermer et l'env se gère à la main). Conditions : tâche co-localisée, manifeste
 `repos:` **mono-repo**, bare présent. Opt-out global :
 `pm.config.yml :: env_runtime.auto_session: false`.
+
+## Les DONNÉES d'un env : une déclaration, trois outils (RM3419)
+
+La liste des dossiers de données d'une appli est une **donnée**, pas du code. Elle vit dans
+`<type>-data.map` à côté de ces scripts (le **cœur** de l'appli), avec deux surcharges possibles :
+une variante par version majeure (`<type>-data-<majeure>.map`) et surtout **celle du site**, à la
+racine du dépôt du code (`.<type>-data.map`) — c'est là que se déclarent les dossiers de données
+des **modules/extensions**, propres à chaque installation.
+
+⚠ La surcharge du site vit dans le **dépôt du code**, pas dans le volet PM : un env est un
+`git worktree`, il n'a pas de `.mmi-pm` (celui-ci est à la racine du workspace). Une déclaration
+posée là ne serait vue par aucun env.
+
+| Outil | Ce qu'il en fait |
+|---|---|
+| `presta-data-index.sh` | un dossier `data/` de liens relatifs vers chaque donnée (RM3401) |
+| `env-link-data.sh` | dans un env de dev, les données pointent vers l'**env socle** au lieu d'y être recopiées |
+| `tools/synchro --data` | rapatrie **ces dossiers-là** depuis la prod, sans toucher au reste de l'arbre |
+
+Les applis ne se ressemblent pas, et c'est tout l'intérêt de déclarer : **Dolibarr** range tout
+sous `documents/` — une ligne suffit ; **PrestaShop** éparpille une quinzaine de dossiers pour le
+seul cœur, plus ceux de chaque module, et garde une longue traîne d'images de modules jamais
+exhaustivement déclarée (d'où le `--scan` de `env-link-data.sh`, limité à une liste blanche
+d'extensions d'images). **WordPress** tient dans `wp-content/uploads`.
+
+Deux pièges payés en réel (RM3218) :
+
+- **Ne jamais lier un catalogue de traduction** : le Finder de Symfony ne suit pas les liens
+  symboliques, le front repasse en anglais alors que les fichiers sont là (RM3410).
+- **Ne jamais descendre sous un ancêtre déjà lié** : on écrirait un lien par-dessus le fichier du
+  **socle**, c'est-à-dire qu'on corromprait la source unique. `env-link-data.sh` garde contre ça.

@@ -82,3 +82,7 @@ SQL
   warn "  • user 'synchro' garde son api_key (= clé API dev, OK)."
   warn "  • cron Dolibarr : inactif sauf si un cron système appelle public/cron/."
 }
+
+# RM3419 — `./sync.sh <env> --data` : les dossiers de données déclarés au manifeste
+# `dolibarr-data.map` (+ surcharge du site). Dolibarr range tout sous `documents/` : une ligne.
+dolibarr_sync_data() { env_sync_data dolibarr; }

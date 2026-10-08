@@ -13,6 +13,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Les données d'un env : une déclaration, trois outils (RM3419).** La liste des dossiers de données
+  d'une appli devient une donnée partagée — `<type>-data.map` + la surcharge du **dépôt du site**
+  (`.<type>-data.map`, seule visible depuis un worktree), résolue par `env-data-manifest.sh`. Trois
+  consommateurs : l'index `data/` (RM3401), le nouveau `env-link-data.sh` (les données d'un env de dev
+  pointent vers l'env socle au lieu d'y être recopiées) et `tools/synchro --data` (rapatrie ces
+  dossiers-là depuis la prod, sans le `rsync --delete` de tout l'arbre qui écraserait un worktree).
+  `env-link-data.sh` pose le plus gros lien possible — dossier entier quand il ne porte aucun fichier
+  du dépôt, sinon il descend, et ne tombe au fichier que dans les feuilles mixtes : 27 liens au lieu de
+  38 000 sur un `img/p` réel. Deux gardes payées en réel (RM3218) : jamais un fichier suivi par git,
+  jamais sous un ancêtre déjà lié (on écrirait par-dessus le socle). Manifestes livrés : presta (cœur),
+  dolibarr (une ligne, tout est sous `documents/`), wordpress.
+
 - **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
   s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé
   (`pm-task-move` l'emporte). La fiche du cockpit gagne un bloc « 🚀 Mise en production » — actions au

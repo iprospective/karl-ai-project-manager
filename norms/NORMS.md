@@ -237,7 +237,7 @@ les libellés Redmine dans NORMS — ils changent (RM2926) et la copie ment en s
 `a_tester_demandeur`, normalisé par les scripts.
 
 ### priority
-`low` | `normal` | `high` | `urgent`
+`low` | `normal` | `high` | `urgent` | `immediat`
 
 ### close_reason
 `resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`
@@ -895,7 +895,7 @@ pm-task-link add "$ID" 1834 --type relates
 Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
 `--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
 
-> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help`.
+> 📂 **Module `session-tooling-pratique` — quand lire ceci :** je cherche si un geste a son outil ou s'il reste manuel · je veux l'invocation exacte d'un `pm-*` sans relancer `--help` · un secret a transité en séance, ou je touche au garde qui le détecte.
 > **Outils :** tous les `pm-*` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 Détail sorti de `session-tooling` (RM3037) pour tenir le budget de contexte : la **règle** — tout ce qui
@@ -960,6 +960,35 @@ préchargé et dans le tripwire #1. Ce qui suit est de la **consultation**.
   `pm-task-sync` — voir le diff avant d'écrire.
 - **Script lancé depuis un worktree sans `.env`** : préfixer
   `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+## Un secret qui transite : le garde système (RM3274)
+
+Le tripwire #11 t'interdit de faire transiter un secret dans un transcript, et la règle de
+RM2466 te demande de le signaler quand c'est arrivé. Depuis RM3274, **tu n'es plus le seul
+filet** : le hook `Stop` `pm-secret-watch` relit chaque tour et, s'il voit un secret — préfixe
+connu (`glpat-`, `ghp_`, `EAA…` Meta, `sk-…`, `AKIA…`, `AIza…`), mot-clé porteur, clé privée
+PEM, fragment de haute entropie — **ou si tu l'écris toi-même** (« affiché en clair », « token
+compromis », « à régénérer ») :
+
+1. écrit une notification **`critical`** adressée à l'owner — tous les secrets, sans palier
+   selon l'environnement ni selon que tu l'aies avoué (arbitrage Mathieu, 2026-09-21) ;
+2. **ouvre le ticket de rotation** : type `security`, priorité `immediat` (RM3275), lié au
+   ticket du tour ;
+3. journalise dans le `.log.md` du ticket courant.
+
+**Rien de tout cela ne contient la valeur** : libellé, endroit, empreinte `sha256[:12]` — et
+c'est à tenir si tu touches à ce code. Un garde qui recopie ce qu'il dénonce le propage dans
+des supports qui durent plus longtemps que le transcript (le fil, un ticket Redmine, un
+journal versionné).
+
+Deux gardes contre l'emballement : mémoire par empreinte (un même secret revu ne rouvre pas
+de ticket, la notification remonte avec son compteur) et plafond par session
+(`PM_SECRET_WATCH_MAX`, 3 par défaut — au-delà on alerte encore, on n'ouvre plus).
+
+**Ce garde ne t'exempte de rien.** Il rattrape l'oubli, il ne remplace pas le geste : tu
+signales toujours ce que tu as vu passer, et surtout tu évites de le faire transiter — un
+`SELECT` sur une table de configuration s'écrit en excluant `%TOKEN%`, `%KEY%`, `%SECRET%`.
+Essayer un texte à la main : `pm-secret-watch --text "…" --dry-run`.
 
 ## Le CYCLE DE SESSION — une procédure nommée (RM3162)
 
@@ -2368,10 +2397,27 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
-> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur · je choisis une priorité, ou j'hésite entre `urgent` et `immediat`.
+> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates`, `pm-task-priority` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
+
+## Priorité `immediat` — le cran qui passe devant le travail en cours (RM3275)
+
+`immediat` (Redmine id 5) ne veut pas dire « urgent, mais vraiment » : il désigne ce pour quoi
+on **lâche ce qu'on est en train de faire** — secret compromis, production à l'arrêt, perte de
+données en cours. Le test est comportemental : si personne n'interrompt son travail, c'est
+`urgent`. Sans ce garde-fou le cran dérive en doublon d'`urgent` en quelques semaines et ne
+distingue plus rien.
+
+Énumération et poids viennent de `redmine.reference.yml :: priorities` via `pm_priority.py` —
+aucun script ne recopie la table. Changer la priorité d'un ticket **existant** :
+`pm-task-priority <id> <priorité>` (Redmine + frontmatter + journal dans le même mouvement) ;
+jamais à la main, jamais par l'UI seule, qui laisserait le frontmatter en arrière.
+
+« A définir » (id 24) existe côté Redmine mais n'est pas un degré d'urgence : hors énumération
+NORMS, traitée comme priorité inconnue — elle ne double personne dans une file.
+
 
 Détaché de `status-workflow.md` par RM2582. La table des transitions est une
 **référence** : le KERNEL impose déjà de la demander à l'outil
@@ -3961,8 +4007,15 @@ stable** — les chiffres en champs, jamais dans le texte — de sorte qu'une d�
 produise une entrée qui remonte, et non une par jour. Le ticket vient après, si l'humain
 décide qu'il y a du travail.
 
-Exemple de référence : `pm-context-budget --check` (invariant : le plafond) et
-`pm-context-budget --notify` (tendance : la marge de 10 %), travail `norms-budget-watch`.
+Exemple de référence — et contre-exemple devenu exemple : le **budget de contexte**. Le
+plafond a longtemps été tenu comme un invariant dur (`--check` en gate du doctor et de la
+suite). Résultat : deux tests rouges pendant des mois pour un dépassement de quelques
+dizaines de tokens sur trente mille, quatre tickets ouverts sur le même seuil (RM2974,
+RM2994, RM3035, RM3046), et les vrais invariants affichés juste au-dessus qu'on ne lisait
+plus. RM3417 l'a basculé : marge **et** plafond notifient (`--notify`, travail
+`norms-budget-watch`, et la porte du doctor), aucun des deux ne bloque, aucun des deux ne
+donne de ticket. **Le test à écrire pour une tendance n'est pas « le seuil est tenu » mais
+« le capteur alerte ».**
 
 ### 9. L'agent a un compte et une BOÎTE DE COURRIER d'essai (RM3360)
 
@@ -4000,9 +4053,10 @@ Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
 score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
 ```
 
-Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
+Avec `priority_weight` = `pm_priority.weights()` : 0,5 au cran le plus bas, ×2 par cran.
 
 Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
+
 Sortie : top N tâches triées par score décroissant, par client/projet ou global.
 
 ## ROI assisté par IA (RM1717)

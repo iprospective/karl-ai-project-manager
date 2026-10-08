@@ -30,6 +30,7 @@
 - `pm-task-metrics-push` — Pousse l'ESTIMATION d'une tâche vers Redmine.
 - `pm-task-move` — DÉPLACE une tâche d'un projet PM vers un autre (fichiers + Redmine).
 - `pm-task-partner` — rattache un ticket PM à un ticket d'un gestionnaire PARTENAIRE.
+- `pm-task-priority` — change la priorité d'un ticket : Redmine + frontmatter + log
 - `pm-task-protocol` — Protocole de test d'un ticket : CF Redmine + frontmatter
 - `pm-task-questions` — les questions d'un ticket, dans son CF Redmine 36 « Questions à tranche…
 - `pm-task-rename` — renommer le TITRE d'un ticket (frontmatter + Redmine). RM3242.
@@ -153,6 +154,7 @@
 - `pm-provider-secret` — pose, remplace ou efface le SECRET d'une instance de provider
 - `pm-providers` — inspecte le registre de serveurs et la résolution d'instance
 - `pm-secret-instance` — quel coffre pour CE projet ? Réécrit `secret:<chemin>` en `secret://<in…
+- `pm-secret-watch` — un secret a transité dans le tour : notifier et ouvrir la rotation. RM3…
 
 ### Ordonnancement & notifications
 
@@ -244,6 +246,7 @@
 - `pm_output` — contrat de sortie des scripts PM
 - `pm_partner` — liens vers les tickets d'un gestionnaire PARTENAIRE (N0, RM2654).
 - `pm_paths` — Résolution de chemins du système PM iprospective.
+- `pm_priority` — Source unique de l'énumération NORMS `priority`
 - `pm_proclive` — « une session d'agent tourne-t-elle encore sur ce sid ? ». RM2810.
 - `pm_provider_types` — le CATALOGUE des types de fournisseurs
 - `pm_questions_gate` — pas de mise en prod avec une question en suspens
@@ -253,6 +256,7 @@
 - `pm_roles` — quel rôle d'agent pour ce ticket ?
 - `pm_scope` — garde de PÉRIMÈTRE des outils PM mutants
 - `pm_searchdb` — l'index de REQUÊTAGE de karl-PM : une PROJECTION du Markdown
+- `pm_secret_scan` — reconnaître un secret dans un texte, sans jamais le recopier
 - `pm_secrets` — abstraction de gestionnaire de secrets (vault) — RM2681 (L0).
 - `pm_session` — Id de session court (entier incrémental) + registre des branches/worktr…
 - `pm_session_hook` — Reflète une création / transition de ticket PM dans le worklog de sessi…

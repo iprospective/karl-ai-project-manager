@@ -108,5 +108,53 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   assert(!/setInterval|refreshFetch\(|PANEL_LOADERS|renderHealth\(|renderCoreUpdate\(/.test(html.replace(/\/\/[^\n]*/g, "")), "plus aucun poller ni renderer de santé/MAJ dans le monolithe");
   const ctrl = fs.readFileSync(path.join(DIR, "src/modules/refresh/refresh.controller.js"), "utf8"); assert(/visibilitychange/.test(ctrl) && /hidden/.test(ctrl), "pollers gatés sur la visibilité (RM2613)");
   console.log("✓ hôtes sans on*, ponts en place, plus de poller dans le monolithe");
+  // ── RM2571 : appliquer la mise à jour depuis le cockpit ───────────────────
+  {
+    assert(/Lancer la mise à jour maintenant/.test(M.coreUpdateText({ can_update: true, branch: "main" })), "règle NOPASSWD posée : le cockpit propose d'appliquer");
+    assert(/mmi-pm core-update/.test(M.coreUpdateText({ can_update: false })), "sans la règle : la commande du terminal reste dite");
+    assert.deepStrictEqual(M.coreUpdateRunState({}), { on: false, busy: false, text: "", title: "" });
+    const enCours = M.coreUpdateRunState({ running: true, started_at: "T1", by: "mathieu", lines: ["a", "b"] });
+    assert(enCours.busy && /⏳/.test(enCours.text) && /mathieu/.test(enCours.title) && /2 ligne/.test(enCours.title), "run en cours : bouton occupé, qui et depuis quand");
+    const fini = M.coreUpdateRunState({ running: false, started_at: "T1", lines: ["x"] });
+    assert(fini.on && !fini.busy && /terminée/.test(fini.text), "run fini : bouton rendu, relecture possible");
+    assert(/EN COURS/.test(M.coreUpdateLogText({ running: true, lines: ["l1"] })) && /l1/.test(M.coreUpdateLogText({ running: true, lines: ["l1"] })), "le journal est rendu tel quel");
+    assert(/journal vide/.test(M.coreUpdateLogText({ running: true, lines: [] })), "journal encore vide : dit, pas vide");
+
+    let runs = 0, logs = 0, running = true, alerts2 = [], notifs = [];
+    const timers2 = [];
+    const svc3 = { fetch: async () => [], pushSpecs: () => [], stale: 0, hot: 0,
+      coreUpdate: async () => ({ available: false, branch: "main", can_update: true }),   // après coup : plus rien à faire
+      coreUpdateRun: async () => { runs++; return { started_at: "T1", by: "mathieu" }; },
+      coreUpdateLog: async () => { logs++; if (logs === 2) throw new Error("fetch failed"); return { running, started_at: "T1", by: "mathieu", lines: ["étape " + logs] }; } };
+    const b2 = { style: {}, textContent: "", title: "", disabled: false, addEventListener() {}, removeEventListener() {} };
+    const ctr2 = mountRefresh({ updbtn: b2 }, { service: svc3, later: (fn, ms) => { timers2.push([fn, ms]); return timers2.length; }, hidden: () => true,
+      alert: (t) => alerts2.push(t), confirm: () => true, notify: (m, k) => notifs.push([m, k]) });
+    ctr2.renderCoreUpdate({ available: true, branch: "main", local: "aaaaaaa1", remote: "bbbbbbb2", can_update: true });
+    await ctr2.runCoreUpdate(); await settle();
+    assert.strictEqual(runs, 1, "le clic lance la mise à jour");
+    assert(b2.disabled && /⏳/.test(b2.textContent), "pendant le run, le bouton est occupé");
+    // 1er battement : en cours ; 2e : erreur réseau (karl-agent redémarre) ; 3e : terminé
+    await timers2.pop()[0](); await settle();
+    assert(b2.disabled, "toujours en cours après le 1er battement");
+    await timers2.pop()[0](); await settle();
+    assert(b2.disabled && !notifs.length, "une erreur réseau pendant le redémarrage n'est PAS un échec");
+    running = false;
+    await timers2.pop()[0](); await settle();
+    assert(!b2.disabled, "run fini : le bouton redevient cliquable");
+    assert.strictEqual(b2.style.display, "none", "la version est re-sondée : plus de MAJ dispo, le bouton s'efface");
+    assert(alerts2.some(t => /Mise à jour terminée/.test(t)), "le compte rendu est montré à la fin");
+    ctr2.unmount();
+  }
+  {
+    // reprise du suivi au (re)démarrage du cockpit : le run survit au redémarrage de karl-agent
+    const timers3 = []; const b3 = { style: {}, textContent: "", title: "", disabled: false, addEventListener() {}, removeEventListener() {} };
+    const ctr3 = mountRefresh({ updbtn: b3 }, { service: { fetch: async () => [], pushSpecs: () => [], stale: 0, hot: 0, coreUpdateLog: async () => ({ running: true, started_at: "T0", lines: ["reprise"] }) },
+      later: (fn, ms) => { timers3.push([fn, ms]); return timers3.length; }, hidden: () => true });
+    ctr3.start(); await settle(); await settle();
+    assert(/⏳/.test(b3.textContent) && b3.disabled, "au chargement, un run en cours est repris et affiché");
+    ctr3.unmount();
+  }
+  console.log("✓ RM2571 : mise à jour appliquée depuis le cockpit, suivi tolérant au redémarrage");
+
   console.log("\nTous les tests de la pile /refresh passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

@@ -69,9 +69,28 @@ export function coreUpdateState(d) {
   const l = (u.local || "").slice(0, 7), r = (u.remote || "").slice(0, 7);
   return { on: true, text: "⬆ MAJ dispo", title: "Mise à jour du code PM disponible sur « " + u.branch + " » : " + l + " → " + r + (u.stale ? " (état périmé : " + u.error + ")" : "") + " — clic pour la commande à lancer" };
 }
-/** RM2571 : appliquer reste un geste humain — le texte dit la commande à lancer. */
+/** RM2571 : la question posée avant de lancer. Le cockpit APPLIQUE la mise à jour quand la règle
+ *  sudoers NOPASSWD est posée (`can_update`) ; sinon il dit la commande à lancer au terminal. */
 export function coreUpdateText(d) {
   const u = d || {}; const l = (u.local || "?").slice(0, 7), r = (u.remote || "?").slice(0, 7);
-  return "Mise à jour du code PM disponible\n\nbranche : " + u.branch + "\ninstallé : " + l + "\ndisponible : " + r + "\n" + (u.checked_at ? "vérifié : " + u.checked_at + "\n" : "") +
-    "\nÀ lancer dans un terminal (mot de passe sudo demandé) :\n\n  mmi-pm core-update\n\nNote : karl-agent redémarre si son propre code a changé — le cockpit se reconnecte tout seul.";
+  const tete = "Mise à jour du code PM disponible\n\nbranche : " + u.branch + "\ninstallé : " + l + "\ndisponible : " + r + "\n" + (u.checked_at ? "vérifié : " + u.checked_at + "\n" : "");
+  if (!u.can_update) {
+    return tete + "\nLe cockpit ne peut pas l'appliquer : la règle sudoers NOPASSWD du core update n'est pas posée sur cette instance.\n" +
+      "À lancer dans un terminal (mot de passe sudo demandé) :\n\n  mmi-pm core-update\n\n(règle 2 de deploy/mmi-pm.sudoers.example — install-mmi-pm --print-sudoers)";
+  }
+  return tete + "\nLancer la mise à jour maintenant ?\n\nkarl-agent redémarre si son propre code a changé — le suivi continue, le cockpit se reconnecte tout seul.";
+}
+/** RM2571 : l'état du bouton pendant un run — libellé, infobulle, et s'il reste cliquable. */
+export function coreUpdateRunState(d) {
+  const r = d || {}; const n = (r.lines || []).length;
+  if (r.running) return { on: true, busy: true, text: "⏳ MAJ en cours", title: "Mise à jour lancée " + (r.started_at || "") + (r.by ? " par " + r.by : "") + " — " + n + " ligne(s) de journal" };
+  if (!r.started_at) return { on: false, busy: false, text: "", title: "" };
+  return { on: true, busy: false, text: "✓ MAJ terminée", title: "Dernière mise à jour terminée (" + (r.started_at || "") + ") — clic pour relire le journal" };
+}
+/** RM2571 : le compte rendu d'un run — les dernières lignes du journal, telles quelles. */
+export function coreUpdateLogText(d) {
+  const r = d || {}; const lines = r.lines || [];
+  const tete = (r.running ? "Mise à jour EN COURS" : "Mise à jour terminée") + (r.started_at ? " (lancée " + r.started_at + (r.by ? " par " + r.by : "") + ")" : "") + "\n\n";
+  if (!lines.length) return tete + "(journal vide pour l'instant)";
+  return tete + lines.slice(-40).join("\n");
 }

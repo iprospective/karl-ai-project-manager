@@ -13,6 +13,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Mettre à jour le code de l'instance depuis le cockpit (RM2571, réouvert).** Le bouton « ⬆ MAJ dispo »
+  ne faisait que dire la commande à taper ; il l'applique désormais. Arbitrage Mathieu du 2026-09-30 : la
+  règle sudoers du seul verbe `bin/mmi-pm core update` passe en **NOPASSWD**, pour un utilisateur `pm`
+  autorisé — toujours en mono-utilisateur, administrateur en multi (`POST /core/update`). La barrière
+  humaine du §13a n'est pas levée, elle se **déplace** : authentification du cockpit + droit nommé, sur une
+  commande étroite (jamais `ALL`), journalisée par sudo, par le journal PM et par un journal de run.
+  Comme la mise à jour **redémarre karl-agent** quand son propre code a changé, le travail est détaché et
+  suivi par `GET /core/update-log`, qui relit un fichier : le front reprend le suivi au chargement, et une
+  erreur réseau pendant le redémarrage n'est plus prise pour un échec. Sans la règle, le cockpit le dit et
+  renvoie la commande du terminal plutôt que d'échouer au clic ; en CLI, `pm-core-update` tente `sudo -n`
+  puis retombe sur le sudo interactif.
+
+- **Les données d'un env : une déclaration, trois outils (RM3419).** La liste des dossiers de données
+  d'une appli devient une donnée partagée — `<type>-data.map` + la surcharge du **dépôt du site**
+  (`.<type>-data.map`, seule visible depuis un worktree), résolue par `env-data-manifest.sh`. Trois
+  consommateurs : l'index `data/` (RM3401), le nouveau `env-link-data.sh` (les données d'un env de dev
+  pointent vers l'env socle au lieu d'y être recopiées) et `tools/synchro --data` (rapatrie ces
+  dossiers-là depuis la prod, sans le `rsync --delete` de tout l'arbre qui écraserait un worktree).
+  `env-link-data.sh` pose le plus gros lien possible — dossier entier quand il ne porte aucun fichier
+  du dépôt, sinon il descend, et ne tombe au fichier que dans les feuilles mixtes : 27 liens au lieu de
+  38 000 sur un `img/p` réel. Deux gardes payées en réel (RM3218) : jamais un fichier suivi par git,
+  jamais sous un ancêtre déjà lié (on écrirait par-dessus le socle). Manifestes livrés : presta (cœur),
+  dolibarr (une ligne, tout est sous `documents/`), wordpress.
+
 - **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
   s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé
   (`pm-task-move` l'emporte). La fiche du cockpit gagne un bloc « 🚀 Mise en production » — actions au
@@ -1301,6 +1325,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   jours attrape. NORMS 2.15.0 → 2.17.0 (module `scheduler`, hors précharge, + déclencheur).
 
 ### Outillage PM
+- **Facturation : création des brouillons** (RM2891, lot 2). `mmi-pm invoice --month AAAA-MM --apply`
+  relit la proposition **amendée** — aucun recalcul, ce que l'humain a relu est ce qui part — et crée
+  une facture **brouillon** par client dans l'ERP : lignes de service (jamais de marchandise), tarif
+  de la dernière facture, note publique au modèle. **Jamais de validation** : une facture émise ne se
+  rattrape pas, la validation reste un geste humain dans Dolibarr. Idempotence par marque
+  `[invoice:<client>#<mois>]` en note privée — Dolibarr n'ayant aucun lien natif vers les saisies
+  Redmine, c'est elle qui empêche de facturer deux fois le même mois.
 - **Facturation : l'ERP devient un provider, et `mmi-pm invoice` propose les factures du mois** (RM2891).
   Dolibarr se déclare désormais comme les autres outils du registre, sur un nouvel axe **`erp`**
   (`dolibarr-ipro`, défaut d'instance) : un client qui a son propre Dolibarr se branchera en

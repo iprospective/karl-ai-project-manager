@@ -234,6 +234,7 @@ from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 :
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_priority as _pm_priority   # noqa: E402  RM3275 : énumération priority, source unique
 import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -9232,7 +9233,7 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
 # sous-processus. Les entrées client sont passées en argv (liste, jamais via un
 # shell) → aucune injection possible ; type/priorité validés contre une liste.
-PRIORITIES = ["low", "normal", "high", "urgent"]
+PRIORITIES = _pm_priority.labels()  # RM3275 : source unique (redmine.reference.yml)
 _TASK_TYPES_CACHE = None
 
 
@@ -11730,7 +11731,7 @@ def op_mail_create(payload: dict) -> dict:
     args = ["--create", _mail_key(payload)]
     for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
                                  ("--title", "title", r".{1,120}"),
-                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--priority", "priority", _pm_priority.choices_re()),  # RM3275
                                  ("--note-on", "note_on", r"\d{1,8}")):
         v = str(payload.get(field) or "").strip()
         if v:
@@ -12132,6 +12133,44 @@ def _nopasswd_all(liste_sudo: str, comme: str) -> bool:
                     sans_mdp = m.group(1) == "NOPASSWD"
                 cmd = cmd[m.end():]
             if sans_mdp and cmd.strip() == "ALL":
+                return True
+    return False
+
+
+def _nopasswd_cmd(liste_sudo: str, comme: str, commande: str) -> bool:
+    """RM2571 : une règle NOPASSWD couvre-t-elle CETTE commande en tant que `comme` ?
+
+    Pendant CIBLÉ de `_nopasswd_all`. Le core update n'a pas besoin de `ALL` — il a besoin d'une
+    seule entrée, `<core>/bin/mmi-pm core update*` (deploy/mmi-pm.sudoers.example, règle 2). Demander
+    `ALL` reviendrait à exiger un sudo général là où la politique en accorde un, étroit et nommé.
+    Fonction pure (testable sans sudo), même lecture de `sudo -l` que sa sœur : seules les lignes de
+    règles comptent, les étiquettes valent jusqu'à la suivante, et sans étiquette le mot de passe est
+    exigé."""
+    for ligne in (liste_sudo or "").splitlines():
+        if "may run the following commands" in ligne:
+            continue
+        ligne = ligne.strip()
+        if not ligne.startswith("("):
+            continue
+        runas, _, cmds = ligne[1:].partition(")")
+        users = [u.strip() for u in runas.split(":")[0].split(",") if u.strip()]
+        if "ALL" not in users and comme not in users:
+            continue
+        sans_mdp = False
+        for cmd in cmds.split(","):
+            while True:
+                m = re.match(r"\s*([A-Z_]+):\s*", cmd)
+                if not m or m.group(1) == "ALL":
+                    break
+                if m.group(1) in ("NOPASSWD", "PASSWD"):
+                    sans_mdp = m.group(1) == "NOPASSWD"
+                cmd = cmd[m.end():]
+            motif = cmd.strip()
+            if not sans_mdp or not motif:
+                continue
+            if motif == "ALL" or motif == commande:
+                return True
+            if motif.endswith("*") and commande.startswith(motif[:-1]):
                 return True
     return False
 
@@ -12983,6 +13022,121 @@ def op_core_update_status(qs: dict | None = None) -> dict:
     return out
 
 
+# ── Déclencher la mise à jour du core depuis le cockpit (RM2571) ─────────────
+#
+# Arbitrage Mathieu du 2026-09-30 : le core update se lance DEPUIS LE COCKPIT, en `sudo` NOPASSWD
+# ciblé, pour un utilisateur `pm` autorisé — toujours en mono-utilisateur, administrateur en
+# multi-utilisateur. La « barrière humaine » du §13a n'est pas supprimée, elle se DÉPLACE : ce n'est
+# plus une saisie de mot de passe dans un terminal, c'est l'authentification du cockpit plus un droit
+# nommé, et la règle sudoers reste étroite (une commande, pas `ALL`).
+#
+# La mise à jour REDÉMARRE le service quand `karl-agent.py` a changé (étape 5 de pm-core-update) : une
+# réponse HTTP synchrone mourrait avec le serveur, et le navigateur verrait une erreur réseau au
+# milieu d'un geste réussi. Le travail est donc DÉTACHÉ (`start_new_session`), sa sortie va dans un
+# journal de `var/`, et le front suit l'avancement par `/core/update-log` — qui survit au
+# redémarrage puisqu'il relit un fichier, pas une mémoire de processus.
+_CORE_UPD_RUN = STATE_DIR / "core-update.json"
+_CORE_UPD_LOG_LINES = 400
+
+
+def core_update_cmd(core=None) -> list:
+    """La commande privilégiée — EXACTEMENT le chemin que la règle sudoers autorise (jamais `python3 …`)."""
+    return ["sudo", "-n", str(Path(core or REPO_ROOT) / "bin" / "mmi-pm"), "core", "update"]
+
+
+def core_update_sans_mdp() -> bool:
+    """La règle NOPASSWD du core update est-elle posée ? (sonde lue, jamais essayée — RM3341)"""
+    peut_sudo("root")                      # amorce / rafraîchit le cache de `sudo -n -l`
+    liste = _SUDO_CACHE.get("liste")
+    cmd = core_update_cmd()
+    return bool(liste) and _nopasswd_cmd(liste, "root", " ".join(cmd[2:]))
+
+
+def _core_update_gate(auth_ctx):
+    """Qui a le droit de mettre à jour le code de l'instance."""
+    mode = (auth_ctx or {}).get("mode")
+    if mode == "open":
+        if HOST not in ("127.0.0.1", "::1", "localhost"):
+            raise ApiError(403, "mise à jour du code : écoute non locale sans authentification")
+        return
+    if not mode:
+        raise ApiError(401, "authentification requise")
+    if _install_state().get("mode") == "multi" and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "en mode multi-utilisateur, la mise à jour du code de l'instance est "
+                            "réservée aux administrateurs")
+
+
+def _pid_vivant(pid) -> bool:
+    """Le processus existe-t-il encore ? `EPERM` = il existe mais appartient à quelqu'un d'autre —
+    c'est le cas NOMINAL ici : la mise à jour tourne en root, le démon non (test RM2571)."""
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _core_update_etat() -> dict:
+    try:
+        return json.loads(_CORE_UPD_RUN.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def op_core_update(auth_ctx=None) -> dict:
+    """Lance la mise à jour, détachée. Idempotent : un run déjà en cours est rendu tel quel."""
+    _core_update_gate(auth_ctx)
+    etat = _core_update_etat()
+    if etat and _pid_vivant(etat.get("pid")):
+        return {"ok": True, "running": True, "already": True, **etat}
+    if not core_update_sans_mdp():
+        raise ApiError(503, "règle sudoers NOPASSWD absente pour « bin/mmi-pm core update » : le "
+                            "cockpit ne peut pas mettre à jour le code. Installer la règle 2 de "
+                            "deploy/mmi-pm.sudoers.example (install-mmi-pm --print-sudoers).")
+    log = STATE_DIR / f"core-update-{time.strftime('%Y%m%d-%H%M%S')}.log"
+    try:
+        fh = open(log, "ab", buffering=0)
+    except OSError as e:
+        raise ApiError(500, f"journal de mise à jour illisible : {e}")
+    try:
+        proc = subprocess.Popen(core_update_cmd(), stdout=fh, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True,
+                                cwd=str(REPO_ROOT))
+    except OSError as e:
+        fh.close()
+        raise ApiError(500, f"lancement impossible : {e}")
+    finally:
+        fh.close()                         # le fils garde son propre descripteur
+    etat = {"pid": proc.pid, "log": str(log), "by": (auth_ctx or {}).get("user") or "—",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    try:
+        _CORE_UPD_RUN.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass                               # le suivi se dégrade, la mise à jour continue
+    if journal:
+        journal.info("core update déclenché depuis le cockpit", pid=proc.pid, par=etat["by"])
+    return {"ok": True, "running": True, "already": False, **etat}
+
+
+def op_core_update_log(qs: dict | None = None) -> dict:
+    """Avancement du dernier run : lignes du journal + s'il tourne encore.
+
+    Relit un FICHIER : le suivi traverse le redémarrage de karl-agent provoqué par la mise à jour."""
+    etat = _core_update_etat()
+    if not etat:
+        return {"running": False, "started_at": None, "by": None, "lines": [], "log": None}
+    lignes = []
+    try:
+        lignes = Path(etat["log"]).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        pass
+    return {"running": _pid_vivant(etat.get("pid")), "started_at": etat.get("started_at"),
+            "by": etat.get("by"), "log": etat.get("log"),
+            "lines": lignes[-_CORE_UPD_LOG_LINES:]}
+
+
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
 # ── Assets statiques du cockpit (RM2522) ────────────────────────────────────
 # Jusqu'ici le serveur ne servait QUE index.html ; le client terminal maison
@@ -13455,7 +13609,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_get(qs, self.auth_ctx))
             if path == "/core/update-status":   # RM2571 — non privilégié (ls-remote)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, op_core_update_status(qs))
+                return self._send_json(200, {**op_core_update_status(qs),
+                                             "can_update": core_update_sans_mdp()})
+            if path == "/core/update-log":      # RM2571 — avancement du run détaché
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_core_update_log(qs))
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
@@ -13795,6 +13953,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_llm_models(payload))
             if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
                 return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
+            if path == "/core/update":          # RM2571 : met à jour le code de l'instance
+                return self._send_json(202, op_core_update(self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
                 return self._send_json(200, op_cdc_think(payload, self.auth_ctx))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre

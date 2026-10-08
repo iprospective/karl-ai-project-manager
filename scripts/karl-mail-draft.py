@@ -48,8 +48,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out                                  # noqa: E402
 from pm_paths import PMConfig                              # noqa: E402
+import pm_priority                                         # noqa: E402  (RM3275)
 
-PRIORITIES = ["low", "normal", "high", "urgent"]
+PRIORITIES = pm_priority.labels()  # RM3275 : source unique
 DEFAULT_MODEL = os.environ.get("KARL_MAIL_DRAFT_MODEL", "claude-opus-5")
 DEFAULT_BODY_CHARS = 500          # conservateur tant que la décision D9 n'est pas prise
 
@@ -60,7 +61,7 @@ Réponds UNIQUEMENT par un objet JSON, sans texte autour ni bloc markdown :
 {"actionable": true|false,
  "title": "titre court et factuel, sans 'Re:' ni nom de client",
  "type": "<une valeur de types>",
- "priority": "low|normal|high|urgent",
+ "priority": "<une valeur de priorités>",
  "project": "<client/projet pris dans la liste, ou null si aucun ne convient>",
  "description": "contexte reformulé + ce qui est demandé + ce qui reste à clarifier",
  "confidence": 0.0 à 1.0}

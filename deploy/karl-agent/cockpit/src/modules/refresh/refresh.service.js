@@ -62,4 +62,6 @@ export class RefreshService {
   /** RM3006 : les specs que le canal de push doit porter — tous les blocs (avec leur hash courant), le worklog si une session est attachée et visible. */
   pushSpecs(env) { return buildSpecs({ hashes: this.hashes, at: {}, includes: ALL_BLOCKS, now: this.now(), dashboardVisible: env.dashboardVisible, attached: env.attached, worklogVisible: env.worklogVisible, worklogSid: this.worklogSid }).specs; }
   coreUpdate() { return this.repo.coreUpdate(); }
+  coreUpdateRun() { return this.repo.coreUpdateRun(); }
+  coreUpdateLog() { return this.repo.coreUpdateLog(); }
 }

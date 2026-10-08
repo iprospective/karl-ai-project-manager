@@ -254,6 +254,23 @@ def check_context_budget():
     return [l.split()[0] for l in r.stdout.splitlines() if "DÉPASSÉ" in l]
 
 
+def notifie_budget(roles):
+    """Porte le dépassement au FIL (donc au cockpit) — n'échoue jamais. RM3417.
+
+    Message STABLE, rôles en champ : une dérive qui dure fait UNE entrée qui remonte avec
+    son compteur, pas une par exécution. C'est la condition pour qu'un fil reste lisible —
+    et donc pour qu'on puisse se passer du blocage sans que la dérive devienne invisible.
+    """
+    try:
+        sys.path.insert(0, str(SCRIPTS))
+        import pm_notify
+        pm_notify.add("system", "warn",
+                      "la précharge NORMS dépasse son plafond de contexte",
+                      job="norms-budget", roles=sorted(roles), nb=len(roles))
+    except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas un contrôle
+        pass
+
+
 def main():
     rc = 0
     print("== pm-norms-doctor ==")
@@ -334,13 +351,21 @@ def main():
     else:
         print(f"  {PASS} en-têtes : tous les modules ont leur « quand lire ceci »")
 
+    # RM3417 — le budget de contexte NE BLOQUE PLUS. C'est une TENDANCE, pas un invariant :
+    # il s'entame sur des semaines, et un test rouge pendant des semaines n'apprend qu'à
+    # ignorer les échecs — y compris les vrais, qui s'affichent juste au-dessus. Quatre
+    # tickets (RM2974, RM2994, RM3035, RM3046) ont été ouverts sur ce seul seuil sans que
+    # personne ne soit alerté au bon moment. RM3177 avait acté la règle (« un seuil qui
+    # dérive est un ÉTAT, il se notifie, il ne se ticket pas ») ; le blocage, lui, était
+    # resté. Décision Mathieu 2026-10-07 : notification cockpit, pas de blocage, pas de ticket.
     over = check_context_budget()
     if over is None:
         print(f"  · budget contexte : non configuré (pm.config.yml :: context.budget_tokens)")
     elif over:
-        print(f"  {FAIL} budget contexte : rôle(s) au-dessus du plafond : {', '.join(over)}")
+        print(f"  · budget contexte : {len(over)} rôle(s) au-dessus du plafond "
+              f"({', '.join(over)}) — signalé au fil, PAS bloquant (RM3417)")
         print(f"        → détail : scripts/pm-context-budget.py --all-roles")
-        rc |= 1
+        notifie_budget(over)
     else:
         print(f"  {PASS} budget contexte : tous les rôles sous leur plafond")
 

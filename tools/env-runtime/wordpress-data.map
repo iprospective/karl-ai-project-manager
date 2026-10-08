@@ -1,0 +1,9 @@
+# wordpress-data.map — dossiers de DONNÉES d'un WordPress (RM3419).
+#
+# Format : <nom dans data/>|<chemin relatif à la racine du site>. Cf. env-data-manifest.sh.
+#
+# WordPress range les fichiers déposés sous `wp-content/uploads` (organisés par année/mois).
+# Les extensions qui écrivent ailleurs (caches d'images, exports) se déclarent dans la surcharge
+# du site : `.wordpress-data.map`.
+
+uploads|wp-content/uploads

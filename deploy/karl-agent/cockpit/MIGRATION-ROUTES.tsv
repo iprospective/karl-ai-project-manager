@@ -27,6 +27,8 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /contact	L4	projects	/api/project/contact	1	openContact
 /contacts	L4	projects	/api/project/contacts	1	openContacts
 /core/update-status	L0	core	/api/core/update-status	1	refreshCoreUpdate
+/core/update	L0	core	/api/core/update	1	coreUpdateRun
+/core/update-log	L0	core	/api/core/update-log	1	coreUpdateLog
 /disposition	L2	sessions	/api/session/disposition	1	setDisposition
 /engines/options	L5	pm	/api/pm/engine-options	2	loadEngineOptions, saveEngineOptions
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck

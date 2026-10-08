@@ -123,3 +123,30 @@ partout mérite d'être dans la méthode ; ce qui n'apparaît qu'une fois mérit
 - **le chiffrage** et **les critères d'acceptation du CDC lui-même** — les deux manquaient au
   cas fondateur, et les deux sont ce qui distingue un accord d'un plan ;
 - un **journal des révisions** n'est pas nécessaire : git le tient, le registre dit pourquoi.
+
+## Langue du code : les identifiants en anglais
+
+Les **identifiants se nomment en anglais** — fonctions, méthodes, paramètres, variables,
+classes, noms de fichiers source. `lotsForTier()`, pas `lotsPourPalier()` ; `$restriction`,
+pas `$restreint`.
+
+L'**exception** est une base de code **déjà écrite en français** : on s'y conforme, plutôt
+que d'y introduire un troisième dialecte. Attention au faux ami : un code **mixte** —
+quelques noms français hérités dans une base par ailleurs anglaise, ce qui est le cas de
+Dolibarr et des modules MMI — **n'est pas** une base française. Les ajouts s'y font en
+anglais.
+
+Restent en **français** : les commentaires et la documentation, les notes de commit et de
+ticket, les libellés affichés à l'utilisateur. Et ne relèvent pas du choix : les **noms de
+données existants** — colonnes, extrafields, clés d'API, valeurs stockées comme `palier` ou
+`date_courte` — se citent tels qu'ils sont, les renommer casserait les données. Une variable
+locale qui porte une telle valeur peut, elle, s'appeler `$tier`.
+
+**Pourquoi.** Un code dont les identifiants mélangent deux langues ne se lit pas seulement
+moins bien : il ne se **cherche** plus. Personne ne sait s'il faut grepper `palier` ou
+`tier`, `expedition` ou `shipping` — et les deux finissent par coexister. Le coût est
+permanent, et il croît avec la base.
+
+**Quand l'appliquer :** au moment de **nommer**, pas au moment de relire. Avant d'écrire une
+fonction, regarder comment la base nomme ses propres symboles ; en cas de mélange, choisir
+l'anglais.

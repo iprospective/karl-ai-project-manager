@@ -31,6 +31,7 @@ from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.
 from pm_paths import PMConfig
 import pm_cf_mirror
 import pm_git
+import pm_priority  # RM3275 : énumération priority, source unique
 import pm_tags
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
@@ -48,12 +49,15 @@ REDMINE_TO_NORMS_STATUS = {
     8:  "a_etudier_chiffrer",
     14: "etude_chiffrage_en_cours",
     21: "etude_chiffrage_a_valider",  # Etude/CDC à valider (transition assignee-only, cf. redmine-post-note)
+    24: "etude_chiffrage_a_corriger", # RM3228 : Etude/CDC à corriger (étude renvoyée par le demandeur)
     12: "a_faire",
     2:  "en_cours",
     19: "a_tester_dev",
     9:  "a_tester_demandeur",        # ex-a_tester_verifier (déprécié)
     3:  "a_mep",                     # Résolu/Validé/A MEP (non terminal)
-    20: "en_mep",                    # MEP/Tester en preprod
+    20: "a_tester_preprod",          # MEP/Tester en preprod (RM2893 ; ex-en_mep)
+    22: "en_mep",                    # MEP/Vérifier en prod (RM2893)
+    23: "a_mep_prod",                # MEP/Preprod OK/A MEP (RM2926)
     13: "en_pause",                  # Attente retour / en pause
     11: "a_corriger",
     18: "ferme",                     # terminal réel — raison via CF "Raison Fermé" (id 11)
@@ -63,6 +67,23 @@ REDMINE_TO_NORMS_STATUS = {
     6:  ("ferme", "wont_fix"),       # ou hors_perimetre — ambigu
     7:  ("ferme", "invalide"),       # ou doublon — ambigu
 }
+
+
+
+def _depuis_reference():
+    """RM3228 : les statuts CANONIQUES se lisent dans redmine.reference.yml (source unique,
+    NORMS § status) — la table ci-dessus, recopiée à la main, avait dérivé : 20 y restait
+    `en_mep` après RM2893, 22 et 23 y manquaient, et un statut Redmine inconnu d'elle n'est
+    tout simplement PAS rapatrié. Elle ne garde que les ids dépréciés (tuples → ferme+raison)
+    et sert de repli si la référence est illisible."""
+    try:
+        import redmine_utils
+        return {int(i): nom for nom, i in redmine_utils.status_ids().items()}
+    except Exception:  # noqa: BLE001 — référence illisible : la table en dur fait foi
+        return {}
+
+
+REDMINE_TO_NORMS_STATUS.update(_depuis_reference())
 
 # CF "Raison Fermé" (id=11, enumeration) → close_reason NORMS, par value_id.
 # La valeur arrive en id (string), pas en label. Cf. NORMS § Mapping NORMS → Redmine.
@@ -83,7 +104,9 @@ def cf_value(issue, cf_id):
             return c.get("value")
     return None
 
-REDMINE_TO_NORMS_PRIORITY = {1: "low", 2: "normal", 3: "high", 4: "urgent"}
+# RM3275 : déduit de pm_priority (source : redmine.reference.yml). Un id hors
+# énumération (« A définir », 24) n'y figure pas : fetch retombe sur le défaut.
+REDMINE_TO_NORMS_PRIORITY = {pid: label for label, pid in pm_priority.ids().items()}
 
 
 def fetch_issue(url, key, issue_id):
@@ -122,12 +145,13 @@ def fmt_journal_md(j):
 # frontmatter est le miroir local — et c'est LUI que lit la fiche de revue du cockpit.
 # Ici on ne fait que le sens REDMINE → PM : rattraper une saisie faite dans l'UI web.
 # Le sens PM → Redmine est poussé à l'écriture par les outils dédiés
-# (pm-task-implementation, pm-task-deploy, pm-task-protocol).
+# (pm-task-implementation, pm-task-deploy, pm-task-protocol, pm-task-acceptance).
 #   (clé frontmatter, variable .env, nom du CF, liste ?)
 CF_MIRRORS = (
     ("implementation", "REDMINE_CF_IMPLEMENTATION_ID", "Proposition d'implémentation", False),
     ("test_protocol",  "REDMINE_CF_TEST_PROTOCOL_ID",  "Protocole de test",            False),
     ("deploy_actions", "REDMINE_CF_DEPLOY_ACTIONS_ID", "Actions au déploiement",       True),
+    ("acceptance",     "REDMINE_CF_ACCEPTANCE_ID",     "Critères d'acceptation",       False),
 )
 
 
@@ -268,7 +292,9 @@ def diff_fields(fm, issue):
     if fm.get("parent_task") != rm_parent:
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
 
-    # Miroirs de CF (RM2563) : implementation / test_protocol / deploy_actions.
+    # Miroirs de CF (RM2563, RM2882) : implementation / test_protocol / deploy_actions
+    # / acceptance. Les critères en ont un besoin PARTICULIER : ils changent souvent, et
+    # c'est le demandeur qui les amende — le plus souvent dans l'UI web, pas par script.
     diffs.update(diff_cf_mirrors(fm, issue))
 
     # Régime de miroir d'états coché dans le ticket (RM2746).

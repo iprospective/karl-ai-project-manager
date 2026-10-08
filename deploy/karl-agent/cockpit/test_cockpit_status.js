@@ -41,6 +41,12 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
         S.ticketStatusRank("a_faire") < S.ticketStatusRank("ferme"));
   check("un statut inconnu passe AVANT fermé (il demande un regard)",
         S.ticketStatusRank("zzz") < S.ticketStatusRank("ferme"));
+  // RM3228 : l'étude renvoyée est une action attendue de l'agent — rangée avec les corrections
+  check("etude_chiffrage_a_corriger : famille « à faire », pas « autre »",
+        S.ticketStatusFamily("etude_chiffrage_a_corriger") === "todo");
+  check("etude_chiffrage_a_corriger : lue juste après a_corriger, avant l'étude à valider",
+        S.ticketStatusRank("a_corriger") < S.ticketStatusRank("etude_chiffrage_a_corriger") &&
+        S.ticketStatusRank("etude_chiffrage_a_corriger") < S.ticketStatusRank("etude_chiffrage_a_valider"));
 
   // ── libellés
   check("statusLabel rend un libellé lisible", S.statusLabel("a_tester_demandeur") === "à tester" &&
@@ -96,6 +102,152 @@ const check = (label, ok, detail) => { console.log(`  ${ok ? "✓" : "✗"} ${la
         iListe > 0 && iTitre > iListe && iOnglets > iTitre, `${iListe}/${iTitre}/${iOnglets}`);
   const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8");
   check("la ligne de titre est stylée et bornée", /\.rtitle/.test(css) && /line-clamp/.test(css));
+
+  // ── RM3126/F002 : le provider du ticket, avec ses secondaires
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const mk = (prov) => new MM.ProjectBriefViewModel(
+      { client: "matnat", project: "infra", card: {}, provider: prov });
+    const avec = String(MV.ProjectBrief(mk({ name: "redmine-ipro", type: "redmine",
+                                             url: "https://t", secondaries: ["redmine-matnat"] })));
+    check("le provider du ticket est affiché", /redmine-ipro/.test(avec));
+    check("les secondaires déclarés le sont aussi — c'est là que ça compte",
+          /\+ redmine-matnat/.test(avec));
+    check("l'infobulle dit le type et l'URL de l'instance",
+          /instance de gestion des tickets \(redmine\)/.test(avec) && /https:\/\/t/.test(avec));
+    check("aucune ligne « provider » quand le serveur ne l'a pas résolu — on ne devine pas",
+          !/provider/.test(String(MV.ProjectBrief(mk(null)))) &&
+          !/provider/.test(String(MV.ProjectBrief(mk({})))));
+  }
+
+  // ── RM3164 : les sessions du ticket dans le panneau
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const ts = (v) => { const o = Object.create(MM.TicketMetaViewModel.prototype); o.e = { ts: v };
+                        return o.ticketSessions.call(o); };
+    check("jamais demandé → aucun bloc (pas d'encart vide)",
+          ts(undefined).kind === "none" && String(MV.TicketSessionsBlock(ts(undefined))) === "");
+    check("en vol → « … », jamais « aucune session » (ce serait faux, et c'est le moment où l'on regarde)",
+          ts(null).kind === "loading" && /…/.test(String(MV.TicketSessionsBlock(ts(null)))));
+    const ok = ts({ handled: [{ rm_id: "42", name: "karl-RM42", alive: true, title: "Sujet" }] });
+    const h = String(MV.TicketSessionsBlock(ok));
+    check("une session traitante est listée et attachable",
+          ok.kind === "ok" && /data-action="attach-session" data-sid="42"/.test(h) && /karl-RM42/.test(h));
+    check("la session vivante se distingue de l'éteinte", /color:var\(--ok\)/.test(h));
+    const vide = String(MV.TicketSessionsBlock(ts({ handled: [], candidates: [1, 2] })));
+    check("aucune traitante → le dit, et signale les candidates plutôt que de les taire",
+          /aucune session ne traite/.test(vide) && /2 candidate/.test(vide));
+    check("échec de chargement → « indisponible », pas « aucune session »",
+          /indisponible/.test(String(MV.TicketSessionsBlock(ts({ error: true })))));
+    check("aucun onclick", !/onclick=/.test(h));
+  }
+
+  // ── RM3164 : l'onglet « conso » dit enfin ce qu'il contient
+  {
+    const TM = await import("file://" + path.join(SRC, "modules/meta/ticketMeta.js"));
+    const f = TM.FACETS.find(x => x[0] === "conso");
+    check("l'onglet des tokens, du coût et des temps s'appelle « temps & coût »",
+          f && f[1] === "temps & coût");
+    check("sa CLÉ ne bouge pas (elle est dans les URL de vue et les préférences)",
+          TM.facetOf("conso") === "conso");
+  }
+
+  // ── RM3164 : le survol déclaré PAR TYPE dans le registre
+  {
+    const B = await import("file://" + path.join(SRC, "modules/tickets/briefs.js"));
+    const E = await import("file://" + path.join(SRC, "core/entities.js"));
+    const plein = { found: true, title: "Un titre", status: "en_cours", completion_pct: 40,
+                    type: "feature", priority: "normal", client: "acme", project: "site" };
+    check("le survol d'un ticket monte les champs DÉCLARÉS par son type",
+          E.hoverText("review", "3164", plein) === "RM3164 — Un titre\nen_cours · 40 % · feature\nacme/site");
+    check("un champ à sa valeur par défaut est tu (priorité « normal »)",
+          !/priorité/.test(E.hoverText("review", "1", plein)) &&
+          /priorité high/.test(E.hoverText("review", "1", Object.assign({}, plein, { priority: "high" }))));
+    check("« pas encore chargé » et « inconnu » ne se disent PAS pareil",
+          /chargement…/.test(E.hoverText("review", "1", undefined)) &&
+          /inconnu en local/.test(E.hoverText("review", "1", null)) &&
+          /inconnu en local/.test(E.hoverText("review", "1", { found: false })));
+    check("le préfixe d'identifiant vient du type", E.labelOf("review", "42") === "RM42" &&
+          E.labelOf("project", "a/b") === "a/b");
+
+    // La généralisation : d'autres types ont leur survol, sans une ligne de moteur en plus.
+    const sess = E.hoverText("session", "42", { found: true, title: "S", state: "working",
+                                                engine: "claude", alive: true, client: "a", project: "b" });
+    check("une SESSION a son propre jeu de champs", /working · claude · vivante/.test(sess) && /a\/b/.test(sess));
+    // RM3265 : le survol dit ce que le clic FERA — une session éteinte se relance ou se reprend,
+    // et c'est justement ce qu'on ne savait pas avant d'avoir cliqué pour rien.
+    check("…dont ce que le clic fera, selon qu'elle vit ou non",
+          /clic : attacher/.test(sess) &&
+          /clic : relancer ou reprendre la conversation/.test(
+              E.hoverText("session", "42", { found: true, title: "S", state: "idle", engine: "claude", alive: false })))
+    check("un type sans champs déclarés rend « identifiant — titre », comme les autres",
+          E.hoverText("file", "x", { found: true, title: "doc.md" }) === "x — doc.md");
+
+    // Et l'appelant historique passe par là, sans changer de contrat.
+    check("briefs.ticketTipText délègue au registre (une seule source)",
+          B.ticketTipText("3164", plein) === E.hoverText("review", "3164", plein));
+    check("… en gardant SON contrat : ici null veut dire « pas encore chargé »",
+          /chargement…/.test(B.ticketTipText("3164", null)));
+  }
+
+  // ── RM3164 : le filtre par projet de la liste des tickets d'une session
+  {
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const mk = (res, f, sess) => {
+      const o = Object.create(MM.TicketMetaViewModel.prototype);
+      o.e = { tickets: ["1", "2", "3"], current: "1", resolve: res, sessionProject: sess };
+      o.ctx = { ticketFilter: f };
+      return o;
+    };
+    const deux = { 1: { found: true, client: "a", project: "x" },
+                   2: { found: true, client: "a", project: "y" },
+                   3: { found: true, client: "a", project: "x" } };
+    const un = { 1: { found: true, client: "a", project: "x" },
+                 2: { found: true, client: "a", project: "x" },
+                 3: { found: true, client: "a", project: "x" } };
+    check("les projets représentés portent leur compte",
+          JSON.stringify(mk(deux, undefined, "").ticketProjects.map(p => p.key + ":" + p.n)) ===
+          '["a/x:2","a/y:1"]');
+    check("tous dans le MÊME projet → aucun filtre (il n'aurait rien à trier)",
+          mk(un, undefined, "a/x").ticketProjects.length === 0);
+    check("le défaut est le projet de la session attachée",
+          mk(deux, undefined, "a/y").ticketFilter === "a/y");
+    check("… mais seulement s'il est représenté — sinon on n'ampute pas la liste",
+          mk(deux, undefined, "a/zzz").ticketFilter === "");
+    check("« tous » (chaîne vide) se distingue de « pas encore choisi » (undefined)",
+          mk(deux, "", "a/y").ticketFilter === "" && mk(deux, "a/x", "a/y").ticketFilter === "a/x");
+    const filtres = mk(deux, "a/y", "").tabs.map(t => t.rm);
+    check("le filtre réduit la liste, et l'onglet COURANT reste visible",
+          filtres.indexOf("2") >= 0 && filtres.indexOf("1") >= 0 && filtres.indexOf("3") < 0);
+    check("un ticket non résolu n'est rangé sous aucun projet",
+          mk({ 1: undefined, 2: undefined, 3: undefined }, undefined, "").ticketProjects.length === 0);
+  }
+
+  // ── RM3164 : l'onglet « impact »
+  {
+    const MV = await import("file://" + path.join(SRC, "modules/meta/Meta.view.js"));
+    const MM = await import("file://" + path.join(SRC, "modules/meta/MetaViewModel.js"));
+    const im = (v) => { const o = Object.create(MM.TicketMetaViewModel.prototype); o.e = { imp: v };
+                        return o.impact.call(o); };
+    check("trois états distincts, comme pour les sessions",
+          im(undefined).kind === "none" && im(null).kind === "loading" && im({ error: true }).kind === "error");
+    const ok = im({ is_git: true, commits: 3, base: "origin/dev", total_files: 9,
+                    files: [{ path: "a.js", n: 2 }, { path: "b.js", n: 1 }] });
+    const h = String(MV.TicketImpact(ok, "1"));
+    check("les fichiers touchés sont listés avec leur compte", /a\.js/.test(h) && />2</.test(h));
+    check("l'entête dit sur QUOI c'est compté (commits et base)",
+          /3 commit\(s\)/.test(h) && /depuis origin\/dev/.test(h));
+    check("le reste est annoncé plutôt que tu", /7 autre\(s\) fichier/.test(h));
+    check("un dépôt de DONNÉES PM est refusé explicitement — ses auto-commits ne sont pas du travail",
+          im({ pm_data_repo: true, is_git: true }).kind === "pmdata" &&
+          /bruit pour du travail/.test(String(MV.TicketImpact(im({ pm_data_repo: true, is_git: true }), "1"))));
+    check("hors dépôt git, le dire", im({ is_git: false }).kind === "nogit");
+    check("branche sans fichier touché → le dire, pas un vide",
+          /aucun fichier touché/.test(String(MV.TicketImpact(im({ is_git: true, files: [], commits: 1 }), "1"))));
+    check("aucun onclick", !/onclick=/.test(h));
+  }
 
   console.log(ko ? `\n${ko} échec(s)` : "\nOK — code couleur des statuts (RM3126)");
   process.exit(ko ? 1 : 0);

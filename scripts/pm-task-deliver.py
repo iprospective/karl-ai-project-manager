@@ -30,7 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
-from pm_markdown import checklist_lines
+import pm_acceptance
 
 try:
     import yaml
@@ -95,19 +95,33 @@ def main():
 
     # 1. checklist
     if args.check or args.check_all:
-        cmd = [str(here / "pm-task-description-update.py"), str(args.rm_id)]
-        cmd += ["--check-all"] if args.check_all else ["--check", args.check]
-        run_step("pm-task-description-update", cmd)
+        # RM2882 — cocher là où la livraison ira LIRE. Sur un ticket migré, cocher la
+        # description ne changerait rien au contrôle ci-dessous : la livraison serait
+        # refusée juste après avoir coché, sans que le motif soit visible.
+        migre = str(fm.get(pm_acceptance.FM_KEY) or "").strip()
+        outil = "pm-task-acceptance.py" if migre else "pm-task-description-update.py"
+        cmd = [str(here / outil), str(args.rm_id)]
+        if args.check_all:
+            cmd += ["--check-all"]
+        elif migre:
+            cmd += [a for n in str(args.check).split(",") if n.strip()
+                    for a in ("--check", n.strip())]
+        else:
+            cmd += ["--check", args.check]
+        run_step(outil.removesuffix(".py"), cmd)
         md, fm, body = load(cfg, args.rm_id)
     # Mêmes règles que le cochage (RM2540) : une case citée dans un bloc de code
     # n'est pas un critère, et bloquerait la livraison sans que personne puisse
-    # la cocher.
-    unchecked = [m.group(3)[1:].strip()          # group(3) = « ]texte »
-                 for _, m in checklist_lines(body) if m.group(2) == " "]
+    # la cocher. RM2882 : et on les lit là où ils sont — champ dédié s'il est rempli,
+    # section de la description sinon.
+    criteres, src_criteres = pm_acceptance.criteria_text(fm, body)
+    unchecked = [lab for ok, lab in pm_acceptance.parse_items(criteres) if not ok]
     if unchecked:
         out.fail(f"{len(unchecked)} critère(s) non coché(s) : "
                  + " ; ".join(t[:50] for t in unchecked[:3]),
-                 remede=f"pm-task-deliver.py {args.rm_id} --check <n,…> (ou --check-all) après vérification")
+                 remede=(f"pm-task-acceptance.py {args.rm_id} --check <n,…>"
+                         if src_criteres == "acceptance" else
+                         f"pm-task-deliver.py {args.rm_id} --check <n,…> (ou --check-all) après vérification"))
 
     # 2. protocole de test
     if str(fm.get("test_protocol") or "").strip() in ("", "None"):

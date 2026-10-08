@@ -43,6 +43,9 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   assert(/● 4/.test(counters.innerHTML) && /⏸ 1/.test(counters.innerHTML) && navCount.textContent === "4" && navAtt.textContent === "⚠2" && navAtt.style.display === "" && yesAll.style.display === "none" && docTitle === "⚠2 Cockpit karl-agent", "compteurs, badges, ✔ tout (1 seule en attention → masqué), titre du navigateur");
   assert.deepStrictEqual(ctr.ordered().map(s => s.rm_id), ["7", "42", "77", "9", "3"], "à plat dans l'ordre d'affichage (RM2515 par id, jeu courant d'abord, hors jeu en fin)"); assert.strictEqual(ctr.groups()["acme/shop"].length, 3, "RM2173 : groupes exposés à la fiche projet");
   // gestes
+  // RM3249 : « compacter » — refusé sans aller-retour hors repos (42 est en attention), envoyé au repos (7)
+  ev.length = 0; calls.length = 0; await list.click("compact", { k: "s:42" }); assert(calls.length === 0 && ev.some(x => x[0] === "toast" && /au repos/.test(x[1]) && x[2]), "compacter hors repos : dit, rien d'envoyé");
+  ev.length = 0; await list.click("compact", { k: "s:7" }); assert.deepStrictEqual(calls[calls.length - 1], ["compact", "7"]); assert(ev.some(x => x[0] === "toast" && /\/compact/.test(x[1])) && ev.includes("refresh"), "compacter au repos : envoyé puis re-peint");
   ev.length = 0; await list.click("attach", { k: "s:7" }); assert.deepStrictEqual(ev[0], ["attach", "7"]); await list.click("approve", { k: "s:42" }); assert.deepStrictEqual(calls[calls.length - 1], ["approve", "42"]); assert(ev.some(x => x[0] === "toast" && /RM42/.test(x[1])) && ev.includes("refresh"), "✔ depuis la liste : Oui puis re-peint");
   ev.length = 0; await list.click("kill", { k: "s:7" }); await list.click("drop", { k: "s:42" }); await list.click("disp", { k: "s:7" }); await list.click("relaunch", { k: "g:77" }); await list.click("forget", { k: "g:77" }); await list.click("restart", { k: "g:77" }); await list.click("group", { key: "acme/shop" }); await list.click("review", { rm: "12" }); await list.click("review-close", { rm: "12" });
   assert.deepStrictEqual(ev, [["kill", "7"], ["drop", "42"], ["disp", "7", "parke"], ["relaunch", "77"], ["forget", "77"], ["restart", "77"], ["project", "acme/shop"], ["review", "12"], ["review-close", "12"]], "chaque geste va au bon prêteur — et RM2792 : la pastille BASCULE au lieu d'ouvrir un menu");
@@ -71,6 +74,33 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
   att = null; ctr.afterTitle(); assert(rtitle.style.display === "none" && rtitle.innerHTML === "" && ctr.titleHtml() === "", "rien d'attaché : en-tête vide");
   ev.length = 0; dynsort.checked = true; await dynsort.fire("change", dynsort); assert(svc3.dynSort && ev.some(x => x[0] === "toast" && /Tri dynamique activé/.test(x[1])) && ev.includes("refresh"), "RM2344 : la case règle le tri");
   assert.strictEqual(ctr.restartTip("auto"), M.restartTip("auto")); assert.strictEqual(ctr.effDisposition("idle", null), "a_traiter");
+  // — RM3302 : filtrer depuis les compteurs —
+  ev.length = 0; cc = ""; selOn = false; att = "42";
+  const SF = [{ rm_id: "42", client: "acme", project: "shop", state: "working" }, { rm_id: "7", client: "acme", project: "shop", state: "attention" }, { rm_id: "9", client: "beta", project: "api", state: "idle" }];
+  ctr.render(SF);
+  assert(/data-action="filter" data-f="waiting"/.test(counters.innerHTML), "les compteurs portent le geste");
+  await counters.click("filter", { f: "waiting" });
+  assert(svc3.filtre === "waiting" && ev.some(x => x[0] === "toast" && /en attente/.test(x[1])), "clic sur ⚠ : filtre posé, et dit");
+  L = list.innerHTML;
+  assert(/data-k="s:7"/.test(L) && !/data-k="s:9"/.test(L) && !/data-key="beta\/api"/.test(L), "seules les sessions en attente restent, groupe vidé disparu");
+  assert(/filtbanner/.test(L) && /2 session\(s\) masquée/.test(L), "le filtre actif se voit, avec ce qu'il masque");
+  assert(/class="pill filt att on"/.test(counters.innerHTML) && /● 3/.test(counters.innerHTML), "pastille enfoncée, compteurs toujours globaux");
+  // le signal d'attention ne dépend PAS du filtre : une session en attente masquée reste dans le bandeau
+  ctr.render(SF); await counters.click("filter", { f: "idle" });
+  L = list.innerHTML;
+  assert(/attnband/.test(L) && /data-k="s:7"/.test(L), "RM3302 : filtré sur « au repos », la session en attention reste signalée dans le bandeau « à traiter »");
+  ev.length = 0; await list.click("filter-clear");
+  assert(svc3.filtre === "" && /data-k="s:9"/.test(list.innerHTML) && !/filtbanner/.test(list.innerHTML), "« tout ✕ » : plus de filtre, tout revient");
+  // une session qui ENTRE dans la catégorie filtrée apparaît au rafraîchissement suivant, sans rechargement
+  svc3.setFiltre("waiting"); ctr.render(SF);
+  assert(!/data-k="s:9"/.test(list.innerHTML), "9 est au repos : hors du filtre");
+  ctr.render(SF.map(x => x.rm_id === "9" ? { ...x, state: "attention" } : x));
+  assert(/data-k="s:9"/.test(list.innerHTML) && /data-key="beta\/api"/.test(list.innerHTML), "RM3302 : elle passe en attention → elle entre dans la liste filtrée, et son groupe réapparaît");
+  svc3.setFiltre("");
+  svc3.setFiltre("ghost"); ctr.render(SF);
+  assert(/Aucune session « enregistrées »/.test(list.innerHTML), "un filtre sans résultat le DIT, au lieu d'une liste vide qui ressemble à une panne");
+  svc3.setFiltre(""); ctr.render(SF);
+  console.log("✓ RM3302 : compteurs cliquables, liste filtrée, bandeau annulable, signal d'attention préservé");
   ctr.unmount(); assert.strictEqual([list, counters, yesAll, yesAtt, yesBtn, autoYes, title, dynsort].reduce((n, e) => n + e.listenerCount, 0), 0, "unmount libère tout");
   console.log("✓ contrôleur : rendu complet, compteurs → cadence, gestes délégués, sélection, contexte client, détachement, Oui / tout / auto-oui, titre et en-tête droit");
 

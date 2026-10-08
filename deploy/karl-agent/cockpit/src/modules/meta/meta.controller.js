@@ -45,8 +45,14 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     // RM2673 : le worklog est une source de tickets — on ne peut pas attendre que l'onglet 🗒 état soit ouvert
     const wlSeen = !!(wl && String(wl.rm_id || "") === String(a));
     if (a && !wlSeen && (ctx.worklogPending ? ctx.worklogPending() : null) !== a && ctx.loadWorklog) ctx.loadWorklog();
-    const base = { tickets: sessionTickets(), current: state.ticket, facet: state.facet, resolve: resolve().view, attached: a, worklogSeen: wlSeen };
-    const probe = new TicketMetaViewModel(base), sel = probe.sel;
+    // RM3164 : le projet de la SESSION — celui de son ticket d'ancrage. Il sert de défaut au
+    // filtre : on regarde d'abord les tickets du projet sur lequel on travaille.
+    const ancre = (a && /^\d+$/.test(String(a))) ? (resolve().view || {})[String(a)] : null;
+    const sessionProject = (ancre && ancre.found && ancre.client && ancre.project)
+      ? ancre.client + "/" + ancre.project : "";
+    const base = { tickets: sessionTickets(), current: state.ticket, facet: state.facet, resolve: resolve().view, attached: a, worklogSeen: wlSeen, sessionProject };
+    const vmCtx = { ticketFilter: state.ticketFilter };
+    const probe = new TicketMetaViewModel(base, vmCtx), sel = probe.sel;
     // RM2807 : UN .then(render) par ticket en vol — jamais un par rendu (fan-out 2^N, fuite Firefox)
     // RM3140 : et UNE requête pour toute la liste, pas une par ticket. Une vue qui affiche N tickets
     // n'a besoin que du titre, du statut et du projet ; la fiche entière (jusqu'à 6 000 caractères de
@@ -55,7 +61,12 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
     if (sel && probe.facet === "workspace" && svc.workspace(sel) === undefined) refreshWorkspace(sel);
     const r = sel ? resolve().get(sel) : undefined;
     const card = (r && r.found && r.client && r.project) ? svc.projectCard(r.client, r.project, () => render()) : undefined;
-    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card })), deps));
+    // RM3164 : les sessions du ticket — demandées seulement sur la facette « détail », là où
+    // elles s'affichent. Les charger à chaque rendu de n'importe quel onglet serait une requête
+    // par frappe pour une information qu'on ne regarde pas.
+    const ts = (sel && probe.facet === "detail") ? svc.ticketSessions(sel, () => render()) : undefined;
+    const imp = (sel && probe.facet === "impact") ? svc.ticketImpact(sel, () => render()) : undefined;
+    ticketsH.update(TicketsPane(new TicketMetaViewModel(Object.assign(base, { ws: sel ? svc.workspace(sel) : undefined, card, ts, imp }), vmCtx), deps));
   }
   function render() { renderInfos(); renderTickets(); }
 
@@ -90,9 +101,15 @@ export function mountMeta({ infos, tickets } = {}, ctx = {}) {
   const acts = {
     "refresh-usage": (n) => refreshUsage(n.dataset.rm), "copy-infos": (n) => copyInfos(n.dataset.rm),
     tab: (n) => setTab(n.dataset.rm), facet: (n) => setFacet(n.dataset.facet), ticket: (n) => showTicket(n.dataset.rm),
-    launcher: (n) => ctx.gotoTicket && ctx.gotoTicket(n.dataset.rm), review: (n) => ctx.openReview && ctx.openReview(n.dataset.rm),
+    launcher: (n) => ctx.gotoTicket && ctx.gotoTicket(n.dataset.rm),
+    estimate: (n) => ctx.estimateTicket && ctx.estimateTicket(n.dataset.rm),          // RM1838 : (re)chiffrer par un agent
+    review: (n) => ctx.openReview && ctx.openReview(n.dataset.rm),
     reload: (n) => ctx.reload && ctx.reload(n.dataset.rm), status: (n, e) => ctx.openStatusMenu && ctx.openStatusMenu(n.dataset.rm, n, e),
     reopen: (n) => ctx.reopen && ctx.reopen(n.dataset.rm), project: (n) => ctx.openProject && ctx.openProject(n.dataset.key),
+    "attach-session": (n) => ctx.attachSession && ctx.attachSession(n.dataset.sid),
+    // RM3164 : « tous » pose la chaîne vide — distincte de « pas encore choisi » (undefined),
+    // qui laisse le défaut (le projet de la session) s'appliquer.
+    tfilter: (n) => { state.ticketFilter = n.dataset.value; render(); },
     "refresh-ws": (n) => refreshWorkspace(n.dataset.rm),
   };
   const events = [["click", "[data-action]", (e, n) => { const f = acts[n.dataset.action]; if (f) { e.stopPropagation(); f(n, e); } }]];

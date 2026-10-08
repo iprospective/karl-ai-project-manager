@@ -2,7 +2,12 @@
 // calcule sans DOM ni réseau. RM2889 (revue 3/3). Porte RM2173/2579/2673/2797/2614/2714/2860.
 
 /** Les facettes d'un ticket dans l'encart, dans l'ordre d'affichage (RM2579, RM2797). */
-export const FACETS = [["detail", "détail"], ["desc", "description"], ["log", "historique"], ["conso", "conso"], ["workspace", "workspace"]];
+// RM3164 : « conso » s'appelle « temps & coût » — l'onglet portait déjà les tokens, le COÛT et
+// les temps IA/humain, mais son nom ne disait que la moitié : on ne l'ouvrait pas pour chercher
+// un temps. La clé ne bouge pas (elle est dans les URL de vue et les préférences).
+// RM3175 : critères · implémentation · déploiement, juste après le détail — ce qu'on vient chercher en
+// reprenant un ticket, avant son historique. Débloqués par RM2882, qui a fixé OÙ vivent les critères.
+export const FACETS = [["detail", "détail"], ["criteria", "critères"], ["impl", "implémentation"], ["deploy", "déploiement"], ["desc", "description"], ["log", "historique"], ["conso", "temps & coût"], ["impact", "impact"], ["workspace", "workspace"]];
 export function facetOf(f) { return FACETS.some(x => x[0] === f) ? f : "detail"; }
 
 export const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };
@@ -38,7 +43,7 @@ export function ticketsOfSession(sid, registry, buckets) {
   const reg = registry || {};
   (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) add(m[1]); });
   (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) add(m[1]); });
-  for (const k of ["todo", "mep", "waiting", "unknown", "done"])
+  for (const k of ["encours", "corriger", "todo", "mep", "waiting", "unknown", "done"])   // RM3323 : « en cours » d'abord
     for (const it of ((buckets || {})[k] || [])) {
       const m = /^RM(\d+)$/i.exec(String((it && it.ref) || ""));
       if (m) add(m[1]);

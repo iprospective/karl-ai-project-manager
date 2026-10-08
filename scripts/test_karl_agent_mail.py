@@ -138,6 +138,19 @@ ka.op_mail_create({"key": "aaa111", "note_on": "2661"})
 check("création : rattachement à un fil transmis",
       "--note-on" in seen["args"] and "2661" in seen["args"])
 
+# — RM3319 : les rejets ouverts du fil remontent avec la file (boîte aux lettres 📬) —
+os.environ["PM_NOTIFY_DIR"] = str(tmp / "notify")
+sys.path.insert(0, str(HERE))
+import pm_notify  # noqa: E402
+check("rejets : aucun tant que le fil est vide", ka.op_mail_queue({}).get("bounces") == [])
+n = pm_notify.add("mail", "critical", "Mail de karl rejeté : x@y — 5.1.1", job="mail-bounce", ref="<o@x>", rm=1839)
+pm_notify.add("mail", "info", "autre chose venue du courrier", job="autre")
+b = ka.op_mail_queue({}).get("bounces")
+check("rejets : l'entrée « mail-bounce » ouverte remonte, seule",
+      len(b) == 1 and b[0]["level"] == "critical" and b[0]["rm"] == 1839 and "rejeté" in b[0]["msg"])
+pm_notify.mark([n["id"]], "traite")
+check("rejets : marquée traitée dans le fil → l'alerte s'éteint", ka.op_mail_queue({}).get("bounces") == [])
+
 print()
 if fails:
     print(f"✗ {len(fails)} test(s) en échec : {', '.join(fails)}")

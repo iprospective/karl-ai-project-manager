@@ -83,7 +83,17 @@ class Module:
         self.requires = [str(x) for x in (self.raw.get("requires") or [])]
         self.provides = list(self.raw.get("provides") or [])
         # Absent = activé : un module qu'on pose est un module qu'on veut. Le désactiver est un geste.
+        # ⚠ Ceci n'est que le DÉFAUT : l'état réel vit dans la configuration de l'instance (RM3145,
+        # lot 1), appliqué par `decouvre()`. Le manifeste est versionné avec le core ; y lire l'état
+        # voudrait dire que désactiver un module modifie le code livré.
         self.enabled = bool(self.raw.get("enabled", True))
+        # RM3145 Q001 — un module NATIF est livré avec le core : on l'éteint, on ne le retire pas. Un
+        # module TIERS s'installe en plus, et lui seul se désinstalle. Absent = natif : tout ce qui
+        # vit aujourd'hui sous `modules/` est livré avec le core.
+        self.native = bool(self.raw.get("native", True))
+        # Éteint EN FORÇANT alors que d'autres en dépendaient (RM3145 Q003) : un état à signaler tant
+        # qu'il dure, pas un détail de l'historique.
+        self.forced = False
         self.errors = []
         self._valide()
 
@@ -138,6 +148,7 @@ class Module:
         return {"name": self.name, "version": self.version, "label": self.label,
                 "description": self.description, "requires": self.requires,
                 "provides": self.fournit(), "enabled": self.enabled,
+                "native": self.native, "forced": self.forced,
                 "ok": self.ok, "errors": list(self.errors),
                 "path": str(self.path.parent)}
 
@@ -176,7 +187,192 @@ def decouvre(root=None) -> list:
             out.append(_casse(f, "le manifeste doit être un mapping"))
             continue
         out.append(Module(f, data))
+    # RM3145 lot 1 — l'état d'activation de CETTE instance prime sur le défaut du manifeste.
+    st = etat_instance(root)
+    for m in out:
+        e = st.get(m.name) or {}
+        if isinstance(e, dict):
+            if "enabled" in e:
+                m.enabled = bool(e["enabled"])
+            m.forced = bool(e.get("forced")) and not m.enabled
     return out
+
+
+# ── L1 : l'activation (RM3145) ─────────────────────────────────────────────────────────────────
+#
+# Trois arbitrages du demandeur (2026-09-14) sont portés ici :
+#   Q001 — un module natif s'ÉTEINT, il ne se retire pas ; seul un tiers se désinstalle ;
+#   Q003 — désactiver un module dont d'autres dépendent est REFUSÉ, en disant qui ; un forçage
+#          explicite reste possible, et ses conséquences se signalent tant qu'elles durent. Les
+#          objets du module SURVIVENT : désactiver n'est pas supprimer, rien n'est effacé ici ;
+#   D005 — transformer une partie du core en module doit être un choix SIMPLE : d'où `squelette()`.
+
+CONFIG_LOCALE = "pm.config.local.yml"
+SOUS_DOSSIERS = ("routes", "controllers", "services", "classes", "templates", "config", "hooks",
+                 "triggers")
+
+
+def _config_locale(root=None) -> Path:
+    """La configuration de l'INSTANCE, à côté de la racine des modules.
+
+    Pas `pm.config.yml` : il est de référence, commenté, versionné, lu par des humains — une
+    machine n'y écrit pas (même règle que les options moteur, RM3108). Et le placer à côté de
+    `racine()` fait qu'un test qui pose `PM_MODULES_DIR` est isolé sans rien de plus.
+    """
+    return racine(root).parent / CONFIG_LOCALE
+
+
+def etat_instance(root=None) -> dict:
+    """{nom: {enabled, forced}} — ce que cette instance a décidé de ses modules."""
+    f = _config_locale(root)
+    if yaml is None or not f.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return {}
+    mods = data.get("modules") if isinstance(data, dict) else None
+    return mods if isinstance(mods, dict) else {}
+
+
+def _ecrire_etat(nom: str, champs: dict, root=None) -> None:
+    """Fusionne l'état d'un module dans la configuration locale, sans toucher au reste."""
+    if yaml is None:
+        raise ModuleError("PyYAML absent : impossible d'écrire l'état des modules")
+    f = _config_locale(root)
+    data = {}
+    if f.is_file():
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            raise ModuleError(f"{f} illisible — {e} : l'état n'est pas écrit, pour ne rien écraser")
+    if not isinstance(data, dict):
+        raise ModuleError(f"{f} n'est pas un mapping : l'état n'est pas écrit")
+    mods = data.setdefault("modules", {})
+    if not isinstance(mods, dict):
+        raise ModuleError(f"{f} :: modules n'est pas un mapping")
+    mods.setdefault(nom, {}).update(champs)
+    tmp = f.with_suffix(f.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, f)                     # atomique : jamais une configuration à moitié écrite
+
+
+def forcage_autorise(root=None) -> bool:
+    """Le forçage est-il PERMIS sur cette instance ? (RM3145 Q003) — non par défaut.
+
+    Deux sécurités distinctes, et c'est voulu : ce réglage PERMET le forçage, puis chaque forçage
+    demande sa propre confirmation forte. Sans le réglage, le cockpit n'offre même pas le bouton :
+    le refus motivé est le chemin normal, et contourner une dépendance doit rester un choix délibéré
+    de l'instance, pas un clic de plus dans une boîte de dialogue.
+    """
+    f = _config_locale(root)
+    if yaml is None or not f.is_file():
+        return False
+    try:
+        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return False
+    pol = data.get("modules_policy") if isinstance(data, dict) else None
+    return bool((pol or {}).get("allow_force")) if isinstance(pol, dict) else False
+
+
+def autoriser_forcage(permis: bool, root=None) -> None:
+    """Pose le réglage. Même écriture atomique que l'état des modules."""
+    if yaml is None:
+        raise ModuleError("PyYAML absent : impossible d'écrire le réglage")
+    f = _config_locale(root)
+    data = {}
+    if f.is_file():
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            raise ModuleError(f"{f} illisible — {e} : rien n'est écrit")
+    if not isinstance(data, dict):
+        raise ModuleError(f"{f} n'est pas un mapping : rien n'est écrit")
+    data.setdefault("modules_policy", {})["allow_force"] = bool(permis)
+    tmp = f.with_suffix(f.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, f)
+
+
+# >>> dependants_actifs — pure
+def dependants_actifs(nom: str, modules) -> list:
+    """Les modules ACTIFS qui requièrent `nom` — ceux qu'on casserait en l'éteignant."""
+    return sorted(m.name for m in modules
+                  if m.ok and m.enabled and m.name != nom and any(d == nom for d, _, _ in m.deps()))
+# <<< dependants_actifs
+
+
+def _trouve(nom: str, modules) -> Module:
+    m = next((x for x in modules if x.name == nom), None)
+    if m is None:
+        connus = ", ".join(sorted(x.name for x in modules)) or "aucun"
+        raise ModuleError(f"module inconnu : {nom} (connus : {connus})")
+    return m
+
+
+def desactiver(nom: str, force: bool = False, root=None) -> dict:
+    """Éteint un module. Refuse — en disant QUI dépend de lui — sauf forçage explicite.
+
+    Rend {etat, force, casses}. Rien n'est supprimé : les tickets, notifications et fichiers qu'il a
+    produits restent lisibles. Un module éteint cesse d'AGIR, il n'efface rien — sinon désactiver
+    deviendrait un geste qu'on n'ose plus faire.
+    """
+    mods = decouvre(root)
+    m = _trouve(nom, mods)
+    if not m.enabled:
+        return {"etat": "deja-eteint", "force": m.forced, "casses": []}
+    dep = dependants_actifs(nom, mods)
+    if dep and not force:
+        raise ModuleError(
+            f"refusé : {', '.join(dep)} {'dépend' if len(dep) == 1 else 'dépendent'} de {nom}. "
+            f"Éteignez-les d'abord, ou forcez en connaissance de cause (ils cesseront de fonctionner "
+            f"et seront signalés tant que {nom} restera éteint).")
+    _ecrire_etat(nom, {"enabled": False, "forced": bool(dep)}, root)
+    return {"etat": "eteint", "force": bool(dep), "casses": dep}
+
+
+def activer(nom: str, root=None) -> dict:
+    """Allume un module. Refuse si une de SES dépendances est éteinte : il ne fonctionnerait pas."""
+    mods = decouvre(root)
+    m = _trouve(nom, mods)
+    if not m.ok:
+        raise ModuleError(f"{nom} est en erreur, il ne s'active pas : {'; '.join(m.errors)}")
+    eteintes = [d for d, _, _ in m.deps()
+                if d != "core" and any(x.name == d and not x.enabled for x in mods)]
+    if eteintes:
+        raise ModuleError(f"refusé : {nom} a besoin de {', '.join(eteintes)}, "
+                          f"{'éteint' if len(eteintes) == 1 else 'éteints'} — à allumer d'abord.")
+    _ecrire_etat(nom, {"enabled": True, "forced": False}, root)
+    return {"etat": "actif"}
+
+
+def squelette(nom: str, description: str, label: str = "", root=None) -> Path:
+    """Crée un module vide mais VALIDE — l'outil qui rend la modularisation simple (RM3145 D005).
+
+    Sans lui, « transformer une partie du core en module est un choix » resterait théorique : c'est
+    faute de patron outillé que les sept registres existants ont chacun été réinventés à leur façon.
+    Le module naît avec le contrat complet — manifeste, dossiers standard — et passe `check`.
+    """
+    if not _NOM.match(nom or ""):
+        raise ModuleError(f"nom invalide « {nom} » (minuscules, chiffres et tirets)")
+    if not (description or "").strip():
+        # un module sans description naîtrait en erreur : autant le refuser ici, avec la raison
+        raise ModuleError("description requise : c'est ce qui permettra d'activer ce module en "
+                          "connaissance de cause")
+    d = racine(root) / nom
+    if d.exists():
+        raise ModuleError(f"{d} existe déjà — on ne recouvre pas un module")
+    d.mkdir(parents=True)
+    for s in SOUS_DOSSIERS:
+        (d / s).mkdir()
+        (d / s / ".gitkeep").write_text("", encoding="utf-8")
+    data = {"name": nom, "version": "0.1.0", "label": label or nom, "native": True,
+            "description": description.strip(), "requires": ["core >= 3.0"], "provides": []}
+    txt = yaml.safe_dump(data, allow_unicode=True, sort_keys=False) if yaml else \
+        "".join(f"{k}: {v}\n" for k, v in data.items())
+    (d / MANIFESTE).write_text(txt, encoding="utf-8")
+    return d
 
 
 def _casse(f: Path, motif: str) -> Module:
@@ -184,6 +380,7 @@ def _casse(f: Path, motif: str) -> Module:
     m.path, m.raw = f, {}
     m.name, m.version, m.label = f.parent.name, "0.0.0", f.parent.name
     m.description, m.requires, m.provides, m.enabled = "", [], [], False
+    m.native, m.forced = True, False
     m.errors = [motif]
     return m
 

@@ -141,6 +141,8 @@ API (JSON, localhost:9876)
                                   serveur (cockpit/models.json, RM1941)
   POST /send   {rm_id, msg, enter?=true}
                                 → {rm_id, sent:true}
+  POST /compact {rm_id}         → {rm_id, engine, cmd, sent:true} — tape la commande de
+                                  compaction du moteur (RM3249) ; 409 sans commande ou hors repos
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
   GET  /usage/<rm_id>           → {usage:{input,output,cache_read,cache_creation,
@@ -232,6 +234,7 @@ from pm_log import (log as _jlog, tail as _jtail, stats as _jstats,   # RM3010 :
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_think import is_task_sheet   # noqa: E402  RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_stores   # noqa: E402  RM3085 : stores de session résolus une seule fois
+import pm_priority as _pm_priority   # noqa: E402  RM3275 : énumération priority, source unique
 import pm_worklog_states   # noqa: E402  RM3085 : une seule classification du worklog
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -330,6 +333,8 @@ ENGINES = {
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
         "store": "claude_jsonl",
+        # RM3249 : commande de compaction du TUI, tapée dans le prompt par POST /compact.
+        "compact_cmd": "/compact",
     },
     "opencode": {
         "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
@@ -340,6 +345,7 @@ ENGINES = {
         "resume_flag": "--session",
         "sid_re": r"^ses_[A-Za-z0-9]{6,64}$",
         "store": "opencode_db",
+        "compact_cmd": "/compact",       # alias « /summarize » (vérifié dans le binaire, 2026-09-19)
     },
     "vibe": {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
@@ -360,6 +366,7 @@ ENGINES = {
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
         "store": "vibe_files",
+        "compact_cmd": "/compact",       # registre des commandes de vibe (vérifié 2026-09-19)
     },
     "shell": {
         "cmd": "bash -l",
@@ -514,56 +521,31 @@ BASIC_PASS = os.environ.get("KARL_WEB_PASS") or None
 # émet un token d'appareil aléatoire dont SEUL le SHA-256 est mémorisé serveur
 # (var/karl-devices.json) : le client garde le token, jamais le mot de passe.
 # Les deux fichiers sont instance-locaux (var/ gitignoré), écrits en 0600.
-AUTH_VAR_DIR = Path(os.environ.get("KARL_AGENT_AUTH_DIR") or (REPO_ROOT / "var"))
-USERS_FILE = AUTH_VAR_DIR / "karl-users.json"
-DEVICES_FILE = AUTH_VAR_DIR / "karl-devices.json"
-PBKDF2_ITERATIONS = 310_000  # recommandation OWASP pour PBKDF2-HMAC-SHA256
+# RM3208 (U1) : la logique des comptes vit dans `pm_accounts`, partagée avec `mmi-pm user` — les comptes du
+# cockpit SONT ceux du CLI. Ce qui suit n'est plus qu'un adaptateur HTTP (AccountError → ApiError).
+import pm_accounts as _accounts   # noqa: E402
+AUTH_VAR_DIR = _accounts.auth_dir(REPO_ROOT)
+USERS_FILE = AUTH_VAR_DIR / _accounts.USERS_NAME
+DEVICES_FILE = AUTH_VAR_DIR / _accounts.DEVICES_NAME
+PBKDF2_ITERATIONS = _accounts.PBKDF2_ITERATIONS
 _AUTH_LOCK = threading.Lock()          # ThreadingHTTPServer → sérialiser les I/O
 _LOGIN_FAILS: dict = {}                # ip → {"count": n, "until": ts} (mémoire)
 _LOGIN_LOCK_BASE_S = 2                 # 3 échecs → 2 s, puis ×2, plafonné
 _LOGIN_LOCK_MAX_S = 300
 
 
-def _auth_load(path: Path) -> dict:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _auth_save(path: Path, data: dict) -> None:
-    """Écriture atomique (tmp + rename) en 0600 — jamais de secret en clair
-    dedans (hashes uniquement), mais autant restreindre quand même."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-
-
-def _pbkdf2(password: str, salt_hex=None, iterations: int = PBKDF2_ITERATIONS) -> dict:
-    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return {"salt": salt.hex(), "iterations": iterations, "hash": dk.hex()}
-
-
-def _password_ok(password: str, rec: dict) -> bool:
-    try:
-        ref = _pbkdf2(password, rec["salt"], int(rec["iterations"]))
-        return hmac.compare_digest(ref["hash"], rec["hash"])
-    except (KeyError, TypeError, ValueError):
-        return False
-
-
-_USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
+_auth_load = _accounts.load
+_auth_save = _accounts.save
+_pbkdf2 = _accounts.pbkdf2
+_password_ok = _accounts.password_ok
+_USERNAME_RE = _accounts.USERNAME_RE
 
 
 def _issue_device(user: str, admin: bool, device_name: str) -> dict:
     """Émet un token d'appareil ; seul son SHA-256 est mémorisé serveur."""
     token = secrets.token_urlsafe(32)  # 256 bits
     device_id = uuid.uuid4().hex[:12]
-    with _AUTH_LOCK:
+    with _AUTH_LOCK, _accounts.locked(DEVICES_FILE):
         devices = _auth_load(DEVICES_FILE)
         devices[device_id] = {
             "user": user, "admin": bool(admin),
@@ -581,7 +563,7 @@ def _device_auth(token: str):
     if not token:
         return None
     want = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    with _AUTH_LOCK:
+    with _AUTH_LOCK, _accounts.locked(DEVICES_FILE):
         devices = _auth_load(DEVICES_FILE)
         for did, rec in devices.items():
             if hmac.compare_digest(rec.get("token_sha256", ""), want):
@@ -596,14 +578,7 @@ def _device_auth(token: str):
 
 def _revoke_devices(device_ids=None, user=None) -> int:
     with _AUTH_LOCK:
-        devices = _auth_load(DEVICES_FILE)
-        doomed = [d for d, r in devices.items()
-                  if (device_ids and d in device_ids) or (user and r.get("user") == user)]
-        for d in doomed:
-            devices.pop(d, None)
-        if doomed:
-            _auth_save(DEVICES_FILE, devices)
-    return len(doomed)
+        return _accounts.revoke_devices(DEVICES_FILE, device_ids=device_ids, user=user)
 
 
 def _login_throttled(ip: str):
@@ -659,70 +634,36 @@ def op_auth_login(payload: dict, ip: str) -> dict:
 
 def op_auth_users_list() -> dict:
     with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        devices = _auth_load(DEVICES_FILE)
-    per_user: dict = {}
-    for rec in devices.values():
-        per_user[rec.get("user")] = per_user.get(rec.get("user"), 0) + 1
-    out = [{"user": name, "disabled": bool(rec.get("disabled")),
-            "created": rec.get("created"), "devices": per_user.get(name, 0)}
-           for name, rec in sorted(users.items())]
-    return {"users": out, "superadmin": BASIC_USER}
+        return _accounts.list_users(USERS_FILE, DEVICES_FILE, superadmin=BASIC_USER)
 
 
 def op_auth_user_create(payload: dict) -> dict:
-    user = str(payload.get("user") or "").strip().lower()
     password = str(payload.get("pass") or "")
-    if not _USERNAME_RE.match(user):
-        raise ApiError(400, "user : 2-32 car., [a-z0-9._-], commence par [a-z0-9]")
-    if BASIC_USER is not None and user == BASIC_USER.lower():
-        raise ApiError(400, "ce nom est réservé au superadmin (.env)")
-    if len(password) < 8:
-        raise ApiError(400, "pass : 8 caractères minimum")
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        if user in users:
-            raise ApiError(409, f"compte existant : {user}")
-        users[user] = {**_pbkdf2(password),
-                       "created": time.strftime("%Y-%m-%dT%H:%M:%S")}
-        _auth_save(USERS_FILE, users)
-    return {"user": user, "created": True}
+    if len(password) < _accounts.MIN_PASSWORD:      # le cockpit exige un mot de passe ; le CLI, non
+        raise ApiError(400, f"pass : {_accounts.MIN_PASSWORD} caractères minimum")
+    try:
+        with _AUTH_LOCK:
+            return _accounts.create_user(USERS_FILE, payload.get("user"), password, superadmin=BASIC_USER)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_user_update(user: str, payload: dict) -> dict:
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        rec = users.get(user)
-        if not rec:
-            raise ApiError(404, f"compte inconnu : {user}")
-        changed = {}
-        if payload.get("pass"):
-            password = str(payload["pass"])
-            if len(password) < 8:
-                raise ApiError(400, "pass : 8 caractères minimum")
-            rec.update(_pbkdf2(password))
-            changed["pass"] = True
-        if "disabled" in payload:
-            rec["disabled"] = bool(payload["disabled"])
-            changed["disabled"] = rec["disabled"]
-        users[user] = rec
-        _auth_save(USERS_FILE, users)
-    # mdp changé ou compte désactivé ⇒ les appareils existants sont révoqués
-    if changed.get("disabled") or changed.get("pass"):
-        changed["devices_revoked"] = _revoke_devices(user=user)
-    if not changed:
-        raise ApiError(400, "rien à changer (pass et/ou disabled attendus)")
-    return {"user": user, **changed}
+    disabled = bool(payload["disabled"]) if "disabled" in payload else None
+    try:
+        with _AUTH_LOCK:
+            return _accounts.update_user(USERS_FILE, DEVICES_FILE, user,
+                                         password=payload.get("pass") or None, disabled=disabled)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_user_delete(user: str) -> dict:
-    with _AUTH_LOCK:
-        users = _auth_load(USERS_FILE)
-        if user not in users:
-            raise ApiError(404, f"compte inconnu : {user}")
-        users.pop(user)
-        _auth_save(USERS_FILE, users)
-    return {"user": user, "deleted": True, "devices_revoked": _revoke_devices(user=user)}
+    try:
+        with _AUTH_LOCK:
+            return _accounts.delete_user(USERS_FILE, DEVICES_FILE, user)
+    except _accounts.AccountError as e:
+        raise ApiError(e.status, e.message)
 
 
 def op_auth_devices_list(ctx: dict) -> dict:
@@ -1173,6 +1114,12 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     engine = payload.get("engine", DEFAULT_ENGINE)
     if engine not in ENGINES:
         raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
+    # RM3070 L4 (décision D006) : `shell` est un shell de connexion sous le compte de service —
+    # l'ouvrir à tout compte authentifié lui donne les droits UNIX complets de ce compte.
+    if engine == "shell" and _install_state().get("mode") == "multi" \
+            and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "le moteur « shell » donne les droits du compte de service : en mode "
+                            "multi-utilisateur, il est réservé aux administrateurs")
     problems = validate_engine_options(engine)          # RM3108 : jamais de session morte-née
     if problems:
         raise ApiError(400, f"options du moteur {engine} invalides : " + " ; ".join(problems))
@@ -1231,7 +1178,11 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     if session_id:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
-        _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
+        # le propriétaire est l'identité COCKPIT (pas le compte UNIX : un login cockpit peut
+        # n'avoir aucun compte système, et `_user_unix` retomberait alors sur celui du démon —
+        # toutes les sessions appartiendraient au service)
+        _record_key(rm_id, engine, session_id, str(cwd), model=model_value,
+                    owner=str((auth_ctx or {}).get("user") or "") or None)
         joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
@@ -1538,6 +1489,43 @@ def op_send(payload: dict) -> dict:
     if payload.get("enter", True):
         _tmux("send-keys", "-t", name, "Enter")
     return {"rm_id": rm_id, "sent": True}
+
+
+def _compact_cmd(engine) -> str | None:
+    """RM3249 — la commande qui compacte la conversation dans le TUI de CE moteur,
+    ou None (le shell n'en a pas). Le client n'envoie jamais la commande : il
+    demande « compacte », le serveur sait comment chaque moteur le dit."""
+    return (ENGINES.get(engine or "") or {}).get("compact_cmd")
+
+
+# États où l'on peut taper dans le prompt sans risque : au travail, la ligne
+# serait mise en file ou mêlée à la saisie ; sur une question, « /compact »
+# partirait comme RÉPONSE au menu affiché.
+_COMPACT_STATES = ("idle",)
+
+
+def op_compact(payload: dict) -> dict:
+    """RM3249 — compacte la conversation d'une session : tape la commande de
+    compaction de SON moteur dans son tmux, puis Entrée. 409 si le moteur n'en a
+    pas ou si la session n'est pas au repos."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    engine = (_key_info(rm_id) or {}).get("engine")
+    cmd = _compact_cmd(engine)
+    if not cmd:
+        raise ApiError(409, f"le moteur « {engine or '?'} » n'a pas de commande de compaction connue")
+    state = _session_state(rm_id, engine)
+    if state not in _COMPACT_STATES:
+        raise ApiError(409, f"session {state} : la compaction attend qu'elle soit au repos")
+    name = _session_name(rm_id)
+    rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", cmd)
+    if rc != 0:
+        raise ApiError(500, f"send-keys a échoué : {err.strip()}")
+    _tmux("send-keys", "-t", name, "Enter")
+    _jlog("claude", "info", "compaction demandée depuis le cockpit",
+          rm_id=rm_id, engine=engine, cmd=cmd)
+    return {"rm_id": rm_id, "engine": engine, "cmd": cmd, "sent": True}
 
 
 def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
@@ -2034,7 +2022,7 @@ def _record_run(rm_id: str, engine: str, session_id: str, cwd: str) -> dict:
 
 
 def _record_key(sid: str, engine: str, session_id: str, cwd: str,
-                model: str | None = None) -> None:
+                model: str | None = None, owner: str | None = None) -> None:
     """Index clé-tmux → (engine, session_id, cwd) — RM2144. Couvre AUSSI les
     sessions slug (sans jonction ticket) : sert à l'enrichissement /sessions
     (moteur, projet via cwd) et à la reprise. Touche l'entité session au passage.
@@ -2050,6 +2038,12 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
         model = prev.get("model")
     rec = {"sid": sid, "engine": engine, "session_id": session_id,
            "cwd": cwd, "last_seen": now}
+    # RM3070 L4 : à QUI est cette session. Inscrit dans la fiche, pas dans le nom tmux : renommer
+    # les sessions casserait celles qui tournent, et l'attache, et la résolution du worklog. Une
+    # session d'avant n'a pas de propriétaire — c'est un état connu, pas une erreur.
+    proprio = owner or prev.get("owner")
+    if proprio:
+        rec["owner"] = proprio
     if model:
         rec["model"] = model
     if prev.get("disposition"):  # RM2515 : préserver la disposition manuelle (idem model)
@@ -5022,6 +5016,8 @@ WORKLOG_WAITING = pm_worklog_states.WAITING
 WORKLOG_TESTING = pm_worklog_states.TESTING
 WORKLOG_MEP = pm_worklog_states.MEP
 WORKLOG_TODO = pm_worklog_states.TODO
+WORKLOG_DOING = pm_worklog_states.DOING   # RM3323
+WORKLOG_FIX = pm_worklog_states.FIX       # RM3323 : retours de test
 # RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
 # ce qui reste est une mise en production — batchée (plusieurs tickets montent
 # ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
@@ -5041,7 +5037,7 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+    out = {"encours": [], "corriger": [], "todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
            "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
@@ -5067,6 +5063,10 @@ def worklog_buckets(items) -> dict:
             out["mep"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
+        elif st in WORKLOG_DOING:    # RM3323 : commencé ≠ reste à faire
+            out["encours"].append(entry)
+        elif st in WORKLOG_FIX:      # RM3323 : revenu après test, ni neuf ni en main
+            out["corriger"].append(entry)
         elif st in WORKLOG_TODO:
             out["todo"].append(entry)
         else:
@@ -5154,7 +5154,8 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         except OSError:
             text = ""
         if text:
-            cl = parse_checklist(_task_body(text))
+            cl = parse_checklist(_task_body(text),
+                                 acceptance=_parse_frontmatter(text).get("acceptance"))
             if cl["total"]:
                 entry["checklist"] = cl
             subs = _subtasks_status(_parse_frontmatter(text).get("sub_tasks"))
@@ -5444,7 +5445,7 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 client_hash = rest[0] if rest else ""
             elif name == "health":
                 data = {"status": "ok", "sessions": len(_list_sessions()),
-                        "tmux": _tmux("-V")[0] == 0}
+                        "tmux": _tmux("-V")[0] == 0, "install": _install_state()}
                 client_hash = rest[0] if rest else ""
             elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
                 data = op_pending({}, auth_ctx)
@@ -5493,7 +5494,12 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
         raise ApiError(404, f"session absente : {_session_name(rm_id)}")
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
+    # RM2852 : de quel projet la session EST-elle ? Le worklog mêle les projets ; sans
+    # ce repère, le cockpit ne peut pas mettre en tête celui sur lequel on travaille.
+    _tf = _find_task_file(str(rm_id))
+    _cl, _pr = _task_client_project(_tf) if _tf else ("", "")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
+             "client": _cl, "project": _pr,
              "title": None, "updated": None, "checked_ts": None,
              "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
              "integration": _integration_branch(),
@@ -5519,6 +5525,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     # RM2466 : le canal de notifications remonte avec le travail — c'est le même
     # « état de session », vu depuis le cockpit plutôt que depuis le terminal.
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
+            "client": _cl, "project": _pr,          # RM2852 — le projet de la session
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
             # RM2715 : seules les notifications OUVERTES — une notification
@@ -5634,7 +5641,8 @@ def _overview_open_tasks(client=None, project=None) -> list:
         mu = re.search(r"^updated:\s*'?([0-9T:\- ]+)'?\s*$", text, re.M) if text else None
         if mu:
             entry["updated"] = mu.group(1).strip()
-        cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
+        cl_stats = parse_checklist(                # RM2695 : l'avancement, pas juste le statut
+            body, acceptance=_parse_frontmatter(text).get("acceptance") if text else None)
         if cl_stats["total"]:
             entry["checklist"] = cl_stats
         out.append(entry)
@@ -5933,350 +5941,33 @@ def op_ticket_transitions(rm_id: str, force: bool = False) -> dict:
 
 
 # ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
-# Le geste : cocher des tickets, cliquer « traiter », et la SESSION ATTACHÉE
-# enchaîne — aucune session créée. La composition de la consigne vit ici, pas
-# dans le cockpit : le mapping statut → action, le plafond et les exclusions sont
-# des règles métier, elles doivent être testables sans navigateur.
-BATCH_MAX = 10          # au-delà : confirmation explicite (`allow_large`)
-
-# RM2719 — portée RESTREINTE : ne faire traiter que certains points d'un ticket
-# (ses critères d'acceptation non cochés, exposés par RM2695). Deux listes, à ne
-# pas confondre : `points` = ce qu'on PROPOSE de cocher (repris tel quel pour
-# l'écran de confirmation), `scope` = ce qui est RETENU (la restriction). Absent
-# ⇒ ticket entier, comportement de RM2716 inchangé.
-BATCH_POINTS_MAX = 12   # points repris dans la consigne, par ticket
-BATCH_POINT_LEN = 300   # un critère est une ligne, pas un paragraphe
-
-
-def _batch_points(raw, limit=BATCH_POINTS_MAX):
-    """Nettoie une liste de points : une ligne chacun, borné, dédoublonné,
-    plafonné. Rend (points, nombre de points laissés de côté) — le reste du code
-    ANNONCE ce nombre : une liste tronquée en silence se lirait comme la liste
-    complète, et l'agent clôturerait un ticket dont il n'a pas vu la fin."""
-    out, seen = [], set()
-    for p in raw or []:
-        t = " ".join(str(p or "").split())
-        if not t or t in seen:
-            continue
-        seen.add(t)
-        if len(t) > BATCH_POINT_LEN:
-            t = t[:BATCH_POINT_LEN - 1].rstrip() + "…"
-        out.append(t)
-    return out[:limit], max(0, len(out) - limit)
-
-# Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
-# une étude se termine en validation, un dev se termine en test demandeur.
-BATCH_ACTIONS = {
-    # RM2786 : l'étude reste ici — un lot « traiter » sur un ticket pas encore
-    # chiffré doit continuer de faire ce qu'il faisait. Le bouton « analyser »
-    # (mode `etudier`) la propose SÉPARÉMENT, ce que l'UI ne pouvait pas faire
-    # tant que les deux vivaient dans la même table.
-    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
-    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
-    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
-    "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
-    "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
-    "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
-    "a_tester_dev": ("tester", "faire la passe de test agent et router selon le verdict"),
-}
-# Statuts où l'agent n'a RIEN à faire : la balle est chez le demandeur, en MEP,
-# ou le ticket est clos. Les inclure enverrait l'agent tourner à vide.
-BATCH_SKIP = {
-    "a_tester_demandeur": "attend TON verdict, pas celui de l'agent",
-    "a_mep": "attend une mise en production",
-    "en_mep": "mise en production en cours",
-    "en_pause": "en pause — à relancer explicitement",
-    "ferme": "fermé",
-}
-
-# RM2720 — second MODE de lot : « passe ces tickets à tester ». Ce n'est pas un
-# changement de statut en masse : rendre un ticket au demandeur, c'est le
-# LIVRER (note de livraison + protocole de test, NORMS RM2229). Le mode a donc
-# sa propre table de statuts éligibles — et une étude n'y est pas : elle se rend
-# en validation, pas en test.
-BATCH_ATESTER = {
-    "en_cours": ("livrer", "livrer : note de livraison + protocole de test, puis "
-                           "statut à tester approprié (a_tester_dev / a_tester_demandeur "
-                           "selon requires_agent_test)"),
-    "a_corriger": ("livrer", "relivrer la correction : note + protocole, puis statut "
-                             "à tester approprié"),
-    "a_faire": ("livrer", "VÉRIFIER d'abord que le travail est réellement fait "
-                          "(branche, MR, critères) ; si oui livrer, sinon ne rien "
-                          "changer et le dire"),
-    "a_tester_dev": ("tester", "faire la passe de test agent, puis router selon le "
-                               "verdict (a_tester_demandeur si OK)"),
-}
-BATCH_ATESTER_SKIP = {
-    "a_tester_demandeur": "déjà en test chez toi",
-    "a_mep": "attend une mise en production",
-    "en_mep": "mise en production en cours",
-    "ferme": "fermé",
-    "nouveau": "pas encore pris en charge : rien à livrer",
-    "a_etudier_chiffrer": "à étudier : une étude se rend en validation, pas en test",
-    "etude_chiffrage_en_cours": "étude en cours : elle se rend en validation, pas en test",
-    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
-}
-
-# RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
-# (estimation, critères d'acceptation, ROI). L'action existait déjà dans la table
-# « traiter », mais noyée : impossible de la proposer seule, et impossible de
-# savoir depuis l'UI si elle avait un sens pour la sélection.
-BATCH_ETUDIER = {
-    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
-    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
-    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
-}
-BATCH_ETUDIER_SKIP = {
-    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
-    "a_faire": "déjà chiffré et prêt à faire",
-    "en_cours": "déjà en cours de réalisation",
-    "a_corriger": "livré puis renvoyé : c'est une correction, pas une étude",
-    "a_tester_dev": "livré, en test agent",
-    "a_tester_demandeur": "livré, attend ton verdict",
-    "a_mep": "attend une mise en production",
-    "en_mep": "mise en production en cours",
-    "en_pause": "en pause — à relancer explicitement",
-    "ferme": "fermé",
-}
-
-# Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
-# lot (plafond, portée, envoi, garde de session) ne change pas.
-BATCH_MODES = {
-    "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
-    "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
-    "etudier": {"actions": BATCH_ETUDIER, "skip": BATCH_ETUDIER_SKIP},
-}
+# RM3208 (W1) : la composition du lot (tables statut → action, plafonds, plan, consigne) vit dans `pm_batch`,
+# partagée avec `pm-session-status batch`. Ce qui reste ici : l'envoi dans le terminal de la session attachée.
+import pm_batch as _batch   # noqa: E402
+from pm_batch import (   # noqa: E402,F401 — réexport : les appelants et tests historiques passent par ici
+    BATCH_MAX,
+    BATCH_POINTS_MAX,
+    BATCH_POINT_LEN,
+    _batch_points,
+    BATCH_ACTIONS,
+    BATCH_SKIP,
+    BATCH_ATESTER,
+    BATCH_ATESTER_SKIP,
+    BATCH_ETUDIER,
+    BATCH_ETUDIER_SKIP,
+    BATCH_MODES,
+    CLOSABLE_STATUSES,
+    batch_modes_for,
+    batch_prompt,
+)
 
 
-#: Statuts d'où « fermer / résolu » a un sens : le travail est livré et attend
-#: un verdict ou une MEP. Fermer ailleurs, c'est clore ce qui n'a pas été fait.
-CLOSABLE_STATUSES = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
-
-
-# >>> batch_modes_for — pure (testée par test_karl_agent_batch_actions.py)
-def batch_modes_for(statuses):
-    """RM2786 : pour une sélection de statuts, combien de tickets chaque mode
-    concerne — c'est ce qui décide des boutons à AFFICHER, et du compte à écrire
-    dessus.
-
-    Un lot est presque toujours mixte : le bouton s'affiche dès qu'un ticket le
-    justifie, et son compteur annonce les tickets CONCERNÉS, pas le total coché.
-    « traiter (3) » sur 5 sélectionnés dit la vérité ; « (5) » ment sur ce qui
-    va partir.
-
-    Un statut INCONNU compte pour tous les modes : mieux vaut un bouton de trop
-    qu'une action devenue inatteignable parce qu'un statut a changé de nom — le
-    plan de lot, lui, écartera le ticket avec sa raison.
-    """
-    connus = set()
-    for m in BATCH_MODES.values():
-        connus |= set(m["actions"]) | set(m["skip"])
-    out = {name: 0 for name in BATCH_MODES}
-    out["fermer"] = 0
-    for st in (statuses or []):
-        st = str(st or "").lower()
-        inconnu = st not in connus
-        for name, m in BATCH_MODES.items():
-            if inconnu or st in m["actions"]:
-                out[name] += 1
-        # « fermer / résolu » n'est pas une consigne à l'agent : c'est le verdict
-        # du demandeur sur un ticket LIVRÉ. Il n'a de sens que là.
-        if inconnu or st in CLOSABLE_STATUSES:
-            out["fermer"] += 1
-    return out
-# <<< batch_modes_for
-
-
-# >>> batch_plan — pure (testée par test_karl_agent_batch.py)
 def batch_plan(items, mode: str = "traiter") -> dict:
-    """Répartit les tickets demandés entre CE QUI PART et ce qui est écarté.
-
-    Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
-    affiche avant l'envoi. Un statut inconnu (nouveau statut NORMS pas encore
-    connu ici) est écarté aussi — deviner l'action à faire sur un ticket serait
-    pire que de le dire.
-
-    RM2719 — un item peut porter une PORTÉE : `scope` = les seuls points à
-    traiter. Absente, le ticket part en entier (RM2716). Présente mais VIDE,
-    le ticket est écarté avec sa raison — décocher tous les points d'un ticket
-    veut dire « rien à y faire », pas « fais tout ».
-
-    RM2720 — `mode` choisit la table d'actions : « traiter » (défaut) ou
-    « atester » (rendre au demandeur). Un mode inconnu est refusé plutôt que
-    rabattu sur le défaut : envoyer « traite ces tickets » à qui a demandé
-    « passe-les à tester » serait la pire des tolérances."""
-    m = BATCH_MODES.get(mode)
-    if m is None:
-        raise ApiError(400, f"mode de lot inconnu : {mode}")
-    actions, skips = m["actions"], m["skip"]
-    todo, skipped = [], []
-    seen = set()
-    for it in items or []:
-        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
-        if not rm.isdigit() or rm in seen:
-            continue
-        seen.add(rm)
-        status = str((it or {}).get("status") or "").strip()
-        act = actions.get(status)
-        raw_scope = (it or {}).get("scope")
-        scoped = isinstance(raw_scope, list)
-        scope, scope_cut = _batch_points(raw_scope) if scoped else ([], 0)
-        if act and scoped and not scope:
-            skipped.append({"rm_id": rm, "status": status,
-                            "reason": "aucun point retenu dans la sélection",
-                            "title": (it or {}).get("title") or ""})
-            continue
-        if act:
-            points, pcut = _batch_points((it or {}).get("points"))
-            todo.append({"rm_id": rm, "status": status, "action": act[0],
-                         "instruction": act[1], "title": (it or {}).get("title") or "",
-                         "points": points, "scope": scope,
-                         "scope_truncated": scope_cut,
-                         # La liste des critères peut déjà arriver incomplète du
-                         # worklog (plafond de `parse_checklist`) : on le REDIT
-                         # ici, sinon l'écran de sélection se lirait comme la
-                         # liste complète des points du ticket.
-                         "points_truncated": bool(pcut or (it or {}).get("points_truncated"))})
-        else:
-            todo_reason = skips.get(status) or f"statut « {status or '?'} » : aucune action définie"
-            skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
-                            "title": (it or {}).get("title") or ""})
-    return {"todo": todo, "skipped": skipped}
-# <<< batch_plan
-
-
-# >>> batch_prompt — pure (testée par test_karl_agent_batch.py)
-def batch_prompt(todo, mode: str = "traiter") -> str:
-    """La consigne envoyée à l'agent. Elle est AUTO-PORTANTE : l'agent qui la
-    reçoit ne voit pas l'écran d'où elle vient.
-
-    Elle exige les trois retours arbitrés : le statut de fin du flux NORMS (qui
-    réattribue au demandeur), la notification de fin de lot, et le récapitulatif
-    au worklog. Sans ça, « traite ces tickets » laisserait le demandeur surveiller
-    des sessions pour savoir où ça en est.
-
-    RM2719 — un ticket à PORTÉE RESTREINTE porte ses points sous sa ligne, et la
-    règle qui va avec : il ne se clôture pas et ne repart pas au demandeur tant
-    qu'il en reste. La règle n'est ajoutée que s'il y a au moins un ticket
-    restreint — une consigne qui liste des cas absents se lit moins bien.
-
-    RM2720 — en mode « atester », la consigne dit autre chose : rendre un ticket
-    au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
-    protocole de test, et interdit de bouger le statut d'un ticket dont le
-    travail n'est pas réellement livré. La fin (worklog, notification, bilan)
-    est commune aux deux modes.
-
-    RM2762 — **à UN seul ticket il n'y a pas de lot**, et le mot disparaît. Tout le
-    cadre de série (« EN SÉRIE, dans cet ordre », « un ticket à la fois », « passe au
-    suivant », « bilan ticket par ticket », notification de fin de lot) n'a alors pas
-    d'objet : le garder noie l'unique consigne utile sous des règles qui ne
-    s'appliquent à rien. Ce qui est substantiel est conservé — protocole NORMS,
-    statut de fin, interdiction de forcer, portée restreinte."""
-    n = len(todo or [])
-    solo = n == 1
-    lignes = []
-    scoped = False
-    for i, t in enumerate(todo or [], 1):
-        titre = (" — " + t["title"]) if t.get("title") else ""
-        puce = "" if solo else f"{i}. "      # rien à ordonner : pas de numérotation
-        lignes.append(f"{puce}RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
-        pts = t.get("scope") or []
-        if pts:
-            scoped = True
-            lignes.append("   PORTÉE RESTREINTE — ne traite QUE ces points :")
-            lignes += [f"   - {p}" for p in pts]
-            cut = t.get("scope_truncated") or 0
-            if cut:
-                lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
-                              "ici : reprends-les depuis la checklist du ticket.)")
-    corps = "\n".join(lignes)
-    regle_scope = ((
-        "- à PORTÉE RESTREINTE, le ticket ne se clôture PAS et ne repart PAS au "
-        "demandeur : traite uniquement les points listés, ne coche que ces "
-        "critères-là, laisse-le en `en_cours` et dis en note ce qui reste ;\n"
-    ) if solo else (
-        "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
-        "demandeur : traite uniquement les points listés, ne coche que ces "
-        "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
-    )) if scoped else ""
-    # Fin commune : sans ces trois retours, un lot laisse le demandeur
-    # surveiller des sessions pour savoir où ça en est.
-    # `--kind autre` et pas `--kind lot` : `lot` n'existe pas dans NOTIFY_KINDS
-    # (pm-session-status.py), la commande échouait donc telle qu'écrite (RM2762).
-    fin = (
-        "- consigne l'avancement du lot au worklog "
-        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
-        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
-        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
-        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
-        "--kind autre \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
-        "bilan ticket par ticket."
-    )
-    # Fin SOLO : pas de notification de fin de lot — le statut de fin réattribue déjà
-    # au demandeur, et un « lot terminé : 1 rendu » n'apprend rien à personne.
-    solo_worklog = ("- consigne l'avancement au worklog "
-                    "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n")
-    solo_bloc = ("- s'il te bloque (question, dépendance, ambiguïté), NE FORCE PAS : consigne "
-                 "le blocage, laisse le ticket en l'état et dis-le dans ton compte rendu ;\n")
-    solo_cr = "- termine par un compte rendu : ce qui a été fait, ce qui reste."
-    fin_solo = solo_worklog + solo_bloc + solo_cr
-    # En mode « atester », la règle « travail non livré → ne force pas » couvre déjà
-    # le blocage : répéter NE FORCE PAS deux puces plus bas se lit comme du remplissage.
-    fin_solo_atester = solo_worklog + solo_cr
-    if mode == "atester":
-        if solo:
-            return (
-                "Passe ce ticket « à tester » en appliquant le protocole worker "
-                "NORMS :\n"
-                f"{corps}\n\n"
-                "Règles :\n"
-                "- passer un ticket « à tester », c'est le LIVRER : il part avec sa "
-                "note de livraison ET son protocole de test (norme RM2229) — pas un "
-                "simple changement de statut ;\n"
-                "- si le travail n'est PAS réellement livré (branche non poussée, MR "
-                "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse "
-                "le statut en l'état et dis pourquoi ;\n"
-                f"{fin_solo_atester}"
-            )
-        return (
-            f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
-            "protocole worker NORMS :\n"
-            f"{corps}\n\n"
-            "Règles du lot :\n"
-            "- passer un ticket « à tester », c'est le LIVRER : chacun part avec sa "
-            "note de livraison ET son protocole de test (norme RM2229) — pas un "
-            "simple changement de statut ;\n"
-            "- si le travail n'est PAS réellement livré (branche non poussée, MR "
-            "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse le "
-            "statut en l'état, dis pourquoi, passe au suivant ;\n"
-            "- un ticket à la fois, jusqu'à son statut de fin ;\n"
-            f"{fin}"
-        )
-    if solo:
-        return (
-            "Traite ce ticket en appliquant le protocole worker NORMS "
-            "(prise en charge, travail, livraison) :\n"
-            f"{corps}\n\n"
-            "Règles :\n"
-            "- il revient au demandeur par son statut de fin NORMS "
-            "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
-            f"{regle_scope}"
-            f"{fin_solo}"
-        )
-    return (
-        f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "
-        "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
-        "livraison) :\n"
-        f"{corps}\n\n"
-        "Règles du lot :\n"
-        "- un ticket à la fois, jusqu'à son statut de fin ; ne passe au suivant "
-        "qu'une fois le précédent rendu ;\n"
-        "- chaque ticket revient au demandeur par son statut de fin NORMS "
-        "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
-        f"{regle_scope}"
-        f"{fin}"
-    )
-# <<< batch_prompt
+    """Voir `pm_batch.batch_plan` ; un mode inconnu reste un refus HTTP 400."""
+    try:
+        return _batch.batch_plan(items, mode)
+    except _batch.BatchError as e:
+        raise ApiError(400, str(e))
 
 
 def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
@@ -6301,10 +5992,21 @@ def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
     statut = str(payload.get("status") or "").strip()
     if statut not in pm_worklog_states.REQUEST_STATES:
         raise ApiError(400, "statut inconnu (" + " · ".join(sorted(pm_worklog_states.REQUEST_STATES)) + ")")
+    # RM3172 : DEUX identifiants de session, à ne pas prendre l'un pour l'autre. Le cockpit connaît
+    # l'identifiant tmux (« 3145 », « calymix ») ; le worklog, lui, est nommé par l'UUID de session
+    # Claude — `session-worklogs/<session_id>.json`. Passer le premier à `--session` ouvrait un
+    # worklog INEXISTANT : `load()` rendait une structure vide, et la demande n° N y était forcément
+    # « introuvable », alors qu'elle dormait dans l'autre fichier. La lecture faisait déjà cette
+    # résolution (`op_worklog`) ; c'est l'écriture qui l'avait oubliée.
+    session_id = (_key_info(sid) or {}).get("session_id")
+    if not session_id:
+        raise ApiError(404, f"session « {sid} » : aucun worklog connu (clé de session absente) — "
+                            "la demande ne peut pas être soldée depuis ici")
     script = Path(__file__).resolve().parent / "pm-session-status.py"
     if not script.is_file():
         raise ApiError(500, "pm-session-status introuvable")
-    cmd = [sys.executable, str(script), "--session", sid, "request", "--set", str(n), "--status", statut]
+    cmd = [sys.executable, str(script), "--session", session_id, "request", "--set", str(n),
+           "--status", statut]
     ticket = re.sub(r"^RM", "", str(payload.get("ticket") or "").strip(), flags=re.I)
     if ticket:
         if not ticket.isdigit():
@@ -6319,7 +6021,7 @@ def op_worklog_request(payload: dict, auth_ctx=None) -> dict:
         raise ApiError(500, "pm-session-status : " + str(e))
     if r.returncode != 0:
         raise ApiError(400, (r.stderr or r.stdout or "").strip()[-400:] or "demande non modifiée")
-    _jlog("system", "info", f"demande #{n} → {statut}", sid=sid,
+    _jlog("system", "info", f"demande #{n} → {statut}", sid=session_id,
           by=str((auth_ctx or {}).get("user") or ""), rm=(ticket or None))
     return {"ok": True, "n": n, "status": statut, "ticket": ticket,
             "out": (r.stdout or "").strip()[-400:]}
@@ -6601,7 +6303,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     `autostart` qui ne tournent pas (aucun processus). `ghosts=0` les exclut."""
     sessions = _list_sessions()
     if not sessions:
-        return _keep_sessions(_ghosts_for(qs, auth_ctx), qs)
+        return _keep_sessions(_mes_sessions(_ghosts_for(qs, auth_ctx), auth_ctx), qs)
     latest = {}
     for runs in _runs_by_session().values():
         for r in runs:
@@ -6621,6 +6323,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if k:
             s["engine"] = k.get("engine")
             s["session_id"] = k.get("session_id")
+            s["owner"] = k.get("owner") or ""         # RM3070 L4 : à qui elle est ("" = d'avant)
             s["disposition"] = k.get("disposition")   # RM2515 : marque manuelle (idle uniquement, côté UI)
         tc = _session_ticket_counts(s["rm_id"])
         if tc:
@@ -6636,6 +6339,8 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        if _compact_cmd(s.get("engine")):
+            s["can_compact"] = True      # RM3249 : le front ne connaît pas les commandes, seulement ce droit
         # RM2793 : dernier message RÉEL, quand le transcript le dit. `activity`
         # (tmux) compte aussi ce que Claude Code écrit seul — son « ※ recap: … »
         # remettait le compteur à zéro sur une session que personne n'a touchée.
@@ -6731,12 +6436,27 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             s["in_current"] = s.get("client") == _mv.group(1)
         else:
             s["in_current"] = True if _view != "set" else (_cur in names)
-    return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
+    return _keep_sessions(_mes_sessions(sessions + _ghosts_for(qs, auth_ctx), auth_ctx), qs)
 
 
 def _ghosts_for(qs: dict, auth_ctx: dict | None) -> list:
     """RM2427 — fantômes à joindre à la vue, sauf opt-out explicite `ghosts=0`."""
     return [] if str(qs.get("ghosts", "")) == "0" else _ghost_sessions(auth_ctx)
+
+
+def _mes_sessions(sessions: list, auth_ctx: dict | None) -> list:
+    """RM3070 L4 : en MULTI, chacun ne voit que ses sessions.
+
+    Une session porte son propriétaire depuis son premier lancement (fiche `keys/`). Celles d'AVANT
+    n'en ont pas : elles restent visibles des administrateurs — les cacher à tout le monde ferait
+    disparaître du travail en cours le jour de la bascule — et un administrateur voit tout, sans quoi
+    personne ne pourrait reprendre la session d'un absent. En mono, rien n'est filtré."""
+    if _install_state().get("mode") != "multi":
+        return sessions
+    if (auth_ctx or {}).get("admin"):
+        return sessions
+    moi = str((auth_ctx or {}).get("user") or "")
+    return [s for s in sessions if s.get("owner") and s.get("owner") == moi]
 
 
 def _keep_sessions(sessions: list, qs: dict) -> list:
@@ -6892,7 +6612,10 @@ def _read_project_envs(project_dir: Path) -> list:
         if re.match(r"^environments:\s*$", line):
             in_block = True
             continue
-        if in_block and re.match(r"^\S", line):   # autre clé top-level → fin du bloc
+        # autre clé top-level → fin du bloc. RM3225 : un item de liste en colonne 0
+        # (`- name: prod`, YAML valide et forme de pisceen) n'est PAS une clé — le prendre
+        # pour la fin du bloc rendait la liste vide, et le cockpit sans aucun environnement.
+        if in_block and re.match(r"^\S", line) and not line.startswith("- "):
             break
         if not in_block:
             continue
@@ -6906,8 +6629,15 @@ def _read_project_envs(project_dir: Path) -> list:
         if cur is not None:
             mu = re.match(r"url:\s*(.+)", s)
             if mu:
-                u = mu.group(1).strip().strip("'\"")
+                u = mu.group(1).strip()
+                if not u.startswith(("'", '"')):          # RM3225 : commentaire YAML en fin de ligne
+                    u = re.sub(r"\s+#.*$", "", u)
+                u = u.strip("'\"")
                 cur["url"] = "" if u in _NULLISH else u
+            # RM3225 : l'alias ssh sert à composer la commande de lancement du script de MEP.
+            ma = re.match(r"ssh_alias:\s*(\S+)", s)
+            if ma and ma.group(1).strip("'\"") not in _NULLISH:
+                cur["ssh_alias"] = ma.group(1).strip("'\"")
     if cur:
         envs.append(cur)
     return envs
@@ -7050,37 +6780,7 @@ def _mtime_iso(p: Path) -> str:
     except (OSError, ValueError):
         return ""
 
-# >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
-_CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
-
-
-def parse_checklist(body: str, max_items: int = 40) -> dict:
-    """RM2695 : l'avancement d'un ticket, lu là où il est DÉJÀ tenu — la
-    checklist des critères d'acceptation de sa description (tripwire #9
-    « description vivante », miroir du `done_ratio`).
-
-    Aucun référentiel de tâches à créer : un second endroit à maintenir
-    divergerait du premier en une semaine. On lit `- [ ]` / `- [x]`, puces `*` et
-    `+` comprises, indentation tolérée (sous-items d'une liste).
-
-    `items` est plafonné (l'UI n'affiche que le RESTE à faire, et une description
-    n'est pas un backlog) ; `done`/`total` comptent tout, eux, sinon le compteur
-    mentirait sur les tickets longs."""
-    done = total = 0
-    items = []
-    for line in (body or "").splitlines():
-        m = _CHECKLIST_RE.match(line)
-        if not m:
-            continue
-        checked = m.group(1) in ("x", "X")
-        total += 1
-        if checked:
-            done += 1
-        elif len(items) < max_items:
-            items.append(m.group(2))
-    return {"done": done, "total": total, "items": items,
-            "truncated": total - done > len(items)}
-# <<< parse_checklist
+from pm_batch import _CHECKLIST_RE, parse_checklist   # noqa: E402,F401 — RM3208 : extrait vers pm_batch (pure)
 
 
 #: Nombre d'ENTRÉES de journal servies, et taille maximale du tout. RM2797 :
@@ -7174,18 +6874,34 @@ def _ticket_think(task_file, limite: int = 40) -> dict:
     except Exception:      # noqa: BLE001
         return {}
 
-    def _rows(kind, col):
+    def _rows(kind):
+        # RM3262 : le texte par NOM de colonne (« Question », « Objet », « Verbatim »…). En
+        # positions, le panneau aurait affiché « 2026-09-01 · Mathieu » à la place de la question
+        # dès qu'un carnet passe à la grammaire élargie. `signature` vient avec : qui, et quand.
+        sec = parsed.get(kind, {})
         out = []
-        for r in (parsed.get(kind, {}).get("rows") or [])[:limite]:
-            cells = r.get("cells") or []
-            out.append({"id": r.get("id"), "text": cells[col] if col < len(cells) else "",
+        for r in (sec.get("rows") or [])[:limite]:
+            out.append({"id": r.get("id"), "text": pm_think.texte(sec, r, kind),
+                        "signature": pm_think.cell(sec, r, pm_think.SIGNATURE_COL),
                         "state": r.get("state") or "", "closed": bool(r.get("closed")),
                         "prefix": r.get("prefix") or ""})
         return out
 
-    return {"questions": _rows("question", 1), "decisions": _rows("decision", 1),
-            "notes": _rows("note", 2), "features": _rows("feature", 1),
+    return {"questions": _rows("question"), "decisions": _rows("decision"),
+            "notes": _rows("note"), "features": _rows("feature"),
             "counts": pm_think.counters(parsed), "file": th.name}
+
+
+def _ticket_mep_script(task_file, envs=None):
+    """Le script de MEP du ticket (RM3225) : texte borné, commandes de lancement, manques
+    au contrat — ou None. L'alias ssh vient de l'environnement de prod du projet s'il le
+    déclare, sinon de l'en-tête du script. Illisible : None, la fiche s'ouvre quand même."""
+    try:
+        import pm_mep_script
+        prod = next((e for e in (envs or []) if e.get("name") == "prod"), {})
+        return pm_mep_script.describe(Path(task_file), alias=prod.get("ssh_alias"))
+    except Exception:      # noqa: BLE001
+        return None
 
 
 def _project_docs(project_dir: Path) -> list:
@@ -7201,6 +6917,23 @@ def _project_docs(project_dir: Path) -> list:
             for f in sorted(pdir.glob("*.md")):
                 docs.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
     return docs
+
+
+def _ticket_acceptance(fm: dict, body: str) -> dict:
+    """Critères d'acceptation d'un ticket, PAR la fonction de lecture unique (RM2882) : texte, items, provenance.
+
+    La provenance est rendue parce qu'elle change le geste : sur un ticket migré on coche avec
+    `pm-task-acceptance`, sinon dans la description. L'afficher évite de cocher dans le vide.
+    Jamais fatal : un module absent donne un onglet vide, pas une fiche en erreur.
+    """
+    try:
+        import pm_acceptance
+        text, source = pm_acceptance.criteria_text(fm, body)
+        items = [{"done": ok, "label": lab} for ok, lab in pm_acceptance.parse_items(text)]
+    except Exception as e:  # noqa: BLE001
+        _jlog("ticket", "warn", f"lecture des critères impossible : {e}")
+        return {"source": None, "items": [], "text": ""}
+    return {"source": source, "items": items[:80], "text": text[:6000]}
 
 
 def op_resolve(rm_id: str) -> dict:
@@ -7263,6 +6996,12 @@ def op_resolve(rm_id: str) -> dict:
              "text": str(pick("test_protocol"))[:4000]}
             if str(pick("test_protocol") or "").strip() not in ("", "None")
             else _test_protocol(tf, _task_body(text))),
+        # RM3175 : les trois onglets Critères · Implémentation · Déploiement de la fiche.
+        "acceptance": _ticket_acceptance(fm, _task_body(text)),
+        "implementation": str(pick("implementation") or "").strip()[:8000]
+        if str(pick("implementation") or "").strip() not in ("", "None") else "",
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()]
+        if isinstance(fm.get("deploy_actions"), list) else [],
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",
@@ -7270,10 +7009,15 @@ def op_resolve(rm_id: str) -> dict:
         "environments": envs, "active_env": _env_for_status(status, envs),
         "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
         "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        # RM3126 : le PROVIDER du ticket — quelle instance de gestion le porte. Évident tant
+        # qu'il n'y en a qu'une ; plus du tout depuis que l'axe `task` est une liste (RM2653),
+        # et c'est précisément quand un ticket vit chez un partenaire qu'on veut le savoir
+        # sans ouvrir le meta.yml.
+        "provider": _task_provider_of(client, project),
         # RM2695 : avancement = la checklist des critères d'acceptation, seule
         # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
         # statut, une liste d'ids n'apprenant rien sur l'avancement.
-        "checklist": parse_checklist(_task_body(text)),
+        "checklist": parse_checklist(_task_body(text), acceptance=fm.get("acceptance")),
         "sub_tasks_status": _subtasks_status(fm.get("sub_tasks")),
         "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
         "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],
@@ -7284,6 +7028,11 @@ def op_resolve(rm_id: str) -> dict:
         # état. La fiche ne montrait que le contrat et le journal ; le « pourquoi » n'était
         # atteignable que par le panneau CDC du projet, donc jamais depuis le ticket lui-même.
         "think": _ticket_think(tf),
+        # RM3225 : la MISE EN PRODUCTION du ticket — ses actions au déploiement (CF 8, miroir
+        # frontmatter) et son script de MEP conservé à côté de la fiche. Ni l'un ni l'autre
+        # n'était visible au cockpit : la procédure ne se lisait que dans Redmine ou sur disque.
+        "deploy_actions": [str(a) for a in (fm.get("deploy_actions") or []) if str(a).strip()],
+        "mep_script": _ticket_mep_script(tf, envs),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
         # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.
@@ -7432,6 +7181,31 @@ def op_tickets_manage(status=None, project=None, q=None, limit=200) -> dict:
                 "hint": str(e)}
 
 
+def _task_provider_of(client: str, project: str) -> dict:
+    """{name, type, url, slug, secondaries} de l'instance de tickets d'un projet (RM3126).
+
+    {} si la résolution échoue : un panneau ne doit pas tomber parce qu'un registre est
+    incomplet — l'absence d'information se montre, elle ne se plante pas.
+    """
+    try:
+        from pm_paths import PMConfig
+        from pm_registry import Registry, resolve_instance, secondaries
+        cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
+        meta = cfg.project_meta(client, project) if hasattr(cfg, "project_meta") else None
+        if meta is None:
+            mp = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+            meta = yaml.safe_load(mp.read_text(encoding="utf-8")) if mp.is_file() else {}
+        reg = Registry.from_config(cfg.providers)
+        r = resolve_instance(meta or {}, "task", reg)
+        inst = r.instance
+        return {"name": inst.name, "type": inst.type, "url": inst.url,
+                "slug": (inst.options or {}).get("slug", ""),
+                "secondaries": [x.instance.name for x in secondaries(meta or {}, "task", reg)]}
+    except (Exception, SystemExit) as e:   # noqa: BLE001
+        print(f"⚠ provider({client}/{project}): {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+
+
 def op_anteriority(q="", limit=6) -> list:
     """Ce sujet a-t-il DÉJÀ un ticket ? (RM3148, moteur de RM3130)
 
@@ -7514,7 +7288,7 @@ def _norms_statuses() -> list:
     except Exception:  # noqa: BLE001
         noms = []
     ordre = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "etude_chiffrage_a_valider", "etude_chiffrage_a_corriger", "a_faire", "en_cours", "a_corriger",
              "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep",
              "en_pause", "ferme", "annule"]
     if not noms:
@@ -7853,6 +7627,62 @@ def _unpushed_shas(cwd, limit):
     rc, raw, _ = _git(cwd, "rev-list", f"-{limit}", "HEAD", "--not", "--remotes",
                       timeout=15)
     return set(raw.split()) if rc == 0 else set()
+
+
+_SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def op_ticket_impact(rm_id: str, qs: dict) -> dict:
+    """RM3164 — ce que ce ticket a TOUCHÉ : fichiers et dépôt, agrégés.
+
+    Pas une seconde vue git : RM2602 donne déjà `log`, `show` et `diff`, c'est-à-dire les
+    commits un par un. Ce qu'on cherche en reprenant un ticket froid ou en préparant une revue,
+    c'est l'inverse — « quels fichiers ce ticket a-t-il remués », qu'aucune de ces vues ne dit
+    sans les lire toutes.
+
+    Compté sur la branche du ticket, par rapport à sa base d'intégration : le reste de l'histoire
+    du dépôt n'est pas son impact.
+    """
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    cwd, origine = _ticket_repo(rm_id)
+    vide = {"rm_id": rm_id, "cwd": str(cwd), "origin": origine, "is_git": False,
+            "files": [], "commits": 0, "base": ""}
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return vide
+    if _is_pm_data_repo(cwd):
+        # Même raison que le log : un dépôt de données n'a que des auto-commits, les lister
+        # ferait passer du bruit pour du travail.
+        return dict(vide, is_git=True, pm_data_repo=True)
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    branch = (branch or "").strip()
+    base = ""
+    for cand in ("origin/dev", "origin/main", "origin/master"):
+        if _git(cwd, "rev-parse", "--verify", "--quiet", cand)[0] == 0:
+            rc, mb, _ = _git(cwd, "merge-base", cand, "HEAD")
+            if rc == 0 and mb.strip():
+                base = cand
+                break
+    plage = f"{base}...HEAD" if base else "-30"
+    rc, raw, err = _git(cwd, "log", "--name-only", "--format=%H", plage, timeout=20)
+    if rc != 0:
+        return dict(vide, is_git=True, error=err[:200])
+    # Lecture ligne à ligne : découper sur les lignes vides comptait le SHA du commit SUIVANT
+    # comme un fichier dès qu'un commit n'en touchait aucun (un merge, typiquement).
+    fichiers, commits = {}, 0
+    for ligne in raw.splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if _SHA40_RE.match(ligne):
+            commits += 1
+            continue
+        fichiers[ligne] = fichiers.get(ligne, 0) + 1
+    top = sorted(fichiers.items(), key=lambda kv: (-kv[1], kv[0]))[:int(qs.get("limit") or 40)]
+    return {"rm_id": rm_id, "cwd": str(cwd), "origin": origine, "is_git": True,
+            "pm_data_repo": False, "branch": branch, "base": base, "commits": commits,
+            "files": [{"path": f, "n": n} for f, n in top], "total_files": len(fichiers)}
 
 
 def op_git_log(rm_id: str, qs: dict) -> dict:
@@ -8637,8 +8467,40 @@ _THINK_STATES = ("valide", "invalide", "propose", "attente", "reserve")
 _FEATURE_STATES = ("prévu", "en cours", "en pause", "écarté", "livré")
 
 
-def _pm_script(name: str, args: list, timeout: int = 120) -> str:
-    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon."""
+# RM3070 L3 : l'acteur de la REQUÊTE en cours. ThreadingHTTPServer sert chaque requête dans son
+# propre thread : un thread-local dit « pour qui » sans faire transiter auth_ctx à travers dix
+# fonctions — et un sous-processus lancé au fond d'une chaîne porte quand même le bon nom.
+_REQ = threading.local()
+
+
+def _acteur_courant():
+    return getattr(_REQ, "auth_ctx", None)
+
+
+def _acteur(auth_ctx=None) -> dict:
+    """QUI agit (RM3070 L3) : le développeur connecté au cockpit, résolu en nom et e-mail."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_actor
+    return pm_actor.resolve(_user_unix(auth_ctx if auth_ctx is not None else _acteur_courant()),
+                            _conf_merged())
+
+
+def _env_acteur(auth_ctx=None) -> dict:
+    """L'environnement d'un sous-processus agissant pour le développeur connecté : `PM_ACTOR_*`
+    (qui a agi, pour les journaux) et, si son adresse est connue, l'AUTEUR des commits."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_actor
+        return pm_actor.env_for(_acteur(auth_ctx))   # auth_ctx=None ⇒ celui de la requête
+    except Exception:      # noqa: BLE001 — une identité introuvable ne bloque aucune action
+        return dict(os.environ)
+
+
+def _pm_script(name: str, args: list, timeout: int = 120, auth_ctx=None) -> str:
+    """Lance `scripts/<name>` avec les arguments donnés (chaînes seulement), rend stdout ; ApiError sinon.
+
+    RM3070 L3 : l'environnement porte l'ACTEUR — les commits PM déclenchés par le cockpit sont
+    signés du développeur connecté, et le journal sait qui a agi, pas seulement que « le service » a agi."""
     path = (REPO_ROOT / "scripts" / name).resolve()
     if not path.is_file():
         raise ApiError(500, f"script introuvable : {name}")
@@ -8646,12 +8508,16 @@ def _pm_script(name: str, args: list, timeout: int = 120) -> str:
         raise ApiError(400, "arguments : chaînes attendues")
     try:
         p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT), capture_output=True, text=True,
-                           timeout=timeout, env=os.environ)
+                           timeout=timeout, env=_env_acteur(auth_ctx))
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"{name} : timeout ({timeout}s)")
     if p.returncode != 0:
         raise ApiError(400, f"{name} : {(p.stderr or p.stdout or '').strip()[-400:]}")
     return p.stdout
+
+
+#: RM3381 — un texte d'entrée est plus long qu'un commentaire de réponse : c'est l'énoncé lui-même
+_THINK_TEXT_MAX = 4000
 
 
 def _cdc_think_args(payload: dict) -> tuple:
@@ -8673,19 +8539,75 @@ def _cdc_think_args(payload: dict) -> tuple:
         state = str(payload.get("state") or "").strip()
         if state not in _THINK_STATES:
             raise ApiError(400, "état inconnu (valide · invalide · propose · attente · reserve)")
-        return rm, local, [rm, "--set", local, "--state", state]
-    raise ApiError(400, "action inconnue (delete | state)")
+        # RM3269 : trancher une question SANS décision reste possible depuis l'UI — mais seulement
+        # sur demande EXPLICITE (le cockpit confirme), et c'est tracé au journal côté outil.
+        args = [rm, "--set", local, "--state", state]
+        if payload.get("force") and local.startswith("Q") and state == "valide":
+            args.append("--force")
+        return rm, local, args
+    if action == "text":                      # RM3381 : corriger le TEXTE d'une entrée, sans toucher à son état
+        texte = " ".join(str(payload.get("text") or "").split())
+        if not texte:
+            raise ApiError(400, "texte requis")
+        if len(texte) > _THINK_TEXT_MAX:
+            raise ApiError(400, f"texte trop long ({len(texte)} > {_THINK_TEXT_MAX} caractères)")
+        return rm, local, [rm, "--set", local, "--text", texte]
+    if action == "move":                      # RM3258 : l'entrée part au carnet d'un autre ticket
+        to = str(payload.get("to") or "").strip().lstrip("Rr Mm#")
+        if not to.isdigit():
+            raise ApiError(400, "ticket destinataire requis (rm-id)")
+        if to == rm:
+            raise ApiError(400, "l'entrée est déjà sur ce ticket")
+        # --cross-project : le cockpit voit tous les projets, et une question mal attribuée
+        # l'est souvent D'UN projet à l'autre — c'est le cas d'usage, pas l'exception.
+        return rm, local, [rm, "--move", local, "--to", to, "--cross-project"]
+    raise ApiError(400, "action inconnue (delete | state | move | text)")
 
 
-def op_cdc_think(payload: dict) -> dict:
-    """État ou suppression d'une entrée de think depuis le panneau CDC, puis refusion du projet."""
+_THINK_COMMENT_MAX = 1000
+
+
+def _cdc_think_answer_args(payload: dict, rm: str, local: str, by: str = "M"):
+    """RM3227 : le commentaire joint au geste qui tranche une QUESTION devient sa réponse — une décision
+    validée « Qnnn : … » (« Qnnn écartée : … » si la question est invalidée). C'est la convention que
+    lisent déjà la vue Redmine des questions (CF 36) et la fusion `cdc-decisions.md` : aucun format
+    nouveau dans le think. Rien si pas de commentaire, ou si l'entrée n'est pas une question. Pur, testé."""
+    comment = " ".join(str(payload.get("comment") or "").split())
+    if not comment or not local.startswith("Q") or payload.get("action") != "state":
+        return None
+    if len(comment) > _THINK_COMMENT_MAX:
+        raise ApiError(400, f"commentaire trop long ({len(comment)} > {_THINK_COMMENT_MAX} caractères)")
+    ecartee = str(payload.get("state") or "") == "invalide"
+    texte = f"{local} écartée : {comment}" if ecartee else f"{local} : {comment}"
+    return [rm, "--decide", texte, "--state", "valide", "--by", by or "M", "--dedupe"]
+
+
+def op_cdc_think(payload: dict, auth_ctx=None) -> dict:
+    """État ou suppression d'une entrée de think depuis le panneau CDC ou la fiche, puis refusion du
+    projet. RM3227 : un commentaire joint au geste qui tranche une question est consigné comme sa
+    réponse AVANT le changement d'état — rejouer après un échec ne double rien (`--dedupe`)."""
     rm, local, args = _cdc_think_args(payload)
-    out = _pm_script("pm-task-think.py", args)
-    proj = _task_project(rm)
+    answer = _cdc_think_answer_args(payload, rm, local, str((auth_ctx or {}).get("user") or "M"))
+    if answer:
+        _pm_script("pm-task-think.py", answer, auth_ctx=auth_ctx)
+    try:
+        out = _pm_script("pm-task-think.py", args, auth_ctx=auth_ctx)
+    except ApiError as e:
+        # RM3370 : le refus de RM3269 parle en options de ligne de commande (--decide-with, --dest,
+        # --force). Dans un cockpit, c'est illisible : on le redit dans les mots du geste.
+        if "exige la decision qui la tranche" in str(getattr(e, "msg", "") or e).replace("é", "e"):
+            raise ApiError(409, "Trancher cette question demande la reponse qui la tranche : saisis-la, "
+                                "ou choisis de trancher sans decision (elle restera a documenter).")
+        raise
+    # RM3258 : un déplacement touche DEUX carnets — et, si les tickets ne sont pas du même projet,
+    # deux jeux de registres. Refondre le seul projet d'origine laisserait la cible périmée.
+    projets = [p for p in (_task_project(rm), _task_project(str(payload.get("to") or "").strip()) if
+                           str(payload.get("action") or "") == "move" else None) if p]
     merged = None
-    if proj:
-        merged = _pm_script("pm-think-merge.py", ["--project", f"{proj[0]}/{proj[1]}"]).strip().splitlines()[-1:]
-    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged}
+    for pr in dict.fromkeys(projets):
+        merged = _pm_script("pm-think-merge.py", ["--project", f"{pr[0]}/{pr[1]}"], auth_ctx=auth_ctx).strip().splitlines()[-1:]
+    return {"ok": True, "rm": rm, "id": local, "out": out.strip().splitlines()[-1:] or [], "merged": merged,
+            "answer": bool(answer)}
 
 
 def _task_project(rm: str):
@@ -8702,7 +8624,7 @@ def _task_project(rm: str):
     return None
 
 
-def op_cdc_feature(payload: dict) -> dict:
+def op_cdc_feature(payload: dict, auth_ctx=None) -> dict:
     """État d'une entrée du registre des fonctionnalités (figée en manuel), chapitre régénéré."""
     client, project, prefix = (str(payload.get(k) or "") for k in ("client", "project", "prefix"))
     if not (_PART_RE.match(client) and _PART_RE.match(project) and _PART_RE.match(prefix or "cdc")):
@@ -8712,7 +8634,7 @@ def op_cdc_feature(payload: dict) -> dict:
         raise ApiError(400, "id de fonctionnalité invalide (Fnnn)")
     if etat not in _FEATURE_STATES:
         raise ApiError(400, "état inconnu (" + " · ".join(_FEATURE_STATES) + ")")
-    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"])
+    out = _pm_script("pm-cdc-features.py", ["--project", f"{client}/{project}", "--set-etat", fid, etat, "--build"], auth_ctx=auth_ctx)
     return {"ok": True, "id": fid, "etat": etat, "out": out.strip().splitlines()[-2:]}
 
 
@@ -8762,16 +8684,25 @@ def op_notifications_mark(payload: dict, auth_ctx=None) -> dict:
     qui = _notify_viewer(auth_ctx)
     ids = payload.get("ids") or ([] if not payload.get("id") else [payload["id"]])
     if payload.get("all"):
-        ids = [e["id"] for e in pm_notify.feed(etat="ouvert", limit=1000, viewer=qui)]
+        # « tout marquer lu » ne porte que sur ce qui n'est PAS lu : re-marquer une entrée
+        # déjà lue ne changerait rien et gonflerait le compte rendu rendu à l'utilisateur.
+        # Le filtre par personne de la vue est respecté — le bouton dit « dans cette vue ».
+        source = "neuf" if etat == "lu" else "ouvert"
+        ids = [e["id"] for e in pm_notify.feed(etat=source, limit=1000, viewer=qui,
+                                               user=str(payload.get("user") or "") or None)]
     ids = [str(i) for i in ids if str(i).strip()]
     if not ids:
+        if payload.get("all"):
+            # Rien à marquer n'est pas une erreur : le bouton a simplement été cliqué
+            # sur une file déjà à jour.
+            return {"ok": True, "marked": 0, "etat": etat, "counts": pm_notify.counts(viewer=qui)}
         raise ApiError(400, "aucune notification désignée (ids, id, ou all)")
     n = pm_notify.mark(ids, etat, viewer=qui)
     _jlog("system", "info", f"{n} notification(s) → {etat}", by=str((auth_ctx or {}).get("user") or ""))
     return {"ok": True, "marked": n, "etat": etat, "counts": pm_notify.counts(viewer=qui)}
 
 
-def op_cdc_version(payload: dict) -> dict:
+def op_cdc_version(payload: dict, auth_ctx=None) -> dict:
     """Créer une version, la compléter, la retirer, ou y rattacher une fonctionnalité (RM3060).
 
     Une version est une ÉTAPE DE TRAVAIL — un rôle et un critère de passage — pas une liste de
@@ -8806,7 +8737,7 @@ def op_cdc_version(payload: dict) -> dict:
         args += ["--drop-version", vid]
     else:
         raise ApiError(400, "action inconnue (add · update · attach · drop)")
-    out = _pm_script("pm-cdc-features.py", args + ["--build"])
+    out = _pm_script("pm-cdc-features.py", args + ["--build"], auth_ctx=auth_ctx)
     return {"ok": True, "action": geste, "version": vid, "out": out.strip().splitlines()[-3:]}
 
 # ── Fournisseurs : déclaration, secrets, affectations (RM3068) ───────────────
@@ -8857,15 +8788,23 @@ def _user_unix(auth_ctx) -> str:
     return pwd.getpwuid(os.getuid()).pw_name
 
 
-def _secret_cmd(args: list, valeur: str = None, as_user: str = None) -> str:
-    """Lance pm-provider-secret, au besoin par sudo (autre dev, ou .env global). La valeur part
-    par l'ENTRÉE STANDARD : jamais un argument, donc jamais dans `ps` ni dans le journal sudo."""
+def _secret_cmd(args: list, valeur: str = None, cible: str = None, globale: bool = False) -> str:
+    """Lance pm-provider-secret, au besoin par sudo. La valeur part par l'ENTRÉE STANDARD : jamais
+    un argument, donc jamais dans `ps` ni dans le journal sudo.
+
+    RM3096 : le `.env` d'un AUTRE développeur se sert **en root avec `--user <dev>`**, jamais par
+    `sudo -u <dev>` — la règle sudoers n'autorise ce script qu'en `(root)`, si bien que l'ancienne
+    forme était refusée à tous les coups, et l'échec passait pour « clé absente »."""
     script = REPO_ROOT / "scripts" / "pm-provider-secret.py"
     if not script.is_file():
         raise ApiError(500, "script introuvable : pm-provider-secret.py")
+    moi = pwd.getpwuid(os.getuid()).pw_name
+    autre = bool(cible and cible != moi)
+    if autre:
+        args = args + ["--user", cible]
     cmd = [sys.executable, str(script)] + args
-    if as_user and as_user != pwd.getpwuid(os.getuid()).pw_name:
-        cmd = ["sudo", "-n", "-u", as_user] + cmd
+    if autre or globale:
+        cmd = ["sudo", "-n", "-u", "root"] + cmd
     p = subprocess.run(cmd, input=(valeur if valeur is not None else ""), capture_output=True, text=True, timeout=30)
     if p.returncode != 0:
         raise ApiError(400, f"secret : {(p.stderr or p.stdout or '').strip()[-200:]}")
@@ -8970,17 +8909,60 @@ def op_modules() -> dict:
         # cliquer, et elle ne se répond pas en lisant le manifeste du module lui-même.
         d["required_by"] = sorted(x.name for x in mods
                                   if any(dep == m.name for dep, _, _ in x.deps()))
-        d["state"] = ("erreur" if not m.ok else "désactivé" if not m.enabled
-                      else "bloqué" if m.name in r["bloques"] else "actif")
+        d["state"] = ("erreur" if not m.ok else ("éteint (forcé)" if m.forced else "désactivé")
+                      if not m.enabled else "bloqué" if m.name in r["bloques"] else "actif")
+        # RM3145 L1 — ceux qu'on casserait MAINTENANT (actifs), pas seulement ceux qui le déclarent
+        d["breaks"] = pm_modules.dependants_actifs(m.name, mods)
         d["triggers"] = [t for t in triggers if t["module"] == m.name]
         out.append(d)
     inv = pm_modules.inventaire(REPO_ROOT, mods)
     return {"modules": out, "order": r["ordre"], "cycles": r["cycles"],
+            # RM3145 L1 — le forçage est-il PERMIS ici ? Sans ce réglage, le panneau n'offre pas le geste.
+            "allow_force": pm_modules.forcage_autorise(REPO_ROOT),
             "inventory": inv, "core_version": pm_modules.CORE_VERSION,
             "kinds": list(pm_modules.KINDS),
             "root": str(pm_modules.racine(REPO_ROOT)),
             "routes": [rt.as_dict() for rt in pm_modules.routes(REPO_ROOT, mods)],
             "bus": _bus_sante()}
+
+
+def op_modules_state(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/state — allumer ou éteindre un module (RM3145 lot 1).
+
+    {name, enabled: bool, force?: bool, confirm?: str}. Éteindre un module dont d'autres dépendent
+    est REFUSÉ, en disant lesquels (409) ; forcer exige que le forçage soit permis sur l'instance
+    ET que `confirm` recopie le nom du module. La même règle qu'en ligne de commande : deux chemins
+    vers un même geste ne doivent pas avoir deux sévérités.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    nom = str((payload or {}).get("name") or "").strip()
+    if not nom:
+        raise ApiError(400, "name requis")
+    force = bool((payload or {}).get("force"))
+    try:
+        if (payload or {}).get("enabled"):
+            return {"ok": True, **pm_modules.activer(nom, REPO_ROOT)}
+        if force:
+            if not pm_modules.forcage_autorise(REPO_ROOT):
+                raise ApiError(403, "le forçage n'est pas permis sur cette instance "
+                                    "(réglage « autoriser le forçage » des modules)")
+            if str((payload or {}).get("confirm") or "") != nom:
+                raise ApiError(400, f"confirmation forte : recopiez le nom du module « {nom} »")
+        return {"ok": True, **pm_modules.desactiver(nom, force=force, root=REPO_ROOT)}
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+
+
+def op_modules_policy(payload: dict, auth_ctx=None) -> dict:
+    """POST /modules/policy — permettre (ou non) le forçage sur l'instance (RM3145 Q003)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import pm_modules
+    try:
+        pm_modules.autoriser_forcage(bool((payload or {}).get("allow_force")), REPO_ROOT)
+    except pm_modules.ModuleError as e:
+        raise ApiError(409, str(e))
+    return {"ok": True, "allow_force": pm_modules.forcage_autorise(REPO_ROOT)}
 
 
 def _bus_sante() -> dict:
@@ -9042,13 +9024,16 @@ def op_providers(auth_ctx=None) -> dict:
     servers = dict(prov.get("servers") or {}); servers.update(fusion.get("servers") or {})
     defauts = dict(prov.get("defaults") or {}); defauts.update(fusion.get("defaults") or {})
     user = _user_unix(auth_ctx)
-    etats = {}
+    # RM3096 : ne plus AVALER l'échec. Une lecture impossible (privilège refusé, script en erreur)
+    # rendait un état vide, donc « non renseignée » partout — on cherchait une configuration
+    # manquante là où il n'y avait qu'un refus. `etats = None` ⇒ « état inconnu », et on dit pourquoi.
+    etats, etats_err = {}, ""
     try:
-        for ligne in _secret_cmd(["--status"], as_user=user).splitlines():
+        for ligne in _secret_cmd(["--status"], cible=user).splitlines():
             nom, _, etat = ligne.partition("\t")
             etats[nom.strip()] = (etat.strip() == "posée")
-    except ApiError:
-        etats = {}
+    except ApiError as e:
+        etats, etats_err = None, e.msg
     out = []
     for nom, d in sorted(servers.items()):
         if not isinstance(d, dict):
@@ -9057,11 +9042,16 @@ def op_providers(auth_ctx=None) -> dict:
         cles = [{"key": k, "var": f"{PT.prefixe_de(typ)}__{re.sub(r'[^A-Za-z0-9]', '_', nom).upper()}__{k}",
                  "label": lb} for k, lb in PT.type_de(typ).get("secrets", [])]
         for c in cles:
-            c["set"] = bool(etats.get(c["var"]))          # l'ÉTAT, jamais la valeur
+            # None = état inconnu (lecture impossible) ; jamais confondu avec « absente »
+            c["set"] = None if etats is None else bool(etats.get(c["var"]))
         out.append({"name": nom, "axis": d.get("axis") or PT.type_de(typ).get("axis", ""), "type": typ,
                     "local": nom in (fusion.get("servers") or {}),
                     "fields": {k: v for k, v in d.items() if k not in ("axis", "type")}, "secrets": cles})
-    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "defaults": defauts,
+    # RM3070 L2 : `can_global` dit si cette instance PEUT écrire hors du .env personnel. Le front
+    # n'affiche la case « global » que si oui — un bouton qui échoue toujours vaut moins que pas de bouton.
+    return {"user": user, "admin": bool((auth_ctx or {}).get("admin")), "can_global": peut_sudo("root"),
+            "states_unknown": etats is None, "states_error": etats_err,
+            "defaults": defauts,
             "instances": out, "assignments": _provider_assignments()}
 
 
@@ -9134,6 +9124,13 @@ def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
     cible_user = str(payload.get("user") or "").strip() or None
     if (portee == "global" or cible_user) and not admin:
         raise ApiError(403, "réservé aux administrateurs : le .env global et celui d'un autre développeur")
+    # RM3070 L2 : ne pas promettre ce que cette instance ne peut pas tenir. Le .env global appartient
+    # à root ; sans sudo sans mot de passe, l'écriture échouait au clic, avec un message de sudo.
+    if (portee == "global" or cible_user) and not peut_sudo("root"):
+        raise ApiError(409, "cette instance ne peut pas écrire hors de ton .env : sudo demande un "
+                            "mot de passe (barrière voulue). En terminal : "
+                            f"sudo mmi-pm provider-secret --instance {nom} --key {cle} "
+                            f"--scope {portee}" + (f" --user {cible_user}" if cible_user else ""))
     args = ["--instance", nom, "--key", cle, "--type", typ, "--scope", portee]
     if payload.get("unset"):
         args.append("--unset")
@@ -9142,10 +9139,8 @@ def op_provider_secret(payload: dict, auth_ctx=None) -> dict:
         valeur = str(payload.get("value") or "")
         if not valeur.strip():
             raise ApiError(400, "valeur vide (utiliser « effacer »)")
-    comme = cible_user or (_user_unix(auth_ctx) if portee == "user" else "root")
-    if portee == "global":
-        args += []                      # le script vise le .env de l'instance ; sudo -u root ci-dessous
-    _secret_cmd(args, valeur=valeur, as_user=comme)
+    _secret_cmd(args, valeur=valeur, cible=cible_user or (_user_unix(auth_ctx) if portee == "user" else None),
+                globale=(portee == "global"))
     _jlog("auth", "info", f"clé {cle} de {nom} {'effacée' if payload.get('unset') else 'enregistrée'}",
           scope=portee, by=str((auth_ctx or {}).get("user") or ""))     # le fait, jamais la matière
     return {"ok": True, "name": nom, "key": cle, "scope": portee, "set": not payload.get("unset")}
@@ -9190,11 +9185,14 @@ def _engines_mod():
     return R, E
 
 
-def op_engines() -> dict:
+def op_engines(auth_ctx=None) -> dict:
     """Le catalogue et l'état réel : présent, version installée, version disponible, sessions en cours.
-    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas."""
+    Les commandes sont rendues POUR AFFICHAGE — le panneau les montre avant d'agir, il ne les renvoie pas.
+
+    RM3097 : l'état est rendu POUR LE DÉVELOPPEUR CONNECTÉ. « Installé » sans dire pour qui déclarait
+    présent un binaire vivant dans le home d'un autre, que le compte courant ne peut pas exécuter."""
     R, E = _engines_mod()
-    return {"catalogue": R.catalogue(), "etats": E.etats()}
+    return {"catalogue": R.catalogue(), "etats": E.etats(_user_unix(auth_ctx)), "user": _user_unix(auth_ctx)}
 
 
 def op_engine_install(payload: dict, auth_ctx=None) -> dict:
@@ -9214,9 +9212,15 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
     if action in ("install", "update") and portee == "system" and not bool((auth_ctx or {}).get("admin")):
         raise ApiError(403, "installer pour toute la machine touche le système : réservé aux "
                             "administrateurs — l'installation « pour moi » reste ouverte")
+    # RM3070 L2 : même règle que pour les secrets — une recette « système » commence par sudo.
+    if action in ("install", "update") and portee == "system" and R.demande_sudo(nom, action, portee) \
+            and not peut_sudo("root"):
+        raise ApiError(409, "installer pour toute la machine exige sudo, qui demande ici un mot de "
+                            f"passe. En terminal : mmi-pm engine-install --recipe {nom} "
+                            f"--action {action} --scope system")
     try:
         r = E.execute(nom, action, dry=bool(payload.get("dry_run")), force=bool(payload.get("force")),
-                      portee=portee)
+                      portee=portee, cible=_user_unix(auth_ctx))
     except (KeyError, ValueError) as e:
         raise ApiError(400, str(e))
     _jlog("env", "info", f"moteur {nom} : {action} ({portee})"
@@ -9229,7 +9233,7 @@ def op_engine_install(payload: dict, auth_ctx=None) -> dict:
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
 # sous-processus. Les entrées client sont passées en argv (liste, jamais via un
 # shell) → aucune injection possible ; type/priorité validés contre une liste.
-PRIORITIES = ["low", "normal", "high", "urgent"]
+PRIORITIES = _pm_priority.labels()  # RM3275 : source unique (redmine.reference.yml)
 _TASK_TYPES_CACHE = None
 
 
@@ -9988,7 +9992,7 @@ def op_create_ticket(payload: dict) -> dict:
         args += ["--est-difficulty", difficulty]
     try:
         p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
-                           text=True, timeout=90, env=os.environ)
+                           text=True, timeout=90, env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, "pm-task-add : timeout")
     blob = (p.stdout or "") + "\n" + (p.stderr or "")
@@ -10090,12 +10094,19 @@ def _actions_catalog() -> list:
 # Spec d'un arg : {name, label?, type: rm_id|int|enum|text|bool, required?,
 #                  positional?, flag?, choices?, max_len?}
 _PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-                "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+                "etude_chiffrage_a_valider", "etude_chiffrage_a_corriger", "a_faire", "en_cours", "a_tester_dev",
                 "a_tester_demandeur", "a_tester_verifier", "a_mep", "en_mep",
                 "en_pause", "a_corriger", "ferme"]
 _PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
                      "invalide", "doublon"]
 _PM_COMMANDS_DEFAULT = [
+    # RM2940 : la maintenance des providers, exposée au cockpit — en LECTURE SEULE. Ces deux
+    # contrôles n'existaient qu'en CLI : une dérive (id de CF renommé, primaire que l'écriture
+    # ne sert pas) restait invisible tant que personne ne pensait à les lancer.
+    {"name": "providers-check", "label": "Vérifier la config Redmine (ids live vs référence)",
+     "category": "maintenance", "script": "redmine-config-check.py", "args": []},
+    {"name": "pm-doctor", "label": "Vérifier la cohérence PM (projets, providers, liens partenaires)",
+     "category": "maintenance", "script": "pm-doctor.py", "args": []},
     {"name": "task-status", "label": "Changer le statut d'un ticket",
      "category": "ticket", "script": "pm-task-status-update.py",
      "mutate": True, "confirm": True, "args": [
@@ -10377,12 +10388,67 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "redmine_project_id", "label": "Projet Redmine parent (id/slug)", "type": "text",
           "flag": "--redmine-project-id", "max_len": 64},
      ]},
+    # RM3229 : la journée est l'unité de validation du temps humain. Deux gestes, et
+    # deux seulement : AJUSTER (heures réelles, client principal — rien n'est écrit
+    # hors de la surcharge locale) puis VALIDER, qui crée les saisies Redmine de CETTE
+    # journée. Jamais un mois en bloc : c'est la demande, et c'est aussi ce qui rend
+    # l'erreur rattrapable — une journée se relit, un mois posé d'un coup, non.
+    {"name": "timesheet-day-adjust", "label": "Ajuster une journée (heures, client principal)",
+     "category": "facturation", "script": "pm-timesheet.py", "mutate": True, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "start", "label": "Début", "type": "time", "flag": "--start"},
+         {"name": "end", "label": "Fin", "type": "time", "flag": "--end"},
+         {"name": "client", "label": "Client principal", "type": "text", "flag": "--client",
+          "max_len": 48},
+         {"name": "projet", "label": "Projet du client principal", "type": "text",
+          "flag": "--projet", "max_len": 64},
+         {"name": "pause", "label": "Pause (heures)", "type": "text", "flag": "--pause",
+          "max_len": 5},
+         {"name": "lieu", "label": "Lieu de travail", "type": "enum", "flag": "--lieu",
+          "choices": ["presentiel", "distanciel"]},
+         {"name": "exclusif", "label": "Journée quasi exclusive pour ce client",
+          "type": "bool", "flag": "--exclusif"},
+         {"name": "clear_override", "label": "Retirer l'ajustement", "type": "bool",
+          "flag": "--clear-override"},
+         {"name": "validate_empty", "label": "Valider sans rien ajouter", "type": "bool",
+          "flag": "--validate-empty"},
+     ]},
+    # Le seul geste destructif de l'écran, et il est volontairement étroit : une journée,
+    # les seules saisies portant la marque de l'outil, sauvegarde JSONL avant suppression.
+    # Rien ne l'appelle automatiquement — il se demande, après avoir vu une incohérence.
+    {"name": "timesheet-day-revoke",
+     "label": "Reprendre la journée (retire les saisies posées par l'outil)",
+     "category": "facturation", "script": "pm-timesheet.py",
+     "mutate": True, "confirm": True, "timeout": 600, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "revoke", "const": True, "flag": "--revoke"},
+         {"name": "dry_run", "label": "Simulation (ne supprime rien)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    {"name": "timesheet-day-apply", "label": "Valider la journée (crée les saisies Redmine)",
+     "category": "facturation", "script": "pm-timesheet.py",
+     "mutate": True, "confirm": True, "timeout": 600, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "apply", "const": True, "flag": "--apply"},
+         {"name": "dry_run", "label": "Simulation (n'écrit rien)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
 # RM3085 : `answers.jsonl` retiré — écrit depuis RM2302, jamais relu. Ces réponses vont désormais
 # au journal structuré (catégorie `claude`), qui est lu et purgé. Le fichier existant est laissé
 # sur disque : le supprimer effacerait un historique, même inexploité.
+
+
+def _env_test_host(env, test_url):
+    """Hôte à sonder pour un env de session (RM3247) : celui de `test_url` s'il est en `.lxc`,
+    sinon `<dossier>.lxc` (comportement historique). Un `test_url` hors `.lxc` (préprod,
+    recette distante) ne désigne pas le vhost local du worktree : on ne le suit pas."""
+    if not env:
+        return None
+    hote = urlparse(str(test_url or "").strip()).hostname or ""
+    return hote if hote.endswith(".lxc") else f"{env}.lxc"
 
 
 def _probe_env(host: str, env: str) -> tuple:
@@ -10775,7 +10841,7 @@ def _envchk_vault_instances():
         return present
 
     # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
-    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # venir de `<core>/var/users/<user>/.env` (par dev) ou de l'environnement. C'est le cas
     # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
     present = _env_keys()
     env_absent = present is None
@@ -10798,7 +10864,7 @@ def _envchk_vault_instances():
         if env_absent:
             return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
                          "normal dans un worktree : les identifiants viennent alors de "
-                         "~/.config/mmi-pm/.env")]
+                         "var/users/<user>/.env")]
         needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
         missing = [v for v in needed if v not in present]
         if missing:
@@ -10826,7 +10892,7 @@ def _envchk_vault_instances():
         else:
             out.append(_chk(etiquette, "warn",
                             f"type={inst.type} · aucun identifiant trouvé",
-                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
+                            f"renseigner {prefix}… dans var/users/<user>/.env"))
     return out
 
 
@@ -11391,6 +11457,12 @@ def _guard_secret_route(auth_ctx: dict) -> None:
         return
     if not (auth_ctx or {}).get("mode"):
         raise ApiError(401, "authentification requise")
+    # RM3070 L4 (décision D006) : le coffre et l'agent SSH sont PARTAGÉS par le processus — les
+    # déverrouiller, c'est les déverrouiller pour tout le monde. En multi, ce geste appartient à
+    # l'administrateur ; en mono, le seul développeur est administrateur de fait, rien ne change.
+    if _install_state().get("mode") == "multi" and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "coffre et agent SSH sont partagés par l'instance : en mode "
+                            "multi-utilisateur, leur déverrouillage est réservé aux administrateurs")
 
 
 def _secret_field(payload: dict, name: str) -> str:
@@ -11421,7 +11493,7 @@ def op_vault_unlock(payload: dict, auth_ctx: dict) -> dict:
         p = subprocess.run([str(script), "-i", slug, "--stdin"],
                            input=password + "\n", cwd=str(REPO_ROOT),
                            capture_output=True, text=True, timeout=180,
-                           env=os.environ)
+                           env=_env_acteur())   # RM3070 L3 : le coffre trace QUI a déverrouillé
     except subprocess.TimeoutExpired:
         raise ApiError(504, "déverrouillage : délai dépassé")
     finally:
@@ -11572,7 +11644,22 @@ def op_mail_queue(qs: dict) -> dict:
             items.append(item)
     items.sort(key=lambda e: e.get("date") or "", reverse=True)
     pending = sum(1 for e in items if e["state"] in ("à traiter", "proposé"))
-    return {"emails": items, "pending": pending}
+    return {"emails": items, "pending": pending, "bounces": _mail_bounces_open()}
+
+
+def _mail_bounces_open() -> list:
+    """Rejets d'envois de karl encore ouverts (RM3319), lus dans le FIL de notifications — seule
+    source : les marquer « traité » dans le fil suffit à éteindre l'alerte de la boîte aux lettres.
+    Jamais bloquant : un fil illisible rend une liste vide, la file de triage reste servie."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_notify
+        fil = pm_notify.feed(etat="ouvert", origine="mail", limit=50)
+    except Exception:  # noqa: BLE001
+        return []
+    return [{"id": n.get("id"), "msg": n.get("msg"), "level": n.get("level"), "rm": n.get("rm"),
+             "ts": n.get("last") or n.get("ts"), "repeats": n.get("repeats", 1)}
+            for n in fil if n.get("job") == "mail-bounce"]
 
 
 def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
@@ -11589,7 +11676,7 @@ def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
     try:
         p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT),
                            capture_output=True, text=True, timeout=timeout,
-                           env=os.environ)
+                           env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"{script} : timeout ({timeout}s)")
     return {"ok": p.returncode == 0, "rc": p.returncode,
@@ -11644,7 +11731,7 @@ def op_mail_create(payload: dict) -> dict:
     args = ["--create", _mail_key(payload)]
     for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
                                  ("--title", "title", r".{1,120}"),
-                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--priority", "priority", _pm_priority.choices_re()),  # RM3275
                                  ("--note-on", "note_on", r"\d{1,8}")):
         v = str(payload.get(field) or "").strip()
         if v:
@@ -11675,7 +11762,7 @@ def _client_notify(args: list, timeout: int = 180) -> dict:
             raise ApiError(400, "arguments : chaînes attendues")
     try:
         p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
-                           capture_output=True, text=True, timeout=timeout, env=os.environ)
+                           capture_output=True, text=True, timeout=timeout, env=_env_acteur())
     except subprocess.TimeoutExpired:
         raise ApiError(504, f"pm-client-notify : timeout ({timeout}s)")
     out = (p.stdout or "").strip().splitlines()
@@ -11807,7 +11894,10 @@ def op_test_queue(qs: dict) -> list:
             hits = sorted((ws / "envs").glob(f"*-rm{e['rm_id']}")) if (ws / "envs").is_dir() else []
             env = hits[0].name if hits else None
         e["env"] = env
-        e["test_host"] = f"{env}.lxc" if env else None
+        # RM3247 : le vhost peut porter un préfixe distinct du dossier (runtime.vhost_prefix) —
+        # l'hôte servi est celui que pm-env-session a inscrit dans `test_url`. Le déduire du
+        # nom du dossier sonderait un nom qui n'existe pas, et l'env passerait pour mort.
+        e["test_host"] = _env_test_host(env, fm.get("test_url"))
         # RM2356 : ticket cockpit-testable = son worktree embarque karl-agent
         e["cockpit_testable"] = bool(
             ws and env and (ws / "envs" / env / "scripts" / "karl-agent.py").is_file())
@@ -11862,6 +11952,16 @@ def op_test_queue(qs: dict) -> list:
 #: Reste un RÉGLAGE : on peut vouloir autre chose ici — une consigne du jour, une autre procédure.
 PROMPT_RELANCE_DEFAUT = "Fais le cycle de session."
 
+# RM3418 — composition par défaut des barres du cockpit. Ici et pas dans le front :
+# c'est le serveur qui sert la conf d'instance, et le front ne fait que l'appliquer.
+UI_HEADER_LINE_DEFAUT = "yesatt yesall voicebtn feedbtn setbtn helpbtn"
+UI_SESSION_LINE_DEFAUT = "yesbtn micbtn reattach"
+# commit+push : la norme impose déjà commit+push immédiat à chaque étape · git status :
+# le panneau git le montre en lecture directe · session-atester : doublon du « à tester » PM.
+UI_CHIPS_HIDDEN_DEFAUT = "commit gitstatus session-atester"
+UI_CHIPS_LINE_DEFAUT = "atester commenter majdesc point done"
+
+
 _PM_SETTINGS_CONF = [
     {"key": "conf:sessions.relance_prompt", "label": "Prompt du bouton « relancer la session »",
      "group": "Sessions", "type": "text", "maxlen": 4000, "rows": 5,
@@ -11876,6 +11976,58 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM3070 L0 — le mode d'installation. Réglage d'INSTANCE : admin seul. KARL_INSTALL_MODE,
+    # posé par l'unité de service, l'emporte ; /health dit lequel fait foi et ce qu'il contredit.
+    {"key": "conf:install.mode", "label": "Mode d'installation", "group": "Installation",
+     "type": "enum", "options": ["mono", "multi"], "default": "mono", "admin": True,
+     "path": ["install", "mode"],
+     "help": "mono : un développeur, karl tourne sous son compte. multi : une équipe derrière un "
+             "compte de service. Déclaratif — rien n'est encore réservé selon le mode (lots L2-L4)."},
+    # RM3418 — la composition des BARRES du cockpit, et la taille du terminal. Réglages
+    # d'INSTANCE (admin) : l'ordre et la visibilité des boutons étaient codés en dur dans
+    # le front, donc intouchables sans livrer une version. Listes d'identifiants séparés
+    # par des espaces ou des virgules ; un identifiant inconnu est ignoré sans bruit.
+    {"key": "conf:ui.header_line", "label": "Barre du haut — boutons gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_HEADER_LINE_DEFAUT, "path": ["ui", "header_line"],
+     "help": "Dans l'ordre d'affichage. Les autres passent sous « … ». "
+             "Identifiants des boutons de l'en-tête (helpbtn, setbtn, feedbtn, yesatt…)."},
+    {"key": "conf:ui.header_hidden", "label": "Barre du haut — boutons jamais affichés (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": "", "path": ["ui", "header_hidden"],
+     "help": "Masqués même sous « … ». Vide = aucun."},
+    {"key": "conf:ui.session_line", "label": "Barre de session — commandes gardées sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_SESSION_LINE_DEFAUT, "path": ["ui", "session_line"],
+     "help": "Les autres passent sous « … » (auto-oui, disposition des panes, lecture à voix haute…)."},
+    {"key": "conf:ui.chips_hidden", "label": "Chips de session — masqués",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_HIDDEN_DEFAUT, "path": ["ui", "chips_hidden"],
+     "help": "Clés du catalogue d'actions (commit, gitstatus, session-atester…). "
+             "Masqués au bureau comme en mobile : ce qu'une norme impose déjà ou qu'un "
+             "panneau montre mieux n'a pas à occuper la barre."},
+    {"key": "conf:ui.chips_line", "label": "Chips de session — gardés sur la ligne (mobile)",
+     "group": "Cockpit", "type": "text", "maxlen": 500, "admin": True,
+     "default": UI_CHIPS_LINE_DEFAUT, "path": ["ui", "chips_line"],
+     "help": "Les autres passent sous « … », en mobile seulement."},
+    {"key": "conf:ui.term_font_px", "label": "Terminal — taille de la typo (bureau)",
+     "group": "Cockpit", "type": "number", "min": 8, "max": 24, "admin": True,
+     "default": 14, "path": ["ui", "term_font_px"]},
+    {"key": "conf:ui.term_font_px_mobile", "label": "Terminal — taille de la typo (mobile)",
+     "group": "Cockpit", "type": "number", "min": 7, "max": 20, "admin": True,
+     "default": 11, "path": ["ui", "term_font_px_mobile"],
+     "help": "Un écran de téléphone fait 390 px de large : à 14 px, une ligne de 80 colonnes "
+             "ne tient pas. Chaque navigateur peut encore l'ajuster dans ses réglages."},
+    # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE : admin seul.
+    {"key": "conf:git.worktree_source", "label": "Source des worktrees", "group": "Worktrees",
+     "type": "enum", "options": ["central", "per_user"], "default": "central", "admin": True,
+     "path": ["git", "worktree_source"],
+     "help": "central : dépôt partagé <workspace>/repos/<repo>.git. per_user : le dépôt de chaque dev, "
+             "dans son dossier de dépôts (PM_REPOS_DIR de son var/users/<user>/.env, défaut ~/repos)."},
+    {"key": "conf:git.envs_layout", "label": "Emplacement des envs", "group": "Worktrees",
+     "type": "enum", "options": ["project", "user"], "default": "project", "admin": True,
+     "path": ["git", "envs_layout"],
+     "help": "project : <workspace>/envs/<env>. user : <workspace>/envs/<utilisateur>/<env>."},
     # RM2386 — rubrique « Design front » : apparence du cockpit web. Le type
     # `enum` est générique (options[] + défaut), pas ad hoc au thème : les
     # prochains réglages de mise en page s'ajoutent ici sans toucher au rendu.
@@ -11946,9 +12098,138 @@ def _conf_merged() -> dict:
     return out
 
 
+_INSTALL_CACHE: dict = {"at": 0.0, "etat": None}
+_SUDO_CACHE: dict = {"at": 0.0, "liste": None, "definitif": False}
+
+
+def _nopasswd_all(liste_sudo: str, comme: str) -> bool:
+    """RM3341 : la sortie de `sudo -l` accorde-t-elle `NOPASSWD: ALL` en tant que `comme` ?
+
+    Fonction pure (testable sans sudo). Seules les lignes de règles, sous l'en-tête « may run
+    the following commands », comptent — les `Defaults` qui les précèdent ont la même
+    indentation. Une règle restreinte (`/usr/local/sbin/pm-env-helper *`) ne suffit pas : les
+    portées du cockpit lancent des commandes arbitraires. Les étiquettes (`NOPASSWD:`,
+    `PASSWD:`, `SETENV:`…) valent jusqu'à la suivante, comme dans sudoers ; sans étiquette,
+    le mot de passe est exigé."""
+    regles = False
+    for ligne in liste_sudo.splitlines():
+        if "may run the following commands" in ligne:
+            regles = True
+            continue
+        ligne = ligne.strip()
+        if not regles or not ligne.startswith("("):
+            continue
+        runas, _, cmds = ligne[1:].partition(")")
+        users = [u.strip() for u in runas.split(":")[0].split(",") if u.strip()]
+        if "ALL" not in users and comme not in users:
+            continue
+        sans_mdp = False
+        for cmd in cmds.split(","):
+            while True:     # étiquettes en tête : `NOPASSWD: SETENV: ALL`
+                m = re.match(r"\s*([A-Z_]+):\s*", cmd)
+                if not m or m.group(1) == "ALL":
+                    break
+                if m.group(1) in ("NOPASSWD", "PASSWD"):
+                    sans_mdp = m.group(1) == "NOPASSWD"
+                cmd = cmd[m.end():]
+            if sans_mdp and cmd.strip() == "ALL":
+                return True
+    return False
+
+
+def _nopasswd_cmd(liste_sudo: str, comme: str, commande: str) -> bool:
+    """RM2571 : une règle NOPASSWD couvre-t-elle CETTE commande en tant que `comme` ?
+
+    Pendant CIBLÉ de `_nopasswd_all`. Le core update n'a pas besoin de `ALL` — il a besoin d'une
+    seule entrée, `<core>/bin/mmi-pm core update*` (deploy/mmi-pm.sudoers.example, règle 2). Demander
+    `ALL` reviendrait à exiger un sudo général là où la politique en accorde un, étroit et nommé.
+    Fonction pure (testable sans sudo), même lecture de `sudo -l` que sa sœur : seules les lignes de
+    règles comptent, les étiquettes valent jusqu'à la suivante, et sans étiquette le mot de passe est
+    exigé."""
+    for ligne in (liste_sudo or "").splitlines():
+        if "may run the following commands" in ligne:
+            continue
+        ligne = ligne.strip()
+        if not ligne.startswith("("):
+            continue
+        runas, _, cmds = ligne[1:].partition(")")
+        users = [u.strip() for u in runas.split(":")[0].split(",") if u.strip()]
+        if "ALL" not in users and comme not in users:
+            continue
+        sans_mdp = False
+        for cmd in cmds.split(","):
+            while True:
+                m = re.match(r"\s*([A-Z_]+):\s*", cmd)
+                if not m or m.group(1) == "ALL":
+                    break
+                if m.group(1) in ("NOPASSWD", "PASSWD"):
+                    sans_mdp = m.group(1) == "NOPASSWD"
+                cmd = cmd[m.end():]
+            motif = cmd.strip()
+            if not sans_mdp or not motif:
+                continue
+            if motif == "ALL" or motif == commande:
+                return True
+            if motif.endswith("*") and commande.startswith(motif[:-1]):
+                return True
+    return False
+
+
+def peut_sudo(comme: str = "root") -> bool:
+    """RM3070 L2 : le démon peut-il VRAIMENT devenir `comme` sans saisie humaine ?
+
+    Le cockpit proposait des portées (« global », « pour toute la machine ») qui passent par
+    `sudo -n` : sans règle NOPASSWD — et il n'y en a pas, la barrière humaine est voulue (§13a) —
+    elles échouaient au moment du clic, avec un message de sudo. On SONDE donc la capacité et on
+    ne propose que ce qui peut aboutir. Sonder coûte moins qu'un bouton qui ment.
+
+    RM3341 — la sonde ne doit PAS s'authentifier. Elle exécutait `sudo -n -u root true` : chaque
+    refus était journalisé et, `mail_badpass` oblige, MAILÉ à root — un mail toutes les 5 min
+    tant qu'un cockpit était ouvert, des rafales à chaque suite de tests (1 253 en neuf jours).
+    On LIT donc les règles (`sudo -n -l`, silencieux quand il aboutit) au lieu de les essayer.
+    Si la liste elle-même exige un mot de passe (aucune règle NOPASSWD), la réponse est non et
+    elle est DÉFINITIVE jusqu'au redémarrage : redemander referait le bruit à chaque tick."""
+    now = time.time()
+    if not _SUDO_CACHE["definitif"] and now - _SUDO_CACHE["at"] > 300:
+        _SUDO_CACHE["at"] = now
+        try:
+            r = subprocess.run(["sudo", "-n", "-l"], capture_output=True, text=True, timeout=5,
+                               env={**os.environ, "LC_ALL": "C"})
+            _SUDO_CACHE["liste"] = r.stdout if r.returncode == 0 else None
+            _SUDO_CACHE["definitif"] = r.returncode != 0
+        except subprocess.TimeoutExpired:
+            _SUDO_CACHE["liste"] = None                # passager : on retentera dans 5 min
+        except (OSError, subprocess.SubprocessError):
+            _SUDO_CACHE["liste"], _SUDO_CACHE["definitif"] = None, True   # pas de sudo ici
+    return bool(_SUDO_CACHE["liste"]) and _nopasswd_all(_SUDO_CACHE["liste"], comme)
+
+
+def _install_state() -> dict:
+    """RM3070 L0 : le mode d'installation déclaré (mono|multi) et ses écarts constatés.
+    Recalculé au plus toutes les 60 s — /health est appelé à chaque tick du cockpit."""
+    now = time.time()
+    if _INSTALL_CACHE["etat"] is None or now - _INSTALL_CACHE["at"] > 60:
+        import pm_install_mode
+        try:
+            _INSTALL_CACHE["etat"] = pm_install_mode.etat(_conf_merged(), REPO_ROOT, USERS_FILE)
+            # ce que cette instance peut RÉELLEMENT faire — le front n'offre que ça (L2)
+            _INSTALL_CACHE["etat"]["can"] = {"sudo_root": peut_sudo("root")}
+        except Exception as e:   # jamais un /health en panne à cause du contrôle
+            _INSTALL_CACHE["etat"] = {"mode": "mono", "source": "défaut", "signals": {},
+                                      "can": {"sudo_root": False},
+                                      "warnings": [f"contrôle du mode impossible : {e}"]}
+        _INSTALL_CACHE["at"] = now
+    return _INSTALL_CACHE["etat"]
+
+
 def yaml_safe_load(text):
     import yaml
     return yaml.safe_load(text)
+
+
+def setting_requires_admin(key) -> bool:
+    """RM3209 : un réglage marqué `admin` ne se modifie que par un administrateur du cockpit."""
+    return any(e.get("key") == key and e.get("admin") for e in _PM_SETTINGS_CONF)
 
 
 def _pm_settings() -> list:
@@ -12012,6 +12293,35 @@ def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
     return spec["value"] if spec else "auto"
+
+
+def _ui_bars() -> dict:
+    """RM3418 — ce que le front doit savoir des barres : quels boutons sur la ligne,
+    lesquels masqués, et la taille du terminal. Les listes sont normalisées ICI (espaces
+    ou virgules, doublons retirés) pour que le front n'ait rien à interpréter."""
+    def liste(key: str) -> list:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        vals = re.split(r"[\s,]+", str((spec or {}).get("value") or "").strip())
+        out = []
+        for v in vals:
+            if v and v not in out:
+                out.append(v)
+        return out
+
+    def nombre(key: str, dflt: int) -> int:
+        spec = next((e for e in _pm_settings() if e["key"] == key), None)
+        val = (spec or {}).get("value")
+        return int(val) if isinstance(val, (int, float)) and not isinstance(val, bool) else dflt
+
+    return {
+        "header_line": liste("conf:ui.header_line"),
+        "header_hidden": liste("conf:ui.header_hidden"),
+        "session_line": liste("conf:ui.session_line"),
+        "chips_hidden": liste("conf:ui.chips_hidden"),
+        "chips_line": liste("conf:ui.chips_line"),
+        "term_font_px": nombre("conf:ui.term_font_px", 14),
+        "term_font_px_mobile": nombre("conf:ui.term_font_px_mobile", 11),
+    }
 
 
 def _context_thresholds() -> dict:
@@ -12148,6 +12458,14 @@ def _pm_validate_arg(spec: dict, value) -> str:
     elif typ == "enum":
         if s not in (spec.get("choices") or []):
             raise ApiError(400, f"arg {name} : valeur hors choix {spec.get('choices')}")
+    elif typ == "date":      # RM3229 : une journée, AAAA-MM-JJ — et une VRAIE date
+        try:                 # la forme ne suffit pas : « 2026-13-45 » la respecte
+            datetime.date.fromisoformat(s)
+        except ValueError:
+            raise ApiError(400, f"arg {name} : date AAAA-MM-JJ attendue")
+    elif typ == "time":      # RM3229 : une heure de la journée, HH:MM
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", s):
+            raise ApiError(400, f"arg {name} : heure HH:MM attendue")
     elif typ == "path":
         # chemin borné aux workspaces — jamais de chemin arbitraire depuis le web
         if ".." in s or not s.startswith("/zfs/workspaces/"):
@@ -12242,6 +12560,62 @@ def op_pm_run(payload: dict) -> dict:
             pass  # le journal ne doit jamais faire échouer le run
     return {"name": name, "rc": r.returncode, "ok": r.returncode == 0,
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
+# ── RM3229 : le temps humain d'une journée, pour l'écran de validation ─────────
+# La LECTURE passe par ici (GET, sans effet de bord) ; l'ajustement et la
+# validation passent par le catalogue `/pm/run` comme toute commande mutante —
+# une seule vérité, la CLI, et le même journal d'exécution.
+_TS_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TS_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _timesheet(args: list, timeout: int = 300) -> dict:
+    """Lance `pm-timesheet --json` et rend son objet. ApiError si la sortie est illisible."""
+    path = (REPO_ROOT / "scripts" / "pm-timesheet.py").resolve()
+    if not path.is_file():
+        raise ApiError(500, "script introuvable : pm-timesheet.py")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args + ["--json"], cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout, env=_env_acteur())
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"pm-timesheet : timeout ({timeout}s)")
+    if p.returncode != 0:
+        raise ApiError(400, f"pm-timesheet : {(p.stderr or p.stdout or '').strip()[-400:]}")
+    out = (p.stdout or "").strip().splitlines()
+    try:
+        return json.loads(out[-1]) if out else {}
+    except (ValueError, IndexError):
+        raise ApiError(500, f"pm-timesheet : sortie illisible — {(p.stderr or p.stdout or '')[-300:]}")
+
+
+def op_timesheet_day(qs: dict) -> dict:
+    """Une journée : périodes mesurées, temps IA en face, proposition, déjà-saisi, ajustement.
+
+    Première ouverture d'une journée : ~20 s (les traces sont rejouées) ; ensuite le
+    cache par jour la rend immédiate. `refresh=1` force le rejeu.
+    """
+    day = str((qs or {}).get("day") or "").strip()
+    if not _TS_DAY_RE.match(day):
+        raise ApiError(400, "day : AAAA-MM-JJ attendu")
+    try:
+        datetime.date.fromisoformat(day)
+    except ValueError:
+        raise ApiError(400, f"day : {day} n'est pas une date")
+    args = ["--day", day]
+    if str((qs or {}).get("refresh") or "") in ("1", "true"):
+        args.append("--refresh")
+    data = _timesheet(args)
+    jours = data.get("jours") or []
+    return {"day": day, "jour": jours[0] if jours else None}
+
+
+def op_timesheet_month(qs: dict) -> dict:
+    """Le mois entier, une entrée par journée — la matière des vues semaine et mois."""
+    month = str((qs or {}).get("month") or "").strip()
+    if not _TS_MONTH_RE.match(month):
+        raise ApiError(400, "month : AAAA-MM attendu")
+    return _timesheet(["--month", month], timeout=900)
 
 
 def _mr_deliver_context(rm_id: str):
@@ -12648,6 +13022,121 @@ def op_core_update_status(qs: dict | None = None) -> dict:
     return out
 
 
+# ── Déclencher la mise à jour du core depuis le cockpit (RM2571) ─────────────
+#
+# Arbitrage Mathieu du 2026-09-30 : le core update se lance DEPUIS LE COCKPIT, en `sudo` NOPASSWD
+# ciblé, pour un utilisateur `pm` autorisé — toujours en mono-utilisateur, administrateur en
+# multi-utilisateur. La « barrière humaine » du §13a n'est pas supprimée, elle se DÉPLACE : ce n'est
+# plus une saisie de mot de passe dans un terminal, c'est l'authentification du cockpit plus un droit
+# nommé, et la règle sudoers reste étroite (une commande, pas `ALL`).
+#
+# La mise à jour REDÉMARRE le service quand `karl-agent.py` a changé (étape 5 de pm-core-update) : une
+# réponse HTTP synchrone mourrait avec le serveur, et le navigateur verrait une erreur réseau au
+# milieu d'un geste réussi. Le travail est donc DÉTACHÉ (`start_new_session`), sa sortie va dans un
+# journal de `var/`, et le front suit l'avancement par `/core/update-log` — qui survit au
+# redémarrage puisqu'il relit un fichier, pas une mémoire de processus.
+_CORE_UPD_RUN = STATE_DIR / "core-update.json"
+_CORE_UPD_LOG_LINES = 400
+
+
+def core_update_cmd(core=None) -> list:
+    """La commande privilégiée — EXACTEMENT le chemin que la règle sudoers autorise (jamais `python3 …`)."""
+    return ["sudo", "-n", str(Path(core or REPO_ROOT) / "bin" / "mmi-pm"), "core", "update"]
+
+
+def core_update_sans_mdp() -> bool:
+    """La règle NOPASSWD du core update est-elle posée ? (sonde lue, jamais essayée — RM3341)"""
+    peut_sudo("root")                      # amorce / rafraîchit le cache de `sudo -n -l`
+    liste = _SUDO_CACHE.get("liste")
+    cmd = core_update_cmd()
+    return bool(liste) and _nopasswd_cmd(liste, "root", " ".join(cmd[2:]))
+
+
+def _core_update_gate(auth_ctx):
+    """Qui a le droit de mettre à jour le code de l'instance."""
+    mode = (auth_ctx or {}).get("mode")
+    if mode == "open":
+        if HOST not in ("127.0.0.1", "::1", "localhost"):
+            raise ApiError(403, "mise à jour du code : écoute non locale sans authentification")
+        return
+    if not mode:
+        raise ApiError(401, "authentification requise")
+    if _install_state().get("mode") == "multi" and not (auth_ctx or {}).get("admin"):
+        raise ApiError(403, "en mode multi-utilisateur, la mise à jour du code de l'instance est "
+                            "réservée aux administrateurs")
+
+
+def _pid_vivant(pid) -> bool:
+    """Le processus existe-t-il encore ? `EPERM` = il existe mais appartient à quelqu'un d'autre —
+    c'est le cas NOMINAL ici : la mise à jour tourne en root, le démon non (test RM2571)."""
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _core_update_etat() -> dict:
+    try:
+        return json.loads(_CORE_UPD_RUN.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def op_core_update(auth_ctx=None) -> dict:
+    """Lance la mise à jour, détachée. Idempotent : un run déjà en cours est rendu tel quel."""
+    _core_update_gate(auth_ctx)
+    etat = _core_update_etat()
+    if etat and _pid_vivant(etat.get("pid")):
+        return {"ok": True, "running": True, "already": True, **etat}
+    if not core_update_sans_mdp():
+        raise ApiError(503, "règle sudoers NOPASSWD absente pour « bin/mmi-pm core update » : le "
+                            "cockpit ne peut pas mettre à jour le code. Installer la règle 2 de "
+                            "deploy/mmi-pm.sudoers.example (install-mmi-pm --print-sudoers).")
+    log = STATE_DIR / f"core-update-{time.strftime('%Y%m%d-%H%M%S')}.log"
+    try:
+        fh = open(log, "ab", buffering=0)
+    except OSError as e:
+        raise ApiError(500, f"journal de mise à jour illisible : {e}")
+    try:
+        proc = subprocess.Popen(core_update_cmd(), stdout=fh, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True,
+                                cwd=str(REPO_ROOT))
+    except OSError as e:
+        fh.close()
+        raise ApiError(500, f"lancement impossible : {e}")
+    finally:
+        fh.close()                         # le fils garde son propre descripteur
+    etat = {"pid": proc.pid, "log": str(log), "by": (auth_ctx or {}).get("user") or "—",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    try:
+        _CORE_UPD_RUN.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass                               # le suivi se dégrade, la mise à jour continue
+    if journal:
+        journal.info("core update déclenché depuis le cockpit", pid=proc.pid, par=etat["by"])
+    return {"ok": True, "running": True, "already": False, **etat}
+
+
+def op_core_update_log(qs: dict | None = None) -> dict:
+    """Avancement du dernier run : lignes du journal + s'il tourne encore.
+
+    Relit un FICHIER : le suivi traverse le redémarrage de karl-agent provoqué par la mise à jour."""
+    etat = _core_update_etat()
+    if not etat:
+        return {"running": False, "started_at": None, "by": None, "lines": [], "log": None}
+    lignes = []
+    try:
+        lignes = Path(etat["log"]).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        pass
+    return {"running": _pid_vivant(etat.get("pid")), "started_at": etat.get("started_at"),
+            "by": etat.get("by"), "log": etat.get("log"),
+            "lines": lignes[-_CORE_UPD_LOG_LINES:]}
+
+
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
 # ── Assets statiques du cockpit (RM2522) ────────────────────────────────────
 # Jusqu'ici le serveur ne servait QUE index.html ; le client terminal maison
@@ -12674,6 +13163,17 @@ def _resolve_asset(rel: str):
     except (ValueError, OSError):
         return None
     return target
+
+
+# ── APK de l'app Android (RM2331) ───────────────────────────────────────────
+# Publiée par deploy/karl-agent/android/build-apk.sh dans l'état de l'agent (hors
+# git). Route PUBLIQUE : on l'installe depuis le navigateur du téléphone, avant
+# d'avoir le moindre jeton ; l'APK ne contient aucun secret (code public).
+APK_NAME = "karl-cockpit.apk"
+
+
+def _apk_file():
+    return STATE_DIR / "app" / APK_NAME
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -12769,6 +13269,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_apk(self):
+        try:
+            body = _apk_file().read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": "APK non publiée (deploy/karl-agent/android/build-apk.sh)"})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{APK_NAME}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_asset(self, rel: str):
         target = _resolve_asset(rel)
         if target is None:
@@ -12822,25 +13335,32 @@ class Handler(BaseHTTPRequestHandler):
         return (f"{SESSION_COOKIE}=; Max-Age=0; "
                 "Path=/; HttpOnly; Secure; SameSite=Strict")
 
+    def _pose_auth(self, ctx: dict) -> dict:
+        """Pose le contexte d'auth ET l'acteur de la requête (RM3070 L3) — d'un seul geste : deux
+        affectations séparées finissent toujours par diverger sur un des chemins."""
+        self.auth_ctx = ctx
+        _REQ.auth_ctx = ctx
+        return ctx
+
     def _check_auth(self) -> bool:
         """Vraie si le client présente le token partagé, un TOKEN D'APPAREIL
         (RM2334) ou des credentials Basic valides (RM2139). Sans aucune auth
         configurée → ouvert (usage local). Pose self.auth_ctx {mode, user,
         admin, device_id} pour les routes qui distinguent les rôles."""
-        self.auth_ctx = {"mode": "open", "user": None, "admin": True, "device_id": None}
+        self._pose_auth({"mode": "open", "user": None, "admin": True, "device_id": None})
         presented = self.headers.get("X-Karl-Token") or ""
         if AUTH_TOKEN is not None and presented:
             if hmac.compare_digest(presented, AUTH_TOKEN):
                 # secret partagé historique = accès complet (rétrocompat)
-                self.auth_ctx = {"mode": "shared-token", "user": None,
-                                 "admin": True, "device_id": None}
+                self._pose_auth({"mode": "shared-token", "user": None,
+                                 "admin": True, "device_id": None})
                 return True
         if presented:
             hit = _device_auth(presented)
             if hit:
                 did, rec = hit
-                self.auth_ctx = {"mode": "device", "user": rec.get("user"),
-                                 "admin": bool(rec.get("admin")), "device_id": did}
+                self._pose_auth({"mode": "device", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did})
                 return True
         # RM2700 : cookie de session même-origine = token d'appareil transmis par
         # cookie. Seul credential visible à l'upgrade WS de `/ttyd` (le handshake
@@ -12851,8 +13371,8 @@ class Handler(BaseHTTPRequestHandler):
             hit = _device_auth(cookie_tok)
             if hit:
                 did, rec = hit
-                self.auth_ctx = {"mode": "cookie", "user": rec.get("user"),
-                                 "admin": bool(rec.get("admin")), "device_id": did}
+                self._pose_auth({"mode": "cookie", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did})
                 return True
         if BASIC_USER is not None and BASIC_PASS is not None:
             auth = self.headers.get("Authorization") or ""
@@ -12864,8 +13384,8 @@ class Handler(BaseHTTPRequestHandler):
                     return False
                 if (hmac.compare_digest(user, BASIC_USER)
                         and hmac.compare_digest(pwd, BASIC_PASS)):
-                    self.auth_ctx = {"mode": "basic", "user": user,
-                                     "admin": True, "device_id": None}
+                    self._pose_auth({"mode": "basic", "user": user,
+                                     "admin": True, "device_id": None})
                     return True
             return False
         return AUTH_TOKEN is None
@@ -12932,6 +13452,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
         if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
             return self._send_asset(path[len("/static/"):])
+        if path == "/app/" + APK_NAME:      # RM2331 : installation de l'app Android
+            return self._send_apk()
         if path == "/help":                  # RM2593 : sommaire de l'aide intégrée
             return self._send_json(200, op_help_list())
         if path.startswith("/help/"):        # RM2593 : contenu markdown d'un topic
@@ -12939,7 +13461,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200 if data else 404,
                                    data or {"error": "topic d'aide inconnu"})
         if path == "/pm/engines":            # RM3069 : catalogue + état des moteurs et serveurs
-            return self._send_json(200, op_engines())
+            return self._send_json(200, op_engines(self.auth_ctx))
         if path == "/modules":               # RM3145 : les modules de l'instance, et l'écart
             return self._send_json(200, op_modules())
         if path.startswith("/api/modules/"):  # RM3145 (lot 4) : une route servie par un MODULE
@@ -13003,6 +13525,9 @@ class Handler(BaseHTTPRequestHandler):
                 # seuil d'affichage n'est pas une donnée sensible, et le front en
                 # a besoin au premier rendu de la liste des sessions).
                 "context_thresholds": _context_thresholds(),
+                # RM3418 : composition des barres et taille du terminal. Le front n'a
+                # plus de liste en dur ; une conf d'instance la remplace sans livraison.
+                "ui": _ui_bars(),
             })
         if not authed:
             return self._send_auth_required()
@@ -13038,6 +13563,7 @@ class Handler(BaseHTTPRequestHandler):
                     "tmux": _tmux("-V")[0] == 0,
                     "version": _cockpit_version(),   # RM3000
                     "journal": jsante,
+                    "install": _install_state(),     # RM3070 L0
                 })
             if path == "/monitor/alerts":    # RM3112 : les alertes de l'observateur, situées
                 return self._send_json(200, op_monitor_alerts({k: v[0] for k, v in parse_qs(parsed.query).items()}))
@@ -13083,7 +13609,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_get(qs, self.auth_ctx))
             if path == "/core/update-status":   # RM2571 — non privilégié (ls-remote)
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, op_core_update_status(qs))
+                return self._send_json(200, {**op_core_update_status(qs),
+                                             "can_update": core_update_sans_mdp()})
+            if path == "/core/update-log":      # RM2571 — avancement du run détaché
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_core_update_log(qs))
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
@@ -13117,6 +13647,12 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))
+            if path == "/timesheet/day":       # RM3229 : la journée à valider
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_timesheet_day(qs))
+            if path == "/timesheet/month":     # RM3229 : les vues semaine et mois
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_timesheet_month(qs))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)
@@ -13178,6 +13714,9 @@ class Handler(BaseHTTPRequestHandler):
                 g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_conf(g.get("scope", ""), g.get("client", ""),
                                                     g.get("project")))
+            if path.startswith("/ticket-impact/"):   # RM3164 : fichiers touchés par le ticket
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_ticket_impact(path[len("/ticket-impact/"):], qs))
             if path.startswith("/git/log/"):        # RM2602 : lecture seule
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))
@@ -13279,6 +13818,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_events_publish(payload, self.auth_ctx))
             if path == "/engines/options":  # RM3139 : cocher/décocher depuis le cockpit, plutôt qu'éditer le YAML
                 return self._send_json(200, op_engine_options_set(payload, self.auth_ctx))
+            if path == "/modules/state":    # RM3145 L1 : allumer / éteindre un module — geste d'administration
+                self._require_admin()
+                return self._send_json(200, op_modules_state(payload, self.auth_ctx))
+            if path == "/modules/policy":   # RM3145 Q003 : permettre le forçage sur l'instance
+                self._require_admin()
+                return self._send_json(200, op_modules_policy(payload, self.auth_ctx))
             if path == "/memdebug":
                 # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
                 # échantillons JSONL à lire à froid pendant l'enquête OOM.
@@ -13333,6 +13878,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_scroll(payload))
             if path == "/approve-all":
                 return self._send_json(200, op_approve_all(payload))
+            if path == "/compact":         # RM3249 : compacter la conversation d'une session
+                return self._send_json(200, op_compact(payload))
             if path == "/auto-yes":
                 return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
@@ -13364,6 +13911,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
+                if setting_requires_admin(payload.get("key")):   # RM3209 : réglages d'instance
+                    self._require_admin()
                 return self._send_json(200, op_pm_settings_set(payload))
             # RM2748 — déverrouillage depuis le cockpit. Le corps porte un
             # secret saisi par un humain : routes authentifiées, rien mémorisé.
@@ -13404,12 +13953,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_llm_models(payload))
             if path == "/pm/provider-assign":   # RM3068 : affecter une instance à un projet, avec son rôle
                 return self._send_json(200, op_provider_assign(payload, self.auth_ctx))
+            if path == "/core/update":          # RM2571 : met à jour le code de l'instance
+                return self._send_json(202, op_core_update(self.auth_ctx))
             if path == "/cdc/think":            # RM3064 : état / suppression d'une entrée de think
-                return self._send_json(200, op_cdc_think(payload))
+                return self._send_json(200, op_cdc_think(payload, self.auth_ctx))
             if path == "/cdc/feature":          # RM3064 : état d'une fonctionnalité du registre
-                return self._send_json(200, op_cdc_feature(payload))
+                return self._send_json(200, op_cdc_feature(payload, self.auth_ctx))
             if path == "/cdc/version":          # RM3060 : versions de la feuille de route, et rattachement
-                return self._send_json(200, op_cdc_version(payload))
+                return self._send_json(200, op_cdc_version(payload, self.auth_ctx))
             if path == "/monitor/assign":       # RM3112 : confirmer l'association d'un hôte
                 return self._send_json(200, op_monitor_assign(payload, self.auth_ctx))
             if path == "/monitor/ticket":       # RM3112 : ouvrir un ticket depuis une alerte
@@ -13594,6 +14145,13 @@ def main():
     purged = purge_tmux_logs()
     if purged:
         _jlog("tmux", "info", f"{purged} log(s) pipe-pane purgé(s)", keep_days=TMUX_LOG_KEEP_DAYS)
+    # RM3070 L0 : le mode déclaré, et ce que l'installation réelle en contredit — dit
+    # une fois au démarrage, sans jamais refuser de démarrer.
+    _ist = _install_state()
+    _jlog("system", "warn" if _ist["warnings"] else "info",
+          f"mode {_ist['mode']} ({_ist['source']})"
+          + (f" — {len(_ist['warnings'])} écart(s) : " + " ; ".join(_ist["warnings"])
+             if _ist["warnings"] else ""))
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
 

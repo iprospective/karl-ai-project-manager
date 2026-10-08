@@ -28,7 +28,8 @@ Valide les tâches soumises en `a_tester_verifier`. Vérifie la conformité aux 
 
 ### 2. Vérification des critères d'acceptation
 ```
-POUR CHAQUE critère dans "## Critères d'acceptation" :
+POUR CHAQUE critère du ticket (`pm-task-acceptance <id>` — le champ dédié CF 33,
+à défaut la section « Critères d'acceptation » de la description) :
   - Vérifier qu'il est coché (- [x])
   - Vérifier la preuve dans le journal ou les outputs
   - Si non coché ou non prouvé → noter le critère manquant

@@ -14,7 +14,7 @@ Conditionnels : `bug.*` si `type: bugfix` · `git.*` si dev · `test_url` si env
 
 ## Énumérations
 - type : `audit` `feature` `bugfix` `refactoring` `documentation` `security` `performance` `infrastructure` `configuration` `database` `design` `research` `maintenance` `assistance`
-- status : `a_etudier_chiffrer` `etude_chiffrage_en_cours` `etude_chiffrage_a_valider` `a_faire` `en_cours` `a_tester_dev` `a_tester_demandeur` `a_mep` `en_mep` `en_pause` `a_corriger` `ferme` ; `a_tester_verifier` déprécié = alias lecture de `a_tester_demandeur`
+- status : `a_etudier_chiffrer` `etude_chiffrage_en_cours` `etude_chiffrage_a_valider` `etude_chiffrage_a_corriger` `a_faire` `en_cours` `a_tester_dev` `a_tester_demandeur` `a_mep` `en_mep` `en_pause` `a_corriger` `ferme` ; `a_tester_verifier` déprécié = alias lecture de `a_tester_demandeur`
 - priority : `low` `normal` `high` `urgent`
 - close_reason : `resolu` `abandonne` `doublon` `wont_fix` `invalide` `hors_perimetre`
 - bug.reproducibility : `always` `often` `sometimes` `rarely` `never`

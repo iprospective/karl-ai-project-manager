@@ -30,6 +30,7 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
         pool: matnat-84   # pool FPM partagé du workspace (RM2081)
         docroot: public   # sous-dossier servi dans l'env
         db: matnat        # BDD dev partagée (source des clones à la demande)
+        vhost_prefix: client-a   # RM3247 — nom servi `<préfixe>-rm<id>.lxc` (défaut : nom du repo)
         db_clone_default: false   # défaut PROJET : cloner la BDD par ticket ?
         db_clone:                 # paramètres du clone (optionnels)
           exclude_tables: [log_%, cache%]   # motifs LIKE — données exclues,
@@ -77,6 +78,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_think import is_task_sheet  # RM3053 : la fiche, jamais un frère (.log.md, .think.md)
 import pm_session
 import pm_git
+import pm_worktrees   # RM3209 : source des worktrees et emplacement des envs
 import redmine_utils
 
 CORE = Path(__file__).resolve().parent.parent
@@ -108,6 +110,25 @@ def git(args, cwd=None, check=True):
 
 
 # ------------------------------------------------------------- config/manifeste
+
+#: RM3209 — dossier de conf lu pour les réglages d'instance (remplaçable par les tests).
+LAYOUT_CORE = None
+
+
+def source_and_envs(ws: Path, name: str):
+    """(disposition, dépôt source, racine des envs) selon `git.worktree_source` / `git.envs_layout`."""
+    layout = pm_worktrees.read_layout(LAYOUT_CORE or CORE)
+    repos_dir = pm_worktrees.user_repos_dir() if layout.source == "per_user" else None
+    return (layout, pm_worktrees.source_repo(ws, name, layout, repos_dir=repos_dir),
+            pm_worktrees.envs_root(ws, layout, pm_worktrees.current_user()))
+
+
+def missing_source_message(layout, src: Path) -> str:
+    if layout.source == "per_user":
+        return (f"dépôt personnel absent : {src} — clone-le (git.worktree_source=per_user ; "
+                f"dossier réglable par PM_REPOS_DIR dans var/users/<user>/.env)")
+    return f"bare absent : {src} (lancer pm-env-init d'abord)"
+
 
 def load_env_runtime_cfg() -> dict:
     """`pm.config.yml :: env_runtime` (+ override pm.config.local.yml)."""
@@ -321,6 +342,32 @@ def worktree_for_branch(bare: Path, name: str, rmid: int) -> tuple[Path, str] | 
     return hits[0]
 
 
+#: RM3247 — un préfixe de vhost est un label DNS : minuscules, chiffres, tirets internes.
+_VHOST_PREFIX_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$")
+
+
+def vhost_name(repo: dict, rmid) -> str:
+    """Nom du vhost d'un env de ticket : `<préfixe>-rm<id>` (servi en `<nom>.lxc`). RM3247.
+
+    Le préfixe vient de `runtime.vhost_prefix` au manifeste, et à défaut du nom du repo — qui
+    était le seul choix jusqu'ici. Un repo au nom générique (`dolibarr`, partagé par tous les
+    clients qui en ont un) donnait une URL qui ne dit pas de quel client il s'agit.
+
+    Seul ce qui se VOIT en dépend (vhost, URL, test_url). Le dossier `envs/<repo>-rm<id>`, lui,
+    ne change pas : les envs existants et tout ce qui les retrouve par leur chemin continuent
+    de marcher. Le préfixe explicite est validé ; le nom de repo par défaut ne l'est pas, pour
+    ne rien casser de ce qui marchait déjà.
+    """
+    prefix = (repo.get("runtime") or {}).get("vhost_prefix")
+    if prefix is None or str(prefix).strip() == "":
+        return f"{repo['name']}-rm{rmid}"
+    prefix = str(prefix).strip()
+    if not _VHOST_PREFIX_RE.match(prefix):
+        die(f"runtime.vhost_prefix invalide : {prefix!r} — un label DNS est attendu "
+            f"(minuscules, chiffres, tirets internes, 48 caractères au plus)")
+    return f"{prefix}-rm{rmid}"
+
+
 def resolve_base(bare: Path, integration_branch: str | None) -> str:
     """Point de départ de la branche ticket, résolu sur le REMOTE (RM2646).
 
@@ -348,8 +395,8 @@ def cmd_create(args):
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     repo = pick_repo(load_repos(ws), args.repo)
     name, rmid = repo["name"], args.rmid
-    bare = ws / "repos" / f"{name}.git"
-    bare.is_dir() or die(f"bare absent : {bare} (lancer pm-env-init d'abord)")
+    layout, bare, envs = source_and_envs(ws, name)   # RM3209 : dépôt central ou du dev
+    bare.is_dir() or die(missing_source_message(layout, bare))
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
 
@@ -357,7 +404,11 @@ def cmd_create(args):
     # nom des logs). Le worktree, lui, est résolu PAR BRANCHE (RM2394) : il peut
     # déjà être monté sous un nom discriminé par session (RM2034) ou canonique.
     env_name = f"{name}-rm{rmid}"
-    canonical = ws / "envs" / env_name
+    # RM3247 — le vhost peut porter un autre nom que le dossier (runtime.vhost_prefix).
+    # Le canari garde le nom du DOSSIER : il prouve « ce vhost sert CE worktree ».
+    vhost = vhost_name(repo, rmid)
+    host = f"{vhost}.lxc"
+    canonical = envs / env_name
     slug = args.slug or task_slug(ws, rmid) or "session"
     branch = f"{rmid}-{slug}"
 
@@ -446,7 +497,7 @@ def cmd_create(args):
         print("  · vhost sauté (--no-vhost)")
     else:
         docroot_c = map_container_path(cfg, wt / docroot)
-        cmd = ["vhost-add", env_name, docroot_c, f"/run/php/{pool}.sock"]
+        cmd = ["vhost-add", vhost, docroot_c, f"/run/php/{pool}.sock"]
         # RM2813 : servi sur un domaine alternatif tout en partageant la base d'un
         # autre env, l'appli renvoie vers le domaine inscrit dans CETTE base. Le
         # vhost pose la réécriture qui l'en empêche — en front comme en back-office.
@@ -485,7 +536,7 @@ def cmd_create(args):
             helper(cfg, ["db-clone", db, clone, *excludes], dry)
             # Neutralisation cloud AVANT le post-SQL du manifeste : celui-ci peut
             # vouloir reposer une valeur (domaine…) qui doit avoir le dernier mot.
-            nonprod = presta_nonprod_sql(wt, spec, f"{env_name}.lxc")
+            nonprod = presta_nonprod_sql(wt, spec, host)
             if nonprod:
                 helper(cfg, ["db-post-sql", clone], dry, stdin=nonprod)
                 print("  · services cloud PrestaShop neutralisés sur le clone "
@@ -495,7 +546,7 @@ def cmd_create(args):
             post = spec.get("post_sql") or []
             if post:
                 subst = {"db": db, "clone": clone, "rmid": str(rmid),
-                         "host": f"{env_name}.lxc"}
+                         "host": host}
                 # substitution ciblée (pas str.format : le SQL peut contenir
                 # des accolades littérales — JSON…) ; placeholders inconnus laissés tels quels
                 rx = re.compile(r"\{(" + "|".join(subst) + r")\}")
@@ -514,7 +565,9 @@ def cmd_create(args):
     # sinon l'opcache/realpath du pool FPM partagé fige la résolution fautive.
     # Confiance : meta.yml est versionné et possédé par le workspace — même
     # niveau de confiance que le code du repo (jamais d'entrée client ici).
-    subst = {"rmid": str(rmid), "env": env_name}
+    # {env} = nom du DOSSIER ; {host} = nom servi (`<vhost>.lxc`, RM3247) — une conf
+    # applicative qui fabrique ses URL doit suivre {host}, pas {env}.
+    subst = {"rmid": str(rmid), "env": env_name, "host": host}
     rx = re.compile(r"\{(" + "|".join(subst) + r")\}")
     expand = lambda s: rx.sub(lambda m: subst[m.group(1)], s)  # noqa: E731
     for step in (runtime.get("post_create") or []):
@@ -545,10 +598,10 @@ def cmd_create(args):
 
     # 6. test_url du ticket (RM2229) : frontmatter + CF « Environnement de
     # test » — la file de recette (Redmine + cockpit) pointe l'env vivant.
-    set_test_url(ws, rmid, f"http://{env_name}.lxc/", dry)
+    set_test_url(ws, rmid, f"http://{host}/", dry)
 
     print(f"\n{'[dry-run] ' if dry else ''}✓ env de session prêt : "
-          f"http://{env_name}.lxc/  (Host: {env_name}.lxc)")
+          f"http://{host}/  (Host: {host})")
 
 
 # -------------------------------------------------------------------- teardown
@@ -604,7 +657,7 @@ def cmd_teardown(args):
     # `env_name` = identité STABLE du ticket (vhost, logs, clone BDD) — elle ne
     # dépend PAS du nom du worktree et reste canonique.
     env_name = f"{name}-rm{rmid}"
-    bare = ws / "repos" / f"{name}.git"
+    layout, bare, envs = source_and_envs(ws, name)   # RM3209
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
 
@@ -615,7 +668,7 @@ def cmd_teardown(args):
     # worktree était bien monté. Repli sur le chemin canonique quand le ticket
     # n'a aucune branche checkoutée (worktree déjà démonté, ou jamais créé).
     found = worktree_for_branch(bare, name, rmid)
-    wt = found[0] if found else ws / "envs" / env_name
+    wt = found[0] if found else envs / env_name
     try:
         shown = wt.relative_to(ws)
     except ValueError:
@@ -659,7 +712,8 @@ def cmd_teardown(args):
     # 2. runtime (privilégié) : vhost + logs php + clone BDD
     if runtime:
         pool = runtime.get("pool", "")
-        helper(cfg, ["vhost-remove", env_name], dry)
+        # RM3247 : le nom que `create` a donné au vhost, sinon il resterait orphelin
+        helper(cfg, ["vhost-remove", vhost_name(repo, rmid)], dry)
         pool and helper(cfg, ["phplog-purge", f"{pool}-rm{rmid}"], dry)
         db = runtime.get("db")
         if db and not args.keep_db:
@@ -732,7 +786,8 @@ def cmd_list(args):
     rows: dict[str, tuple[str, str]] = {}   # chemin → (rm, branche)
 
     for repo in load_repos(ws):
-        bare = ws / "repos" / f"{repo['name']}.git"
+        # RM3209 : en per_user, seuls les worktrees du dépôt de l'utilisateur courant sont visibles.
+        _layout, bare, envs = source_and_envs(ws, repo["name"])
         for p, br in list_worktrees(bare):
             if not Path(p).is_dir() or Path(p).resolve() == bare.resolve():
                 continue

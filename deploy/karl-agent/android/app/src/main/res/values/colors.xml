@@ -1,0 +1,6 @@
+<resources>
+    <!-- palette du cockpit (karl-icon.svg) -->
+    <color name="karl_bg">#0B0E14</color>
+    <color name="karl_accent">#4EA1FF</color>
+    <color name="karl_error">#FF6B6B</color>
+</resources>

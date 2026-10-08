@@ -1,5 +1,6 @@
 # runtime·git-mep — branches, commit/push, MR, cycle dev→test→MEP
 Ouvrir quand : je code un ticket (branche) · push / MR · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket · plusieurs tickets dans une session. Outils `pm-branch-start`, `glab`, `pm-task-deploy`, `pm-mr`, `pm-worktree`. Source : `norms/src/modules/git-mep.md`. Référence canonique du workflow de release ; nommage des branches et cycle de vie définis ici seulement.
+Exception tracée (RM3209, 2026-09-17) : § « Source des worktrees » ajouté À LA MAIN, le générateur `pm-norms-runtime --build` exigeant un fournisseur LLM qu'aucune instance ne sert (RM3135).
 
 ## Branches de référence (par projet, `project/overview.md` bloc `git:`)
 `repo` (url/alias, ex. `git:sfy/pisceen-dercya/pisceen-prestashop.git`) · `remote: origin` · `prod_branch: main` (défaut ; `master` legacy, migration au fil de l'eau) · `integration_branch: dev` (agrège les devs testés avant MEP) · `preprod_branch: preprod` OPTIONNEL : sa PRÉSENCE active le flux 3 branches longues protégées `dev → preprod → prod_branch` ; absent ⇒ modèle 2 branches `dev → prod_branch`. Seul levier (pas de flag, pas de bypass).
@@ -9,7 +10,7 @@ Cohérence : `environments[].branch` — `prod.branch == prod_branch` ; `staging
 1 `prod` (depuis `prod_branch`) · 1 `staging` (alias `preprod` ; depuis `preprod_branch` en flux 3 branches, sinon `integration_branch` ; non-régression avant prod) · N `test`/`test-<but>` (tester en parallèle des branches de ticket, par quelqu'un ≠ le dev) · N `dev`/`dev-<dev>`. Noms custom admis par l'enum `target_env` ; chaque env décrit dans `environments.md`.
 
 ## Identités & transport forge (multi-utilisateur)
-- Jeton forge par dev, karl en repli : cascade des secrets (collaboration § Multi-utilisateur) — token perso `~/.config/mmi-pm/.env` (`<FORGE>_<ROLE>_TOKEN`) d'abord, karl ensuite. L'API forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche = le dev.
+- Jeton forge par dev, karl en repli : cascade des secrets (collaboration § Multi-utilisateur) — token perso `<core>/var/users/<user>/.env` (`<FORGE>_<ROLE>_TOKEN`) d'abord, karl ensuite. L'API forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche = le dev.
 - Transport SSH-first, token en repli : remotes en alias SSH canonique (`gitlab:…`, `.gitmodules` inclus) ; push/fetch par la clé forge du dev ; repli HTTPS+token (`url.…insteadOf` global + credential helpers) si pas de clé ou submodules sans clé. NE PAS convertir les remotes par dépôt en HTTPS (casse les submodules).
 - Abstraction `pm_forge` : GitLab, Gogs (sans API PR → flux lien-compare, push HTTPS+token, SSH port 28022), GitHub ; backend par projet `git config pm.forge`. Voir `pm-mr` / `pm-promote` / `pm-protect`.
 
@@ -36,8 +37,13 @@ Sync : PM → Redmine à chaque écriture ; Redmine → PM à chaque `pm-task-sy
 ## Branche de travail par ticket
 `<RM-id>-<slug-court>` (id sans préfixe, 2–4 mots kebab, pas le titre complet ; ex. `1762-etransactions-historique`), créée depuis la branche d'intégration. Frontmatter `git.branch` → la branche, `git.mr_url` → la MR. CF `GIT Branche` (id 3, string) = nom de branche dès la création ; CF `GIT PR` (id 4) = URL de la MR — CF dédiés, pas une note. Livraison par MR, branche distante conservée (jamais supprimée sans accord explicite) ; ménage local seul (`git branch -d`). Schéma `agent/{server}/RM{id}-titre` réservé à l'orchestration distribuée.
 
+## Source des worktrees, emplacement des envs (RM3209)
+Réglages d'INSTANCE, admin seul (`pm.config.local.yml`, jamais l'environnement). `git.worktree_source` : `central` (défaut) = `<ws>/repos/<repo>.git` ; `per_user` = `<dossier des dépôts>/<repo>` du dev (`PM_REPOS_DIR` de son `<core>/var/users/<user>/.env`, défaut `~/repos`). `git.envs_layout` : `project` (défaut) = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<utilisateur>/<env>`. En `per_user` : `pm-branch-start --worktree` depuis SON dépôt (refus sinon) ; `pm-env-init` ne crée pas de dépôt partagé ; envs existants déplacés par `pm-env-relocate --plan`, jamais à la main. Seul résolveur : `pm_worktrees`.
+
 ## Plusieurs tickets dans une session
 Risque vécu : commit d'un ticket sur la branche d'un autre. Avant chaque commit : `git branch --show-current` = ticket commité. Un worktree par ticket plutôt que des checkout successifs : `pm-branch-start <RMid> --worktree` crée `<repo>-<RMid>-s<seq>` et une branche discriminée par session `<RMid>-<slug>-m<PMid>-s<seq>` (`m<PMid>` = `PM_MACHINE_ID` du `.env`, `s<seq>` alloué une fois sous flock), enregistrés dans le registre de session `var/sessions/` (`pm-session-status show` les liste) ; deux sessions sur le même ticket ne se marchent pas dessus. Ménage : `pm-worktree remove <path>`. Forme courte `<RMid>-<slug>` = norme hors concurrence.
+
+**Questions et MEP (RM3238)** : une question non tranchée du `.think.md` bloque `a_mep_prod` / `en_mep` et le merge vers `main`/`master` (`pm-mr`, `pm-promote`), jamais sur un `*-core` ; `a_mep` avertit. Contournement tracé : `--ignore-think` / `--ignore-questions`.
 
 ## Audit hebdomadaire des environnements (RM3163)
 Incident 2026-09-14 (calymix) : 7 commits poussés sur une branche de ticket APRÈS le merge de sa MR + un doc de juillet jamais fusionnés, invisibles un mois. Règle : chaque début de semaine, et à la reprise d'un projet resté > 7 j sans session, `pm-env-audit --fetch` sur TOUS les workspaces (`--workspace client/projet` pour un seul) ; `--last` (global) / `--last --workspace …` (projet) = date du dernier ; > 7 j ⇒ relancer avant de reprendre du code. `pm-doctor` lit cette consignation à chaque run (sans relancer l'audit) et alerte (> 7 j, ÉLEVÉE ouverte).

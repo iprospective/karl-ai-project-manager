@@ -1,0 +1,15 @@
+// modules/mail/mail.scss — la boîte aux lettres 📬 de l'en-tête et les rejets du panneau 📧 (RM3319).
+// Compilé dans cockpit.css par `npm run build:css`.
+
+#mailbtn .mail-badge { font-family: var(--mono); font-size: 11px; margin-left: 3px; }
+/* Courrier neuf : ça se voit, sans crier — clignotement lent, couleur d'accent. */
+#mailbtn.has-new { color: var(--accent); border-color: var(--accent); animation: kblink 2s ease-in-out infinite; }
+/* Envoi rejeté : l'alerte prime sur tout, comme un « critical » du fil. */
+#mailbtn.has-warn { color: var(--warn); border-color: var(--warn); }
+#mailbtn.has-critical { color: var(--danger); border-color: var(--danger); animation: kblink 1s ease-in-out infinite; }
+
+.mail-bounces { margin: 6px 0 10px; padding: 6px 8px; border: 1px solid var(--danger); border-radius: 4px;
+                color: var(--danger); font-size: 12px; }
+.mail-bounces ul { margin: 4px 0 4px 16px; padding: 0; color: var(--fg); }
+.mail-bounces li { white-space: normal; word-break: break-word; }
+.mail-bounces-aide { color: var(--muted); font-size: 11px; }

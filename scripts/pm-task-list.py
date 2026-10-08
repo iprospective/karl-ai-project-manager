@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
 from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
+import pm_priority  # RM3275 : énumération priority, source unique
 
 try:
     import yaml
@@ -52,7 +53,9 @@ except ImportError:
 
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 
-PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3, None: 9}
+# RM3275 : dérivé de pm_priority — le plus prioritaire en tête, l'inconnu en queue.
+PRIORITY_ORDER = {label: pm_priority.sort_key(label) for label in pm_priority.labels()}
+PRIORITY_ORDER[None] = 99
 STATUS_ORDER = {
     "en_cours": 0,
     "a_corriger": 1,

@@ -17,6 +17,12 @@
 removed: []
 
 rewritten:
+  - reason: "RM3275 (priorité « immédiat », Redmine id 5) : l'énumération des priorités et le poids de priorité du score ROI sont RÉÉCRITS pour accueillir le nouveau cran. Rien n'est perdu : les quatre crans d'origine restent, `immediat` s'ajoute au-dessus, et le poids n'est plus une table figée dans le texte mais `pm_priority.weights()` — une source unique, qui suit l'ajout d'un cran sans réécrire la norme. Inscrit au registre après coup (RM3419) : la MR de RM3275 avait laissé le doctor en échec sur ces deux lignes."
+    old: |
+      `low` | `normal` | `high` | `urgent`
+  - reason: "RM3275 (priorité « immédiat ») : même réécriture, côté module roi-pricing — la table des poids en dur cède la place à `pm_priority.weights()` (source unique), pour que l'ajout d'un cran ne demande pas de toucher la norme."
+    old: |
+      Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
   - reason: "RM3037 (budget de contexte) : le tripwire #16 est resserré sans rien perdre — la règle (ne pas conclure sur un incident depuis les seuls logs de la machine), les trois raisons pour lesquelles les logs mentent (service engorgé qui cesse d'écrire, Apache qui journalise en fin de requête, rsyslog affamé qui imite une panne réseau), l'exigence de corroboration par Zabbix et l'incident RM2455 avec sa cause réelle sont tous conservés. Seules les redites de mise en forme sont retirées ; le mode d'emploi de l'API vit dans `knowledge/zabbix/api.md`, déjà pointé."
     old: |
       16. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : historique CPU/charge/réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident à partir des seuls logs de la machine** — les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être : un service engorgé cesse d'écrire (Apache journalise en **fin** de requête ; rsyslog affamé n'écrit plus), ce qui **imite une panne réseau**. Un agent local qui « mesure » quelque chose n'est pas une source fiable tant que Zabbix ne le corrobore pas. (incident RM2455, 2026-07-30 : deux diagnostics successifs — coupure amont OVH, puis saturation CPU sur la foi d'un agent local annonçant 97,51 % — **tous deux réfutés** par Zabbix, qui mesurait 14,2 % de CPU max ; la vraie cause — pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers` — a été obtenue en **trois requêtes** Zabbix.) → `knowledge/zabbix/api.md`
@@ -357,3 +363,7 @@ rewritten:
   - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : corollaire de l'entrée ci-dessus — l'optimistic locking est repositionné par rapport à `flock`. Il ne complète plus seulement « les règles de propriété » mais devient explicitement le filet INTER-MACHINE, là où `flock` sérialise sur une même machine (NFS/multi-serveur : cf. `modules/governance.md`). Sans cette précision, un lecteur pouvait croire les deux mécanismes redondants et n'en appliquer qu'un. Le protocole en 5 étapes et sa portée (tous les `.md`, jamais les `.log.md`) sont conservés verbatim juste en dessous."
     old: |
       Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+
+  - reason: "RM2662 (2026-09-19) : la liste des fondations d'un projet nommait « Vaultwarden » comme s'il était le seul coffre possible. Depuis RM2662, un projet peut utiliser KeePass, 1Password, Nextcloud Passwords ou un fichier age, et la cascade projet → client → défaut est réellement consultée à la résolution d'un secret. La ligne dit désormais « le coffre à secrets » : aucune règle retirée — la fondation à ne pas oublier est la même, seul le cas particulier devient le cas général. Vaultwarden reste nommé, comme DÉFAUT, dans la ligne du gabarit `001-secrets-vaultwarden` juste en dessous."
+    old: |
+      créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,

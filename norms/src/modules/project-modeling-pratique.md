@@ -88,3 +88,39 @@ Exemple :
 - `{entity_client_dir}/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
 - `{docs_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
+
+### Aspect partagé adossé à un cluster de tickets (RM1856)
+
+Principe : **factoriser, pas dupliquer.** Le contexte partagé d'un sujet (specs,
+décisions d'archi, CDC, glossaire) vit **une seule fois** dans un aspect, que les N
+tickets concernés référencent — au lieu d'être recopié dans chaque description. Le
+succès se mesure à la redondance évitée, pas au nombre de docs : **par défaut, pas
+d'aspect.**
+
+**Quand en créer un** — au moins un critère vrai, *et* du contexte serait sinon dupliqué :
+- **C1 — CDC** : l'étude produit un cahier des charges non trivial ;
+- **C2 — Cluster** : le sujet est (ou sera) découpé en **≥ 2 tickets** partageant un
+  socle (parent + `sub_tasks`, ou famille liée par `relates`) ;
+- **C3 — Transverse durable** : décisions / conventions / glossaire destinés à
+  survivre au ticket et à être relus plus tard.
+
+**Anti-critères (pas d'aspect)** : ticket isolé sans descendance, bugfix ponctuel,
+assistance, maintenance routinière, doc qui tient dans la description sans risque
+de duplication. Le critère est heuristique : l'agent qui qualifie tranche.
+
+**Emplacement & nommage** : `{docs_dir}/<slug>.md` (aspect libre, wiki-syncé) ; au
+niveau client si le socle est transverse à ses projets. **Un aspect par sujet, jamais
+par ticket.** Slug en kebab-case, **stable et sans RM-id** : il devient l'URL de la
+page wiki, un rename la casse. Frontmatter minimal : `aspect`, `title`, `status`
+(`draft|active|stable`), `rm_ticket` (porteur), `related_tickets[]`.
+
+**Liaison bidirectionnelle** : aspect → tickets par `related_tickets[]` ; ticket →
+aspect par la mention « Doc partagée : `docs/<slug>.md` » dans sa description (et le
+CF link wiki quand l'instance en aura un). Le parent du cluster porte le lien
+canonique, les sous-tâches en héritent. Un ticket listé d'un côté doit l'être de
+l'autre.
+
+**Outil** : `mmi-pm task-doc <id> --slug <slug>` scaffolde ou rattache, pose les deux
+côtés, idempotent ; `--check [<projet>]` audite la cohérence. Jamais à la main : la
+double maintenance est précisément ce que la convention supprime. Exemple de bout en
+bout : `docs/ticket-doc-convention.md` (RM1856), qui se documente selon elle-même.

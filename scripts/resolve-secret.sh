@@ -32,6 +32,19 @@ if [ "$#" -lt 1 ]; then
 fi
 URI="$1"
 FIELD="${2:-}"
+# RM2662 : `secret:<chemin>` (instance implicite) prend le coffre que le registre retient pour le
+# PROJET du répertoire courant — cascade projet → client → défaut. Le démon ne peut pas le faire :
+# il est partagé par tous les projets et ne sait pas d'où on l'appelle. Hors projet, ou en cas de
+# doute, l'URI repart inchangée : c'est le comportement d'avant, jamais pire.
+case "$URI" in
+  secret://*|vaultwarden://*) ;;
+  secret:*)
+    _DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -x "$_DIR/pm-secret-instance.py" ]; then
+      URI="$(python3 "$_DIR/pm-secret-instance.py" "$URI" 2>/dev/null || printf '%s' "$URI")"
+    fi
+    ;;
+esac
 
 if [ ! -S "$SOCK" ]; then
   echo "ERR: vault-agentd not running. Lance unlock-vault.sh." >&2

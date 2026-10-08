@@ -22,13 +22,20 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   assert.strictEqual(M.termAvailable(st("1"), { KarlTerm: {}, Terminal: {} }), false, "karl_noxterm=1 : repli explicite");
   assert.strictEqual(M.termAvailable(st(null), {}), false, "bundle absent : repli");
   assert.strictEqual(M.termAvailable({ getItem() { throw new Error("privé"); } }, { KarlTerm: {}, Terminal: {} }), true, "stockage bloqué : on garde le défaut, pas le repli");
-  assert.strictEqual(M.iframeReachable({ port: "9876" }), true, "accès direct : le port 7681 du bridge est joignable");
-  assert.strictEqual(M.iframeReachable({ port: "" }), false, "RM3124 : derrière le vhost (donc à distance), :7681 ne l'est pas");
+  assert.strictEqual(M.iframeReachable({ port: "9876" }), true, "accès direct au port de karl-agent (loopback) : ttyd :7681 l'est aussi");
+  assert.strictEqual(M.iframeReachable({ port: "" }), false, "RM3124/RM2146 : derrière le vhost, :7681 ne l'est pas (vhost dédié supprimé)");
   assert.strictEqual(M.iframeReachable({ port: "443" }), false); assert.strictEqual(M.iframeReachable({ port: "80" }), false);
   assert.strictEqual(M.composerGuard("idle").allow, true); assert.strictEqual(M.composerGuard("working").allow, true); assert.strictEqual(M.composerGuard(undefined).allow, true); assert.strictEqual(M.composerGuard("choice").allow, false); assert.strictEqual(M.composerGuard("attention").allow, false); assert(/menu/i.test(M.composerGuard("choice").warn) && /question/i.test(M.composerGuard("attention").warn)); assert.strictEqual(M.composerGuard("idle").warn, null);
   assert.deepStrictEqual(M.composerHistoryAdd([], "a"), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "b"), ["b", "a"]); assert.deepStrictEqual(M.composerHistoryAdd(["b", "a"], "a"), ["a", "b"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "  a  "), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a"], "   "), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(null, "a"), ["a"]); assert.deepStrictEqual(M.composerHistoryAdd(["a", "b", "c"], "d", 3), ["d", "a", "b"]);
   assert.strictEqual(M.composerLabels(M.composerGuard("idle")).btn, "Envoyer ⏎"); assert.strictEqual(M.composerLabels(M.composerGuard("choice")).btn, "Envoyer quand même"); assert.strictEqual(M.truncate("abcdef", 3), "abc…"); assert.strictEqual(M.sessionCookie("t k", true), "karl_session=t%20k; Path=/; SameSite=Strict; Secure"); assert(!/Secure/.test(M.sessionCookie("t", false)));
   const cv = new VM.ComposerViewModel({ state: "choice", history: ["x".repeat(400), "b"] }); assert(!cv.allow && /menu/.test(String(V.ComposerWarn(cv))) && /<b>Envoi retenu\.<\/b>/.test(String(V.ComposerWarn(cv)))); const hh = String(V.ComposerHistory(cv)); assert(/class="hitem" data-i="0"[^>]*>x{300}…<\/div>/.test(hh) && /data-i="1"[^>]*>b</.test(hh) && !/onclick=/.test(hh)); assert(/Aucun message envoyé/.test(String(V.ComposerHistory(new VM.ComposerViewModel({ state: "idle", history: [] })))));
+  // RM3418 : taille de la typo — préférence du navigateur, sinon défaut d'instance (mobile plus petit), bornée
+  assert.strictEqual(M.termFontPx({ ui: {}, mobile: false }), 14, "défaut bureau");
+  assert.strictEqual(M.termFontPx({ ui: {}, mobile: true }), 11, "défaut mobile : 80 colonnes ne tiennent pas à 14 px sur 390 px");
+  assert.strictEqual(M.termFontPx({ ui: { term_font_px: 16, term_font_px_mobile: 9 }, mobile: true }), 9, "la conf d'instance décide du défaut");
+  assert.strictEqual(M.termFontPx({ ui: {}, mobile: true, pref: "13" }), 13, "la préférence du navigateur gagne");
+  assert.strictEqual(M.termFontPx({ pref: "abc" }), 14, "préférence illisible → défaut");
+  assert(M.termFontPx({ pref: 999 }) === 24 && M.termFontPx({ pref: 1 }) === 7, "bornée : un terminal illisible ne se répare pas tout seul");
   console.log("✓ modèle et vue (RM2561/2807/3124/2700/2527) : origine WebSocket, client maison par défaut + opt-out, joignabilité du repli, cookie de gate, garde, historique, libellés");
   const calls = []; const repo = { async send(sid, msg) { calls.push(["send", sid, msg]); if (msg === "ko") throw new Error("réseau"); }, async capture(sid, n) { calls.push(["capture", sid, n]); return "lignes…"; }, async buffer() { calls.push(["buffer"]); return repo.buf; }, async memdebug(p) { calls.push(["memdebug", p.rm]); } }; repo.buf = "copie tmux";
   const store = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); } };

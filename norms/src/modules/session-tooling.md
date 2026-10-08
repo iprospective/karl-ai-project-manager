@@ -70,6 +70,9 @@ posé la question, laissé la note, tranché. Les **propositions et réflexions 
 non posées en question outillée, entrent au vrac **signées du modèle** (la moisson les repère).
 Chaque fichier (think, registres du projet) porte en tête la **légende** de ses rubriques.
 
+**Ce que bloque une question ouverte** : la **clôture** du ticket (RM3053) et, depuis RM3238, sa **mise
+en production** — statuts `a_mep_prod` / `en_mep` et merge vers `main` / `master` (cf. `git-mep`).
+
 **Le critère d'une note** : « qu'est-ce qui, là-dedans, n'a PAS été traité et pourra servir ? ». Si
 la réponse est « rien », ne rien consigner — un vrac noyé n'est jamais lu. Le verbatim qui **fonde**
 une décision se garde comme **source de la D** (la D le cite), pas comme note séparée.

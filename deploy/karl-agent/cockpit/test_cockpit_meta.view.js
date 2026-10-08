@@ -41,12 +41,18 @@ const { settle, fakeElement, JOURNAL, S, U, R } = require("./test_cockpit_meta.h
   // — l'onglet tickets : facettes —
   const pane = (e) => String(V.TicketsPane(new VM.TicketMetaViewModel(Object.assign({ tickets: ["42", "43"], current: "42", facet: "detail", resolve: { "42": R, "43": undefined }, attached: "42", worklogSeen: true, ws: undefined, card: null }, e), { now: Date.parse("2026-09-05T11:00") }), { md: (s) => "<md>" + s + "</md>", tip: (id) => ' data-tip-rm="' + id + '" title="tip"' }));
   const d = pane({});
-  assert(/<button class="active" data-action="tab" data-rm="42">RM42<\/button>/.test(d) && /data-action="tab" data-rm="43"/.test(d), "un sous-onglet par ticket, l'actif marqué");
+  // RM3164 : l'onglet porte aussi le projet du ticket en infobulle.
+  assert(/<button class="active" data-action="tab" data-rm="42"[^>]*>RM42<\/button>/.test(d) && /data-action="tab" data-rm="43"/.test(d), "un sous-onglet par ticket, l'actif marqué");
   for (const f of ["detail", "desc", "log", "conso", "workspace"]) assert(new RegExp('data-action="facet" data-facet="' + f + '"').test(d), "facette routée : " + f);
   assert(/RM42 ↗/.test(d) && /data-action="launcher" data-rm="42"/.test(d) && /data-action="review" data-rm="42"/.test(d) && /data-action="reload" data-rm="42"/.test(d) && /version<\/span>[\s\S]*2026-09-05T10:00[\s\S]*\(il y a 1 h\)/.test(d));
   assert(/data-action="status" data-rm="42">ferme ⇄/.test(d), "RM2888 : la pastille de phase ouvre le menu de statut"); assert(/data-action="reopen" data-rm="42"/.test(d), "fermé : rouvrir proposé"); assert(!/data-action="reopen"/.test(pane({ resolve: { "42": Object.assign({}, R, { status: "en_cours" }) } })));
   assert(/Client \/ projet/.test(d) && /data-action="project" data-key="acme\/shop"/.test(d)); assert(/<span class="pill ok">prod<\/span>/.test(d) && /test_url/.test(d) && /preprod/.test(d) && !/>prod<\/span><\/span><span class="v">[\s\S]*preprod[\s\S]*prod<\/span>/.test(d), "env actif une fois, les autres à part");
-  assert(/Git ticket/.test(d) && /42-x/.test(d) && /href="https:\/\/mr"/.test(d)); assert(/parent :/.test(d) && /data-action="ticket" data-rm="7"/.test(d) && /data-tip-rm="8"/.test(d) && /lié :/.test(d) && !/bloque :/.test(d), "relations : RM-ids cliquables avec infobulle, listes vides absentes");
+  // RM3256 : les CHAMPS du ticket ne sont plus décrits par le panneau — ils viennent du registre
+  // d'entités (`renderEntity`, niveau « panel »). On vérifie la donnée, et sa provenance.
+  assert(/data-sec="git"[\s\S]*42-x/.test(d) && /href="https:\/\/mr"/.test(d), "git : rendu par le registre");
+  assert(/<div class="e-entity e-panel" data-type="review" data-id="42">/.test(d), "le panneau rend l'entité « review » au niveau panel");
+  assert(/data-sec="identite"[\s\S]*phase[\s\S]*ferme/.test(d), "identité : type, phase, priorité, avancement, depuis le registre");
+  assert(!/<h4>Git ticket<\/h4>/.test(d) && !/<h4>Environnement \(selon phase\)<\/h4>/.test(d), "… et le panneau ne les réécrit plus dans son coin"); assert(/parent :/.test(d) && /data-action="ticket" data-rm="7"/.test(d) && /data-tip-rm="8"/.test(d) && /lié :/.test(d) && !/bloque :/.test(d), "relations : RM-ids cliquables avec infobulle, listes vides absentes");
   assert(/data-action="facet" data-facet="desc">📄 description</.test(d) && /🕘 historique</.test(d) && !/<h4>Dernières activités/.test(d), "RM2797 : « détail » renvoie vers les facettes au lieu de répéter les blocs"); assert(!/onclick=/.test(d));
   assert(/📄 description \(vide\)/.test(pane({ resolve: { "42": Object.assign({}, R, { description: "" }) } })));
   const desc = pane({ facet: "desc" }); assert(/class="facetfull descfull mdview"><md># desc<\/md>/.test(desc) && !/class="facetfull desc"/.test(desc), "RM2806 : sa propre classe, pas `.desc` qui bridait"); assert(/ce ticket n'a pas de description/.test(pane({ facet: "desc", resolve: { "42": Object.assign({}, R, { description: "" }) } })));

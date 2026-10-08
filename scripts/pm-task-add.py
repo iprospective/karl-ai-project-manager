@@ -49,6 +49,7 @@ from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
 import pm_tags
+import pm_acceptance
 
 try:
     import yaml
@@ -113,6 +114,52 @@ def load_project_overview(cfg, entity, project):
     Le contrôle du champ requis (redmine.project_id) est fait par l'appelant.
     """
     return cfg.project_meta(entity, project)
+
+
+def _garde_anteriorite(cfg, titre, projet, acquittement):
+    """RM3248 — cherche l'antériorité AVANT de créer (tripwire #19), sans compter sur l'agent.
+
+    La règle existait et l'outil aussi (`pm-task-search`, RM3130) ; ce qui manquait, c'est
+    que la recherche dépendait de la mémoire de celui qui crée. RM3247 a été créé sans, juste
+    après une compaction. Le moteur est celui de pm-task-search, importé : le critère n'existe
+    qu'à un endroit.
+
+      · voisines : affichées, jamais bloquantes ;
+      · fortes (même projet, titre très voisin) : création REFUSÉE sauf `--not-duplicate`.
+        Un simple avertissement ne suffit pas : un agent lit la sortie, il ne s'y arrête pas.
+    Un moteur en panne n'empêche JAMAIS la création : il le dit, et on continue.
+    Rend la liste des correspondances fortes (acquittées), pour la trace au journal.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "pm_task_search", Path(__file__).resolve().parent / "pm-task-search.py")
+        moteur = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(moteur)
+        fortes, voisines = moteur.prior_art_cfg(cfg, titre, project=projet)
+    except Exception as e:  # la garde ne doit jamais devenir la panne
+        out.warn(f"recherche d'antériorité indisponible ({e.__class__.__name__}: {e}) — création "
+                 f"poursuivie ; vérifie à la main : pm-task-search.py {titre!r}")
+        return []
+
+    def ligne(x):
+        return (f"RM{x['rm_id']} [{x['status']}] {x['project']} — {x['title'][:90]} "
+                f"({round(100 * x['overlap'])} %)")
+
+    if voisines:
+        out.warn(f"{len(voisines)} antériorité(s) voisine(s) — vérifier avant de continuer :")
+        for v in voisines:
+            out.warn("  " + ligne(v))
+    if fortes and not acquittement:
+        sys.exit("ERREUR : antériorité FORTE dans le même projet — ce ticket existe peut-être déjà :\n"
+                 + "\n".join("  " + ligne(f) for f in fortes)
+                 + "\n→ doublon : complète ou rouvre le ticket existant plutôt que d'en créer un."
+                 + "\n→ pas un doublon : relance avec --not-duplicate \"<pourquoi>\""
+                 + " (et --relates <id> pour les lier).")
+    if fortes:
+        out.warn("antériorité forte acquittée (--not-duplicate) : "
+                 + ", ".join(f"RM{f['rm_id']}" for f in fortes))
+    return fortes
 
 
 def main():
@@ -193,6 +240,12 @@ def main():
                          "Incompatible avec --retro/--status.")
     ap.add_argument("--branch-repo", default=None,
                     help="Repo cible pour --start-branch (défaut : résolution pm-branch-start)")
+    ap.add_argument("--not-duplicate", dest="not_duplicate", metavar="MOTIF", default=None,
+                    help="RM3248 : passe outre une antériorité FORTE (même projet, titre très "
+                         "voisin) en disant pourquoi ce n'est pas un doublon ; le motif est "
+                         "tracé au journal du ticket créé.")
+    ap.add_argument("--relates", type=int, action="append", default=[], metavar="RM_ID",
+                    help="RM3248 : lie le ticket créé à une antériorité voisine (répétable).")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--porcelain", "--id-only", dest="porcelain", action="store_true",
                     help="Sortie machine (RM2170) : n'imprime que l'id nu du ticket créé "
@@ -275,6 +328,8 @@ def main():
     tracker_id = TYPE_TO_TRACKER[args.type]
     priority_id = PRIORITY_TO_ID[args.priority]
 
+    fortes = _garde_anteriorite(cfg, args.title, f"{entity}/{project}", args.not_duplicate)
+
     if args.dry_run:
         print(f"--dry-run : POST Redmine project={rm_proj_id} tracker={tracker_id} prio={priority_id}")
         print(f"--dry-run : title={args.title!r}")
@@ -297,6 +352,18 @@ def main():
     _tags_cf = pm_tags.cf_payload(tags_norm)
     if _tags_cf and _tags_cf["value"]:
         extra_cf.append(_tags_cf)
+    # RM3241 : les critères naissent dans leur champ (CF 33), plus dans la description.
+    # Ils y étaient recopiés depuis RM2882 — donc deux copies dès la création, dont
+    # une que plus rien ne met à jour (8 tickets créés après la reprise RM3240).
+    # Sans CF résolu, ou si la section porte autre chose que des cases (prose,
+    # gabarit), la description part telle quelle : rien ne se perd.
+    import pm_cf_mirror
+    acc_cid = pm_cf_mirror.resolve_cf_id(pm_acceptance.ENV_VAR, pm_acceptance.CF_NAME)
+    description, criteres = args.description, None
+    if acc_cid:
+        description, criteres = pm_acceptance.split_for_creation(args.description)
+        if criteres:
+            extra_cf.append({"id": acc_cid, "value": criteres})
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
@@ -306,7 +373,7 @@ def main():
         tracker_id=tracker_id,
         priority_id=priority_id,
         subject=args.title,
-        description=args.description,
+        description=description,
         author_id=target_author,
         parent_issue_id=args.parent,
         extra_custom_fields=extra_cf or None,
@@ -325,6 +392,9 @@ def main():
         out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
     if _tags_cf and _tags_cf.get("value"):
         out.info(f"  · CF{_tags_cf['id']} tags → {', '.join(tags_norm)}")
+    if criteres:
+        n = len(pm_acceptance.parse_items(criteres))
+        out.info(f"  · CF{acc_cid} critères d'acceptation → {n} critère(s), hors description")
     if target_author is not None:
         out.info(f"  · author_id → {target_author}")
 
@@ -365,7 +435,9 @@ def main():
     # Propre à la création : un ticket ADOPTÉ (pm-task-import) n'a pas ces champs.
     if args.type == "bugfix":
         fm = _with_bug(fm, args.bug_reproducibility or "always", bug_steps)
-    md = render_md(fm, args.description)
+    if criteres:
+        fm[pm_acceptance.FM_KEY] = criteres     # miroir local du CF 33, comme pm-task-acceptance
+    md = render_md(fm, description)
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)
     md_path = tasks_dir / f"RM{rm_id}_{slug}.md"
@@ -442,12 +514,26 @@ def main():
     # (+ le MD/log du parent si --parent les a modifiés). Placé AVANT --status /
     # --retro : les transitions déléguées à pm-task-status-update auto-committent
     # leurs propres écritures.
+    if fortes and args.not_duplicate:
+        import pm_task_log
+        pm_task_log.append(md_path, "Antériorité acquittée (pm-task-add)",
+                           "Correspondance forte avec "
+                           + ", ".join(f"RM{f['rm_id']} « {f['title']} »" for f in fortes)
+                           + f". Créé quand même — motif : {args.not_duplicate}")
     commit_paths = [md_path, log_path]
     if args.parent:
         parent_md = cfg.find_task(args.parent)
         if parent_md:
             commit_paths += [parent_md, parent_md.parent / parent_md.name.replace(".md", ".log.md")]
     pm_git.autocommit(commit_paths, f"pm(add): RM{rm_id} {slug}")
+
+    for autre in args.relates:
+        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "pm-task-link.py"),
+                            "add", str(rm_id), str(autre), "--type", "relates"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            out.warn(f"lien RM{rm_id} ↔ RM{autre} non posé — relance : "
+                     f"pm-task-link.py add {rm_id} {autre} --type relates")
 
     if args.start_branch:
         # Verbe atomique (RM2224) : l'id sort de create_redmine_issue et entre

@@ -369,8 +369,8 @@ def csv_env(name: str, default: list) -> list:
 
 
 def collect(m, folders, args, account, index, extra_machine) -> dict:
-    stats = {"new": 0, "known": 0, "machine": 0, "self": 0, "scanned": 0}
-    entries = []
+    stats = {"new": 0, "known": 0, "machine": 0, "bounce": 0, "self": 0, "scanned": 0}
+    entries, bounces = [], []
     for folder in folders:
         uids = search_uids(m, folder, args.days, args.unseen_only)
         if args.limit:
@@ -393,6 +393,19 @@ def collect(m, folders, args, account, index, extra_machine) -> dict:
                 stats["self"] += 1
                 index[key] = {"status": "self", "at": datetime.now().strftime("%Y-%m-%dT%H:%M")}
                 continue
+            # RM3319 : un rejet est du courrier « machine », mais il ne doit pas disparaître
+            # en silence — c'est l'échec d'un envoi de karl. Reconnu AVANT le tri machine.
+            rejet = _bounce_info(msg)
+            if rejet:
+                stats["bounce"] += 1
+                rejet.update(key=key, from_=addr, folder=folder,
+                             at=datetime.now().strftime("%Y-%m-%dT%H:%M"))
+                bounces.append(rejet)
+                index[key] = {"status": "bounce", "from": addr, "at": rejet["at"],
+                              "summary": rejet["summary"], "rm_id": rejet["rm_id"],
+                              "failed": rejet["failed"],
+                              "original_message_id": rejet["original_message_id"]}
+                continue
             reason = machine_reason(msg, addr, extra_machine)
             if reason:
                 stats["machine"] += 1
@@ -405,7 +418,50 @@ def collect(m, folders, args, account, index, extra_machine) -> dict:
                           "subject": entry["subject"], "rm_id": entry["rm_id"],
                           "at": entry["fetched_at"]}
             stats["new"] += 1
-    return {"stats": stats, "entries": entries}
+    return {"stats": stats, "entries": entries, "bounces": bounces}
+
+
+def _bounce_info(msg):
+    """Détail d'un rejet (pm_mail_bounce) + résumé, ou None. Jamais bloquant pour la relève."""
+    try:
+        import pm_mail_bounce
+        info = pm_mail_bounce.parse(msg)
+        if info:
+            info["summary"] = pm_mail_bounce.summary(info)
+        return info
+    except Exception as e:  # noqa: BLE001 — un rejet mal formé ne doit pas arrêter la relève
+        out.warn(f"rejet illisible, traité comme courrier machine : {e}")
+        return None
+
+
+def signal_bounces(bounces, note_ticket=True):
+    """Alerte sur chaque rejet (RM3319) : une entrée du fil de notifications — `critical` pour un
+    échec définitif, `warn` pour un simple retard — et, si le mail rejeté portait un `[RM<id>]`,
+    une note sur ce ticket. Rien ici ne doit faire échouer la relève."""
+    for b in bounces:
+        niveau = "critical" if b.get("failed") else "warn"
+        verbe = "rejeté" if b.get("failed") else "retardé"
+        objet = b.get("original_subject") or "(objet inconnu)"
+        msg = f"Mail de karl {verbe} : {b['summary']} — « {objet} »"
+        try:
+            import pm_notify
+            pm_notify.add("mail", niveau, msg, job="mail-bounce",
+                          ref=b.get("original_message_id") or b.get("key"),
+                          rm=b.get("rm_id"), bounce=b.get("key"))
+        except Exception as e:  # noqa: BLE001
+            out.warn(f"notification du rejet impossible : {e}")
+        if note_ticket and b.get("rm_id") and b.get("failed"):
+            note = (f"⚠ **Envoi rejeté** (détecté par la relève de la boîte karl, RM3319)\n\n"
+                    f"- Destinataire(s) : {', '.join(r['address'] for r in b['recipients']) or 'inconnu'}\n"
+                    f"- Motif : {(b['recipients'][0].get('status') + ' — ') if b['recipients'] and b['recipients'][0].get('status') else ''}"
+                    f"{(b['recipients'][0].get('diagnostic') if b['recipients'] else '') or 'non précisé'}\n"
+                    f"- Mail d'origine : « {objet} » `{b.get('original_message_id') or '?'}`\n\n"
+                    "Le mail N'A PAS été remis : corriger l'adresse (annuaire : `pm-contact.py`) et renvoyer.")
+            try:
+                subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "pm-task-comment.py"),
+                                str(b["rm_id"]), "--note", note], capture_output=True, text=True, timeout=120)
+            except Exception as e:  # noqa: BLE001
+                out.warn(f"note du rejet sur RM{b['rm_id']} impossible : {e}")
 
 
 def write_queue(entries: list):
@@ -470,6 +526,8 @@ def main():
                     help="Marque \\Seen les messages relevés (DÉSACTIVÉ par défaut)")
     ap.add_argument("--json", action="store_true",
                     help="Sortie machine : les entrées relevées (ou la file) en JSON")
+    ap.add_argument("--no-ticket-note", action="store_true",
+                    help="Rejet détecté : notifier le fil, sans note sur le ticket d'origine (RM3319)")
     ap.add_argument("--dry-run", action="store_true",
                     help="N'écrit ni la file ni l'index — montre ce qui serait mis en file")
     args = ap.parse_args()
@@ -544,16 +602,18 @@ def main():
     if not args.dry_run:
         write_queue(res["entries"])
         save_index(index)
-        if st.get("new"):   # RM3006 : le panneau 📧 du cockpit se rafraîchit sans attendre
+        signal_bounces(res["bounces"], note_ticket=not args.no_ticket_note)
+        if st.get("new") or st.get("bounce"):   # RM3006 : le panneau 📧 se rafraîchit sans attendre
             try:
                 import pm_events
-                pm_events.publish(["mail"], source="karl-mail-fetch", new=int(st["new"]))
+                pm_events.publish(["mail"], source="karl-mail-fetch", new=int(st["new"]),
+                                  bounce=int(st.get("bounce") or 0))
             except Exception:  # noqa: BLE001 — jamais bloquant
                 pass
     if args.json:
         print(json.dumps(res["entries"], ensure_ascii=False, indent=1))
     out.op("relève", extra=(f"{st['new']} nouveau(x) · {st['known']} déjà vu(s) · "
-                            f"{st['machine']} machine · {st['self']} de karl · "
+                            f"{st['machine']} machine · {st['bounce']} rejet(s) · {st['self']} de karl · "
                             f"dossiers : {', '.join(folders)}"
                             + (" [dry-run]" if args.dry_run else "")))
     out.info(f"index : {before} → {len(index)} entrées ({index_file()})")

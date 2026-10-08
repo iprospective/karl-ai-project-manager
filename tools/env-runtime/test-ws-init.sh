@@ -152,5 +152,49 @@ else
 fi
 
 echo
+echo "=== amorces de RACINE (RM2947) : dépôt -core + lien docs ==="
+# Sous une racine 2750, créer une entrée à la racine est réservé au privilège : ces
+# amorces vivent donc dans le helper. `chown` est neutralisé ici (sans privilège, il
+# échouerait) — le modèle de perms, lui, est posé par pm-perms, testé plus haut.
+LIB_SEED="$TMP/lib-seed.sh"
+{ cat "$LIB"; echo 'chown() { :; }'; } > "$LIB_SEED"
+seed() { bash -c 'set -uo pipefail; . "$1"; shift; "$@"' _ "$LIB_SEED" "$@" 2>&1; }
+verdict() {  # $1 = libellé, $2 = condition
+    if eval "$2"; then echo "✓ $1"; ok=$((ok + 1)); else echo "✗ $1"; ko=$((ko + 1)); fi
+}
+
+WS="$TMP/ws-neuf"; mkdir -p "$WS/.mmi-pm/docs"
+sortie=$(seed ws_seed_core_git "$WS")
+verdict "dépôt -core amorcé"            '[ -d "$WS/.git" ]'
+verdict "…et annoncé"                   '[ -n "$sortie" ]'
+verdict "branche par défaut main"       '[ "$(git -C "$WS" symbolic-ref --short HEAD)" = main ]'
+# `--shared=group` : git normalise la valeur à « 1 » et pose le setgid sur .git/
+verdict "partagé avec le groupe"        '[ -n "$(git -C "$WS" config core.sharedRepository)" ] && [ -g "$WS/.git" ]'
+verdict "VIDE : aucun commit"           '! git -C "$WS" rev-parse --verify -q HEAD >/dev/null'
+verdict "VIDE : aucun remote"           '[ -z "$(git -C "$WS" remote)" ]'
+# Idempotence : ws-init est rejoué à chaque appel de pm-env-init, il ne doit rien refaire.
+git -C "$WS" config pm.marqueur temoin
+sortie=$(seed ws_seed_core_git "$WS")
+verdict "rejoué : ne réinitialise pas"  '[ "$(git -C "$WS" config pm.marqueur)" = temoin ]'
+verdict "rejoué : muet"                 '[ -z "$sortie" ]'
+
+sortie=$(seed ws_seed_docs_link "$WS")
+verdict "docs → .mmi-pm/docs"           '[ "$(readlink "$WS/docs")" = ".mmi-pm/docs" ]'
+verdict "…et annoncé"                   '[ -n "$sortie" ]'
+sortie=$(seed ws_seed_docs_link "$WS")
+verdict "rejoué : muet"                 '[ -z "$sortie" ]'
+
+# Un workspace de code peut avoir une VRAIE doc à la racine : jamais d'écrasement.
+WS2="$TMP/ws-docs-reels"; mkdir -p "$WS2/docs"; : > "$WS2/docs/guide.md"
+seed ws_seed_docs_link "$WS2" >/dev/null
+verdict "un dossier docs/ réel est préservé" '[ -f "$WS2/docs/guide.md" ] && [ ! -L "$WS2/docs" ]'
+
+# Un dépôt déjà présent (code pré-norme) n'est pas ré-amorcé — le REFUS, lui, est le
+# garde-fou de pm-project-new (test_pm_project_new_ws_locked.py).
+WS3="$TMP/ws-deja-git"; mkdir -p "$WS3"; git init -q "$WS3"; git -C "$WS3" config pm.marqueur code
+seed ws_seed_core_git "$WS3" >/dev/null
+verdict "un dépôt existant n'est pas touché" '[ "$(git -C "$WS3" config pm.marqueur)" = code ]'
+
+echo
 echo "── $ok test(s) OK, $ko échec(s)"
 [ "$ko" -eq 0 ]

@@ -69,8 +69,19 @@ SWEEP_SKIP_PREFIXES = (".#",)
 CORE_MARKERS = (".mmi-pm", ".mmi-pm-client")
 
 
-def _run(args, cwd=None):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+def _run(args, cwd=None, env=None):
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=env)
+
+
+def _env_commit():
+    """L'environnement d'un `git commit` : l'AUTEUR est l'humain pour qui on agit quand on le
+    connaît (RM3070 L3, `PM_ACTOR_*`) ; le committer reste le compte qui exécute. Sans acteur
+    posé — cas mono, ou appel direct en ligne de commande — rien ne change."""
+    try:
+        import pm_actor
+        return pm_actor.git_author_env()
+    except Exception:      # noqa: BLE001 — l'identité ne doit JAMAIS empêcher un commit
+        return None
 
 
 def _num(v, default):
@@ -309,12 +320,13 @@ def _sweep_stale(root, cfg, trigger, exclude=()):
         return None
     msg = (f"pm(rattrapage): {len(picked)} fichier(s) laissés non commités > {mins} min "
            f"(déclenché par {tool})")
-    c = _run(["git", "-C", str(root), "commit", "-m", msg, "--"] + picked)
+    c = _run(["git", "-C", str(root), "commit", "-m", msg, "--"] + picked, env=_env_commit())
     if c.returncode != 0:
         _warn(f"rattrapage : git commit a échoué : {(c.stderr or c.stdout).strip()}")
         return None
     sha = _run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"]).stdout.strip()
     _journal("info", f"rattrapage git : {len(picked)} fichier(s) commités", repo=str(root), sha=sha,
+             actor=os.environ.get("PM_ACTOR_USER") or None,   # RM3070 L3 : qui, pas seulement quoi
              after_min=mins, trigger=tool, files=picked[:20], more=max(0, len(picked) - 20) or None)
     return sha
 
@@ -425,11 +437,39 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
     # doit pas empêcher un ticket d'être écrit.
     _index_touch(paths)
 
-    root_r = _run(["git", "-C", str(paths[0].parent), "rev-parse", "--show-toplevel"])
-    if root_r.returncode != 0:
-        _warn(f"{paths[0].parent} n'est pas dans un repo git — skip")
+    # RM3237 — un appel peut porter sur PLUSIEURS dépôts : un lien entre deux tickets de
+    # projets différents écrit le journal de chacun, donc deux dépôts de données. On
+    # calculait une seule racine (celle de paths[0]) et on IGNORAIT le reste — les fichiers
+    # de l'autre dépôt restaient non commités jusqu'au rattrapage (RM3013), c'est-à-dire
+    # plus d'une heure, et seulement si un autre outil repassait par là. On groupe donc par
+    # racine et on committe chaque dépôt, sous son propre verrou.
+    groupes = {}
+    for p in paths:
+        r = _run(["git", "-C", str(p.parent), "rev-parse", "--show-toplevel"])
+        if r.returncode != 0:
+            _warn(f"{p.parent} n'est pas dans un repo git — skip")
+            continue
+        groupes.setdefault(Path(r.stdout.strip()), []).append(p)
+    if not groupes:
         return None
-    root = Path(root_r.stdout.strip())
+
+    # La valeur de retour reste le sha du dépôt de paths[0] : les appelants l'utilisent
+    # pour tracer « leur » commit, et tous n'écrivent que dans un seul dépôt.
+    r0 = _run(["git", "-C", str(paths[0].parent), "rev-parse", "--show-toplevel"])
+    racine_principale = Path(r0.stdout.strip()) if r0.returncode == 0 else None
+
+    sha_principal = None
+    for root, ps in groupes.items():
+        sha = _autocommit_un_repo(root, ps, message, cfg, push)
+        if root == racine_principale:
+            sha_principal = sha
+    return sha_principal
+
+
+def _autocommit_un_repo(root, paths, message, cfg, push):
+    """Committe (et pousse) dans UN dépôt les chemins qui lui appartiennent — RM3237.
+    Extrait d'`autocommit` sans changement de comportement : même verrou, même sweep,
+    même sortie. Rend le sha court, ou None s'il n'y avait rien à committer."""
     rel = []
     for p in paths:
         try:
@@ -465,7 +505,7 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
                 return None
             # `commit -- <chemins>` : n'embarque QUE ces chemins, même si d'autres
             # fichiers sont stagés par une session concurrente.
-            c = _run(["git", "-C", str(root), "commit", "-m", message, "--"] + rel)
+            c = _run(["git", "-C", str(root), "commit", "-m", message, "--"] + rel, env=_env_commit())
             if c.returncode != 0:
                 _warn(f"git commit a échoué : {(c.stderr or c.stdout).strip()}")
                 return None

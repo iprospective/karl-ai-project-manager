@@ -38,6 +38,40 @@ export function computeGroups(sessions, rcache, dynamic) {
   return { keys, groups, counts };
 }
 
+/** RM3302 : filtres de la liste — les compteurs du panneau deviennent des gestes.
+ *
+ * Un seul filtre à la fois (exclusif) : ce sont des angles de lecture, pas des
+ * cases à cocher ; les croiser n'apprend rien et multiplie les états où la liste
+ * est vide sans qu'on sache pourquoi. Filtre inconnu ⇒ tout passe (jamais de
+ * liste vide sur une valeur périmée lue du stockage local).
+ */
+export const FILTRES = ["unseen", "waiting", "working", "idle", "ghost"];
+
+export const FILTRE_LABEL = { unseen: "à voir", waiting: "en attente", working: "en travail", idle: "au repos", ghost: "enregistrées" };
+
+export function matchFiltre(s, filtre, unseen) {
+  if (!filtre || !FILTRES.includes(filtre)) return true;
+  if (filtre === "ghost") return !!s.ghost;
+  if (s.ghost) return false;
+  if (filtre === "unseen") return !!(unseen && unseen.has(String(s.rm_id)));
+  if (filtre === "waiting") return s.state === "attention" || s.state === "choice";
+  if (filtre === "working") return s.state !== "attention" && s.state !== "choice" && s.state !== "idle";
+  return s.state === "idle";   // idle
+}
+
+/** Le filtre appliqué aux groupes déjà constitués : un groupe vidé disparaît, les compteurs eux
+ * restent globaux (sinon cliquer « à voir » remettrait tous les autres compteurs à zéro). */
+export function filtreGroupes(keys, groups, filtre, unseen) {
+  if (!filtre || !FILTRES.includes(filtre)) return { keys, groups };
+  const out = new Map();
+  const gardees = [];
+  for (const k of keys) {
+    const list = (groups.get(k) || []).filter(s => matchFiltre(s, filtre, unseen));
+    if (list.length) { out.set(k, list); gardees.push(k); }
+  }
+  return { keys: gardees, groups: out };
+}
+
 /** RM2639 : la session appartient-elle au contexte client ? ctx vide → oui ; en attente (attention/choice) → jamais masquée (RM2445). */
 export function sessionInClient(s, r, ctx) {
   if (!ctx) return true;

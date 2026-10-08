@@ -11,7 +11,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
-## [Unreleased] — Cockpit & environnements de test
+## [Unreleased]
+
+- **Qui possède quoi dans l'instance : une seule source, configurable (RM3379).** `core-lock` et
+  `pm-perms --var` décrivaient tous deux la propriété des mêmes fichiers, avec deux modèles différents :
+  `pm-perms` corrigeait ce que le `core update` suivant défaisait. Tant qu'il n'y avait qu'un humain, personne
+  ne le voyait ; à plusieurs devs, un compte de rôle hors du groupe du premier dev ne lit plus `.env` et
+  n'écrit plus `var/`. Le modèle vit désormais dans `pm_privsep`, **piloté par la configuration de
+  l'instance** (`pm.config.yml :: privsep` — une instance cliente ne se règle pas comme celle
+  d'iProspective) :
+  - **les secrets de service ne sont pas lisibles par les devs** : `.env` **et ses dérivés** (les
+    sauvegardes, par où une copie s'était retrouvée lisible par tous — RM3378) appartiennent au **groupe
+    d'administration** ; un dev n'a que sa conf personnelle (`<core>/var/users/<login>/.env`) ;
+  - `pm.env`, non secret, passe en 640 (il était en 644) ; `var/` et `projects/` restent au service PM,
+    groupe des devs, setgid ;
+  - les règles **sudoers** portent sur des **groupes** (devs / administration), plus sur un utilisateur
+    unique ; `install-mmi-pm` crée les groupes et y place les comptes ; `mmi-pm user add --admin` fait
+    entrer quelqu'un dans l'administration ;
+  - un groupe absent ne fait **jamais** échouer un déploiement : repli annoncé, jamais silencieux ;
+  - `mmi-pm privsep` montre le modèle effectif, cible par cible. — Cockpit & environnements de test
 
 - **Script de MEP par ticket, conservé et visible au cockpit (RM3225).** Une MEP non générique
   s'automatise dans `tasks/RM<id>_<slug>.script-mep.sh`, frère de la fiche, jamais supprimé

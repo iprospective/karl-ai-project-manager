@@ -48,6 +48,9 @@ import stat
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_privsep  # noqa: E402  RM3379 : source unique de la propriété des fichiers du cœur
+
 # rel_path sous le workspace -> mode octal attendu (setgid, JAMAIS sticky)
 WORKSPACE_MODEL = {
     ".": 0o2750,
@@ -68,24 +71,24 @@ WORKSPACE_MODEL = {
     "data": 0o2770,
 }
 STATE_MODEL = {".": 0o2775, "locks": 0o2775, "sessions": 0o2775}
-# Fichiers env communs du core (à la racine pm_dir) → root:pm 640.
-ENV_FILES = ("pm.env", ".env")
-ENV_FILE_MODE = 0o640
 ROOT_UID = 0
 STICKY = 0o1000
+# RM3379 : les fichiers du CŒUR (secrets, conf d'instance, var/, projects/) ne sont plus décrits ici.
+# Leur propriété vient de `pm_privsep`, source unique partagée avec `core-lock` — deux descriptions
+# divergeaient, et chaque `mmi-pm core update` défaisait ce que cet outil venait de corriger.
 
 
-def _pm_gid():
+def _gid(name):
     try:
-        return grp.getgrnam("pm").gr_gid
-    except KeyError:
+        return grp.getgrnam(name).gr_gid
+    except (KeyError, TypeError):
         return None
 
 
-def _pm_uid():
+def _uid(name):
     try:
-        return pwd.getpwnam("pm").pw_uid
-    except KeyError:
+        return pwd.getpwnam(name).pw_uid
+    except (KeyError, TypeError):
         return None
 
 
@@ -156,19 +159,24 @@ def _core_paths():
         return None, None
 
 
-def _targets(ws: Path, include_var: bool):
-    """[(path, want_mode, want_uid)] pour les chemins existants du modèle.
-    want_uid : pm pour dossiers, root pour fichiers env, None si user pm absent."""
-    pm_uid = _pm_uid()
-    out = [(ws / (rel if rel != "." else ""), m, pm_uid) for rel, m in WORKSPACE_MODEL.items()]
+def _targets(ws: Path, include_var: bool, model):
+    """[(path, want_mode, want_uid, want_gid)] pour les chemins existants.
+
+    Les dossiers du workspace vont au groupe partagé du modèle ; les cibles du cœur (secrets, conf
+    d'instance, var/, projects/) viennent de `pm_privsep` — chacune avec SON propriétaire et SON groupe,
+    les secrets n'étant pas lisibles par les devs (RM3379/Q1)."""
+    gid = _gid(model.group)
+    owner_uid = _uid(model.group)          # compte de données homonyme du groupe, s'il existe
+    out = [(ws / (rel if rel != "." else ""), m, owner_uid, gid) for rel, m in WORKSPACE_MODEL.items()]
     if include_var:
         core, state = _core_paths()
-        if state:
-            out += [(state / (rel if rel != "." else ""), m, pm_uid)
-                    for rel, m in STATE_MODEL.items()]
-        if core:
-            out += [(core / f, ENV_FILE_MODE, ROOT_UID) for f in ENV_FILES]
-    return [(p, m, u) for p, m, u in out if p.exists() and not p.is_symlink()]
+        if core and state:
+            for t in pm_privsep.core_targets(core, state, model):
+                sub = [t.path] + ([t.path / r for r in STATE_MODEL if r != "."]
+                                  if t.recurse and t.path == Path(state) else [])
+                for q in sub:
+                    out.append((q, t.mode, ROOT_UID if t.owner == "root" else _uid(t.owner), _gid(t.group)))
+    return [(p, m, u, g) for p, m, u, g in out if p.exists() and not p.is_symlink()]
 
 
 def _apply(path: Path, want_mode: int, want_gid, want_uid, can_chown: bool):
@@ -178,8 +186,8 @@ def _apply(path: Path, want_mode: int, want_gid, want_uid, can_chown: bool):
         os.chmod(path, want_mode)  # pose setgid, retire sticky
         done.append(f"chmod {want_mode:04o}")
     if want_gid is not None and st.st_gid != want_gid:
-        os.chown(path, -1, want_gid)  # chgrp pm
-        done.append("chgrp pm")
+        os.chown(path, -1, want_gid)
+        done.append(f"chgrp {grp.getgrgid(want_gid).gr_name}")
     if can_chown and want_uid is not None and st.st_uid != want_uid:
         try:
             os.chown(path, want_uid, -1)
@@ -207,16 +215,20 @@ def main():
         return 0
 
     ws = Path(args.workspace).resolve() if args.workspace else _find_workspace(Path.cwd())
-    gid = _pm_gid()
-    if gid is None:
-        print("⚠ groupe 'pm' introuvable — vérif groupe désactivée")
+    core, _state = _core_paths()
+    model = pm_privsep.load(core or ws)
+    if _gid(model.group) is None:
+        print(f"⚠ groupe '{model.group}' introuvable — vérif groupe désactivée")
+    for w in model.fallbacks:
+        print(f"⚠ {w}")
     can_chown = (os.geteuid() == 0)
 
-    targets = _targets(ws, args.var)
+    targets = _targets(ws, args.var, model)
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"=== pm-perms [{mode}] {ws} ===")
+    print(f"    modèle : {model.describe()}")
     drift = 0
-    for path, want, uid in sorted(targets, key=lambda t: str(t[0])):
+    for path, want, uid, gid in sorted(targets, key=lambda t: str(t[0])):
         issues = diagnose(path, want, gid, uid)
         if not issues:
             continue

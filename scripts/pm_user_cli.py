@@ -40,9 +40,16 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import pm_accounts as acc  # noqa: E402
 import pm_paths  # noqa: E402  RM3318 : la conf d'un utilisateur vit dans <core>/var/users/<login>/
+import pm_privsep  # noqa: E402  RM3379 : groupes du modèle de propriété (partagé / administration)
 
 CORE = SCRIPTS.parent
-PM_GROUP = "pm"
+def _groups():
+    """(groupe partagé, groupe d'administration) de CETTE instance — jamais codés en dur (RM3379)."""
+    m = pm_privsep.load(CORE)
+    return m.group, m.admin_group
+
+
+PM_GROUP, PM_ADMIN_GROUP = _groups()
 ENV_TEMPLATE = """# <core>/var/users/<login>/.env — secrets et réglages PERSONNELS du PM (RM2497, RM3318).
 # 600, hors git, jamais partagé — et jamais dans un home.
 # Tes actions Redmine et forge partent sous TON identité : renseigne tes propres clés.
@@ -98,6 +105,9 @@ def plan_add(login: str, st: dict, opts: dict) -> list:
             steps.append(Step("role-in-pm", f"{role} → groupe {PM_GROUP}", ["usermod", "-aG", PM_GROUP, role]))
         if not st["human_in_pm"]:
             steps.append(Step("human-in-pm", f"{login} → groupe {PM_GROUP}", ["usermod", "-aG", PM_GROUP, login]))
+    if opts.get("admin") and not opts["no_os"] and not st.get("human_in_admin"):
+        steps.append(Step("human-in-admin", f"{login} → groupe d'administration {PM_ADMIN_GROUP}",
+                          ["usermod", "-aG", PM_ADMIN_GROUP, login]))
     if not opts["no_cockpit"]:
         if st["account"] is None:
             what = "avec mot de passe" if opts["has_password"] else "sans mot de passe (aucune session cockpit)"
@@ -222,15 +232,20 @@ def probe(login: str, no_os: bool) -> dict:
         env_file = False
     if no_os:
         return dict(group_pm=True, human=bool(human), role=False, role_in_pm=False, human_in_pm=False,
-                    account=account, env_file=env_file)
+                    human_in_admin=True, account=account, env_file=env_file)
     v = os_view()
     try:
         pwd.getpwnam(role_of(login))
         role = True
     except KeyError:
         role = False
+    try:
+        admin_members = set(grp.getgrnam(PM_ADMIN_GROUP).gr_mem)
+    except KeyError:
+        admin_members = set()
     return dict(group_pm=v["group"], human=bool(human), role=role, role_in_pm=role_of(login) in v["members"],
-                human_in_pm=login in v["members"], account=account, env_file=env_file)
+                human_in_pm=login in v["members"], human_in_admin=login in admin_members,
+                account=account, env_file=env_file)
 
 
 def _superadmin():
@@ -332,6 +347,9 @@ def main(argv=None, verb=None) -> int:
     a.add_argument("--no-cockpit", action="store_true", help="pas d'entrée au registre du cockpit")
     a.add_argument("--no-profile", action="store_true", help="ni gabarit .env, ni skills, ni hooks")
     a.add_argument("--pm-gid", type=int, help="gid fixe du groupe pm s'il faut le créer (parité hôte/conteneur)")
+    a.add_argument("--admin", action="store_true",
+                   help=f"met aussi l'utilisateur dans le groupe d'administration ({PM_ADMIN_GROUP}) : "
+                        "déploiement, verrou, lecture des secrets communs de l'instance (RM3379)")
     a.add_argument("--role-home", default=os.environ.get("WORKSPACES_ROOT") or "/zfs/workspaces",
                    help="home (partagé, non créé) du compte de rôle — défaut : $WORKSPACES_ROOT")
     pw(a)
@@ -368,7 +386,8 @@ def main(argv=None, verb=None) -> int:
         if args.cmd == "add":
             password = _read_password(args)
             opts = dict(no_os=args.no_os, no_cockpit=args.no_cockpit, no_profile=args.no_profile,
-                        pm_gid=args.pm_gid, role_home=args.role_home, has_password=password is not None)
+                        pm_gid=args.pm_gid, role_home=args.role_home, has_password=password is not None,
+                        admin=args.admin)
             return execute(login, plan_add(login, st, opts), args, password)
         if args.cmd == "passwd":
             password = _read_password(args)

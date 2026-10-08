@@ -6,7 +6,7 @@
 # (bootstrap one-time) et `mmi-pm core update` (déploiement) DÉLÈGUENT ici. Ne JAMAIS
 # dupliquer le chown ailleurs.
 #
-# Modèle 3-couches :
+# Modèle 3-couches — DÉCRIT dans scripts/pm_privsep.py (source unique, RM3379), résumé ici :
 #   - CODE → root:root              : tout le versionné (bin/ scripts/ norms/ templates/
 #       agents/ pm.*.yml .git …). L'agent runtime KARL_USER (mathieu) LIT/EXÉCUTE via les
 #       bits « other » mais ne peut ni écrire ni committer l'instance (anti-pétouilles).
@@ -59,10 +59,26 @@ set -a; . "$CORE_DIR/.env"; set +a
 id "$KARL_USER"      >/dev/null 2>&1 || die "user runtime '$KARL_USER' inexistant"
 id "$KARL_SUDO_USER" >/dev/null 2>&1 || die "user PM '$KARL_SUDO_USER' inexistant"
 
-# Pré-requis d'appartenance : sans ça, mathieu-pm ne lit pas .env et l'agent n'écrit pas var/.
-if ! id -nG "$KARL_SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$KARL_USER"; then
-  echo "core-lock: ⚠ $KARL_SUDO_USER n'est PAS membre du groupe $KARL_USER" >&2
-  echo "core-lock:   → il ne pourra pas lire .env. Corriger : sudo usermod -aG $KARL_USER $KARL_SUDO_USER" >&2
+# Modèle de propriété : SOURCE UNIQUE (scripts/pm_privsep.py, RM3379). Il n'est plus écrit en bash : deux
+# déclarations divergeaient, et `pm-perms` corrigeait ce que la mise à jour suivante défaisait.
+MODEL="$(python3 "$CORE_DIR/scripts/pm-privsep.py" --core "$CORE_DIR" --sh)" \
+  || die "modèle de propriété illisible (scripts/pm-privsep.py)"
+eval "$MODEL"
+for i in 1 2 3; do eval "w=\${PRIVSEP_WARN_$i:-}"; [ -n "$w" ] && echo "core-lock: ⚠ $w" >&2; done
+unset w
+
+# Pré-requis d'appartenance : sans ça, le service PM n'écrit pas var/ et l'agent non plus.
+for u in "$KARL_SUDO_USER" "$KARL_USER"; do
+  if ! id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx "$PRIVSEP_GROUP"; then
+    echo "core-lock: ⚠ $u n'est PAS membre du groupe $PRIVSEP_GROUP" >&2
+    echo "core-lock:   → corriger : sudo usermod -aG $PRIVSEP_GROUP $u" >&2
+  fi
+done
+# Les SECRETS communs ne sont lisibles que par le groupe d'administration (décision RM3379/Q1).
+if [ "$PRIVSEP_ADMIN_GROUP" != "$PRIVSEP_GROUP" ] \
+   && ! id -nG "$KARL_SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$PRIVSEP_ADMIN_GROUP"; then
+  echo "core-lock: ⚠ $KARL_SUDO_USER n'est pas dans $PRIVSEP_ADMIN_GROUP : les tâches de fond ne liront" >&2
+  echo "core-lock:   pas les secrets communs. Corriger : sudo usermod -aG $PRIVSEP_ADMIN_GROUP $KARL_SUDO_USER" >&2
 fi
 
 if [ "$ACTION" = lock ]; then
@@ -71,23 +87,34 @@ if [ "$ACTION" = lock ]; then
   run chown -RP root:root "$CORE_DIR"
   run chmod -R u=rwX,go=rX "$CORE_DIR"
 
-  # 2) projects/ → KARL_USER (index régénérable, écrit sans privilège). Owner u=rwX déjà posé.
-  run chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR/projects"
+  # 2) projects/ → service PM, groupe partagé, setgid : l'index est régénérable et s'écrit SANS privilège
+  #    (mmi-pm index), par n'importe quel membre du groupe.
+  run chown -RP "$PRIVSEP_SERVICE_USER:$PRIVSEP_GROUP" "$PRIVSEP_PROJECTS_DIR"
+  run chmod -R u=rwX,g=rwX,o=rX "$PRIVSEP_PROJECTS_DIR"
+  run find "$PRIVSEP_PROJECTS_DIR" -type d -exec chmod g+s {} +
 
-  # 3) var/ → KARL_SUDO_USER:KARL_USER, groupe-écrivable + setgid : l'agent (KARL_USER, via le
-  #    groupe) écrit var/sessions/… ; les nouveaux fichiers héritent du groupe KARL_USER.
+  # 3) var/ → service PM : état runtime écrit par les comptes du groupe partagé (setgid → héritage).
   #    mkdir d'abord : sous racine root verrouillée, l'agent ne pourrait pas créer var/.
-  run mkdir -p "$CORE_DIR/var"
-  run chown -RP "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/var"
-  run chmod -R u=rwX,g=rwX,o=rX "$CORE_DIR/var"
-  run find "$CORE_DIR/var" -type d -exec chmod g+s {} +
+  run mkdir -p "$PRIVSEP_STATE_DIR"
+  run chown -RP "$PRIVSEP_SERVICE_USER:$PRIVSEP_GROUP" "$PRIVSEP_STATE_DIR"
+  run chmod -R u=rwX,g=rwX,o=rX "$PRIVSEP_STATE_DIR"
+  run find "$PRIVSEP_STATE_DIR" -type d -exec chmod g+s {} +
 
-  # 4) .env → root:KARL_USER 640 : secrets en couche immuable (root) ; groupe KARL_USER lit
-  #    (mathieu + mathieu-pm via le groupe). SEUL root modifie.
-  run chown root:"$KARL_USER" "$CORE_DIR/.env"
-  run chmod 640 "$CORE_DIR/.env"
+  # 4) SECRETS communs (.env ET ses dérivés : sauvegardes comprises — RM3378) → root:<admin>, 640.
+  #    Un dev n'a que sa conf personnelle (<core>/var/users/<login>/.env, RM3318).
+  for f in $PRIVSEP_SECRET_FILES; do
+    run chown root:"$PRIVSEP_ADMIN_GROUP" "$f"
+    run chmod "$PRIVSEP_SECRET_MODE" "$f"
+  done
 
-  echo "core-lock: $CORE_DIR VERROUILLÉ — code=root ; .env=root:$KARL_USER 640 ; var/=$KARL_SUDO_USER:$KARL_USER 2775 ; projects/=$KARL_USER$([ "$DRY" = 1 ] && echo ' [dry-run]')"
+  # 5) conf d'instance NON secrète (pm.env) → root:<groupe partagé>, 640 (elle était en 644).
+  for f in $PRIVSEP_CONF_FILES; do
+    [ -f "$f" ] || continue
+    run chown root:"$PRIVSEP_GROUP" "$f"
+    run chmod "$PRIVSEP_CONF_MODE" "$f"
+  done
+
+  echo "core-lock: $CORE_DIR VERROUILLÉ — $PRIVSEP_SUMMARY$([ "$DRY" = 1 ] && echo ' [dry-run]')"
 else
   # unlock : TOUT → KARL_USER (dev/débogage de l'instance). Réversibilité complète du verrou.
   run chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR"

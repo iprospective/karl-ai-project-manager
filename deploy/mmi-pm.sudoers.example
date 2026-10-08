@@ -6,6 +6,10 @@
 #   - Service PM = KARL_SUDO_USER (ex. mathieu-pm) → ops de structure/index/sync PM ;
 #   - Agent runtime = KARL_USER (ex. mathieu) → lit/exécute le code, code dans les projets.
 #
+# RM3379 — les droits portent sur des GROUPES, pas sur un utilisateur unique : une instance à plusieurs
+# devs ne se règle pas comme celle d'iProspective. <PM_GROUP> = les devs (opérations PM courantes) ;
+# <PM_ADMIN_GROUP> = l'administration (déploiement, verrou, secrets de l'instance).
+#
 # Trois droits sudo (TOUS avec MOT DE PASSE — PAS de NOPASSWD, barrière humaine, §13a) :
 #   1. PM ops courantes (structure, index, sync…)        -> en KARL_SUDO_USER
 #   2. Déploiement du code + (re)verrou                  -> en root
@@ -14,7 +18,7 @@
 #      (`core-lock lock|unlock`, `provision-core` ; chown inter-utilisateur exige root)
 #
 # Installation :
-#   1. Remplacer <KARL_USER> (agent runtime), <KARL_SUDO_USER> (service PM) et <CORE_DIR> (racine de
+#   1. Remplacer <PM_GROUP>, <PM_ADMIN_GROUP> (groupes, RM3379), <KARL_SUDO_USER> (service PM) et <CORE_DIR> (racine de
 #      l'instance, ex. /opt/mmi-pm/core) — `install-mmi-pm` le fait ; `install-mmi-pm --print-sudoers` montre le rendu.
 #   2. sudo cp ce fichier vers /etc/sudoers.d/mmi-pm   (puis: sudo visudo -c)
 #   3. sudo chmod 0440 /etc/sudoers.d/mmi-pm
@@ -22,26 +26,26 @@
 # Les chemins sont absolus figés ; mmi-pm valide ses args. ORDRE = last-match-wins :
 # l'entrée root `core update` (2) doit suivre l'entrée générale mathieu-pm (1).
 
-# 1. PM ops courantes — mmi-pm tourne comme le service PM (KARL_SUDO_USER).
-<KARL_USER> ALL=(<KARL_SUDO_USER>) <CORE_DIR>/bin/mmi-pm *
+# 1. PM ops courantes — mmi-pm tourne comme le service PM (KARL_SUDO_USER). Tout membre du groupe PM.
+%<PM_GROUP> ALL=(<KARL_SUDO_USER>) <CORE_DIR>/bin/mmi-pm *
 
 # 2. Déploiement du code (root-owned) : pull + re-verrou via core-lock → root.
 #    RM3033 : `mmi-pm core-update` (dispatcher python) se ré-exécute lui-même par ce chemin exact — la règle reste la seule
 #    porte root du CLI, ne pas la remplacer par `python3 …`.
-<KARL_USER> ALL=(root) <CORE_DIR>/bin/mmi-pm core update*
+%<PM_ADMIN_GROUP> ALL=(root) <CORE_DIR>/bin/mmi-pm core update*
 
 # 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.
-<KARL_USER> ALL=(root) <CORE_DIR>/scripts/core-lock *
-<KARL_USER> ALL=(root) <CORE_DIR>/scripts/provision-core *
+%<PM_ADMIN_GROUP> ALL=(root) <CORE_DIR>/scripts/core-lock *
+%<PM_ADMIN_GROUP> ALL=(root) <CORE_DIR>/scripts/provision-core *
 
 # RM3068 — écriture d'un secret de provider depuis le cockpit. Deux cas passent par root :
 #   · le .env d'un AUTRE développeur (--user <login>), quand un administrateur configure pour l'équipe ;
 #   · le .env GLOBAL de l'instance (--scope global), réservé aux administrateurs.
 # La VALEUR n'est jamais un argument : elle arrive sur l'entrée standard, donc rien n'en transpire dans
 # `ps`, ni dans le journal sudo (qui n'enregistre que la ligne de commande).
-<KARL_USER> ALL=(root) <CORE_DIR>/scripts/pm-provider-secret.py *
+%<PM_ADMIN_GROUP> ALL=(root) <CORE_DIR>/scripts/pm-provider-secret.py *
 
 # RM3069 — installation SYSTÈME des moteurs d'agents et des serveurs de modèles depuis le cockpit.
 # Le script n'accepte qu'un IDENTIFIANT de recette : les commandes vivent dans pm_engine_recipes.py,
 # aucune ne vient du navigateur. C'est lui qui appelle npm/pip/sh en root, jamais le démon directement.
-<KARL_USER> ALL=(root) <CORE_DIR>/scripts/pm-engine-install.py *
+%<PM_ADMIN_GROUP> ALL=(root) <CORE_DIR>/scripts/pm-engine-install.py *

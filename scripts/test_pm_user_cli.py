@@ -5,6 +5,7 @@ Ce qui doit tenir :
 - les plans sont IDEMPOTENTS : ce qui existe déjà ne se refait pas ;
 - rien ne se passe sans compte humain préexistant (le PM ne crée pas de personnes) ;
 - le mot de passe n'est JAMAIS un argument de ligne de commande (visible dans `ps`) ;
+- `--admin` met l'utilisateur dans le groupe d'administration (RM3379), et seulement sur demande ;
 - chaque verbe a son script composé (`pm-user-<verbe>.py`), pour ne pas disputer le domaine `user` à
   `pm-user-conf-migrate` (RM3318, garde RM3142) ;
 - `--dry-run` n'écrit rien ;
@@ -50,11 +51,11 @@ def kinds(steps):
 
 
 FRESH = dict(group_pm=False, human=True, role=False, role_in_pm=False, human_in_pm=False,
-             account=None, env_file=False)
+             human_in_admin=False, account=None, env_file=False)
 DONE = dict(group_pm=True, human=True, role=True, role_in_pm=True, human_in_pm=True,
-            account={"os_role": "alex-pm", "hash": "x"}, env_file=True)
+            human_in_admin=True, account={"os_role": "alex-pm", "hash": "x"}, env_file=True)
 OPTS = dict(no_os=False, no_cockpit=False, no_profile=False, pm_gid=None, role_home="/zfs/workspaces",
-            has_password=False)
+            has_password=False, admin=False)
 
 
 def main():
@@ -69,6 +70,13 @@ def main():
     check("gid fixe transmis", p[0].argv == ["groupadd", "--gid", "1008", "pm"], p[0].argv)
     p = pu.plan_add("alex", DONE, OPTS)
     check("idempotent : ne restent que les resynchronisations", kinds(p) == ["skills", "hooks"], kinds(p))
+    check("--admin ajoute l'entrée au groupe d'administration (RM3379)",
+          "human-in-admin" in kinds(pu.plan_add("alex", FRESH, {**OPTS, "admin": True})),
+          kinds(pu.plan_add("alex", FRESH, {**OPTS, "admin": True})))
+    check("sans --admin, personne n'entre dans le groupe d'administration",
+          "human-in-admin" not in kinds(pu.plan_add("alex", FRESH, OPTS)))
+    check("--admin est sans objet si c'est déjà le cas",
+          "human-in-admin" not in kinds(pu.plan_add("alex", DONE, {**OPTS, "admin": True})))
     p = pu.plan_add("alex", DONE, {**OPTS, "has_password": True})
     check("mot de passe fourni sur compte existant → changement", "account-passwd" in kinds(p), kinds(p))
     p = pu.plan_add("alex", FRESH, {**OPTS, "no_os": True, "no_profile": True})

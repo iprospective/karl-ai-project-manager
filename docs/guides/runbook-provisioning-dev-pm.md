@@ -11,6 +11,10 @@
 - **Données communes** : dossiers de churn en **setgid `2770`/`2775` groupe `pm`**,
   bares en **`core.sharedRepository=group`** → écriture directe multi-`<dev>-pm`, **sans
   sudo**, git multi-user natif. Squelette (racine, `repos/`) en `2750` (non group-writable).
+- **Qui lit les secrets communs (RM3379)** : le `.env` du cœur — et ses dérivés, sauvegardes comprises —
+  appartient au **groupe d'administration** (`privsep.admin_group`, défaut `pm-admin`), pas au groupe des
+  devs. Un dev n'a que sa conf personnelle. `mmi-pm user add <dev> --admin` fait entrer quelqu'un dans ce
+  groupe ; `mmi-pm privsep` montre le modèle effectif de l'instance.
 - **Secrets 3 niveaux** :
   - **perso** `<core>/var/users/<dev>/.env` — **`600`**, dossier **`700`**, hors git — clés
     API/git personnelles (attribution Redmine/GitLab par dev) et préférences (`PM_REPOS_DIR`,
@@ -33,6 +37,7 @@ idempotent :
 sudo mmi-pm user add <dev> --dry-run          # le plan : ce qui manque, rien d'écrit
 sudo mmi-pm user add <dev> --password-prompt  # compte cockpit avec mot de passe (sinon : sans session cockpit)
 sudo mmi-pm user add <dev> --pm-gid 1008      # si le groupe pm n'existe pas encore (ids fixes hôte ↔ conteneur)
+sudo mmi-pm user add <dev> --admin            # EN PLUS : administration (déploiement, verrou, secrets communs)
 ```
 
 Ce que fait `add`, dans l'ordre, en sautant ce qui existe déjà :

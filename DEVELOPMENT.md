@@ -30,6 +30,12 @@ onboarding agent), voir d'abord [README.md](README.md).
   `core-update` demande sudo lui-même ; RM3033 — `bin/mmi-pm` n'est plus qu'une coquille) et un helper
   confiné `pm-env-helper` (NOPASSWD ciblé). Détail : `docs/cdc/*privsep*`,
   `docs/cdc/*mmi-pm-cli*`.
+- **Propriété des fichiers de l'instance (RM3379).** `scripts/pm_privsep.py` est la SEULE description de
+  qui possède quoi dans le cœur (secrets, conf d'instance, `var/`, `projects/`) ; `core-lock` (root, au
+  déploiement) et `pm-perms --var` (sans privilège) la consomment — ils en avaient chacun une, et la mise à
+  jour défaisait la correction de l'autre. Deux groupes, configurés par instance
+  (`pm.config.yml :: privsep`) : celui des devs, celui de l'administration, seul à lire les secrets communs.
+  Voir l'état effectif : `mmi-pm privsep`.
 - **Parité CLI ↔ cockpit (RM3208).** Une route du cockpit qui **modifie l'état** ne porte pas la logique :
   elle lance un script `pm-*` ou appelle un module `pm_*` que le CLI utilise aussi (`pm_accounts` pour les
   comptes, `pm_batch` pour les lots, `pm_notify`…). `scripts/test_cockpit_cli_parity.py` le vérifie sur le

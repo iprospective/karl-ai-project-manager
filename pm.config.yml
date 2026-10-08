@@ -196,6 +196,20 @@ git:
   worktree_source: central
   envs_layout: project
 
+# ── Propriété des fichiers de l'instance (RM3379) ──────────────────────────
+# QUI possède quoi dans le cœur. Source unique : scripts/pm_privsep.py, consommée par `core-lock`
+# (déploiement, root) et `pm-perms --var` (hygiène, sans privilège) — avant, chacun avait sa version et la
+# mise à jour défaisait la correction de l'autre. Réglages d'INSTANCE : une instance cliente ne se configure
+# pas comme celle d'iProspective (décision du 2026-10-08).
+#   group       : les devs. Écrivent les données partagées (var/, projects/, workspaces).
+#   admin_group : l'administration. Déploiement (`core update`), verrou, ET lecture des SECRETS communs
+#                 (.env et ses dérivés) — un dev n'a que sa conf personnelle, <core>/var/users/<login>/.env.
+# Un groupe absent ne fait jamais échouer un déploiement : repli annoncé (cf. `mmi-pm privsep`).
+# Voir l'état effectif : `mmi-pm privsep` · appliquer : `pm-perms --apply --var <workspace>`.
+privsep:
+  group: pm
+  admin_group: pm-admin
+
 # ── Runtime des envs de workspace (RM1834 / RM1947 F1) ─────────────────────
 # Ops privilégiées (vhost Apache, BDD, purge logs) déléguées au helper
 # fail-closed `tools/env-runtime/pm-env-helper.sh` déployé sur la box de dev

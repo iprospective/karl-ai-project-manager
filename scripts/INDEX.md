@@ -191,6 +191,7 @@
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-mep-watch` — la file « à vérifier en prod » se rappelle à nous
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
+- `pm-privsep` — le modèle de propriété de l'instance : le montrer, ou l'exporter pour l…
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
 - `pm-sieve` — piloter les filtres Sieve d'une boîte par ManageSieve (RFC 5804) : lire…
@@ -244,6 +245,7 @@
 - `pm_output` — contrat de sortie des scripts PM
 - `pm_partner` — liens vers les tickets d'un gestionnaire PARTENAIRE (N0, RM2654).
 - `pm_paths` — Résolution de chemins du système PM iprospective.
+- `pm_privsep` — qui possède quoi dans une instance PM : UNE seule source
 - `pm_proclive` — « une session d'agent tourne-t-elle encore sur ce sid ? ». RM2810.
 - `pm_provider_types` — le CATALOGUE des types de fournisseurs
 - `pm_questions_gate` — pas de mise en prod avec une question en suspens

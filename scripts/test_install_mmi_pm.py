@@ -7,7 +7,9 @@ Ce qui doit tenir :
 - le rendu est valide pour `visudo` quand l'outil est disponible ;
 - `.env.example` déclare `KARL_USER` et `KARL_SUDO_USER` (exigés par l'installeur) ; rempli, il passe
   `install-mmi-pm --dry-run` sur une instance hors /zfs/workspaces ;
-- `core-lock` et `provision-core` ne visent plus /zfs/workspaces/.mmi-pm-core par défaut.
+- `core-lock` et `provision-core` ne visent plus /zfs/workspaces/.mmi-pm-core par défaut ;
+- les règles d'administration portent sur un GROUPE (RM3379), jamais sur un utilisateur unique ;
+- `core-lock` lit le modèle de propriété au lieu de le redéclarer en bash, sauvegardes de `.env` comprises.
 """
 import getpass
 import os
@@ -37,7 +39,8 @@ def fake_core(base: pathlib.Path, env_text: str) -> pathlib.Path:
     (core / "deploy").mkdir()
     shutil.copy(ROOT / "deploy" / "mmi-pm.sudoers.example", core / "deploy" / "mmi-pm.sudoers.example")
     (core / "scripts").mkdir()
-    for s in ("install-mmi-pm", "provision-core", "core-lock"):
+    # pm-privsep + son module : l'installeur et core-lock y lisent le modèle de propriété (RM3379)
+    for s in ("install-mmi-pm", "provision-core", "core-lock", "pm-privsep.py", "pm_privsep.py"):
         shutil.copy(ROOT / "scripts" / s, core / "scripts" / s)
     (core / ".env").write_text(env_text)
     return core
@@ -69,7 +72,10 @@ def main():
         check("chemin réel de l'instance substitué", f"{core}/bin/mmi-pm core update*" in out, out[-400:])
         check("plus aucun gabarit dans les règles",
               not any("<" in l for l in out.splitlines() if l.strip() and not l.lstrip().startswith("#")), out[-400:])
-        check("comptes substitués", f"{me} ALL=(root) {core}/scripts/core-lock *" in out, out[-400:])
+        check("administration par GROUPE, pas par utilisateur (RM3379)",
+              f"%pm-admin ALL=(root) {core}/scripts/core-lock *" in out, out[-400:])
+        check("opérations PM par le groupe partagé", f"%pm ALL=({me}) {core}/bin/mmi-pm *" in out, out[-400:])
+        check("aucun groupe vide rendu", "%  " not in out and "% " not in out.replace("% ", "%\u00a0", 0), out[-200:])
         visudo = shutil.which("visudo") or "/usr/sbin/visudo"
         if os.path.exists(visudo):
             f = base / "rendu.sudoers"
@@ -95,6 +101,21 @@ def main():
         (core / ".env").write_text(ex)
         r = subprocess.run(["bash", str(inst), str(core), "--dry-run"], capture_output=True, text=True)
         check("refus nommant KARL_USER", r.returncode != 0 and "KARL_USER" in r.stderr, r.stderr)
+
+        print("core-lock applique le modèle, sans le redéclarer (RM3379)")
+        (core / ".env").write_text(filled)                     # le bloc précédent l'avait laissé non rempli
+        (core / ".env.bak-20260101").write_text("X=1\n")      # une sauvegarde de secrets traîne
+        (core / "pm.env").write_text("REDMINE_URL=https://x\n")
+        (core / "pm.config.yml").write_text("privsep:\n  group: pm\n  admin_group: pm-admin\n")
+        r = subprocess.run(["bash", str(core / "scripts" / "core-lock"), "lock", str(core), "--dry-run"],
+                           capture_output=True, text=True)
+        out = r.stdout + r.stderr
+        check("le résumé vient du modèle", r.returncode == 0 and "code=root ; secrets=root:" in out, out[-400:])
+        check("la SAUVEGARDE de secrets est reprise (RM3378)", ".env.bak-20260101" in out, out[-500:])
+        check("pm.env passe au groupe partagé, 640", "pm.env" in out and "0640" in out.replace("640", "0640"),
+              out[-500:])
+        check("aucune règle de propriété écrite en bash",
+              "root:$KARL_USER" not in (ROOT / "scripts" / "core-lock").read_text(encoding="utf-8"))
 
         print("core-lock / provision-core auto-localisés")
         (core / ".env").write_text(filled)

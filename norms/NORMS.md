@@ -4007,8 +4007,15 @@ stable** — les chiffres en champs, jamais dans le texte — de sorte qu'une d�
 produise une entrée qui remonte, et non une par jour. Le ticket vient après, si l'humain
 décide qu'il y a du travail.
 
-Exemple de référence : `pm-context-budget --check` (invariant : le plafond) et
-`pm-context-budget --notify` (tendance : la marge de 10 %), travail `norms-budget-watch`.
+Exemple de référence — et contre-exemple devenu exemple : le **budget de contexte**. Le
+plafond a longtemps été tenu comme un invariant dur (`--check` en gate du doctor et de la
+suite). Résultat : deux tests rouges pendant des mois pour un dépassement de quelques
+dizaines de tokens sur trente mille, quatre tickets ouverts sur le même seuil (RM2974,
+RM2994, RM3035, RM3046), et les vrais invariants affichés juste au-dessus qu'on ne lisait
+plus. RM3417 l'a basculé : marge **et** plafond notifient (`--notify`, travail
+`norms-budget-watch`, et la porte du doctor), aucun des deux ne bloque, aucun des deux ne
+donne de ticket. **Le test à écrire pour une tendance n'est pas « le seuil est tenu » mais
+« le capteur alerte ».**
 
 ### 9. L'agent a un compte et une BOÎTE DE COURRIER d'essai (RM3360)
 

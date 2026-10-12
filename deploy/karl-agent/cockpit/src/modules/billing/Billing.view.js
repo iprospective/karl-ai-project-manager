@@ -48,6 +48,19 @@ export function Frise(vm) {
   </div>`;
 }
 
+/**
+ * La note de la journée, telle qu'elle est écrite.
+ *
+ * Texte libre : on l'affiche, on ne l'interprète pas. Quand une ligne ne contient que
+ * des horaires, ils sont PROPOSÉS — un clic les reporte dans le formulaire, jamais
+ * automatiquement : c'est l'humain qui décide ce qui fait foi.
+ */
+export function NoteDuJour(vm) {
+  const n = vm.note;
+  if (!n) return html`<div class="bl-note bl-note-vide">aucune note pour cette journée</div>`;
+  return html`<details class="bl-note" open><summary>📝 note du jour <span class="bl-dim">${n.fichier}</span>${n.heures ? html` · <b>${n.heures.debut}–${n.heures.fin}</b> <button class="mini" data-action="note-heures" data-debut="${n.heures.debut}" data-fin="${n.heures.fin}" title="Reporter ces horaires dans le formulaire">↧ reprendre</button>` : ""}</summary><pre class="bl-note-txt">${n.texte}</pre></details>`;
+}
+
 /** La notice de la frise : à quel client correspond quelle couleur, et combien il pèse. */
 export function Legende(vm) {
   const l = vm.legende;
@@ -202,7 +215,7 @@ export function Correspondances(vm) {
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
+  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${NoteDuJour(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

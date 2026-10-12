@@ -374,20 +374,15 @@ def esc_md(s):
 
 
 def render_markdown(text):
-    """Markdown → HTML stylé pour l'email. S'appuie sur python-markdown quand il est
-    présent (extension `tables` : c'est tout l'enjeu) ; sinon rend le texte tel quel dans
-    un bloc préformaté — dégradé mais lisible, jamais une erreur d'envoi."""
+    """Markdown → HTML stylé pour l'email, via `pm_markdown.to_html` : python-markdown quand
+    il est présent, sinon le convertisseur intégré (RM3440) — qui rend lui aussi les
+    tableaux. L'ancien repli (texte dans un <pre>) les rendait illisibles.
+    `nl2br` dans les deux cas : dans un protocole, un retour à la ligne est une intention."""
     src = _unpack_enumerations(_checkboxes(esc_md(text or "").replace("\r\n", "\n")))
     if not src.strip():
         return ""
-    try:
-        import markdown as _md
-    except ImportError:
-        return '<pre style="{0}">{1}</pre>'.format(_TAG_STYLE["pre"], src)
-    # `nl2br` : dans un protocole, un retour à la ligne est une intention (une étape, une
-    # ligne). Sans lui, markdown recolle les lignes consécutives en un seul paragraphe.
-    body = _md.markdown(src, extensions=["tables", "sane_lists", "nl2br"])
-    return _inline_styles(body)
+    import pm_markdown
+    return _inline_styles(pm_markdown.to_html(src))
 
 
 def _ticket_html(t):

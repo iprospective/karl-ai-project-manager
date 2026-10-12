@@ -74,7 +74,7 @@ noté dans Redmine comme le reste ; il n'entre simplement dans aucune facture.
 
 Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :
 elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent avec
-le reste des données d'exploitation du PM, dans `<core>/var/timesheet/<AAAA-MM>.days.yml`,
+le reste des données d'exploitation du PM, dans `<core>/var/users/<toi>/timesheet/<AAAA-MM>.days.yml`,
 et **ne sont écrites que lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas
 fait, ce que l'écran montre est une proposition recalculée depuis les traces à chaque
 ouverture.
@@ -88,6 +88,8 @@ ouverture.
 ```
 
 Le même dossier porte le cache des traces, celui des commits et les sauvegardes de reprise.
+Il est dans **ton** dossier utilisateur — ces journées sont les tiennes, pas celles de
+l'instance : sur un poste partagé, deux personnes ne se marchent pas dessus.
 `var/` est hors git : c'est de l'état, pas du versionné — il suit donc la sauvegarde du core,
 pas son historique. Porter ces champs dans Redmine reste une question ouverte : **RM3298**.
 
@@ -97,6 +99,16 @@ dépôt partagé) et jamais dans ton home.
 
 **Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
 aussitôt. **↺ ajustement** revient à ce que les traces disent.
+
+### Une demi-journée sur site
+
+Quand la journée ne se décrit pas par un début et une fin — « parti à 13h45, 3,5 h
+travaillées » — on donne directement le **volume** : `--heures 3.5`, avec le client.
+
+La différence n'est pas cosmétique. Avec une **plage**, le plancher compte *tout* le
+travail du créneau, y compris ce qui a été fait pour d'autres clients : c'est voulu, sur
+place on dépanne parfois quelqu'un d'autre. Sans plage, le plancher porte sur **le
+client** : l'après-midi passé ailleurs ne vient plus remplir le plancher à sa place.
 
 ## Le temps transversal
 
@@ -109,6 +121,34 @@ selon quelle clé :
 - **écarté** — une journée sans activité cliente n'a personne à qui l'imputer.
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
+
+### Le pot n'est pas homogène
+
+Un **produit** ne se refacture qu'à ceux qui s'en servent : le temps passé sur PrestaShop
+ou Dolibarr ne va qu'aux clients qui les utilisent, pas à MatNat. Cette liste ne se
+déclare **pas** dans les réglages du timesheet : elle est dans les manifestes PM
+(`used_by_clients` du produit), lue automatiquement — une liste recopiée finirait par
+diverger.
+
+Le pot **PM / infrastructure / Redmine**, lui, n'a pas d'usagers déclarés : il va à tous
+les clients du jour.
+
+Si aucun client présent ce jour-là n'utilise le produit, son temps **reste interne**
+plutôt que d'aller chez quelqu'un qui n'en profite pas.
+
+### L'abattement
+
+Une part de la quote-part d'un client peut rester à la charge d'iProspective :
+
+```yaml
+abattement:
+  calicote: 0.5      # iProspective garde la moitié de ce qui irait à calicote
+  calyclay: 0.5
+```
+
+C'est un **arrangement commercial**, pas une règle de calcul : rien dans le modèle PM ne
+le dit, il se déclare donc dans tes réglages. La part retenue n'est pas perdue — elle
+revient sur iProspective, à sa charge.
 
 ## Les blocs à insérer dans Redmine
 

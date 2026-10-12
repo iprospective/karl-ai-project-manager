@@ -259,6 +259,105 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── Le pot n'est pas homogène (RM3229, 2026-10-12) ──────────────────────────
+# « si le pot PM/infra est bien pour tous les clients, presta/doli n'est que pour
+# pisceen/calicote/calyclay » — un produit ne se refacture qu'à ceux qui s'en servent.
+_r2 = W.Regles(types={"pisceen": "client", "calicote": "client", "matnat": "client",
+                      "iprospective": "self", "prestashop": "product"},
+               usagers={"prestashop": {"pisceen", "calicote"}})
+verifie(_r2.clients_eligibles("prestashop", ["pisceen", "matnat"]) == {"pisceen"},
+        "un produit ne vise que ses usagers")
+verifie(_r2.clients_eligibles("iprospective", ["pisceen", "matnat"]) == {"pisceen", "matnat"},
+        "sans usagers déclarés (PM, infra), le pot va à tout le monde")
+
+_P = {"follow_cap": 10, "client_threshold_min": 60, "quantum_min": 15,
+      "work_start_hour": 8, "work_end_hour": 19}
+_alloc = {("2026-10-12", True, ("pisceen", "p", None)): 120.0,
+          ("2026-10-12", True, ("matnat", "m", None)): 120.0,
+          ("2026-10-12", True, ("prestashop", "core", None)): 60.0}
+_f, _e, _j, _rf = W.repartir_transversal(_alloc, _r2, _P)
+verifie(round(_f[("2026-10-12", ("pisceen", "p", None))]) == 180,
+        "les 60 min de PrestaShop vont ENTIÈREMENT à pisceen, seul usager du jour")
+verifie(round(_f[("2026-10-12", ("matnat", "m", None))]) == 120,
+        "…et matnat, qui n'a pas PrestaShop, n'en reçoit rien")
+verifie(round(sum(_f.values()) + sum(_e.values())) == 300, "rien créé, rien perdu")
+
+# aucun usager présent ce jour-là : le temps reste interne, il ne part pas chez un tiers
+_alloc2 = {("2026-10-12", True, ("matnat", "m", None)): 120.0,
+           ("2026-10-12", True, ("prestashop", "core", None)): 60.0}
+_f2, _e2, _j2, _ = W.repartir_transversal(_alloc2, _r2, _P)
+verifie(round(_f2[("2026-10-12", ("prestashop", "core", None))]) == 60,
+        "produit sans usager présent : reste interne, jamais refacturé au hasard")
+verifie(round(_f2[("2026-10-12", ("matnat", "m", None))]) == 120, "…et le client n'est pas gonflé")
+
+# ── Abattement : iProspective garde une part de la quote-part (2026-10-12) ──
+# « iprospective garde pour lui 50% du pot PM/infra à répartir relatif à calicote/calyclay »
+_r3 = W.Regles(types={"calicote": "client", "pisceen": "client", "iprospective": "self"},
+               abattement={"calicote": 0.5})
+_alloc3 = {("2026-10-12", True, ("calicote", "c", None)): 120.0,
+           ("2026-10-12", True, ("pisceen", "p", None)): 120.0,
+           ("2026-10-12", True, ("iprospective", "pm", None)): 60.0}
+_f3, _e3, _j3, _rf3 = W.repartir_transversal(_alloc3, _r3, _P)
+verifie(round(_rf3[("2026-10-12", ("calicote", "c", None))]) == 15,
+        "calicote reçoit la MOITIÉ de sa quote-part (30 → 15)")
+verifie(round(_rf3[("2026-10-12", ("pisceen", "p", None))]) == 30,
+        "…pisceen, sans abattement, reçoit la sienne en entier")
+verifie(round(_f3[("2026-10-12", ("iprospective", "pm", None))]) == 15,
+        "la moitié retenue reste chez iProspective, à sa charge")
+verifie(round(sum(_f3.values()) + sum(_e3.values())) == 300,
+        "l'abattement DÉPLACE du temps, il n'en détruit pas")
+
+# La retenue atterrit où on l'a DÉCLARÉ, pas chez la source : un pot venu d'un projet
+# non identifié y laissait sinon une retenue « non attribuée », illisible sur une facture.
+_r4 = W.Regles(types={"calicote": "client", "iprospective": "self"},
+               abattement={"calicote": 0.5},
+               retenue_vers=("iprospective", "pm-ai-agents", None))
+_alloc4 = {("2026-10-12", True, ("calicote", "c", None)): 120.0,
+           ("2026-10-12", True, (None, None, None)): 60.0}
+_f4, _e4, _j4, _ = W.repartir_transversal(_alloc4, _r4, _P)
+verifie(round(_f4.get(("2026-10-12", ("iprospective", "pm-ai-agents", None)), 0)) == 30,
+        "la retenue va sur iProspective, même quand le pot vient d'un projet inconnu")
+verifie(round(_f4.get(("2026-10-12", (None, None, None)), 0)) == 0,
+        "…et plus rien ne reste sur « non attribué »")
+verifie(round(sum(_f4.values()) + sum(_e4.values())) == 180, "total conservé")
+
+verifie(W._abattement({"abattement": {"calicote": 0.5}}) == {"calicote": 0.5},
+        "forme plate acceptée")
+verifie(W._abattement({"abattement": {"vers": "a/b", "clients": {"calicote": 0.5}}})
+        == {"calicote": 0.5}, "forme nommée aussi, sans confondre `vers` avec un client")
+verifie(W._retenue_vers({"abattement": {"vers": "iprospective/pm-ai-agents"}})
+        == ("iprospective", "pm-ai-agents", None), "la cible de retenue se lit")
+verifie(W._retenue_vers({}) is None, "sans `vers`, rien n'est imposé")
+
+# ── Une journée particulière : demi-journée sur site (RM3229, 2026-10-12) ───
+# « j'étais chez matnat jusqu'à 13h45, j'ai donc bossé 3,5 h ». Une telle journée se
+# note dans l'ÉTAT (days.yml), pas dans la conf — et son plancher porte sur le CLIENT,
+# pas sur un créneau : l'après-midi appartient à d'autres, il ne doit pas remplir le
+# plancher MatNat à sa place.
+_pres = W.presences_effectives([], {"2026-10-09": {"client": "matnat", "projet": "infra",
+                                                   "heures": 3.5}})
+verifie(len(_pres) == 1, "une journée qui porte un volume d'heures DEVIENT une présence")
+verifie(_pres[0]["debut"] is None and _pres[0]["heures"] == 3.5,
+        "…sans plage : le plancher portera sur le client, pas sur un créneau")
+verifie(_pres[0]["exclusif"] is False,
+        "…et sans exclusivité : rien n'est rapatrié d'un créneau qu'on n'a pas défini")
+_pres2 = W.presences_effectives([], {"2026-10-08": {"client": "matnat", "debut": "09:30",
+                                                    "fin": "18:30"}})
+verifie(_pres2[0]["debut"] == "09:30" and _pres2[0]["heures"] == 8.0,
+        "une journée avec plage garde son créneau et déduit ses heures")
+verifie(W.presences_effectives([], {"2026-10-11": {"client": "matnat"}}) == [],
+        "une journée sans plage NI heures n'est pas une présence")
+
+# le plancher par CLIENT comble jusqu'au volume déclaré, sans compter les autres clients
+_d0, _d1 = datetime(2026, 10, 9), datetime(2026, 10, 10)
+_final = {("2026-10-09", ("matnat", "infra", None)): 30.0,
+          ("2026-10-09", ("pisceen", "presta", None)): 150.0}
+_aj, _tr = W.appliquer_presences(_final, _pres, _d0, _d1, None, None)
+verifie(round(sum(_aj.values())) == 180,
+        "le complément vise les 3,5 h du CLIENT (30 min mesurées → +180)")
+verifie(all(c[0] == "matnat" for (_j, c, _m) in _aj),
+        "…et il va bien à MatNat, pas au client de l'après-midi")
+
 # ── Les livraisons se lisent dans les commits de fusion (RM3229, 2026-10-01) ──
 # Une MR fusionnée laisse un commit « Merge branch 'NNNN-slug' into 'dev' » : la forge
 # n'a pas besoin d'être interrogée pour savoir ce qui est sorti ce jour-là.
@@ -351,23 +450,28 @@ with _tf.TemporaryDirectory() as _tmp:
     (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: matnat}\n", encoding="utf-8")
     (_ancien / "cache" / "2026-08-26.jsonl").write_text("{}\n", encoding="utf-8")
 
-    _avant, _herite = W.ETAT, W.ETAT_HERITE
+    _avant, _herite = W.ETAT, list(W.ETATS_HERITES)
+    import os as _os
+    _os.environ["PM_USER_DIR"] = str(_core / "var" / "users" / "moi")
     try:
-        W.ETAT_HERITE = _ancien
-        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
-        verifie(_cible == _core / "var" / "timesheet", "l'état pointe sur <core>/var/timesheet")
+        W.ETATS_HERITES[:] = [_ancien]
+        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var", pm_dir=_core))
+        verifie(_cible == _core / "var" / "users" / "moi" / "timesheet",
+                "l'état vit dans le dossier de l'UTILISATEUR, pas dans un var/ commun")
         verifie((_cible / "2026-08.days.yml").is_file(), "les surcharges de journée ont suivi")
         verifie((_cible / "cache" / "2026-08-26.jsonl").is_file(),
                 "le cache des traces a suivi (sinon : tout rejouer)")
         verifie(not any(_ancien.iterdir()), "l'ancien emplacement est vidé")
 
         (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: AUTRE}\n", encoding="utf-8")
-        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var", pm_dir=_core))
         verifie("matnat" in (_cible / "2026-08.days.yml").read_text(encoding="utf-8"),
                 "une seconde reprise n'écrase pas l'état déjà en place")
         verifie(W.configurer_etat(None) == _cible, "sans configuration, l'état ne bouge pas")
     finally:
-        W.ETAT, W.ETAT_HERITE = _avant, _herite
+        W.ETAT = _avant
+        W.ETATS_HERITES[:] = _herite
+        _os.environ.pop("PM_USER_DIR", None)
 
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

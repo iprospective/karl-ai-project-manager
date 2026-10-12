@@ -1001,6 +1001,29 @@ class Regles:
     absences: list = field(default_factory=list)     # [(date_debut, date_fin, motif)]
     cles_multi: dict = field(default_factory=dict)   # entité/projet → [(client, poids)]
     seuil_client_min: float = DEFAULTS["client_threshold_min"]
+    #: entité du pot → clients qui l'utilisent. Vide = tout le monde (PM, infra, redmine).
+    #: Déclaré dans les manifestes PM (`used_by_clients`), jamais en conf : une liste
+    #: recopiée finit par diverger de la réalité (leçon `type: self`).
+    usagers: dict = field(default_factory=dict)
+    #: client → part de SA quote-part de pot interne qu'iProspective garde à sa charge.
+    #: Arrangement commercial, donc déclaré en conf : rien dans le modèle PM ne le dit.
+    abattement: dict = field(default_factory=dict)
+    #: (entité, projet, ticket) où atterrit la part retenue. Sans cela elle retournait
+    #: à SA source — donc sur « non attribué » quand le pot venait d'un projet inconnu,
+    #: ce qui n'a aucun sens sur une facture (arbitrage Mathieu, 2026-10-12).
+    retenue_vers: tuple = None
+
+    def clients_eligibles(self, entity, candidats):
+        """Les clients du jour à qui le pot de `entity` peut être refacturé.
+
+        Un produit ne se refacture qu'à ceux qui s'en servent : le temps passé sur
+        PrestaShop n'a rien à faire chez un client qui n'en a pas. Sans usagers
+        déclarés (PM, infrastructure, Redmine), le pot va à tout le monde.
+        """
+        usagers = self.usagers.get(entity)
+        if not usagers:
+            return set(candidats)
+        return {c for c in candidats if c in usagers}
 
     def est_client(self, entity):
         return self.types.get(entity) == "client"
@@ -1072,6 +1095,7 @@ def repartir_transversal(alloc, regles, params=None):
     """
     p = {**DEFAULTS, **(params or {})}
     par_jour = collections.defaultdict(lambda: {"pot_ouvre": 0.0, "pot_hors": 0.0,
+                                                "pot_par_source": collections.Counter(),
                                                 "clients": collections.Counter(),
                                                 "lignes": []})
     for (jour, ouvre, cible), minutes in alloc.items():
@@ -1082,6 +1106,10 @@ def repartir_transversal(alloc, regles, params=None):
             d["clients"][ent] += minutes
         elif regles.dans_le_pot(ent):
             d["pot_ouvre" if ouvre else "pot_hors"] += minutes
+            if ouvre:
+                # Par SOURCE : un produit ne se refacture qu'à ses usagers, le pot
+                # ne peut donc plus être réparti d'un bloc.
+                d["pot_par_source"][ent] += minutes
 
     final = collections.defaultdict(float)
     ecarte = collections.defaultdict(float)
@@ -1121,7 +1149,7 @@ def repartir_transversal(alloc, regles, params=None):
         # pas dans Redmine — un ticket appartient à un seul projet).
         lignes_clientes = [(cible, m) for ouvre, cible, m in d["lignes"]
                            if regles.est_client(cible[0])]
-        pot_a_repartir = 0.0
+        pot_par_source = collections.Counter()
         for ouvre, cible, minutes in d["lignes"]:
             ent = cible[0]
             if regles.est_client(ent) or not regles.dans_le_pot(ent):
@@ -1130,18 +1158,40 @@ def repartir_transversal(alloc, regles, params=None):
             if destin == NON_COMPTE:
                 ecarte[(jour, cible)] += minutes
             elif ouvre and destin == REFACTURE:
-                pot_a_repartir += minutes
+                pot_par_source[(ent, cible)] += minutes
             else:
                 final[(jour, cible)] += minutes          # soir/nuit/week-end : interne
-        if pot_a_repartir and client_total > 0:
+
+        for (ent_source, cible_source), minutes in pot_par_source.items():
+            eligibles = regles.clients_eligibles(ent_source, d["clients"])
+            base = sum(m for c, m in d["clients"].items() if c in eligibles)
+            if not base:
+                # Aucun client du jour ne se sert de ce produit : le temps reste
+                # interne plutôt que d'aller chez quelqu'un qui n'en profite pas.
+                final[(jour, cible_source)] += minutes
+                continue
+            garde = 0.0
             for cible, m in lignes_clientes:
-                part = pot_a_repartir * m / client_total
+                if cible[0] not in eligibles:
+                    continue
+                part = minutes * m / base
+                # Abattement : iProspective garde à sa charge une fraction de la
+                # quote-part de ce client — un arrangement, pas une règle de calcul.
+                retenue = part * float(regles.abattement.get(cible[0], 0) or 0)
+                if retenue:
+                    garde += retenue
+                    part -= retenue
                 final[(jour, cible)] += part
                 refacture[(jour, cible)] += part
+            if garde:
+                # La retenue atterrit à l'endroit DÉCLARÉ — pas chez la source : un pot
+                # venu d'un projet non identifié y laisserait une retenue « non attribuée ».
+                final[(jour, regles.retenue_vers or cible_source)] += garde
         journal[jour] = {
             "destin": destin, "cle": cle, "absence": motif_absence,
             "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
             "pot_hors_h": d["pot_hors"] / 60,
+            "pot_par_source_h": {e: m / 60 for e, m in d["pot_par_source"].items()},
             "alerte_absence": bool(motif_absence and client_total > 0),
         }
     return dict(final), dict(ecarte), journal, dict(refacture)
@@ -1352,6 +1402,23 @@ def charger_config(chemin=None, cfg=None):
         return {}
 
 
+def _abattement(conf):
+    """Les taux d'abattement, que la conf les donne à plat ou sous `clients:`."""
+    brut = (conf or {}).get("abattement") or {}
+    taux = brut.get("clients") if isinstance(brut.get("clients"), dict) else brut
+    return {str(k): float(v) for k, v in (taux or {}).items()
+            if k != "vers" and isinstance(v, (int, float))}
+
+
+def _retenue_vers(conf):
+    """Où atterrit la part retenue : `abattement.vers` = `<client>/<projet>`."""
+    vers = ((conf or {}).get("abattement") or {}).get("vers")
+    if not vers:
+        return None
+    bout = str(vers).split("/")
+    return (bout[0], bout[1] if len(bout) > 1 else None, None)
+
+
 def regles_depuis_config(conf, cfg):
     """Construit les `Regles` : typologie PM + arbitrages déclarés."""
     types = {}
@@ -1377,8 +1444,31 @@ def regles_depuis_config(conf, cfg):
             else:
                 norm.append((item[0], float(item[1])))
         cles[cible] = [x for x in norm if x[0]]
+    # Qui se sert de quoi : lu dans les manifestes PM (`used_by_clients` du projet
+    # fournisseur), agrégé par entité. Jamais recopié en conf — une liste parallèle
+    # finit par mentir (leçon `type: self`).
+    usagers = collections.defaultdict(set)
+    for ent, _ in cfg.iter_entities():
+        try:
+            fm = cfg.client_meta(ent) or {}
+        except Exception:
+            fm = {}
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
+    for ent, proj, _chemin in cfg.iter_projects():
+        try:
+            fm = cfg.project_meta(ent, proj) or {}
+        except Exception:
+            continue
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
     return Regles(
         types=types,
+        usagers={e: s for e, s in usagers.items()},
+        abattement=_abattement(conf),
+        retenue_vers=_retenue_vers(conf),
         perso=set(conf.get("perso", []) or []),
         absences=absences,
         cles_multi=cles,
@@ -1669,36 +1759,50 @@ CONF_NOM = "timesheet.yml"
 #:
 #: Les RÉGLAGES vont eux aussi sous `var/` (`var/users/<user>/`, RM3318) : propres à
 #: l'utilisateur et hors git, mais jamais dans son home.
-ETAT_HERITE = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
-ETAT = ETAT_HERITE
+#: Emplacements hérités, dans l'ordre où on les a quittés. Tout est rapatrié, une fois.
+ETATS_HERITES = [
+    Path.home() / ".local" / "state" / "mmi-pm" / "timesheet",   # avant RM3229 (home)
+]
+ETAT = ETATS_HERITES[0]
 
 
-def configurer_etat(cfg=None, migrer=True):
-    """Pointe l'état sur `<core>/var/timesheet` et rapatrie l'ancien emplacement.
+def configurer_etat(cfg=None, migrer=True, user=None):
+    """Pointe l'état sur `<core>/var/users/<user>/timesheet` et rapatrie l'ancien.
 
-    La reprise est faite UNE fois, et seulement si la nouvelle destination est vide :
-    un cache orphelin obligerait à rejouer tous les transcripts, et les sauvegardes de
-    reprise doivent suivre leur outil.
+    L'état du timesheet est PROPRE À UNE PERSONNE : ses journées, ses traces, ses
+    sauvegardes de reprise. Sa place est donc le dossier utilisateur, à côté de ses
+    réglages — pas un `var/timesheet` commun qui mélangerait deux personnes sur une
+    instance partagée (arbitrage Mathieu, 2026-10-12 : « days.yml ne devrait pas être
+    dans le dossier de l'user ? »).
+
+    La reprise est faite UNE fois par emplacement, et seulement si la destination est
+    vide : un cache orphelin obligerait à rejouer tous les transcripts, et les
+    sauvegardes de reprise doivent suivre leur outil.
     """
     global ETAT
     if cfg is None or not getattr(cfg, "state_dir", None):
         return ETAT
-    ETAT = Path(cfg.state_dir) / "timesheet"
+    import pm_paths
+    ETAT = pm_paths.user_conf_dir(user, getattr(cfg, "pm_dir", None)) / "timesheet"
     ETAT.mkdir(parents=True, exist_ok=True)
-    if migrer and ETAT_HERITE.is_dir() and ETAT_HERITE != ETAT and not any(ETAT.iterdir()):
+    if not migrer:
+        return ETAT
+    anciens = list(ETATS_HERITES) + [Path(cfg.state_dir) / "timesheet"]   # var/ commun (RM3229)
+    for herite in anciens:
+        if not herite.is_dir() or herite == ETAT or any(ETAT.iterdir()):
+            continue
         deplaces = 0
-        for item in ETAT_HERITE.iterdir():
+        for item in herite.iterdir():
             cible = ETAT / item.name
             if cible.exists():
                 continue
             try:
                 item.rename(cible)
-                deplaces += 1
             except OSError:
                 shutil.move(str(item), str(cible))   # traversée de systèmes de fichiers
-                deplaces += 1
+            deplaces += 1
         if deplaces:
-            print(f"  ↪ état du timesheet repris depuis {ETAT_HERITE} "
+            print(f"  ↪ état du timesheet repris depuis {herite} "
                   f"({deplaces} entrée(s)) → {ETAT}", file=sys.stderr)
     return ETAT
 
@@ -1959,7 +2063,11 @@ def presences_effectives(presences, surcharges):
     planchers s'empileraient) : sa date est ajoutée aux `sauf` des présences
     régulières, et elle devient une présence datée à part entière.
     """
-    jours = sorted(j for j, s in (surcharges or {}).items() if s and s.get("debut") and s.get("fin"))
+    # Une journée compte comme présence dès qu'elle porte une plage OU un volume
+    # d'heures : « parti à 13h45, 3,5 h » n'a pas de fin exploitable comme plage, et
+    # c'est justement le cas où le plancher doit porter sur le CLIENT, pas sur la plage.
+    jours = sorted(j for j, s in (surcharges or {}).items()
+                   if s and ((s.get("debut") and s.get("fin")) or s.get("heures")))
     sortie = []
     for p in presences or []:
         q = dict(p)
@@ -1967,10 +2075,17 @@ def presences_effectives(presences, surcharges):
         sortie.append(q)
     for j in jours:
         s = surcharges[j]
+        plage = bool(s.get("debut") and s.get("fin"))
         sortie.append({
             "client": s.get("client"), "projet": s.get("projet"), "dates": [j],
-            "debut": s["debut"], "fin": s["fin"],
-            "heures": s.get("heures") or heures_travaillees(s["debut"], s["fin"], s.get("pause_h")),
-            "reunion_h": s.get("reunion_h", 0), "exclusif": s.get("exclusif", False),
+            # Sans plage, pas de `debut`/`fin` : le plancher se calcule alors sur le temps
+            # du CLIENT et non sur tout ce qui a été fait dans un créneau — ce qu'il faut
+            # pour une demi-journée sur site, l'après-midi appartenant à d'autres.
+            "debut": s["debut"] if plage else None,
+            "fin": s["fin"] if plage else None,
+            "heures": s.get("heures") or (heures_travaillees(s["debut"], s["fin"], s.get("pause_h"))
+                                          if plage else 0),
+            "reunion_h": s.get("reunion_h", 0),
+            "exclusif": s.get("exclusif", False) if plage else False,
         })
     return [p for p in sortie if p.get("client")]

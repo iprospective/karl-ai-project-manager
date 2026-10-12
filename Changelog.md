@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Mails de Karl : corps markdown et pièces jointes (RM3440).** `karl-mail-send.py --markdown <f.md>`
+  envoie un multipart texte + HTML dont la version HTML est le rendu du markdown (tableaux compris) ;
+  `--attach <fichier>` (répétable) joint des fichiers, total plafonné (`PM_MAIL_ATTACH_MAX_MB`, 20 Mo) et
+  vérifié avant envoi ; `--dry-run` montre la structure MIME. Le rendu markdown → HTML vit dans
+  `pm_markdown.to_html()` : python-markdown s'il est installé, sinon un **convertisseur intégré** —
+  python-markdown manquait sur le conteneur `dev`, où les notifications client (RM3052) retombaient sur
+  un `<pre>` illisible et où `test_pm_client_notify.py` plantait. Déclencheur : rapport client RM3413.
 - **Mettre à jour le code de l'instance depuis le cockpit (RM2571, réouvert).** Le bouton « ⬆ MAJ dispo »
   ne faisait que dire la commande à taper ; il l'applique désormais. Arbitrage Mathieu du 2026-09-30 : la
   règle sudoers du seul verbe `bin/mmi-pm core update` passe en **NOPASSWD**, pour un utilisateur `pm`

@@ -122,6 +122,34 @@ selon quelle clé :
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 
+### Le pot n'est pas homogène
+
+Un **produit** ne se refacture qu'à ceux qui s'en servent : le temps passé sur PrestaShop
+ou Dolibarr ne va qu'aux clients qui les utilisent, pas à MatNat. Cette liste ne se
+déclare **pas** dans les réglages du timesheet : elle est dans les manifestes PM
+(`used_by_clients` du produit), lue automatiquement — une liste recopiée finirait par
+diverger.
+
+Le pot **PM / infrastructure / Redmine**, lui, n'a pas d'usagers déclarés : il va à tous
+les clients du jour.
+
+Si aucun client présent ce jour-là n'utilise le produit, son temps **reste interne**
+plutôt que d'aller chez quelqu'un qui n'en profite pas.
+
+### L'abattement
+
+Une part de la quote-part d'un client peut rester à la charge d'iProspective :
+
+```yaml
+abattement:
+  calicote: 0.5      # iProspective garde la moitié de ce qui irait à calicote
+  calyclay: 0.5
+```
+
+C'est un **arrangement commercial**, pas une règle de calcul : rien dans le modèle PM ne
+le dit, il se déclare donc dans tes réglages. La part retenue n'est pas perdue — elle
+revient sur iProspective, à sa charge.
+
 ## Les blocs à insérer dans Redmine
 
 C'est **l'unité qui compte**. Un bloc = du temps + une activité + **un seul** projet, et si

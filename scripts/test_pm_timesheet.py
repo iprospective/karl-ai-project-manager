@@ -259,6 +259,54 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── Le pot n'est pas homogène (RM3229, 2026-10-12) ──────────────────────────
+# « si le pot PM/infra est bien pour tous les clients, presta/doli n'est que pour
+# pisceen/calicote/calyclay » — un produit ne se refacture qu'à ceux qui s'en servent.
+_r2 = W.Regles(types={"pisceen": "client", "calicote": "client", "matnat": "client",
+                      "iprospective": "self", "prestashop": "product"},
+               usagers={"prestashop": {"pisceen", "calicote"}})
+verifie(_r2.clients_eligibles("prestashop", ["pisceen", "matnat"]) == {"pisceen"},
+        "un produit ne vise que ses usagers")
+verifie(_r2.clients_eligibles("iprospective", ["pisceen", "matnat"]) == {"pisceen", "matnat"},
+        "sans usagers déclarés (PM, infra), le pot va à tout le monde")
+
+_P = {"follow_cap": 10, "client_threshold_min": 60, "quantum_min": 15,
+      "work_start_hour": 8, "work_end_hour": 19}
+_alloc = {("2026-10-12", True, ("pisceen", "p", None)): 120.0,
+          ("2026-10-12", True, ("matnat", "m", None)): 120.0,
+          ("2026-10-12", True, ("prestashop", "core", None)): 60.0}
+_f, _e, _j, _rf = W.repartir_transversal(_alloc, _r2, _P)
+verifie(round(_f[("2026-10-12", ("pisceen", "p", None))]) == 180,
+        "les 60 min de PrestaShop vont ENTIÈREMENT à pisceen, seul usager du jour")
+verifie(round(_f[("2026-10-12", ("matnat", "m", None))]) == 120,
+        "…et matnat, qui n'a pas PrestaShop, n'en reçoit rien")
+verifie(round(sum(_f.values()) + sum(_e.values())) == 300, "rien créé, rien perdu")
+
+# aucun usager présent ce jour-là : le temps reste interne, il ne part pas chez un tiers
+_alloc2 = {("2026-10-12", True, ("matnat", "m", None)): 120.0,
+           ("2026-10-12", True, ("prestashop", "core", None)): 60.0}
+_f2, _e2, _j2, _ = W.repartir_transversal(_alloc2, _r2, _P)
+verifie(round(_f2[("2026-10-12", ("prestashop", "core", None))]) == 60,
+        "produit sans usager présent : reste interne, jamais refacturé au hasard")
+verifie(round(_f2[("2026-10-12", ("matnat", "m", None))]) == 120, "…et le client n'est pas gonflé")
+
+# ── Abattement : iProspective garde une part de la quote-part (2026-10-12) ──
+# « iprospective garde pour lui 50% du pot PM/infra à répartir relatif à calicote/calyclay »
+_r3 = W.Regles(types={"calicote": "client", "pisceen": "client", "iprospective": "self"},
+               abattement={"calicote": 0.5})
+_alloc3 = {("2026-10-12", True, ("calicote", "c", None)): 120.0,
+           ("2026-10-12", True, ("pisceen", "p", None)): 120.0,
+           ("2026-10-12", True, ("iprospective", "pm", None)): 60.0}
+_f3, _e3, _j3, _rf3 = W.repartir_transversal(_alloc3, _r3, _P)
+verifie(round(_rf3[("2026-10-12", ("calicote", "c", None))]) == 15,
+        "calicote reçoit la MOITIÉ de sa quote-part (30 → 15)")
+verifie(round(_rf3[("2026-10-12", ("pisceen", "p", None))]) == 30,
+        "…pisceen, sans abattement, reçoit la sienne en entier")
+verifie(round(_f3[("2026-10-12", ("iprospective", "pm", None))]) == 15,
+        "la moitié retenue reste chez iProspective, à sa charge")
+verifie(round(sum(_f3.values()) + sum(_e3.values())) == 300,
+        "l'abattement DÉPLACE du temps, il n'en détruit pas")
+
 # ── Une journée particulière : demi-journée sur site (RM3229, 2026-10-12) ───
 # « j'étais chez matnat jusqu'à 13h45, j'ai donc bossé 3,5 h ». Une telle journée se
 # note dans l'ÉTAT (days.yml), pas dans la conf — et son plancher porte sur le CLIENT,

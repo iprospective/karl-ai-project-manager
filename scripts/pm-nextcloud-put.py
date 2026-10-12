@@ -13,7 +13,10 @@ Usage :
 Dépôt (WebDAV, `urllib`, sans dépendance) :
     <racine>/<client>/<projet>/[<dest>/]<AAAA-MM-JJ>-<slug>.<ext>
   `racine` = `providers.servers.<instance>.root` (défaut `Partages`). Un nom qui commence déjà
-  par une date n'en reçoit pas une seconde ; `--name` force le nom tel quel. Dépôt idempotent :
+  par une date n'en reçoit pas une seconde ; `--name` force le nom tel quel. Les dossiers client et
+  projet sont résolus SANS TENIR COMPTE DE LA CASSE contre l'existant (PROPFIND Depth 1 : `Calicote`
+  existe → on l'utilise) ; s'ils n'existent pas, le client est créé avec une majuscule initiale
+  (convention observée : `Partages/Calicote/`) et le projet tel quel. Dépôt idempotent :
   re-déposer le même nom écrase le fichier (PUT) et les dossiers existants sont tolérés (MKCOL).
 
 Identifiants (jamais affichés, jamais loggués) :
@@ -23,7 +26,8 @@ Identifiants (jamais affichés, jamais loggués) :
             d'environnement `NEXTCLOUD_APP_PASSWORD` (essais manuels).
 
 Partage (`--share`) : API OCS `files_sharing` (lien public, `shareType=3`, lecture seule) ;
-`--expire J` pose une échéance dans J jours. `--porcelain` : l'URL seule (ou, sans `--share`, le
+`--expire J` pose une échéance dans J jours (défaut : `providers.servers.<instance>.share_expire_days`).
+Un fichier déjà partagé par un lien public voit CE lien réutilisé (GET `shares?path=…`), pas un second. `--porcelain` : l'URL seule (ou, sans `--share`, le
 chemin WebDAV). `--dry-run` : montre ce qui serait fait, sans réseau ni secret.
 
 Fichier `.md` : déposé tel quel (Nextcloud le rend). Aucun convertisseur md → pdf n'existe au
@@ -115,7 +119,7 @@ def webdav_url(base, user, relpath):
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 def load_instance(cfg, name):
-    """(url, user, root, secret_uri) de l'instance `nextcloud` ; PutError(4) sinon."""
+    """(url, user, root, secret_uri, expire_days|None) de l'instance `nextcloud` ; PutError(4) sinon."""
     from pm_registry import Registry, RegistryError
     try:
         reg = Registry.from_config(getattr(cfg, "providers", None) or {})
@@ -128,8 +132,13 @@ def load_instance(cfg, name):
     if not inst.url:
         raise PutError(f"configuration : l'instance {name!r} n'a pas d'url", EXIT_CONF)
     o = inst.options or {}
+    exp = o.get("share_expire_days")
+    try:
+        exp = int(exp) if exp else None
+    except (TypeError, ValueError):
+        raise PutError(f"configuration : share_expire_days invalide ({exp!r})", EXIT_CONF)
     return (inst.url, str(o.get("user") or DEFAULT_USER),
-            str(o.get("root") or DEFAULT_ROOT), str(o.get("secret") or ""))
+            str(o.get("root") or DEFAULT_ROOT), str(o.get("secret") or ""), exp)
 
 
 def resolve_project(cfg, ref=None, start=None):
@@ -202,6 +211,43 @@ def _scrub(text, password):
     return text.replace(password, "***") if password else text
 
 
+def list_subfolders(base, user, password, parent_rel, http=None):
+    """Noms des sous-dossiers de `parent_rel` (PROPFIND Depth 1). [] si le parent n'existe pas."""
+    http = http or _http
+    url = webdav_url(base, user, parent_rel) + "/"
+    headers = dict(_auth(user, password))
+    headers["Depth"] = "1"
+    headers["Content-Type"] = "application/xml"
+    body = (b'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>')
+    status, resp = http("PROPFIND", url, headers, body)
+    if status == 404:
+        return []
+    if status != 207:
+        raise PutError(f"PROPFIND /{parent_rel} : HTTP {status} {_scrub(resp, password)[:200]}", EXIT_NET)
+    try:
+        root = ET.fromstring(resp)
+    except ET.ParseError:
+        raise PutError("réponse PROPFIND illisible (pas du XML)", EXIT_NET)
+    names = []
+    for r in root.findall("{DAV:}response"):
+        if r.find(".//{DAV:}resourcetype/{DAV:}collection") is None:
+            continue
+        href = urllib.parse.unquote(r.findtext("{DAV:}href") or "").rstrip("/")
+        name = href.rsplit("/", 1)[-1]
+        if name and not href.endswith("/" + parent_rel.rstrip("/")):   # hors le parent lui-même
+            names.append(name)
+    return names
+
+
+def resolve_folder(base, user, password, parent_rel, wanted, capitalize=False, http=None):
+    """Nom du dossier `wanted` sous `parent_rel`, insensible à la casse contre l'existant ;
+    sinon le nom à créer (majuscule initiale si `capitalize`)."""
+    for n in list_subfolders(base, user, password, parent_rel, http):
+        if n.lower() == wanted.lower():
+            return n
+    return wanted[:1].upper() + wanted[1:] if capitalize else wanted
+
+
 def mkcol_tree(base, user, password, relpath, http=None):
     """MKCOL récursif des dossiers de `relpath` (sans le fichier). 405 = existe déjà."""
     http = http or _http
@@ -240,6 +286,29 @@ def parse_ocs_url(body):
     return url
 
 
+def find_public_share(base, user, password, relpath, http=None):
+    """(url, expiration|None) du lien public existant sur `relpath`, ou None."""
+    http = http or _http
+    headers = dict(_auth(user, password))
+    headers["OCS-APIRequest"] = "true"
+    url = (base.rstrip("/") + "/ocs/v2.php/apps/files_sharing/api/v1/shares?"
+           + urllib.parse.urlencode({"path": "/" + relpath}))
+    status, body = http("GET", url, headers)
+    if status == 404:
+        return None
+    if status not in (100, 200):
+        raise PutError(f"liste des partages OCS : HTTP {status} {_scrub(body, password)[:200]}", EXIT_NET)
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        raise PutError("réponse OCS illisible (pas du XML)", EXIT_NET)
+    for el in root.findall("./data/element"):
+        if (el.findtext("share_type") or "").strip() == "3" and (el.findtext("url") or "").strip():
+            exp = (el.findtext("expiration") or "").strip()
+            return el.findtext("url").strip(), (exp[:10] or None)
+    return None
+
+
 def create_share(base, user, password, relpath, expire_days=None, http=None, today=None):
     http = http or _http
     form = {"path": "/" + relpath, "shareType": "3", "permissions": "1"}
@@ -262,35 +331,51 @@ def run(args, cfg, http=None, runner=subprocess.run, environ=None, today=None, o
     src = Path(args.file)
     if not src.is_file():
         raise PutError(f"fichier introuvable : {src}", EXIT_CONF)
-    base, user, root, secret_uri = load_instance(cfg, args.instance)
+    base, user, root, secret_uri, default_expire = load_instance(cfg, args.instance)
     client, project = resolve_project(cfg, args.project)
-    rel = deposit_path(root, client, project, src.name, args.dest, args.name, today)
+    expire = args.expire or default_expire
 
     if args.dry_run:
+        rel = deposit_path(root, client[:1].upper() + client[1:], project, src.name, args.dest, args.name, today)
         if args.porcelain:
             print("/" + rel, file=out)
             return EXIT_OK
         print(f"[dry-run] instance : {args.instance} ({base}) · compte : {user}", file=out)
         print(f"[dry-run] secret   : {'URI ' + secret_uri.split('#')[0] if secret_uri else '$' + ENV_PASSWORD} (non résolu)", file=out)
-        print(f"[dry-run] MKCOL    : {'/'.join(rel.split('/')[:-1])}/ (récursif)", file=out)
+        print(f"[dry-run] DOSSIERS : {'/'.join(rel.split('/')[:-1])}/ (casse client/projet résolue au dépôt par PROPFIND ; MKCOL récursif)", file=out)
         print(f"[dry-run] PUT      : /{rel} ({src.stat().st_size} octets)", file=out)
         if args.share:
-            exp = f", échéance +{args.expire} j" if args.expire else ""
-            print(f"[dry-run] PARTAGE  : lien public, lecture seule{exp}", file=out)
+            exp = f", échéance +{expire} j" if expire else ""
+            print(f"[dry-run] PARTAGE  : lien public, lecture seule{exp} (lien existant réutilisé s'il y en a un)", file=out)
         print("[dry-run] aucun réseau, rien d'écrit", file=out)
         return EXIT_OK
 
     password = get_password(secret_uri, runner, environ)
     content = src.read_bytes()
+    root_segs = "/".join(_safe_segment(x) for x in root.strip("/").split("/") if x.strip())
+    client_dir = resolve_folder(base, user, password, root_segs, _safe_segment(client), True, http)
+    project_dir = resolve_folder(base, user, password, f"{root_segs}/{client_dir}", _safe_segment(project), False, http)
+    rel = deposit_path(root, client_dir, project_dir, src.name, args.dest, args.name, today)
     mkcol_tree(base, user, password, rel, http)
     put_file(base, user, password, rel, content, http)
-    url = create_share(base, user, password, rel, args.expire, http, today) if args.share else None
+    url, reused, exp_date = None, False, None
+    if args.share:
+        found = find_public_share(base, user, password, rel, http)
+        if found:
+            url, exp_date = found
+            reused = True
+        else:
+            url = create_share(base, user, password, rel, expire, http, today)
     if args.porcelain:
         print(url or "/" + rel, file=out)
     else:
         print(f"Déposé : /{rel}", file=out)
         if url:
-            print(f"URL    : {url}", file=out)
+            if reused:
+                print(f"URL    : {url}  (lien public existant réutilisé"
+                      f"{', expire le ' + exp_date if exp_date else ''})", file=out)
+            else:
+                print(f"URL    : {url}", file=out)
     return EXIT_OK
 
 

@@ -83,11 +83,11 @@ class FakeCfg:
         return self._cwd
 
 
-FULL = {"nc-ipro": {"axis": "doc", "type": "nextcloud", "url": "https://cloud.test",
+FULL = {"nc-ipro": {"axis": "doc", "type": "nextcloud", "url": "https://cloud.test", "share_expire_days": 14,
                     "user": "robot", "root": "Docs", "secret": "secret://vw/agents/nc#password"}}
 BARE = {"nc-ipro": {"axis": "doc", "type": "nextcloud", "url": "https://cloud.test"}}
-check("instance : user/root/secret lus", nc.load_instance(FakeCfg(FULL), "nc-ipro") == ("https://cloud.test", "robot", "Docs", "secret://vw/agents/nc#password"))
-check("instance : défauts inertes (karl / Partages / pas de secret)", nc.load_instance(FakeCfg(BARE), "nc-ipro") == ("https://cloud.test", "karl", "Partages", ""))
+check("instance : user/root/secret lus", nc.load_instance(FakeCfg(FULL), "nc-ipro") == ("https://cloud.test", "robot", "Docs", "secret://vw/agents/nc#password", 14))
+check("instance : défauts inertes (karl / Partages / pas de secret)", nc.load_instance(FakeCfg(BARE), "nc-ipro") == ("https://cloud.test", "karl", "Partages", "", None))
 
 
 def code_of(fn, *a, **k):
@@ -124,12 +124,28 @@ OCS_OK = (b'<?xml version="1.0"?><ocs><meta><status>ok</status><statuscode>200</
           b'<data><id>7</id><url>https://cloud.test/s/AbC123</url></data></ocs>')
 
 
+OCS_EMPTY = b'<ocs><meta><statuscode>200</statuscode></meta><data/></ocs>'
+OCS_LIST = (b'<ocs><meta><statuscode>200</statuscode></meta><data><element><share_type>0</share_type><url>https://cloud.test/nope</url></element>'
+            b'<element><share_type>3</share_type><url>https://cloud.test/s/Exist1</url><expiration>2026-10-20 00:00:00</expiration></element></data></ocs>')
+base = "https://cloud.test/remote.php/dav/files/robot/"
+
+
 class Wire:
-    def __init__(self, mkcol=201, put=201, share=(200, OCS_OK), existing=()):
+    def __init__(self, mkcol=201, put=201, share=(200, OCS_OK), existing=(), tree=None, listing=(200, OCS_EMPTY)):
         self.calls, self.mkcol, self.put, self.share, self.existing = [], mkcol, put, share, set(existing)
+        self.tree, self.listing = tree or {}, listing      # tree : {chemin parent: [dossiers existants]}
 
     def __call__(self, method, url, headers, data=None):
         self.calls.append((method, url, dict(headers), data))
+        if method == "PROPFIND":
+            parent = url[len(base):].rstrip("/")
+            if parent not in self.tree:
+                return 404, b""
+            rows = "".join(f"<d:response><d:href>/remote.php/dav/files/robot/{parent}/{n}/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>" for n in self.tree[parent])
+            rows += f"<d:response><d:href>/remote.php/dav/files/robot/{parent}/f.md</d:href><d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response>"
+            return 207, (f'<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav/files/robot/{parent}/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>{rows}</d:multistatus>').encode()
+        if method == "GET":
+            return self.listing
         if method == "MKCOL":
             return (405, b"") if url in self.existing else (self.mkcol, b"")
         if method == "PUT":
@@ -158,17 +174,18 @@ def go(args, servers=FULL, wire=None, runner=None, environ=None):
 
 
 rc, out, w = go(A())
-base = "https://cloud.test/remote.php/dav/files/robot/"
-methods = [(m, u) for m, u, _, _ in w.calls]
+methods = [(m, u) for m, u, _, _ in w.calls if m != "PROPFIND"]
 check("run ok : code 0", rc == 0, out)
 check("WebDAV : MKCOL récursif racine → projet puis PUT",
-      methods == [("MKCOL", base + "Docs/"), ("MKCOL", base + "Docs/calicote/"), ("MKCOL", base + "Docs/calicote/prestashop/"),
-                  ("PUT", base + "Docs/calicote/prestashop/2026-10-12-etude-labels-v2.md")], str(methods))
+      methods == [("MKCOL", base + "Docs/"), ("MKCOL", base + "Docs/Calicote/"), ("MKCOL", base + "Docs/Calicote/prestashop/"),
+                  ("PUT", base + "Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md")], str(methods))
 check("WebDAV : Basic auth correct", w.calls[0][2]["Authorization"] == "Basic " + base64.b64encode(f"robot:{SECRET}".encode()).decode())
 check("WebDAV : le PUT porte le contenu", w.calls[-1][3] == b"# \xc3\xa9tude\n")
-check("sortie : chemin déposé, pas d'URL sans --share", "Déposé : /Docs/calicote/prestashop/2026-10-12-etude-labels-v2.md" in out and "URL" not in out)
+check("PROPFIND Depth 1 racine puis dossier client",
+      [(m, h.get("Depth")) for m, _, h, _ in w.calls if m == "PROPFIND"] == [("PROPFIND", "1")] * 2)
+check("sortie : chemin déposé, pas d'URL sans --share", "Déposé : /Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md" in out and "URL" not in out)
 
-rc, out, w = go(A(), wire=Wire(existing=[base + "Docs/", base + "Docs/calicote/"]))
+rc, out, w = go(A(), wire=Wire(existing=[base + "Docs/", base + "Docs/Calicote/"]))
 check("MKCOL 405 (dossier existant) toléré", rc == 0, out)
 
 rc, out, w = go(A(share=True, expire=30, dest="etudes"))
@@ -177,17 +194,52 @@ check("OCS : POST sur l'API files_sharing v2", m == "POST" and u == "https://clo
 check("OCS : en-tête OCS-APIRequest", h.get("OCS-APIRequest") == "true")
 body = d.decode()
 check("OCS : shareType=3, chemin déposé, échéance +30 j",
-      "shareType=3" in body and "path=%2FDocs%2Fcalicote%2Fprestashop%2Fetudes%2F2026-10-12-etude-labels-v2.md" in body
+      "shareType=3" in body and "path=%2FDocs%2FCalicote%2Fprestashop%2Fetudes%2F2026-10-12-etude-labels-v2.md" in body
       and "expireDate=2026-11-11" in body, body)
-check("--dest : sous-dossier créé", ("MKCOL", base + "Docs/calicote/prestashop/etudes/") in [(a, b) for a, b, _, _ in w.calls])
+check("--dest : sous-dossier créé", ("MKCOL", base + "Docs/Calicote/prestashop/etudes/") in [(a, b) for a, b, _, _ in w.calls])
 check("sortie --share : chemin + URL", rc == 0 and "URL    : https://cloud.test/s/AbC123" in out and "Déposé : /Docs/" in out, out)
 
 rc, out, _ = go(A(share=True, porcelain=True))
 check("--porcelain --share : l'URL seule", out == "https://cloud.test/s/AbC123\n", repr(out))
 rc, out, _ = go(A(porcelain=True, name="Rapport.md"))
-check("--porcelain sans --share + --name : le chemin seul", out == "/Docs/calicote/prestashop/Rapport.md\n", repr(out))
+check("--porcelain sans --share + --name : le chemin seul", out == "/Docs/Calicote/prestashop/Rapport.md\n", repr(out))
 rc, out, w = go(A(share=True))
-check("sans --expire : pas d'expireDate", "expireDate" not in w.calls[-1][3].decode())
+check("sans --expire : défaut instance", "expireDate" in w.calls[-1][3].decode())
+
+# ── 4b. casse client/projet, expiration par défaut, lien réutilisé ──────────
+rc, out, w = go(A(), wire=Wire(tree={"Docs": ["Calicote", "Autre"], "Docs/Calicote": ["prestashop"]}))
+puts = [u for m, u, _, _ in w.calls if m == "PUT"]
+check("casse : client existant `Calicote` réutilisé (slug `calicote`), projet existant",
+      rc == 0 and puts == [base + "Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md"], str(puts))
+check("casse : rien à créer → MKCOL tolère l'existant, aucun dossier `calicote` minuscule", not any("/Docs/calicote/" in u for _, u, _, _ in w.calls))
+rc, out, w = go(A(), wire=Wire(tree={"Docs": ["CALICOTE"], "Docs/CALICOTE": ["PrestaShop"]}))
+check("casse : insensible (CALICOTE / PrestaShop)", [u for m, u, _, _ in w.calls if m == "PUT"] == [base + "Docs/CALICOTE/PrestaShop/2026-10-12-etude-labels-v2.md"])
+rc, out, w = go(A(), wire=Wire(tree={"Docs": ["Autre"]}))
+check("casse : client absent → créé avec majuscule initiale, projet tel quel",
+      [u for m, u, _, _ in w.calls if m == "PUT"] == [base + "Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md"])
+rc, out, w = go(A(), wire=Wire(tree={"Docs": ["Calicote"]}))
+check("casse : client présent, projet absent → créé tel quel", [u for m, u, _, _ in w.calls if m == "PUT"] == [base + "Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md"])
+rc, out, w = go(A(), wire=Wire(tree={}))
+check("racine absente (PROPFIND 404) → client capitalisé, dépôt ok", rc == 0 and "Docs/Calicote/prestashop/" in out, out)
+
+rc, out, w = go(A(share=True))
+check("--expire absent → share_expire_days de l'instance (+14 j)", "expireDate=2026-10-26" in w.calls[-1][3].decode(), w.calls[-1][3].decode())
+rc, out, w = go(A(share=True, expire=3))
+check("--expire explicite l'emporte", "expireDate=2026-10-15" in w.calls[-1][3].decode())
+rc, out, w = go(A(share=True), servers=dict(FULL, **{"nc-ipro": dict(FULL["nc-ipro"], share_expire_days=None)}))
+check("ni --expire ni défaut instance → pas d'échéance", "expireDate" not in w.calls[-1][3].decode())
+
+rc, out, w = go(A(share=True), wire=Wire(listing=(200, OCS_LIST)))
+check("lien public existant réutilisé : aucun POST", rc == 0 and not any(m == "POST" for m, _, _, _ in w.calls), out)
+check("lien existant : URL, mention et échéance en sortie", "https://cloud.test/s/Exist1" in out and "réutilisé" in out and "2026-10-20" in out, out)
+gets = [u for m, u, _, _ in w.calls if m == "GET"]
+check("GET shares?path= sur le chemin déposé", len(gets) == 1 and "shares?path=%2FDocs%2Fcalicote%2Fprestashop%2F2026-10-12-etude-labels-v2.md" in gets[0].replace("Calicote", "calicote"), str(gets))
+rc, out, _ = go(A(share=True, porcelain=True), wire=Wire(listing=(200, OCS_LIST)))
+check("--porcelain avec lien existant : l'URL seule", out == "https://cloud.test/s/Exist1\n", repr(out))
+rc, out, w = go(A(share=True), wire=Wire(listing=(500, b"x")))
+check("liste des partages en HTTP 500 → 3", rc == 3 and "HTTP 500" in out, out)
+rc, out, w = go(A(), wire=Wire(tree={"Docs": []}))
+check("sans --share : aucun GET shares", not any(m == "GET" for m, _, _, _ in w.calls))
 
 # ── 5. parsing OCS ───────────────────────────────────────────────────────────
 check("OCS : URL extraite", nc.parse_ocs_url(OCS_OK) == "https://cloud.test/s/AbC123")
@@ -276,11 +328,11 @@ buf = io.StringIO()
 rc = nc.run(A(dry_run=True, share=True, expire=7), FakeCfg(FULL), http=boom, runner=boom, environ={}, today=TODAY, out=buf)
 dry = buf.getvalue()
 check("dry-run : 0, ni réseau ni vault", rc == 0)
-check("dry-run : montre MKCOL/PUT/PARTAGE", all(k in dry for k in ("MKCOL", "PUT", "PARTAGE", "+7 j", "/Docs/calicote/prestashop/2026-10-12-etude-labels-v2.md")), dry)
+check("dry-run : montre MKCOL/PUT/PARTAGE", all(k in dry for k in ("MKCOL", "PUT", "PARTAGE", "+7 j", "/Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md")), dry)
 check("dry-run : n'affiche que l'URI du secret, jamais sa valeur", "secret://vw/agents/nc" in dry and SECRET not in dry and "#password" not in dry)
 buf = io.StringIO()
 nc.run(A(dry_run=True, porcelain=True), FakeCfg(FULL), http=boom, runner=boom, environ={}, today=TODAY, out=buf)
-check("dry-run --porcelain : le chemin seul", buf.getvalue() == "/Docs/calicote/prestashop/2026-10-12-etude-labels-v2.md\n")
+check("dry-run --porcelain : le chemin seul", buf.getvalue() == "/Docs/Calicote/prestashop/2026-10-12-etude-labels-v2.md\n")
 
 allout = "".join(go(A(share=True))[1:2]) + out
 check("aucun secret dans les sorties normales", SECRET not in allout)

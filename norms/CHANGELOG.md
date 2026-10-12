@@ -9,7 +9,7 @@
   (`<racine>/<client>/<projet>/<AAAA-MM-JJ>-<slug>.<ext>`, WebDAV + lien public OCS) et l'URL va dans la
   note Redmine. Nouveau déclencheur KERNEL « montrer / partager / envoyer un fichier ». Incident
   d'origine (2026-10-12) : deux schémas publiés en artefact alors que la consigne existait, non consignée.
-  Outil : `scripts/pm-nextcloud-put.py` sur le fournisseur `nc-ipro` ; procédure
+  Outil : `scripts/pm-nextcloud-put.py` sur le fournisseur `nc-ipro` (dossiers client/projet résolus sans tenir compte de la casse, échéance 14 j par défaut, lien public existant réutilisé) ; procédure
   `knowledge/nextcloud/partage-karl.md`.
 
 ## [2.62.0] - 2026-10-06

@@ -16,17 +16,23 @@ Redmine. Norme : module `redmine-sync` § « Fichier à partager ».
 - Pas de conversion md → pdf : aucun convertisseur (pandoc, soffice) n'existe au repo. Un `.md` est
   déposé tel quel, Nextcloud le rend.
 
-## À CONFIRMER / À FAIRE par Mathieu (valeurs posées dans `pm.config.yml`, non vérifiées)
+## État réel (confirmé par Mathieu le 2026-10-12)
 
-1. **Compte** : `providers.servers.nc-ipro.user: karl` — le compte existe-t-il sur nc-ipro ?
-2. **Mot de passe d'application** : Nextcloud (connecté en karl) → Paramètres → Sécurité → « Créer un
-   nouveau mot de passe d'application » (nom : `pm-nextcloud-put`).
-3. **Item Vaultwarden** : le créer dans la collection agents, `agents/nextcloud-karl`, champ mot de
-   passe = le mot de passe d'application (URI configurée : `secret://vw-ipro/agents/nextcloud-karl#password`).
-4. **Dossier racine** : `providers.servers.nc-ipro.root: Partages` — dossier existant côté karl (sinon
-   il est créé par `MKCOL`) ; confirmer le nom.
-5. **Forme du partage** : lien public en lecture seule (défaut de l'outil, `--expire J` pour l'échéance)
-   — ou dossier partagé nominativement : à trancher.
+- **Compte** : `karl` sur nc-ipro. Identifiants dans l'item Vaultwarden **existant**
+  `agents/karl@cloud.iprospective.fr` (username = karl) ; URI configurée
+  `secret://vw-ipro/agents/karl@cloud.iprospective.fr#password`, résolue par `resolve-secret.sh`
+  (vault déverrouillé requis, sinon code 2). Rien à créer.
+- **Racine** : `Partages/` existe côté Nextcloud.
+- **Convention validée** : `Partages/<client>/<projet>/<date>-<slug>.<ext>`. Le dossier client existant
+  porte une **majuscule** (`Partages/Calicote/`) : l'outil résout client et projet **sans tenir compte
+  de la casse** (PROPFIND Depth 1) et, s'il doit créer le client, lui met une majuscule initiale.
+- **Partage** : lien public en lecture seule, échéance par défaut **14 jours** (`share_expire_days: 14`
+  de l'instance ; `--expire J` l'emporte). Un fichier déjà partagé garde son lien : l'outil le réutilise
+  (et le dit) au lieu d'en créer un second.
+- **Précédent manuel** (Calicote, 06/10) : `Partages/Calicote/2026-10-06-etude-labels-allergenes.md`,
+  sans sous-dossier projet, lien `https://cloud.iprospective.fr/s/AzQ4KTY2945HXFX` (expire le
+  2026-10-20). L'outil déposera la même étude dans `Partages/Calicote/prestashop/` ; l'ancien fichier
+  n'est pas supprimé (décision de Mathieu).
 
 ## Exemples
 
@@ -35,8 +41,8 @@ Redmine. Norme : module `redmine-sync` § « Fichier à partager ».
 scripts/pm-nextcloud-put.py --dry-run --project calicote/prestashop \
     /zfs/workspaces/calicote/prestashop/.mmi-pm/docs/partages/2026-10-06-etude-labels-allergenes.md
 
-# déposer et obtenir le lien (30 jours)
-URL=$(scripts/pm-nextcloud-put.py --share --expire 30 --porcelain docs/rapport.md)
+# déposer et obtenir le lien (14 jours par défaut ; --expire 30 pour changer)
+URL=$(scripts/pm-nextcloud-put.py --share --porcelain docs/rapport.md)
 
 # sous-dossier et nom imposé, depuis le cwd d'un projet PM
 scripts/pm-nextcloud-put.py --dest schemas --name schema-reseau.svg --share schema.svg
@@ -54,5 +60,4 @@ NEXTCLOUD_APP_PASSWORD=… scripts/pm-nextcloud-put.py --share fichier.md --proj
 | 3 | erreur réseau ou HTTP (le statut figure dans le message) | 401 = mauvais mot de passe d'application ; 404 sur le partage = chemin ; 423 = fichier verrouillé |
 | 4 | configuration manquante ou usage invalide | instance inconnue, pas de secret, projet ambigu (`--project client/slug`), fichier absent |
 
-Re-déposer le même nom écrase le fichier (le lien de partage déjà émis reste valable ; un nouveau
-`--share` crée un nouveau lien).
+Re-déposer le même nom écrase le fichier (le lien de partage déjà émis reste valable et est réutilisé par `--share`).

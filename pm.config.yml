@@ -333,12 +333,13 @@ providers:
     redmine-wiki:   { axis: doc,   type: redmine_wiki, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
     # nc-ipro : dépôt de fichiers à partager par `pm-nextcloud-put` (RM3447), compte du robot karl.
     # Clés facultatives (défauts inertes si absentes : user=karl, root=Partages, pas de secret
-    # → repli sur $NEXTCLOUD_APP_PASSWORD). VALEURS À CONFIRMER PAR MATHIEU : compte `karl`,
-    # dossier racine `Partages`, et item Vaultwarden `agents/nextcloud-karl` (mot de passe
-    # d'application à créer dans Nextcloud → Paramètres → Sécurité).
+    # → repli sur $NEXTCLOUD_APP_PASSWORD). Confirmé par Mathieu le 2026-10-12 : compte `karl`
+    # (item Vaultwarden EXISTANT `agents/karl@cloud.iprospective.fr`, champ username = karl),
+    # racine `Partages` ; convention observée sur le premier dépôt manuel (Calicote, 06/10) :
+    # dossier client avec majuscule (`Partages/Calicote/`), lien public expirant à 14 jours.
     nc-ipro:        { axis: doc,   type: nextcloud, url: "https://cloud.iprospective.fr",
-                      user: karl, root: Partages,
-                      secret: "secret://vw-ipro/agents/nextcloud-karl#password" }
+                      user: karl, root: Partages, share_expire_days: 14,
+                      secret: "secret://vw-ipro/agents/karl@cloud.iprospective.fr#password" }
     # — axe secret (vaults, RM2662) — le défaut reproduit l'existant.
     # Les secrets CLIENTS restent dans une collection `<client>-agents` de ce
     # vault (cf. CDC RM2662 § 3.2 bis) ; déclarer une autre instance sert aux

@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.63.0] - 2026-10-12
+
+### Ajouté
+- **Un fichier à partager se dépose sur le Nextcloud de karl, jamais en artefact claude.ai** (RM3447,
+  module `redmine-sync` § Format du livrable). Le fichier vit dans le repo (`plans/`, `docs/`) ou dans
+  `<core>/.mmi-pm/docs/partages/<AAAA-MM-JJ>-<slug>.md`, puis `pm-nextcloud-put --share` le dépose
+  (`<racine>/<client>/<projet>/<AAAA-MM-JJ>-<slug>.<ext>`, WebDAV + lien public OCS) et l'URL va dans la
+  note Redmine. Nouveau déclencheur KERNEL « montrer / partager / envoyer un fichier ». Incident
+  d'origine (2026-10-12) : deux schémas publiés en artefact alors que la consigne existait, non consignée.
+  Outil : `scripts/pm-nextcloud-put.py` sur le fournisseur `nc-ipro` ; procédure
+  `knowledge/nextcloud/partage-karl.md`.
+
 ## [2.62.0] - 2026-10-06
 
 ### Ajouté

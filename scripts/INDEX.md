@@ -193,6 +193,7 @@
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-mep-watch` — la file « à vérifier en prod » se rappelle à nous
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
+- `pm-nextcloud-put` — dépose un fichier sur le Nextcloud du compte karl et rend son lien
 - `pm-release-watch` — la veille des publications qu'on attend
 - `pm-searchdb` — l'index de requêtage de karl-PM
 - `pm-sieve` — piloter les filtres Sieve d'une boîte par ManageSieve (RFC 5804) : lire…

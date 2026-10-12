@@ -1,9 +1,9 @@
 ---
-schema_version: "2.62.0"
+schema_version: "2.63.0"
 updated: 2026-10-06
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.62.0
+# Normes de gestion des tâches — v2.63.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -56,6 +56,7 @@ updated: 2026-10-06
 | j'attaque un **projet neuf par un cahier des charges complet**, je consigne un arbitrage dans un CDC, ou je veux savoir quand il est fini | `modules/cdc.md` (trois livrables, grille 360°, harnais) | `pm-cdc` |
 | on me demande un **audit** (site, sécurité, infra, DNS, mail, conformité), d'où que parte la demande | `modules/audits.md` — lire l'existant AVANT de mesurer ; findings dans `iprospective/audits`, remédiation dans le projet propriétaire | skill `mmi-audit`, `new-audit-session.sh` |
 | je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
+| je veux **montrer / partager / envoyer un fichier** à Mathieu ou à un client (rapport, schéma, étude) | `modules/redmine-sync.md` (§ Fichier à partager : Nextcloud de karl, jamais un artefact claude.ai) | `pm-nextcloud-put` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -2820,6 +2821,12 @@ livrable.
 Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils sont
 utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
 comme source. Le cycle reste : markdown en repo → commit → miroir généré.
+
+**Fichier à partager (rapport, schéma, étude) :** il vit dans le repo (`plans/`, `docs/`) ou dans
+`<core>/.mmi-pm/docs/partages/<AAAA-MM-JJ>-<slug>.md`, puis est déposé sur le Nextcloud du compte karl
+par `pm-nextcloud-put --share` ; l'URL va dans la note Redmine. Jamais un artefact claude.ai (incident
+2026-10-12 : deux schémas publiés en artefact alors que la consigne existait, non consignée).
+Procédure et prérequis : `knowledge/nextcloud/partage-karl.md`.
 
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 

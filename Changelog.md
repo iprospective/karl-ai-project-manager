@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Partage de fichiers via le Nextcloud de karl (RM3447).** `scripts/pm-nextcloud-put.py <fichier> [--project] [--share]`
+  dépose un fichier sur l'instance `nc-ipro` (WebDAV `MKCOL` + `PUT`, sous `<racine>/<client>/<projet>/<date>-<slug>.<ext>`)
+  et rend un lien public par l'API OCS (`--share`, `--expire J`, `--porcelain` = l'URL seule, `--dry-run`). Secret par
+  `resolve-secret.sh`, jamais affiché ; codes retour 0/2 (vault verrouillé)/3 (réseau)/4 (conf). NORMS 2.63.0 : un fichier
+  à partager ne devient plus jamais un artefact claude.ai. Identifiants réels (compte, mot de passe d'application, dossier)
+  à poser par Mathieu : `knowledge/nextcloud/partage-karl.md`.
 - **Mails de Karl : corps markdown et pièces jointes (RM3440).** `karl-mail-send.py --markdown <f.md>`
   envoie un multipart texte + HTML dont la version HTML est le rendu du markdown (tableaux compris) ;
   `--attach <fichier>` (répétable) joint des fichiers, total plafonné (`PM_MAIL_ATTACH_MAX_MB`, 20 Mo) et

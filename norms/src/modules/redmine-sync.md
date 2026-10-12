@@ -64,6 +64,12 @@ Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils so
 utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
 comme source. Le cycle reste : markdown en repo → commit → miroir généré.
 
+**Fichier à partager (rapport, schéma, étude) :** il vit dans le repo (`plans/`, `docs/`) ou dans
+`<core>/.mmi-pm/docs/partages/<AAAA-MM-JJ>-<slug>.md`, puis est déposé sur le Nextcloud du compte karl
+par `pm-nextcloud-put --share` ; l'URL va dans la note Redmine. Jamais un artefact claude.ai (incident
+2026-10-12 : deux schémas publiés en artefact alors que la consigne existait, non consignée).
+Procédure et prérequis : `knowledge/nextcloud/partage-karl.md`.
+
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 
 Il ne remplace pas, il **chapeaute** — le détail vit dans les modules dédiés :

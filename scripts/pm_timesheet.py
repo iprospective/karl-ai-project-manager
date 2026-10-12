@@ -1669,36 +1669,50 @@ CONF_NOM = "timesheet.yml"
 #:
 #: Les RÉGLAGES vont eux aussi sous `var/` (`var/users/<user>/`, RM3318) : propres à
 #: l'utilisateur et hors git, mais jamais dans son home.
-ETAT_HERITE = Path.home() / ".local" / "state" / "mmi-pm" / "timesheet"
-ETAT = ETAT_HERITE
+#: Emplacements hérités, dans l'ordre où on les a quittés. Tout est rapatrié, une fois.
+ETATS_HERITES = [
+    Path.home() / ".local" / "state" / "mmi-pm" / "timesheet",   # avant RM3229 (home)
+]
+ETAT = ETATS_HERITES[0]
 
 
-def configurer_etat(cfg=None, migrer=True):
-    """Pointe l'état sur `<core>/var/timesheet` et rapatrie l'ancien emplacement.
+def configurer_etat(cfg=None, migrer=True, user=None):
+    """Pointe l'état sur `<core>/var/users/<user>/timesheet` et rapatrie l'ancien.
 
-    La reprise est faite UNE fois, et seulement si la nouvelle destination est vide :
-    un cache orphelin obligerait à rejouer tous les transcripts, et les sauvegardes de
-    reprise doivent suivre leur outil.
+    L'état du timesheet est PROPRE À UNE PERSONNE : ses journées, ses traces, ses
+    sauvegardes de reprise. Sa place est donc le dossier utilisateur, à côté de ses
+    réglages — pas un `var/timesheet` commun qui mélangerait deux personnes sur une
+    instance partagée (arbitrage Mathieu, 2026-10-12 : « days.yml ne devrait pas être
+    dans le dossier de l'user ? »).
+
+    La reprise est faite UNE fois par emplacement, et seulement si la destination est
+    vide : un cache orphelin obligerait à rejouer tous les transcripts, et les
+    sauvegardes de reprise doivent suivre leur outil.
     """
     global ETAT
     if cfg is None or not getattr(cfg, "state_dir", None):
         return ETAT
-    ETAT = Path(cfg.state_dir) / "timesheet"
+    import pm_paths
+    ETAT = pm_paths.user_conf_dir(user, getattr(cfg, "pm_dir", None)) / "timesheet"
     ETAT.mkdir(parents=True, exist_ok=True)
-    if migrer and ETAT_HERITE.is_dir() and ETAT_HERITE != ETAT and not any(ETAT.iterdir()):
+    if not migrer:
+        return ETAT
+    anciens = list(ETATS_HERITES) + [Path(cfg.state_dir) / "timesheet"]   # var/ commun (RM3229)
+    for herite in anciens:
+        if not herite.is_dir() or herite == ETAT or any(ETAT.iterdir()):
+            continue
         deplaces = 0
-        for item in ETAT_HERITE.iterdir():
+        for item in herite.iterdir():
             cible = ETAT / item.name
             if cible.exists():
                 continue
             try:
                 item.rename(cible)
-                deplaces += 1
             except OSError:
                 shutil.move(str(item), str(cible))   # traversée de systèmes de fichiers
-                deplaces += 1
+            deplaces += 1
         if deplaces:
-            print(f"  ↪ état du timesheet repris depuis {ETAT_HERITE} "
+            print(f"  ↪ état du timesheet repris depuis {herite} "
                   f"({deplaces} entrée(s)) → {ETAT}", file=sys.stderr)
     return ETAT
 
@@ -1959,7 +1973,11 @@ def presences_effectives(presences, surcharges):
     planchers s'empileraient) : sa date est ajoutée aux `sauf` des présences
     régulières, et elle devient une présence datée à part entière.
     """
-    jours = sorted(j for j, s in (surcharges or {}).items() if s and s.get("debut") and s.get("fin"))
+    # Une journée compte comme présence dès qu'elle porte une plage OU un volume
+    # d'heures : « parti à 13h45, 3,5 h » n'a pas de fin exploitable comme plage, et
+    # c'est justement le cas où le plancher doit porter sur le CLIENT, pas sur la plage.
+    jours = sorted(j for j, s in (surcharges or {}).items()
+                   if s and ((s.get("debut") and s.get("fin")) or s.get("heures")))
     sortie = []
     for p in presences or []:
         q = dict(p)
@@ -1967,10 +1985,17 @@ def presences_effectives(presences, surcharges):
         sortie.append(q)
     for j in jours:
         s = surcharges[j]
+        plage = bool(s.get("debut") and s.get("fin"))
         sortie.append({
             "client": s.get("client"), "projet": s.get("projet"), "dates": [j],
-            "debut": s["debut"], "fin": s["fin"],
-            "heures": s.get("heures") or heures_travaillees(s["debut"], s["fin"], s.get("pause_h")),
-            "reunion_h": s.get("reunion_h", 0), "exclusif": s.get("exclusif", False),
+            # Sans plage, pas de `debut`/`fin` : le plancher se calcule alors sur le temps
+            # du CLIENT et non sur tout ce qui a été fait dans un créneau — ce qu'il faut
+            # pour une demi-journée sur site, l'après-midi appartenant à d'autres.
+            "debut": s["debut"] if plage else None,
+            "fin": s["fin"] if plage else None,
+            "heures": s.get("heures") or (heures_travaillees(s["debut"], s["fin"], s.get("pause_h"))
+                                          if plage else 0),
+            "reunion_h": s.get("reunion_h", 0),
+            "exclusif": s.get("exclusif", False) if plage else False,
         })
     return [p for p in sortie if p.get("client")]

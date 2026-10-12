@@ -259,6 +259,35 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── Une journée particulière : demi-journée sur site (RM3229, 2026-10-12) ───
+# « j'étais chez matnat jusqu'à 13h45, j'ai donc bossé 3,5 h ». Une telle journée se
+# note dans l'ÉTAT (days.yml), pas dans la conf — et son plancher porte sur le CLIENT,
+# pas sur un créneau : l'après-midi appartient à d'autres, il ne doit pas remplir le
+# plancher MatNat à sa place.
+_pres = W.presences_effectives([], {"2026-10-09": {"client": "matnat", "projet": "infra",
+                                                   "heures": 3.5}})
+verifie(len(_pres) == 1, "une journée qui porte un volume d'heures DEVIENT une présence")
+verifie(_pres[0]["debut"] is None and _pres[0]["heures"] == 3.5,
+        "…sans plage : le plancher portera sur le client, pas sur un créneau")
+verifie(_pres[0]["exclusif"] is False,
+        "…et sans exclusivité : rien n'est rapatrié d'un créneau qu'on n'a pas défini")
+_pres2 = W.presences_effectives([], {"2026-10-08": {"client": "matnat", "debut": "09:30",
+                                                    "fin": "18:30"}})
+verifie(_pres2[0]["debut"] == "09:30" and _pres2[0]["heures"] == 8.0,
+        "une journée avec plage garde son créneau et déduit ses heures")
+verifie(W.presences_effectives([], {"2026-10-11": {"client": "matnat"}}) == [],
+        "une journée sans plage NI heures n'est pas une présence")
+
+# le plancher par CLIENT comble jusqu'au volume déclaré, sans compter les autres clients
+_d0, _d1 = datetime(2026, 10, 9), datetime(2026, 10, 10)
+_final = {("2026-10-09", ("matnat", "infra", None)): 30.0,
+          ("2026-10-09", ("pisceen", "presta", None)): 150.0}
+_aj, _tr = W.appliquer_presences(_final, _pres, _d0, _d1, None, None)
+verifie(round(sum(_aj.values())) == 180,
+        "le complément vise les 3,5 h du CLIENT (30 min mesurées → +180)")
+verifie(all(c[0] == "matnat" for (_j, c, _m) in _aj),
+        "…et il va bien à MatNat, pas au client de l'après-midi")
+
 # ── Les livraisons se lisent dans les commits de fusion (RM3229, 2026-10-01) ──
 # Une MR fusionnée laisse un commit « Merge branch 'NNNN-slug' into 'dev' » : la forge
 # n'a pas besoin d'être interrogée pour savoir ce qui est sorti ce jour-là.
@@ -351,23 +380,28 @@ with _tf.TemporaryDirectory() as _tmp:
     (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: matnat}\n", encoding="utf-8")
     (_ancien / "cache" / "2026-08-26.jsonl").write_text("{}\n", encoding="utf-8")
 
-    _avant, _herite = W.ETAT, W.ETAT_HERITE
+    _avant, _herite = W.ETAT, list(W.ETATS_HERITES)
+    import os as _os
+    _os.environ["PM_USER_DIR"] = str(_core / "var" / "users" / "moi")
     try:
-        W.ETAT_HERITE = _ancien
-        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
-        verifie(_cible == _core / "var" / "timesheet", "l'état pointe sur <core>/var/timesheet")
+        W.ETATS_HERITES[:] = [_ancien]
+        _cible = W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var", pm_dir=_core))
+        verifie(_cible == _core / "var" / "users" / "moi" / "timesheet",
+                "l'état vit dans le dossier de l'UTILISATEUR, pas dans un var/ commun")
         verifie((_cible / "2026-08.days.yml").is_file(), "les surcharges de journée ont suivi")
         verifie((_cible / "cache" / "2026-08-26.jsonl").is_file(),
                 "le cache des traces a suivi (sinon : tout rejouer)")
         verifie(not any(_ancien.iterdir()), "l'ancien emplacement est vidé")
 
         (_ancien / "2026-08.days.yml").write_text("'2026-08-26': {client: AUTRE}\n", encoding="utf-8")
-        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var"))
+        W.configurer_etat(_ty.SimpleNamespace(state_dir=_core / "var", pm_dir=_core))
         verifie("matnat" in (_cible / "2026-08.days.yml").read_text(encoding="utf-8"),
                 "une seconde reprise n'écrase pas l'état déjà en place")
         verifie(W.configurer_etat(None) == _cible, "sans configuration, l'état ne bouge pas")
     finally:
-        W.ETAT, W.ETAT_HERITE = _avant, _herite
+        W.ETAT = _avant
+        W.ETATS_HERITES[:] = _herite
+        _os.environ.pop("PM_USER_DIR", None)
 
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

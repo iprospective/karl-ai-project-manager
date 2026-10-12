@@ -74,7 +74,7 @@ noté dans Redmine comme le reste ; il n'entre simplement dans aucune facture.
 
 Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :
 elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent avec
-le reste des données d'exploitation du PM, dans `<core>/var/timesheet/<AAAA-MM>.days.yml`,
+le reste des données d'exploitation du PM, dans `<core>/var/users/<toi>/timesheet/<AAAA-MM>.days.yml`,
 et **ne sont écrites que lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas
 fait, ce que l'écran montre est une proposition recalculée depuis les traces à chaque
 ouverture.
@@ -88,6 +88,8 @@ ouverture.
 ```
 
 Le même dossier porte le cache des traces, celui des commits et les sauvegardes de reprise.
+Il est dans **ton** dossier utilisateur — ces journées sont les tiennes, pas celles de
+l'instance : sur un poste partagé, deux personnes ne se marchent pas dessus.
 `var/` est hors git : c'est de l'état, pas du versionné — il suit donc la sauvegarde du core,
 pas son historique. Porter ces champs dans Redmine reste une question ouverte : **RM3298**.
 
@@ -97,6 +99,16 @@ dépôt partagé) et jamais dans ton home.
 
 **Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
 aussitôt. **↺ ajustement** revient à ce que les traces disent.
+
+### Une demi-journée sur site
+
+Quand la journée ne se décrit pas par un début et une fin — « parti à 13h45, 3,5 h
+travaillées » — on donne directement le **volume** : `--heures 3.5`, avec le client.
+
+La différence n'est pas cosmétique. Avec une **plage**, le plancher compte *tout* le
+travail du créneau, y compris ce qui a été fait pour d'autres clients : c'est voulu, sur
+place on dépanne parfois quelqu'un d'autre. Sans plage, le plancher porte sur **le
+client** : l'après-midi passé ailleurs ne vient plus remplir le plancher à sa place.
 
 ## Le temps transversal
 

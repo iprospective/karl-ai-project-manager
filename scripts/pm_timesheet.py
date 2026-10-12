@@ -1001,6 +1001,25 @@ class Regles:
     absences: list = field(default_factory=list)     # [(date_debut, date_fin, motif)]
     cles_multi: dict = field(default_factory=dict)   # entité/projet → [(client, poids)]
     seuil_client_min: float = DEFAULTS["client_threshold_min"]
+    #: entité du pot → clients qui l'utilisent. Vide = tout le monde (PM, infra, redmine).
+    #: Déclaré dans les manifestes PM (`used_by_clients`), jamais en conf : une liste
+    #: recopiée finit par diverger de la réalité (leçon `type: self`).
+    usagers: dict = field(default_factory=dict)
+    #: client → part de SA quote-part de pot interne qu'iProspective garde à sa charge.
+    #: Arrangement commercial, donc déclaré en conf : rien dans le modèle PM ne le dit.
+    abattement: dict = field(default_factory=dict)
+
+    def clients_eligibles(self, entity, candidats):
+        """Les clients du jour à qui le pot de `entity` peut être refacturé.
+
+        Un produit ne se refacture qu'à ceux qui s'en servent : le temps passé sur
+        PrestaShop n'a rien à faire chez un client qui n'en a pas. Sans usagers
+        déclarés (PM, infrastructure, Redmine), le pot va à tout le monde.
+        """
+        usagers = self.usagers.get(entity)
+        if not usagers:
+            return set(candidats)
+        return {c for c in candidats if c in usagers}
 
     def est_client(self, entity):
         return self.types.get(entity) == "client"
@@ -1072,6 +1091,7 @@ def repartir_transversal(alloc, regles, params=None):
     """
     p = {**DEFAULTS, **(params or {})}
     par_jour = collections.defaultdict(lambda: {"pot_ouvre": 0.0, "pot_hors": 0.0,
+                                                "pot_par_source": collections.Counter(),
                                                 "clients": collections.Counter(),
                                                 "lignes": []})
     for (jour, ouvre, cible), minutes in alloc.items():
@@ -1082,6 +1102,10 @@ def repartir_transversal(alloc, regles, params=None):
             d["clients"][ent] += minutes
         elif regles.dans_le_pot(ent):
             d["pot_ouvre" if ouvre else "pot_hors"] += minutes
+            if ouvre:
+                # Par SOURCE : un produit ne se refacture qu'à ses usagers, le pot
+                # ne peut donc plus être réparti d'un bloc.
+                d["pot_par_source"][ent] += minutes
 
     final = collections.defaultdict(float)
     ecarte = collections.defaultdict(float)
@@ -1121,7 +1145,7 @@ def repartir_transversal(alloc, regles, params=None):
         # pas dans Redmine — un ticket appartient à un seul projet).
         lignes_clientes = [(cible, m) for ouvre, cible, m in d["lignes"]
                            if regles.est_client(cible[0])]
-        pot_a_repartir = 0.0
+        pot_par_source = collections.Counter()
         for ouvre, cible, minutes in d["lignes"]:
             ent = cible[0]
             if regles.est_client(ent) or not regles.dans_le_pot(ent):
@@ -1130,18 +1154,38 @@ def repartir_transversal(alloc, regles, params=None):
             if destin == NON_COMPTE:
                 ecarte[(jour, cible)] += minutes
             elif ouvre and destin == REFACTURE:
-                pot_a_repartir += minutes
+                pot_par_source[(ent, cible)] += minutes
             else:
                 final[(jour, cible)] += minutes          # soir/nuit/week-end : interne
-        if pot_a_repartir and client_total > 0:
+
+        for (ent_source, cible_source), minutes in pot_par_source.items():
+            eligibles = regles.clients_eligibles(ent_source, d["clients"])
+            base = sum(m for c, m in d["clients"].items() if c in eligibles)
+            if not base:
+                # Aucun client du jour ne se sert de ce produit : le temps reste
+                # interne plutôt que d'aller chez quelqu'un qui n'en profite pas.
+                final[(jour, cible_source)] += minutes
+                continue
+            garde = 0.0
             for cible, m in lignes_clientes:
-                part = pot_a_repartir * m / client_total
+                if cible[0] not in eligibles:
+                    continue
+                part = minutes * m / base
+                # Abattement : iProspective garde à sa charge une fraction de la
+                # quote-part de ce client — un arrangement, pas une règle de calcul.
+                retenue = part * float(regles.abattement.get(cible[0], 0) or 0)
+                if retenue:
+                    garde += retenue
+                    part -= retenue
                 final[(jour, cible)] += part
                 refacture[(jour, cible)] += part
+            if garde:
+                final[(jour, cible_source)] += garde      # reste chez la source (interne)
         journal[jour] = {
             "destin": destin, "cle": cle, "absence": motif_absence,
             "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
             "pot_hors_h": d["pot_hors"] / 60,
+            "pot_par_source_h": {e: m / 60 for e, m in d["pot_par_source"].items()},
             "alerte_absence": bool(motif_absence and client_total > 0),
         }
     return dict(final), dict(ecarte), journal, dict(refacture)
@@ -1377,8 +1421,30 @@ def regles_depuis_config(conf, cfg):
             else:
                 norm.append((item[0], float(item[1])))
         cles[cible] = [x for x in norm if x[0]]
+    # Qui se sert de quoi : lu dans les manifestes PM (`used_by_clients` du projet
+    # fournisseur), agrégé par entité. Jamais recopié en conf — une liste parallèle
+    # finit par mentir (leçon `type: self`).
+    usagers = collections.defaultdict(set)
+    for ent, _ in cfg.iter_entities():
+        try:
+            fm = cfg.client_meta(ent) or {}
+        except Exception:
+            fm = {}
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
+    for ent, proj, _chemin in cfg.iter_projects():
+        try:
+            fm = cfg.project_meta(ent, proj) or {}
+        except Exception:
+            continue
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
     return Regles(
         types=types,
+        usagers={e: s for e, s in usagers.items()},
+        abattement={str(k): float(v) for k, v in (conf.get("abattement") or {}).items()},
         perso=set(conf.get("perso", []) or []),
         absences=absences,
         cles_multi=cles,

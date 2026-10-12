@@ -98,7 +98,7 @@
 - `karl-mail-draft` — d'un email de la file à un ticket, à la validation
 - `karl-mail-fetch` — relève IMAP de la boîte de karl → file de triage
 - `karl-mail-route` — routage des emails de la file : qui est le client, quel projet
-- `karl-mail-send` — Envoie un email depuis karl@iprospective.fr via SMTP iProspective.
+- `karl-mail-send` — Envoie un email depuis karl@iprospective.fr via SMTP iProspective (text…
 - `karl-move-session` — déplace une session Claude Code d'un projet à un autre.
 - `karl-sms-private-send` — Notification SMS privée via l'API SMS Free Mobile.
 - `karl-telegram-bot` — Bot Telegram « standardiste » de karl-pm (épic A, RM1724).

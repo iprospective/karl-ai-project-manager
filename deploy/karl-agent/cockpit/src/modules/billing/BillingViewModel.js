@@ -4,7 +4,7 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
-         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs } from "./billing.js";
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -31,6 +31,9 @@ export class BillingViewModel {
 
   /** Le temps IA : déclaré et borné. L'écart est le chevauchement de tours parallèles. */
   get iaTotaux() { return totauxIA(this.j); }
+
+  /** La note que Mathieu a écrite ce jour-là — texte libre, affiché tel quel. */
+  get note() { return note(this.j); }
 
   /** La pause de midi : déclarée, visible dans les traces, ou manquante. */
   get pause() { return pause(this.j); }

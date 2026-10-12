@@ -242,6 +242,7 @@
 - `pm_modules` — le registre des MODULES de PM
 - `pm_monitor` — les OBSERVATEURS du parc, en lecture
 - `pm_norms_anchors` — ce qui doit survivre à une réécriture dense des normes
+- `pm_notes` — les notes de journée de Mathieu, lues sur le Nextcloud
 - `pm_notify` — le fil de notifications de l'instance
 - `pm_output` — contrat de sortie des scripts PM
 - `pm_partner` — liens vers les tickets d'un gestionnaire PARTENAIRE (N0, RM2654).

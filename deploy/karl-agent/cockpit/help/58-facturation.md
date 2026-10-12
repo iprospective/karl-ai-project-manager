@@ -29,6 +29,20 @@ elle ne se facture à personne.
 
 La teinte d'un client est dérivée de son nom : la même partout, d'une journée à l'autre.
 
+## La note du jour
+
+Sous la frise, **📝 note du jour** affiche ce que tu as écrit ce jour-là, lu en lecture
+seule sur le Nextcloud (dossier partagé avec le compte `karl`). Fichiers reconnus :
+`AAAA-MM-JJ.md` ou `.txt`, y compris les anciennes formes (`AAAA MM JJ.txt`,
+`AAAA-MM-JJ-client.md`).
+
+Le texte est affiché **tel quel** : ces notes sont libres, on ne les interprète pas.
+Seule exception, quand une ligne ne contient **que** des horaires (`9h15 - 18h15`), ils
+sont proposés avec un bouton **↧ reprendre** qui les reporte dans le formulaire — à toi
+de les enregistrer. Rien n'est appliqué d'office : sur quatre notes réelles, une lecture
+plus permissive prenait la pause (« Pause 2h repas 12h30-14h30 ») et une estimation de
+réunion (« entre 1.5 et 3h ») pour des horaires de journée.
+
 ## Corriger la journée
 
 La ligne **début / fin / pause** est une *proposition*, déduite des traces et **ramenée

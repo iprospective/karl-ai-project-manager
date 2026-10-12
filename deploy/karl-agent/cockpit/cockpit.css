@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0e6e680245765f74 (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 2fa724cb9adfad55 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -6502,4 +6502,35 @@ button.mini.soft:hover {
   height: 7px;
   border-radius: 2px;
   display: inline-block;
+}
+
+.bl-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.bl-note > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-note-txt {
+  margin: 5px 0 0;
+  padding: 7px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
+  color: var(--fg);
+}
+
+.bl-note-vide {
+  color: var(--muted);
+  font-size: 11px;
 }

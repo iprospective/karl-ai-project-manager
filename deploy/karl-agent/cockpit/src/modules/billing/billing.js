@@ -699,3 +699,27 @@ export function bilanBlocs(jour) {
     minutesHorsPlage: Math.round(hors.reduce((n, k) => n + k.minutes, 0)),
   };
 }
+
+// ── La note de la journée (RM3229) ────────────────────────────────────────────
+
+/**
+ * Ce que Mathieu a écrit de sa main ce jour-là, lu sur le Nextcloud.
+ *
+ * C'est la source la plus directe qui soit : une note dit les horaires et les clients
+ * que les traces ne sauront jamais. Elle est en TEXTE LIBRE — on l'affiche, on ne
+ * l'interprète pas. Les horaires ne sont proposés que quand une ligne ne contient
+ * QUE la plage ; sinon « Pause 2h repas 12h30-14h30 » passerait pour une journée.
+ */
+export function note(jour) {
+  const n = (jour && jour.note) || null;
+  if (!n) return null;
+  const h = n.heures && n.heures.length === 2 ? { debut: n.heures[0], fin: n.heures[1] } : null;
+  const lignes = String(n.texte || "").split("\n");
+  return {
+    chemin: n.chemin || "", fichier: (n.chemin || "").split("/").pop(),
+    texte: String(n.texte || "").trim(),
+    lignes: lignes.length,
+    heures: h,
+    resume: lignes.map(l => l.trim()).filter(Boolean).slice(1, 4).join(" · ").slice(0, 90),
+  };
+}

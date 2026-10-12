@@ -26,7 +26,7 @@ Si le vault est locked au moment de l'appel, le script abort avec un message cla
 
 Avant le premier envoi d'une session, **toujours demander** via `AskUserQuestion` :
 
-1. Le contenu exact du `--body` (relire avant envoi — un mail est irréversible)
+1. Le contenu exact du `--body` / `--markdown` (relire avant envoi — un mail est irréversible) et les pièces jointes
 2. Le `--subject` (et confirmer le préfixe `[RM<id>]` si lié à un ticket)
 3. Si `--cc` ou `--bcc` sont pertinents (par défaut aucun)
 
@@ -37,11 +37,23 @@ Ne **jamais** envoyer en confiance sans relecture. Un mail mal formé représent
 ```bash
 scripts/karl-mail-send.py \
   --to <addr> [--to <addr2>] [--cc <addr>] [--bcc <addr>] \
-  --subject "<sujet>" --body "<corps>" \
+  --subject "<sujet>" (--body "<corps>" [--html-file <f.html>] | --markdown <f.md>) \
+  [--attach <fichier> ...] \
   [--rm-id <id>] [--reply-to <addr>] [--in-reply-to <message-id>] [--dry-run]
 ```
 
 Le `--body -` lit depuis stdin (utile pour les corps multilignes via heredoc).
+
+**Corps riche et pièces jointes (RM3440)** :
+- `--markdown <f.md>` — le texte du mail est le markdown, la version HTML en est le rendu
+  (tableaux, titres, listes, gras/italique, liens ; styles en ligne, même rendu que les
+  notifications client). **À préférer dès que le contenu a des tableaux** : en texte brut
+  ils arrivent illisibles. Exclusif de `--body` et `--html-file`.
+- `--html-file <f.html>` — alternative HTML fournie telle quelle, `--body` restant le repli texte (RM3052).
+- `--attach <fichier>` — pièce jointe, répétable ; type deviné depuis l'extension, nom
+  accentué encodé correctement. Total plafonné à 20 Mo (`PM_MAIL_ATTACH_MAX_MB`) : refus
+  AVANT envoi, comme pour un fichier absent.
+- `--dry-run` montre alors la **structure MIME** (parties, types, tailles) et le corps texte, sans le base64.
 
 ## Exemples
 
@@ -66,6 +78,10 @@ EOF
 ./karl-mail-send.py --to c@x.fr --subject "Re: question" \
   --in-reply-to "<abc@example.com>" --body "Réponse..."
 
+# Rapport markdown (tableaux) + tableur en pièce jointe
+./karl-mail-send.py --to c@x.fr --subject "Rapport" --markdown rapport.md \
+  --attach ecarts.csv --rm-id 1234
+
 # Test sans envoi réel (pas besoin du vault)
 ./karl-mail-send.py --to test@x.fr --subject T --body "..." --dry-run
 ```
@@ -76,4 +92,5 @@ EOF
 - `BCC` n'apparaît pas dans les headers reçus (comme attendu RFC) mais est listé dans le `.log.md` local
 - Subject auto-préfixé `[RM<id>]` si `--rm-id` (sauf si déjà préfixé)
 - Après l'envoi SMTP, le message est ré-appendé dans le dossier `Sent` du compte via IMAP (mêmes credentials). Non bloquant : un échec d'APPEND ne fait pas échouer l'envoi, juste un warning sur stderr (le mail est déjà parti).
-- V1 : pas de pièces jointes, pas de HTML, pas de réception/fetch IMAP entrant. Voir roadmap dans la description de RM1723.
+- Le `.log.md` du ticket journalise la partie TEXTE et la liste des pièces jointes (nom, taille), pas le HTML.
+- Pas de réception ici : la relève IMAP est `karl-mail-fetch.py` (RM2668).

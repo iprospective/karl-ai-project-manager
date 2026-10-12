@@ -15,6 +15,10 @@ Redmine. Norme : module `redmine-sync` § « Fichier à partager ».
   `NEXTCLOUD_APP_PASSWORD` pour un essai manuel.
 - Pas de conversion md → pdf : aucun convertisseur (pandoc, soffice) n'existe au repo. Un `.md` est
   déposé tel quel, Nextcloud le rend.
+- **Format (consigne Mathieu, 2026-10-12)** : **pas de PDF sauf s'il n'y a pas de choix** — un texte se
+  dépose en `.md`, un document bureautique dans son format natif (`.docx`, `.xlsx`). Le PDF est
+  accepté **quand il y a des visuels** (schémas, images : ex. les schémas SVG du cahier CalyPrint,
+  exportés par `rsvg-convert -f pdf`, réunis par `pdfunite`), parce qu'il garantit le rendu.
 
 ## État réel (confirmé par Mathieu le 2026-10-12)
 

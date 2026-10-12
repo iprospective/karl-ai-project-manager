@@ -307,6 +307,28 @@ verifie(round(_f3[("2026-10-12", ("iprospective", "pm", None))]) == 15,
 verifie(round(sum(_f3.values()) + sum(_e3.values())) == 300,
         "l'abattement DÉPLACE du temps, il n'en détruit pas")
 
+# La retenue atterrit où on l'a DÉCLARÉ, pas chez la source : un pot venu d'un projet
+# non identifié y laissait sinon une retenue « non attribuée », illisible sur une facture.
+_r4 = W.Regles(types={"calicote": "client", "iprospective": "self"},
+               abattement={"calicote": 0.5},
+               retenue_vers=("iprospective", "pm-ai-agents", None))
+_alloc4 = {("2026-10-12", True, ("calicote", "c", None)): 120.0,
+           ("2026-10-12", True, (None, None, None)): 60.0}
+_f4, _e4, _j4, _ = W.repartir_transversal(_alloc4, _r4, _P)
+verifie(round(_f4.get(("2026-10-12", ("iprospective", "pm-ai-agents", None)), 0)) == 30,
+        "la retenue va sur iProspective, même quand le pot vient d'un projet inconnu")
+verifie(round(_f4.get(("2026-10-12", (None, None, None)), 0)) == 0,
+        "…et plus rien ne reste sur « non attribué »")
+verifie(round(sum(_f4.values()) + sum(_e4.values())) == 180, "total conservé")
+
+verifie(W._abattement({"abattement": {"calicote": 0.5}}) == {"calicote": 0.5},
+        "forme plate acceptée")
+verifie(W._abattement({"abattement": {"vers": "a/b", "clients": {"calicote": 0.5}}})
+        == {"calicote": 0.5}, "forme nommée aussi, sans confondre `vers` avec un client")
+verifie(W._retenue_vers({"abattement": {"vers": "iprospective/pm-ai-agents"}})
+        == ("iprospective", "pm-ai-agents", None), "la cible de retenue se lit")
+verifie(W._retenue_vers({}) is None, "sans `vers`, rien n'est imposé")
+
 # ── Une journée particulière : demi-journée sur site (RM3229, 2026-10-12) ───
 # « j'étais chez matnat jusqu'à 13h45, j'ai donc bossé 3,5 h ». Une telle journée se
 # note dans l'ÉTAT (days.yml), pas dans la conf — et son plancher porte sur le CLIENT,

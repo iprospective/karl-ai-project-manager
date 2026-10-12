@@ -76,6 +76,13 @@ export function mountBilling({ card } = {}, ctx = {}) {
     if (a === "today") return goto(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10));
     if (a === "reload") return load(true);
     if (a === "ticket") return ctx.showTicket && ctx.showTicket(el.dataset.rm);
+    if (a === "note-heures") {
+      // Reporté dans le formulaire, pas enregistré : il relit, il corrige, il valide.
+      svc.setField("debut", el.dataset.debut);
+      svc.setField("fin", el.dataset.fin);
+      render();
+      return notify("horaires de la note reportés — à enregistrer");
+    }
     if (a === "save") return garde(() => svc.adjust(), "journée ajustée");
     if (a === "pause-midi") {
       // Un clic : la pause proposée est posée et enregistrée. Elle n'écrit rien dans

@@ -382,6 +382,7 @@ def calculer(args, cfg, conf):
     return {"resolver": resolver, "items": items, "segments": segments,
             "ajouts": ajouts, "transferts": transferts,
             "table_clients": table_clients_redmine(cfg), "slugs_redmine": slugs,
+            "notes": notes_du_compte(conf, cfg),
             "activites": activites,
             "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
@@ -933,6 +934,30 @@ def activites_redmine(url, key, basic=None):
     return _ACTIVITES_CACHE
 
 
+_NOTES = {}
+
+
+def notes_du_compte(conf, cfg):
+    """L'accès aux notes de journée, ou None si les identifiants manquent.
+
+    Lecture seule, et jamais bloquante : une note illisible ne doit pas empêcher de
+    valider une journée. Les identifiants sont dans le `.env` de l'utilisateur.
+    """
+    if "n" in _NOTES:
+        return _NOTES["n"]
+    _NOTES["n"] = None
+    try:
+        import pm_notes
+        import pm_paths
+        env = pm_paths.user_conf_dir(pm_dir=getattr(cfg, "pm_dir", None)) / ".env"
+        creds = pm_notes.identifiants(env)
+        if creds:
+            _NOTES["n"] = pm_notes.Notes(creds, (conf or {}).get("notes_racines"))
+    except Exception:
+        pass
+    return _NOTES["n"]
+
+
 def _cumul_transversal(res, jour):
     """Combien de temps transversal chaque client a reçu ce jour-là.
 
@@ -1006,6 +1031,7 @@ def vue_json(res, prop, commits=True):
             "traces": traces_du_jour(res, j),
             "commits": (W.commits_du_jour(j, auteur=(res.get("params") or {}).get("git_author")
                                           or "Mathieu Moulin") if commits else []),
+            "note": (res.get("notes").note(j) if res.get("notes") else None),
             "pause": {
                 "declaree_h": surcharge.get("pause_h"),
                 "trou": W.trou_de_midi(

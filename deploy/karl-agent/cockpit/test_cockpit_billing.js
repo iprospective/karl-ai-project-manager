@@ -68,6 +68,9 @@ const JOUR = {
     { ts: "2026-09-18T23:27:00", sha: "009d9ee1", depot: "ai-project-management", client: "iprospective", sujet: "pm(tick): RM3229 métriques temps/tokens", auto: true },
     { ts: "2026-09-18T13:45:00", sha: "aa11bb22", depot: "ai-project-management", client: "iprospective", sujet: "Merge branch '3199-infra' into 'dev'", auto: false, merge: true, branche: "3199-infra", cible: "dev", rm: "3199" },
   ],
+  note: { chemin: "/Notes (2)/2026-09-18.txt",
+          texte: "2026-09-18\n\n9h15 - 18h15\n\nMatNat\n\nCalicote\nAudit à vérifier\n",
+          heures: ["09:15", "18:15"] },
   surcharge: null, valide: false,
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -205,6 +208,17 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
   assert.deepStrictEqual(M.nonFacturable(JOUR), { count: 1, minutes: 15 }, "le temps sur soi est compté à part");
   assert.deepStrictEqual(M.nonFacturable({ proposition: [{ minutes: 30, facturable: true }] }), { count: 0, minutes: 0 });
+  // — la note du jour : affichée telle quelle, jamais interprétée —
+  const nt = M.note(JOUR);
+  assert.strictEqual(nt.fichier, "2026-09-18.txt", "le nom du fichier se lit");
+  assert.deepStrictEqual(nt.heures, { debut: "09:15", fin: "18:15" },
+                         "une ligne qui ne contient QUE la plage est proposée");
+  assert(/MatNat/.test(nt.texte), "le texte est gardé intact");
+  assert.strictEqual(M.note({ note: { chemin: "x", texte: "Pause 2h repas 12h30-14h30" } }).heures, null,
+                     "sans heures reconnues, rien n'est proposé — la note reste à lire");
+  assert.strictEqual(M.note({}), null, "journée sans note : rien à afficher");
+  console.log("✓ note du jour : fichier, texte intact, horaires proposés sans être imposés");
+
   console.log("✓ pause de midi : visible, déclarée ou manquante ; temps non facturable");
 
   // — couleurs, bandes, notice —
@@ -436,6 +450,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/<svg class="bl-liens"/.test(frag) && /<line /.test(frag), "les traits relient les deux voies");
   assert(/bl-ia[^>]*background:hsl\(/.test(frag), "les repères IA sont colorés par client");
   assert(/plages humaines et leurs preuves/.test(frag), "le dossier des plages est là");
+  assert(/note du jour/.test(frag) && /2026-09-18\.txt/.test(frag), "la note du jour est affichée");
+  assert(/data-action="note-heures"[^>]*data-debut="09:15"/.test(frag), "…avec un bouton pour reprendre ses horaires");
+  assert(/Audit à vérifier/.test(frag), "le texte de la note est lisible tel quel");
   assert(/blocs à insérer dans Redmine — 4 bloc\(s\) · 3 client\(s\)/.test(frag), "les blocs Redmine sont la première section");
   assert(/Audit\/Analyse/.test(frag), "chaque bloc dit son activité en clair");
   assert(/3199/.test(frag), "une livraison y figure");

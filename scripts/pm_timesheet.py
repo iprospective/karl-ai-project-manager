@@ -1008,6 +1008,10 @@ class Regles:
     #: client → part de SA quote-part de pot interne qu'iProspective garde à sa charge.
     #: Arrangement commercial, donc déclaré en conf : rien dans le modèle PM ne le dit.
     abattement: dict = field(default_factory=dict)
+    #: (entité, projet, ticket) où atterrit la part retenue. Sans cela elle retournait
+    #: à SA source — donc sur « non attribué » quand le pot venait d'un projet inconnu,
+    #: ce qui n'a aucun sens sur une facture (arbitrage Mathieu, 2026-10-12).
+    retenue_vers: tuple = None
 
     def clients_eligibles(self, entity, candidats):
         """Les clients du jour à qui le pot de `entity` peut être refacturé.
@@ -1180,7 +1184,9 @@ def repartir_transversal(alloc, regles, params=None):
                 final[(jour, cible)] += part
                 refacture[(jour, cible)] += part
             if garde:
-                final[(jour, cible_source)] += garde      # reste chez la source (interne)
+                # La retenue atterrit à l'endroit DÉCLARÉ — pas chez la source : un pot
+                # venu d'un projet non identifié y laisserait une retenue « non attribuée ».
+                final[(jour, regles.retenue_vers or cible_source)] += garde
         journal[jour] = {
             "destin": destin, "cle": cle, "absence": motif_absence,
             "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
@@ -1396,6 +1402,23 @@ def charger_config(chemin=None, cfg=None):
         return {}
 
 
+def _abattement(conf):
+    """Les taux d'abattement, que la conf les donne à plat ou sous `clients:`."""
+    brut = (conf or {}).get("abattement") or {}
+    taux = brut.get("clients") if isinstance(brut.get("clients"), dict) else brut
+    return {str(k): float(v) for k, v in (taux or {}).items()
+            if k != "vers" and isinstance(v, (int, float))}
+
+
+def _retenue_vers(conf):
+    """Où atterrit la part retenue : `abattement.vers` = `<client>/<projet>`."""
+    vers = ((conf or {}).get("abattement") or {}).get("vers")
+    if not vers:
+        return None
+    bout = str(vers).split("/")
+    return (bout[0], bout[1] if len(bout) > 1 else None, None)
+
+
 def regles_depuis_config(conf, cfg):
     """Construit les `Regles` : typologie PM + arbitrages déclarés."""
     types = {}
@@ -1444,7 +1467,8 @@ def regles_depuis_config(conf, cfg):
     return Regles(
         types=types,
         usagers={e: s for e, s in usagers.items()},
-        abattement={str(k): float(v) for k, v in (conf.get("abattement") or {}).items()},
+        abattement=_abattement(conf),
+        retenue_vers=_retenue_vers(conf),
         perso=set(conf.get("perso", []) or []),
         absences=absences,
         cles_multi=cles,

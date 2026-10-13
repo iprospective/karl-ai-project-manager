@@ -286,6 +286,28 @@ verifie(W.heures_travaillees("09:00", "18:00",
                              W.duree_pause({"pause_debut": "12:30", "pause_fin": "14:00"})) == 7.5,
         "la journée se calcule sur la pause posée")
 
+# ── Tout l'interne n'est pas du partagé (RM3229, 2026-10-13) ────────────────
+# « atombox-webmail, projet du client iprospective, n'est pas un projet partagé ! »
+_rh = W.Regles(types={"pisceen": "client", "iprospective": "self"}, perso={"lemathou"},
+               hors_pot={"iprospective/atombox-webmail"})
+verifie(_rh.dans_le_pot("iprospective", "pm-ai-agents"), "l'outillage PM reste du partagé")
+verifie(not _rh.dans_le_pot("iprospective", "atombox-webmail"),
+        "un produit interne non partagé n'entre pas dans le pot")
+verifie(not _rh.dans_le_pot("lemathou", "manoe"), "le perso non plus")
+verifie(not _rh.dans_le_pot("pisceen", "infra"), "un client n'est pas du pot")
+
+_P2 = {"follow_cap": 10, "client_threshold_min": 60, "quantum_min": 15,
+       "work_start_hour": 8, "work_end_hour": 19}
+_a = {("2026-10-13", True, ("pisceen", "p", None)): 120.0,
+      ("2026-10-13", True, ("iprospective", "pm-ai-agents", None)): 60.0,
+      ("2026-10-13", True, ("iprospective", "atombox-webmail", None)): 60.0}
+_f, _e, _j, _rf = W.repartir_transversal(_a, _rh, _P2)
+verifie(round(_f[("2026-10-13", ("pisceen", "p", None))]) == 180,
+        "seul l'outillage PM gonfle la ligne cliente (120 + 60)")
+verifie(round(_f[("2026-10-13", ("iprospective", "atombox-webmail", None))]) == 60,
+        "le produit interne reste entier chez iProspective")
+verifie(round(sum(_f.values()) + sum(_e.values())) == 240, "rien créé, rien perdu")
+
 # ── Le pot n'est pas homogène (RM3229, 2026-10-12) ──────────────────────────
 # « si le pot PM/infra est bien pour tous les clients, presta/doli n'est que pour
 # pisceen/calicote/calyclay » — un produit ne se refacture qu'à ceux qui s'en servent.
@@ -355,6 +377,21 @@ verifie(W._abattement({"abattement": {"vers": "a/b", "clients": {"calicote": 0.5
 verifie(W._retenue_vers({"abattement": {"vers": "iprospective/pm-ai-agents"}})
         == ("iprospective", "pm-ai-agents", None), "la cible de retenue se lit")
 verifie(W._retenue_vers({}) is None, "sans `vers`, rien n'est imposé")
+
+# ── Le temps rapatrié garde le PROJET de la présence (2026-10-13) ───────────
+# Sans lui la ligne est inécrivable dans Redmine (« matnat/None ») et son temps se perd
+# en silence à la validation.
+_pres_ex = [{"client": "matnat", "projet": "infra", "dates": ["2026-10-08"],
+             "debut": "09:30", "fin": "18:30", "heures": 8, "exclusif": True}]
+_fin = {("2026-10-08", ("calicote", "presta", "3039")): 120.0}
+_ph = {("2026-10-08", h): 30.0 for h in range(9, 19)}
+_phc = {("2026-10-08", 10, ("calicote", "presta", "3039")): 120.0}
+_aj, _tr = W.appliquer_presences(_fin, _pres_ex, datetime(2026, 10, 8), datetime(2026, 10, 9),
+                                 _ph, _phc)
+_cibles = [c for (_j, c) in _fin if c[0] == "matnat"]
+verifie(_cibles and all(c[1] == "infra" for c in _cibles),
+        "le temps rapatrié rejoint matnat AVEC le projet de la présence")
+verifie(not any(c[1] is None for c in _cibles), "…et plus jamais sans projet")
 
 # ── Une journée particulière : demi-journée sur site (RM3229, 2026-10-12) ───
 # « j'étais chez matnat jusqu'à 13h45, j'ai donc bossé 3,5 h ». Une telle journée se

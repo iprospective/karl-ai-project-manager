@@ -66,6 +66,23 @@ check("pas de rejeu par défaut (le cache du jour sert l'écran)", "--refresh" n
 ka.op_timesheet_day({"day": "2026-09-18", "refresh": "1"})
 check("refresh=1 rejoue les traces", "--refresh" in argv)
 
+# Le calcul rend parfois des journées VOISINES (travail à cheval sur minuit, journée
+# ajustée du même mois). Rendre la première affichait une AUTRE journée que celle
+# ouverte — ses heures ET sa note (incident du 2026-10-13).
+VUE["jours"] = [
+    {"date": "2026-06-04", "mesure_min": 0, "proposition": [{"minutes": 45}]},
+    {"date": "2026-09-18", "mesure_min": 410, "proposition": []},
+]
+res_multi = ka.op_timesheet_day({"day": "2026-09-18"})
+check("la journée rendue est celle DEMANDÉE, pas la première de la liste",
+      res_multi["jour"] and res_multi["jour"]["date"] == "2026-09-18")
+check("…et son contenu est bien le sien", res_multi["jour"]["mesure_min"] == 410)
+check("une journée absente du calcul rend None, pas une voisine",
+      ka.op_timesheet_day({"day": "2026-09-19"})["jour"] is None)
+VUE["jours"] = [{"date": "2026-09-18", "mesure_min": 410, "periodes": [["08:51", "09:31"]],
+                 "proposition": [{"jour": "2026-09-18", "client": "pisceen", "minutes": 45}],
+                 "deja_saisi": [], "regie": [], "ia": [], "surcharge": None, "valide": False}]
+
 refuse("jour malformé refusé", lambda: ka.op_timesheet_day({"day": "18/09/2026"}))
 refuse("jour absent refusé", lambda: ka.op_timesheet_day({}))
 refuse("injection d'option refusée", lambda: ka.op_timesheet_day({"day": "--apply"}))

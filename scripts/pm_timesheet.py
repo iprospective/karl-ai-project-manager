@@ -1875,10 +1875,16 @@ def conf_pause(conf):
 
 
 def trou_de_midi(periodes, plage=None, minimum=None):
-    """Le plus grand trou entre deux plages de travail dans le créneau du midi.
+    """Le trou de midi réellement observé : un ARRÊT entre deux moments de travail.
 
-    Rend `(debut, fin, minutes)` s'il en existe un d'au moins `minimum`, sinon None.
-    C'est ce qui permet de dire « la pause n'apparaît pas » sans le deviner.
+    Rend `(debut, fin, minutes)` du plus grand trou qui touche le créneau du midi, ou
+    None. Un trou n'existe que s'il y a du travail AVANT et APRÈS : sans travail après,
+    ce n'est pas une pause, c'est la fin de la journée ; sans travail avant, elle n'a
+    pas commencé.
+
+    C'est le défaut corrigé le 2026-10-13 : une journée sans aucune trace entre 11h30 et
+    14h30 se voyait annoncer « 3 h de pause » — la fenêtre de recherche entière prise
+    pour un trou. Elle apparaissait sur toutes les journées sans activité à midi.
     """
     cfg = {**PAUSE_DEFAUT}
     debut_p, fin_p = (plage or cfg["plage"])
@@ -1889,21 +1895,27 @@ def trou_de_midi(periodes, plage=None, minimum=None):
         return int(h) * 60 + int(mi)
 
     lo, hi = m(debut_p), m(fin_p)
-    bornes = sorted(((m(a), m(b)) for a, b in periodes or []))
+    bornes = sorted((m(a), m(b)) for a, b in periodes or [])
+    if len(bornes) < 2:
+        return None                       # un seul bloc de travail : aucun trou possible
+
+    # Les périodes contiguës se fondent : deux traces à 2 min d'écart ne font pas un trou.
+    fusion = [list(bornes[0])]
+    for a, b in bornes[1:]:
+        if a <= fusion[-1][1]:
+            fusion[-1][1] = max(fusion[-1][1], b)
+        else:
+            fusion.append([a, b])
+
     meilleur = None
-    curseur = lo
-    for a, b in bornes:
-        if b <= lo or a >= hi:
+    for (a1, b1), (a2, _b2) in zip(fusion, fusion[1:]):
+        duree = a2 - b1
+        if duree < minimum:
             continue
-        if a > curseur:
-            duree = min(a, hi) - curseur
-            if duree >= minimum and (not meilleur or duree > meilleur[2]):
-                meilleur = (curseur, min(a, hi), duree)
-        curseur = max(curseur, b)
-    if curseur < hi and (hi - curseur) >= minimum:
-        duree = hi - curseur
+        if b1 >= hi or a2 <= lo:          # le trou ne touche pas le créneau du midi
+            continue
         if not meilleur or duree > meilleur[2]:
-            meilleur = (curseur, hi, duree)
+            meilleur = (b1, a2, duree)
     if not meilleur:
         return None
     a, b, duree = meilleur
@@ -2046,6 +2058,27 @@ def surcharges_ecrire(mois, donnees, racine=None):
     tmp.replace(p)
 
 
+def duree_pause(surcharge):
+    """La pause d'une journée, en heures, depuis ses BORNES si elles sont posées.
+
+    Deux façons de la dire : une durée (`pause_h`) ou un créneau (`pause_debut`/
+    `pause_fin`). Le créneau l'emporte — il est plus précis, et c'est lui qui se
+    dessine sur la frise.
+    """
+    s = surcharge or {}
+    a, b = s.get("pause_debut"), s.get("pause_fin")
+    if a and b:
+        try:
+            ha, ma = (int(x) for x in str(a).split(":"))
+            hb, mb = (int(x) for x in str(b).split(":"))
+        except (ValueError, TypeError):
+            return s.get("pause_h")
+        minutes = (hb * 60 + mb) - (ha * 60 + ma)
+        if minutes > 0:
+            return round(minutes / 60.0, 2)
+    return s.get("pause_h")
+
+
 def heures_travaillees(debut, fin, pause_h=None):
     """« 09:30 » → « 18:30 », pause d'une heure par défaut au-delà de 6 h d'amplitude."""
     h0, m0 = (int(x) for x in debut.split(":"))
@@ -2083,7 +2116,7 @@ def presences_effectives(presences, surcharges):
             # pour une demi-journée sur site, l'après-midi appartenant à d'autres.
             "debut": s["debut"] if plage else None,
             "fin": s["fin"] if plage else None,
-            "heures": s.get("heures") or (heures_travaillees(s["debut"], s["fin"], s.get("pause_h"))
+            "heures": s.get("heures") or (heures_travaillees(s["debut"], s["fin"], duree_pause(s))
                                           if plage else 0),
             "reunion_h": s.get("reunion_h", 0),
             "exclusif": s.get("exclusif", False) if plage else False,

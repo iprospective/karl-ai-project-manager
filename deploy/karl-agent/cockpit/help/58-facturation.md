@@ -64,6 +64,16 @@ Elle ne se devine jamais : une journée sans trou à midi peut être une journé
 un clic, à la durée configurée. Rien n'est écrit dans Redmine à ce moment-là : la pause
 entre dans la proposition, qui reste à valider.
 
+Un trou n'est annoncé que s'il y a du travail **avant et après** : sans travail après, ce
+n'est pas une pause, c'est la fin de la journée. Et le trou rendu est celui qu'on a
+réellement observé, pas sa portion dans le créneau de recherche.
+
+**Poser les bornes à la main** : deux champs `pause [ 12:30 ] → [ 14:00 ]`. Elles
+l'emportent sur la détection — c'est le geste par lequel on la corrige, elle ne doit pas
+être réécrite par elle. Le bouton **↧ reprendre le trou** les remplit depuis le trou
+mesuré, à corriger ensuite. Une **durée seule** reste possible quand les bornes importent
+peu. Ce sont les bornes qui se dessinent sur la frise.
+
 Sa destination se règle une fois pour toutes dans ton `timesheet.yml` (`<core>/var/users/<toi>/`) :
 
 ```yaml

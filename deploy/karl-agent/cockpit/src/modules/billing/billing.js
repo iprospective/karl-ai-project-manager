@@ -355,9 +355,13 @@ export function pause(jour) {
   const p = (jour && jour.pause) || null;
   const cible = (p && p.cible) || {};
   const declaree = Number(p && p.declaree_h) || 0;
-  const trou = (p && p.trou) || null;
+  // Les bornes POSÉES à la main l'emportent sur le trou mesuré : c'est le geste par
+  // lequel on corrige une détection, il ne doit pas être réécrit par elle.
+  const posee = (p && p.debut && p.fin) ? { debut: p.debut, fin: p.fin } : null;
+  const trou = posee || ((p && p.trou) || null);
   return {
-    declaree, trou,
+    declaree, trou, posee,
+    debut: posee ? posee.debut : "", fin: posee ? posee.fin : "",
     visible: !!trou,
     // Sans bloc `pause` du serveur, on ne SAIT pas : une journée d'avant cette
     // fonctionnalité ne doit pas réclamer une pause qu'on n'a pas cherchée.
@@ -366,7 +370,7 @@ export function pause(jour) {
     ou: [cible.client, cible.projet].filter(Boolean).join("/") || "",
     commentaire: cible.commentaire || "",
     texte: declaree
-      ? `pause déclarée : ${fmtMin(declaree * 60)}${cible.client ? ` sur ${cible.client}` : ""}`
+      ? `pause déclarée : ${posee ? `${posee.debut}–${posee.fin} · ` : ""}${fmtMin(declaree * 60)}${cible.client ? ` sur ${cible.client}` : ""}`
       : trou
         ? `pause visible dans les traces : ${trou.debut}–${trou.fin} (${fmtMin(trou.minutes)})`
         : p ? "aucune pause visible ce jour-là" : "",
@@ -440,7 +444,7 @@ export function legende(jour) {
 /** La bande neutre de la pause : déclarée si elle l'est, sinon le trou mesuré. */
 export function bandePause(jour, { from, span }) {
   const p = pause(jour);
-  const t = p.trou;
+  const t = p.posee || p.trou;
   if (!t) return null;
   const x0 = minOf(t.debut), x1 = minOf(t.fin);
   if (isNaN(x0) || isNaN(x1)) return null;
@@ -449,8 +453,9 @@ export function bandePause(jour, { from, span }) {
     left: Math.max(0, ((x0 - from) / span) * 100),
     width: Math.max(0.4, ((x1 - x0) / span) * 100),
     declaree: !!p.declaree,
-    titre: `pause ${t.debut}–${t.fin} (${fmtMin(t.minutes)})`
-           + (p.declaree ? ` · déclarée ${fmtMin(p.declaree * 60)}` : " · vue dans les traces"),
+    titre: `pause ${t.debut}–${t.fin}`
+           + (p.posee ? ` · posée à la main (${fmtMin(p.declaree * 60)})`
+                      : ` (${fmtMin(t.minutes)}) · vue dans les traces`),
   };
 }
 

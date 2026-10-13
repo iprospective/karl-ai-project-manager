@@ -722,6 +722,10 @@ def main():
     ap.add_argument("--client", help="avec --day : client principal de la journée")
     ap.add_argument("--projet", help="avec --day : projet PM du client principal")
     ap.add_argument("--pause", type=float, help="avec --day : pause en heures (défaut 1 h au-delà de 6 h)")
+    ap.add_argument("--pause-debut", dest="pause_debut",
+                    help="avec --day : début de la pause (HH:MM) — plus précis que --pause")
+    ap.add_argument("--pause-fin", dest="pause_fin",
+                    help="avec --day : fin de la pause (HH:MM)")
     ap.add_argument("--heures", type=float,
                     help="avec --day : heures de travail de la journée, quand elles ne se "
                          "déduisent pas de début/fin (demi-journée sur site, par exemple)")
@@ -762,7 +766,8 @@ def main():
     if not args.month and not args.day and not (args.depuis and args.jusqu_a):
         ap.error("--month AAAA-MM, --day AAAA-MM-JJ, ou --from et --to")
     ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet,
-                                         args.pause, args.lieu, args.heures)) \
+                                         args.pause, args.lieu, args.heures,
+                                         args.pause_debut, args.pause_fin)) \
         or args.exclusif or args.clear_override or args.validate_empty
     if ajuste and not args.day:
         ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
@@ -830,7 +835,8 @@ def ajuster_journee(args):
         return
     for champ, valeur in (("debut", args.start), ("fin", args.end), ("client", args.client),
                           ("projet", args.projet), ("pause_h", args.pause), ("lieu", args.lieu),
-                          ("heures", args.heures)):
+                          ("heures", args.heures),
+                          ("pause_debut", args.pause_debut), ("pause_fin", args.pause_fin)):
         if valeur is not None:
             jour[champ] = valeur
     if args.exclusif:
@@ -1033,7 +1039,9 @@ def vue_json(res, prop, commits=True):
                                           or "Mathieu Moulin") if commits else []),
             "note": (res.get("notes").note(j) if res.get("notes") else None),
             "pause": {
-                "declaree_h": surcharge.get("pause_h"),
+                "declaree_h": W.duree_pause(surcharge),
+                "debut": surcharge.get("pause_debut"),
+                "fin": surcharge.get("pause_fin"),
                 "trou": W.trou_de_midi(
                     [[a.strftime("%H:%M"), b.strftime("%H:%M")]
                      for a, b in res["periodes"].get(j, [])]),

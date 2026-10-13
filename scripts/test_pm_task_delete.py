@@ -76,7 +76,9 @@ def load_module():
 
 def main():
     journal = Path(tempfile.mkdtemp(prefix="pm-delete-journal-"))
-    env = subprocess_env(KARL_JOURNAL_DIR=journal, KARL_JOURNAL_STDERR="0")
+    worklogs = Path(tempfile.mkdtemp(prefix="pm-delete-worklogs-"))
+    env = subprocess_env(KARL_JOURNAL_DIR=journal, KARL_JOURNAL_STDERR="0",
+                         PM_SESSION_WORKLOG_DIR=worklogs)
     root = Path(env["PM_CORE_DIR"]) / "projects"
     proj = make_project(root, "alpha", "one", "alpha-one")
     tasks = proj / "tasks"
@@ -94,10 +96,20 @@ def main():
     check("ticket sans fiche refusé", r.returncode != 0)
 
     print("· suppression nominale (sans git)")
+    # le cockpit liste « reste à faire » depuis les worklogs de session
+    for sid, refs in (("sess-a", ["RM9101", "RM9500"]), ("sess-b", ["RM9500"])):
+        (worklogs / f"{sid}.json").write_text(json.dumps({
+            "session_id": sid, "title": None, "updated": "2026-10-13T10:00",
+            "items": [{"id": n + 1, "ref": r, "label": r, "status": "nouveau"}
+                      for n, r in enumerate(refs)]}), encoding="utf-8")
     r = run(env, "9101", "--reason", "faux positif (test)", "--no-redmine", "--apply", "--no-commit")
     check("sortie 0", r.returncode == 0, r.stderr[:300])
     check("fiche et frères supprimés (journal, think, script de MEP)",
           not any(f.exists() for f in siblings(tasks, 9101)))
+    refs_a = [i["ref"] for i in json.loads((worklogs / "sess-a.json").read_text())["items"]]
+    refs_b = [i["ref"] for i in json.loads((worklogs / "sess-b.json").read_text())["items"]]
+    check("retiré du worklog de session (et lui seul)", refs_a == ["RM9500"] and refs_b == ["RM9500"],
+          f"{refs_a} {refs_b}")
     lines = [json.loads(l) for f in journal.glob("*.jsonl") for l in f.read_text().splitlines() if l.strip()]
     trace = [l for l in lines if l.get("rm_id") == 9101]
     check("trace au journal PM (motif, titre, projet)",

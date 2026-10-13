@@ -1040,9 +1040,19 @@ class Regles:
         """Seul le temps d'un CLIENT se facture. Le sien et les produits, non."""
         return self.est_client(entity)
 
-    def dans_le_pot(self, entity):
-        """Transversal refacturable : ni client, ni perso (PM, infra, produits)."""
-        return entity not in self.perso and not self.est_client(entity)
+    #: projets « <entité>/<projet> » exclus du pot : du travail interne qui n'est pas de
+    #: l'outillage partagé. Il reste à la charge d'iProspective.
+    hors_pot: set = field(default_factory=set)
+
+    def dans_le_pot(self, entity, projet=None):
+        """Transversal refacturable : ni client, ni perso, ni travail interne non partagé.
+
+        Un projet d'une entité interne n'est pas forcément de l'outillage mutualisé : le
+        webmail d'iProspective est son propre produit, pas un service rendu aux clients.
+        """
+        if entity in self.perso or self.est_client(entity):
+            return False
+        return f"{entity}/{projet}" not in self.hors_pot
 
     def absence(self, jour):
         d = date.fromisoformat(jour)
@@ -1104,7 +1114,7 @@ def repartir_transversal(alloc, regles, params=None):
         d["lignes"].append((ouvre, cible, minutes))
         if regles.est_client(ent):
             d["clients"][ent] += minutes
-        elif regles.dans_le_pot(ent):
+        elif regles.dans_le_pot(ent, cible[1]):
             d["pot_ouvre" if ouvre else "pot_hors"] += minutes
             if ouvre:
                 # Par SOURCE : un produit ne se refacture qu'à ses usagers, le pot
@@ -1152,8 +1162,8 @@ def repartir_transversal(alloc, regles, params=None):
         pot_par_source = collections.Counter()
         for ouvre, cible, minutes in d["lignes"]:
             ent = cible[0]
-            if regles.est_client(ent) or not regles.dans_le_pot(ent):
-                final[(jour, cible)] += minutes          # client et perso : intouchés
+            if regles.est_client(ent) or not regles.dans_le_pot(ent, cible[1]):
+                final[(jour, cible)] += minutes          # client, perso, interne non partagé
                 continue
             if destin == NON_COMPTE:
                 ecarte[(jour, cible)] += minutes
@@ -1224,6 +1234,7 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
     """
     ajouts = collections.defaultdict(float)
     transferts = collections.defaultdict(float)
+    projet_presence = {}          # (jour, client) → projet déclaré par la présence
     for p in presences or []:
         client = p.get("client")
         if not client:
@@ -1272,6 +1283,7 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                         if cible[0] == client or _est_perso_ou_transversal(cible[0], p):
                             continue
                         a_rapatrier[cible] += v
+                    projet_presence.setdefault((cle, client), projet)
                     for cible, v in a_rapatrier.items():
                         restant = final.get((cle, cible), 0.0)
                         pris = min(restant, v)
@@ -1303,8 +1315,13 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
             jour += timedelta(days=1)
     # Le temps rapatrié rejoint le client SANS son ticket d'origine : un ticket
     # d'un autre projet ne peut pas être crédité ici (il appartient à son projet).
+    # Il garde en revanche le PROJET de la présence : sans lui, la ligne est
+    # inécrivable dans Redmine (« 1 ligne sans projet résolu : matnat/None ») et son
+    # temps se perd en silence à la validation (constaté le 2026-10-13).
     for (cle, cible, client), v in transferts.items():
-        final[(cle, (client, None, None))] = final.get((cle, (client, None, None)), 0.0) + v
+        projet = projet_presence.get((cle, client))
+        dest = (client, projet, None)
+        final[(cle, dest)] = final.get((cle, dest), 0.0) + v
     for k in [k for k, v in final.items() if v <= 0]:
         del final[k]
     return dict(ajouts), dict(transferts)
@@ -1468,6 +1485,7 @@ def regles_depuis_config(conf, cfg):
         types=types,
         usagers={e: s for e, s in usagers.items()},
         abattement=_abattement(conf),
+        hors_pot=set(str(x) for x in (conf.get("hors_pot") or [])),
         retenue_vers=_retenue_vers(conf),
         perso=set(conf.get("perso", []) or []),
         absences=absences,

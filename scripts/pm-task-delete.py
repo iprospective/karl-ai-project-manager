@@ -19,13 +19,16 @@ Ordre d'exécution, choisi pour qu'un échec laisse un état cohérent :
      aussi le miroir dans la fiche de l'AUTRE ticket ;
   3. suppression Redmine, vérifiée par relecture (404) ;
   4. suppression des fichiers du ticket (fiche, journal, reporting, think, script de
-     MEP) et commit path-scopé.
+     MEP) et commit path-scopé ;
+  5. retrait du ticket des worklogs de session (`pm-session-status rm`) : sinon le
+     cockpit le garde dans « reste à faire » avec son dernier statut connu.
 
 Refus, sauf `--force` : un ticket qui porte du travail ne se supprime pas, il se ferme.
 Sont du travail : du temps saisi, des sous-tâches, des commits liés (changesets), une
 branche ou une MR de code dans la fiche.
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -40,6 +43,7 @@ from pm_paths import PMConfig
 from pm_task import get_task_provider
 import pm_git
 import pm_log
+import pm_stores
 
 TOOL = "pm-task-delete"
 LINK_FIELDS = ("relates", "depends_on", "blocks")
@@ -99,6 +103,30 @@ def unlink(rm_id, other, no_commit):
         cmd.append("--no-commit")
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.returncode == 0, (r.stderr or r.stdout).strip()
+
+
+def sessions_listing(ref):
+    """Sessions dont le worklog porte encore `ref` (ex. « RM3433 »)."""
+    found = []
+    for path in sorted(Path(pm_stores.worklog_dir()).glob("*.json")):
+        try:
+            items = json.loads(path.read_text(encoding="utf-8")).get("items") or []
+        except (OSError, ValueError):
+            continue
+        if any(str(i.get("ref", "")).lower() == ref.lower() for i in items):
+            found.append(path.stem)
+    return found
+
+
+def drop_from_worklogs(ref):
+    """Retire `ref` des worklogs de session. Rend la liste des sessions en échec."""
+    failed = []
+    for sid in sessions_listing(ref):
+        r = subprocess.run([sys.executable, str(HERE / "pm-session-status.py"),
+                            "--session", sid, "rm", ref], capture_output=True, text=True)
+        if r.returncode != 0:
+            failed.append(sid)
+    return failed
 
 
 def main():
@@ -190,6 +218,11 @@ def main():
         f.unlink()
     sha = None if args.no_commit else pm_git.autocommit(
         files, f"pm(delete): RM{rm_id} supprimé — {args.reason}", allow_missing=True)
+    # 5. Worklogs de session — la liste « reste à faire » du cockpit.
+    failed = drop_from_worklogs(f"RM{rm_id}")
+    if failed:
+        out.warn(f"RM{rm_id} encore listé dans le worklog de : {', '.join(failed)} "
+                 f"(pm-session-status.py --session <id> rm RM{rm_id})")
     out.op("delete", rm=rm_id, extra=f"« {title} » ({ref})", commit=sha)
 
 

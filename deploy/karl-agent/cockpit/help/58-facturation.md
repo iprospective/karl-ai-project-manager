@@ -7,6 +7,32 @@ L'écran montre **une journée**. On la relit, on la corrige si besoin, on la **
 et la validation écrit les saisies de temps dans Redmine, pour cette journée seulement.
 Jamais un mois en bloc : un mois posé d'un coup ne se relit pas, une journée si.
 
+## Trois vues : journée, semaine, mois
+
+Les trois onglets du haut regardent le **même** travail de plus ou moins loin. La journée
+ouverte ne change pas quand on bascule : on la retrouve en revenant.
+
+- **journée** — l'écran de validation, décrit ci-dessous. C'est le seul où l'on écrit.
+- **semaine** — les sept jours, lundi à dimanche.
+- **mois** — le calendrier complet, semaines entières (les jours des mois voisins sont
+  affichés en grisé pour que les colonnes restent alignées sur les jours de la semaine).
+
+Dans les deux grilles, chaque case porte le jour, les **heures à valider**, une barre de
+couleurs — un segment par client, **large comme sa part** de la journée — et des repères :
+un point vert si des agents ont travaillé, un `·` si une note du jour existe, un `✓` si la
+journée a été ajustée à la main. Le survol donne le détail chiffré. Le cadre de la case dit
+son état : **validée**, **à valider**, ou vide (rien de mesuré).
+
+**Un clic sur une case ouvre cette journée** dans la vue journée — c'est le chemin normal
+pour avancer dans un mois : on regarde la grille, on repère ce qui reste, on y va.
+
+Sous la grille, l'**avancement** : combien de journées sont validées sur le total, combien
+restent et le temps qu'elles représentent, puis le **cumul par client** sur la période
+regardée — la semaine en vue semaine, le mois en vue mois.
+
+Les grilles sont lues en **résumé** (une ligne par jour), pas journée complète : un mois se
+charge d'un coup. Après une validation, le mois concerné est **relu**, jamais gardé périmé.
+
 ## Ce que l'écran montre
 
 | Chiffre | Ce que c'est |

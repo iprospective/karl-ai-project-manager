@@ -4,14 +4,55 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
-         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA } from "./billing.js";
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA, grilleSemaine, grilleMois, avancement,
+         cumulClients, nomMois, moisDe, decalerMois, weekOf } from "./billing.js";
 
 export class BillingViewModel {
-  constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
+  constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge }) {
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
     this.p = clientsEtProjets(projets || []);
+    this.vue = vue || "jour";
+    this.r = resumes || {};
+    this.moisCharge = moisCharge || null;
   }
+
+  /** Les trois vues, et celle qui est ouverte. */
+  get vues() {
+    return [["jour", "journée"], ["semaine", "semaine"], ["mois", "mois"]]
+      .map(([k, l]) => ({ key: k, label: l, on: this.vue === k }));
+  }
+  get mois() { return moisDe(this.day); }
+  get moisLabel() { return nomMois(this.mois); }
+  get moisPrec() { return decalerMois(this.mois, -1); }
+  get moisSuiv() { return decalerMois(this.mois, 1); }
+  /** Les mois à charger pour la vue courante (une semaine peut être à cheval). */
+  get moisNecessaires() {
+    if (this.vue === "mois") return [this.mois];
+    if (this.vue === "semaine") return [...new Set(weekOf(this.day).map(moisDe))];
+    return [];
+  }
+  get semaine() { return grilleSemaine(this.day, this.r, this.day); }
+  get semaineLabel() {
+    const s = weekOf(this.day);
+    return s.length ? `${longDate(s[0]).replace(/ \d{4}$/, "")} → ${longDate(s[6])}` : "";
+  }
+  get grille() { return grilleMois(this.mois, this.r, this.day); }
+  /**
+   * Les journées de la PÉRIODE regardée, et elles seules.
+   *
+   * Le service garde les résumés par mois ; une vue semaine affichait donc
+   * l'avancement et le cumul du mois entier — un chiffre qui ne correspondait pas à
+   * ce qu'on avait sous les yeux.
+   */
+  get portee() {
+    if (this.vue !== "semaine") return this.r;
+    const dedans = new Set(weekOf(this.day));
+    return Object.fromEntries(Object.entries(this.r).filter(([j]) => dedans.has(j)));
+  }
+  get avancement() { return avancement(this.portee); }
+  get cumul() { return cumulClients(this.portee); }
+  get grilleVide() { return !Object.keys(this.r).length; }
 
   /** Les deux menus du formulaire : les clients PM, et les projets du client choisi. */
   get clients() {

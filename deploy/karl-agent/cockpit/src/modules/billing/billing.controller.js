@@ -27,7 +27,32 @@ export function mountBilling({ card } = {}, ctx = {}) {
   const vm = () => new BillingViewModel({
     day: svc.day, jour: svc.jour, form: svc.form(), loading: svc.loading,
     error: svc.error, busy: svc.busy, dirty: svc.dirty, projets: svc.projets,
+    vue: svc.vue, resumes: svc.resumes(vueMois()), moisCharge: svc.moisCharge,
   });
+  /** Les mois dont la vue courante a besoin — lus du service, jamais devinés. */
+  function vueMois() {
+    if (svc.vue === "mois") return [svc.day.slice(0, 7)];
+    if (svc.vue === "semaine") {
+      return [...new Set(semaineDe(svc.day).map(j => j.slice(0, 7)))];
+    }
+    return [];
+  }
+  function semaineDe(jour) {
+    const d = new Date(jour + "T12:00:00Z");
+    const lundi = new Date(d); lundi.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, i) => {
+      const x = new Date(lundi); x.setUTCDate(lundi.getUTCDate() + i);
+      return x.toISOString().slice(0, 10);
+    });
+  }
+
+  /** Charge ce qui manque pour la vue courante, puis redessine. */
+  async function assurerGrille() {
+    for (const m of vueMois()) {
+      if (!svc.mois[m]) { render(); await svc.chargerMois(m); }
+    }
+    render();
+  }
   const h = card ? mount(card, "", { events: [
     ["click", "[data-action]", (ev, el) => onClick(ev, el)],
     ["change", "[data-action=\"field\"]", (ev, el) => onField(el)],
@@ -71,6 +96,24 @@ export function mountBilling({ card } = {}, ctx = {}) {
   async function onClick(ev, el) {
     if (ev && ev.preventDefault && el.dataset.action === "ticket") ev.preventDefault();
     const a = el.dataset.action;
+    if (a === "vue") {
+      svc.setVue(el.dataset.vue);
+      render();
+      return assurerGrille();
+    }
+    if (a === "aller") {
+      // Un clic sur une case ouvre SA journée : c'est le chemin naturel depuis la grille.
+      svc.setVue("jour");
+      return goto(el.dataset.jour);
+    }
+    if (a === "mois-prec" || a === "mois-suiv") {
+      const [an, mo] = svc.day.slice(0, 7).split("-").map(Number);
+      const d = new Date(Date.UTC(an, mo - 1 + (a === "mois-suiv" ? 1 : -1), 1));
+      svc.setDay(d.toISOString().slice(0, 10));
+      retiens(svc.day);
+      render();
+      return assurerGrille();
+    }
     if (a === "prev") return goto(vm().prev);
     if (a === "next") return goto(vm().next);
     if (a === "today") return goto(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10));

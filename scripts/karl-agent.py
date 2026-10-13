@@ -12614,12 +12614,51 @@ def op_timesheet_day(qs: dict) -> dict:
     return {"day": day, "jour": voulu}
 
 
+def _resume_jour(j: dict) -> dict:
+    """Ce qu'une vue SEMAINE ou MOIS a besoin de savoir d'une journée.
+
+    Le détail d'un mois pèse 3 Mo — commits, traces et tours d'agent de 30 journées.
+    Une grille n'en montre rien : elle montre des totaux et un état. On ne les envoie
+    donc pas, et la vue reste instantanée.
+    """
+    par_client: dict = {}
+    for ligne in j.get("proposition") or []:
+        c = ligne.get("client") or "—"
+        par_client[c] = par_client.get(c, 0) + (ligne.get("minutes") or 0)
+    note = j.get("note") or None
+    surcharge = j.get("surcharge") or {}
+    return {
+        "date": j.get("date"),
+        "mesure_min": j.get("mesure_min") or 0,
+        "propose_min": sum(par_client.values()),
+        "deja_min": round(sum(s.get("minutes") or 0 for s in j.get("deja_saisi") or [])),
+        "par_client": {c: round(m) for c, m in sorted(par_client.items(),
+                                                      key=lambda kv: -kv[1])},
+        "valide": bool(j.get("valide")),
+        "destin": (j.get("journal") or {}).get("destin"),
+        "absence": (j.get("journal") or {}).get("absence"),
+        "ia_tours": len(j.get("ia") or []),
+        "commits": sum(1 for c in (j.get("commits") or []) if not c.get("auto")),
+        "note": ({"fichier": (note.get("chemin") or "").split("/")[-1]} if note else None),
+        "ajuste": bool(surcharge.get("debut") and surcharge.get("fin")),
+        "lieu": surcharge.get("lieu") or "",
+        "client": surcharge.get("client") or "",
+    }
+
+
 def op_timesheet_month(qs: dict) -> dict:
-    """Le mois entier, une entrée par journée — la matière des vues semaine et mois."""
+    """Le mois entier, une entrée par journée — la matière des vues semaine et mois.
+
+    `resume=1` ne rend que les totaux : c'est ce que les grilles consomment, et ça
+    divise la charge par cinquante.
+    """
     month = str((qs or {}).get("month") or "").strip()
     if not _TS_MONTH_RE.match(month):
         raise ApiError(400, "month : AAAA-MM attendu")
-    return _timesheet(["--month", month], timeout=900)
+    data = _timesheet(["--month", month], timeout=900)
+    if str((qs or {}).get("resume") or "") in ("1", "true"):
+        data = {**data, "jours": [_resume_jour(j) for j in (data.get("jours") or [])]}
+    return data
 
 
 def _mr_deliver_context(rm_id: str):

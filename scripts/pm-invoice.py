@@ -189,12 +189,40 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
     return 0
 
 
+#: Emplacement hérité, rapatrié une fois (RM3229, 2026-10-13). Même règle que le
+#: timesheet : ce que le PM produit en tournant vit dans le dossier de son utilisateur,
+#: jamais dans son home.
+ETAT_HERITE = Path.home() / ".local" / "state" / "mmi-pm" / "invoice"
+
+
+def dossier_etat(cfg=None, migrer=True):
+    """`<core>/var/users/<user>/invoice`, l'ancien emplacement rapatrié s'il existe."""
+    import pm_paths
+    cible = pm_paths.user_conf_dir(pm_dir=getattr(cfg, "pm_dir", None)) / "invoice"
+    cible.mkdir(parents=True, exist_ok=True)
+    if migrer and ETAT_HERITE.is_dir() and ETAT_HERITE != cible and not any(cible.iterdir()):
+        deplaces = 0
+        for item in ETAT_HERITE.iterdir():
+            if (cible / item.name).exists():
+                continue
+            try:
+                item.rename(cible / item.name)
+            except OSError:
+                import shutil
+                shutil.move(str(item), str(cible / item.name))
+            deplaces += 1
+        if deplaces:
+            print(f"  ↪ factures reprises depuis {ETAT_HERITE} ({deplaces}) → {cible}",
+                  file=sys.stderr)
+    return cible
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--month", required=True, help="mois facturé (AAAA-MM)")
     ap.add_argument("--client", help="un seul client PM")
     ap.add_argument("--config", help="réglages (défaut : <core>/var/users/<user>/invoice.yml)")
-    ap.add_argument("--out", help="dossier de sortie (défaut : ~/.local/state/mmi-pm/invoice)")
+    ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/users/<user>/invoice)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les BROUILLONS dans l'ERP depuis la proposition amendée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
@@ -230,7 +258,7 @@ def main():
     tiers, factures, catalogue = erp.tiers(), erp.factures(), erp.services()
     if args.apply:
         chemin = (Path(args.out).expanduser() if args.out
-                  else Path.home() / ".local/state/mmi-pm/invoice") / f"{args.month}.yml"
+                  else dossier_etat(cfg)) / f"{args.month}.yml"
         if not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm invoice --month {args.month}`.")
         prop = yaml.safe_load(chemin.read_text(encoding="utf-8")) or {}
@@ -244,7 +272,7 @@ def main():
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
                        services_par_activite=services, groupement=groupement, meps=meps)
 
-    dossier = Path(args.out).expanduser() if args.out else Path.home() / ".local/state/mmi-pm/invoice"
+    dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)
     ref_libelle = {v["ref"]: f"{v['ref']} {v['libelle']}" for v in catalogue.values()}
     md = dossier / f"{args.month}.md"

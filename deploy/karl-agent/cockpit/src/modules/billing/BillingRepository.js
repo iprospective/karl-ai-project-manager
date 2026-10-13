@@ -21,9 +21,13 @@ export class BillingRepository extends Repository {
     return get(this.path("day") + "?" + p.toString());
   }
 
-  /** Le mois entier, une entrée par journée — vues semaine et mois. */
-  month(mois) {
-    return get(this.path("month") + "?" + new URLSearchParams({ month: String(mois) }).toString());
+  /** Le mois entier, une entrée par journée — vues semaine et mois.
+   *  `resume` ne rend que les totaux : 9 Ko au lieu de 3 Mo, la grille n'a pas besoin
+   *  des commits ni des traces de trente journées. */
+  month(mois, resume = true) {
+    const p = new URLSearchParams({ month: String(mois) });
+    if (resume) p.set("resume", "1");
+    return get(this.path("month") + "?" + p.toString());
   }
 
   /** Les clients et projets PM — ce que les menus du formulaire proposent. */

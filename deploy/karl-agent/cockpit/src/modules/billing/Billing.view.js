@@ -215,10 +215,52 @@ export function Correspondances(vm) {
   </details>`;
 }
 
+/** Une case de grille : une journée, son état, son poids, ses clients. */
+const CaseJour = (c) => html`<button class="bl-case bl-e-${c.etat}${c.weekend ? " bl-we-case" : ""}${c.courant ? " bl-courant" : ""}${c.horsMois ? " bl-hors-mois" : ""}" data-action="aller" data-jour="${c.date}" title="${c.titre}">
+  <span class="bl-case-n">${c.jourDuMois}</span>
+  ${c.vide ? "" : html`<span class="bl-case-h">${c.propose || "—"}</span>
+  <span class="bl-case-cl">${c.clients.slice(0, 4).map(x => html`<i style="background:${x.couleur};flex-grow:${String(Math.max(x.part, 0.08))}" title="${x.client} ${x.duree}"></i>`)}</span>
+  <span class="bl-case-m">${c.ia ? html`<i class="bl-case-ia" title="${String(c.ia)} tours d'agent"></i>` : ""}${c.note ? html`<i class="bl-case-note" title="note du jour">·</i>` : ""}${c.ajuste ? html`<i class="bl-case-aj" title="journée ajustée">✓</i>` : ""}</span>`}
+</button>`;
+
+/** L'avancement du mois : ce qui est validé, ce qui attend. L'indicateur qui manquait. */
+export function Avancement(vm) {
+  const a = vm.avancement;
+  if (!a.actives) return "";
+  return html`<div class="bl-av"><div class="bl-av-bar"><i style="width:${String(a.pct)}%"></i></div>
+    <span class="bl-av-t"><b>${String(a.validees)}</b> / ${String(a.actives)} journée(s) validée(s)${a.attente ? html` · <b class="bl-manque">${String(a.attente)} à valider</b> (${a.duree})` : ""}${a.vides ? html` <span class="bl-dim">· ${String(a.vides)} sans activité</span>` : ""}</span></div>`;
+}
+
+/** Le cumul par client de la période regardée. */
+const Cumul = (vm) => vm.cumul.length
+  ? html`<div class="bl-leg">${vm.cumul.map(x => html`<span class="bl-leg-i"><i style="background:${x.couleur}"></i>${x.client} <b>${x.duree}</b></span>`)}</div>`
+  : "";
+
+/** La vue SEMAINE : sept journées côte à côte. */
+export function VueSemaine(vm) {
+  return html`${Barre(vm)}<div class="bl-sem-h">${vm.semaineLabel}</div>
+    <div class="bl-grille bl-sem">${["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map(j => html`<span class="bl-jn">${j}</span>`)}${vm.semaine.map(CaseJour)}</div>
+    ${Avancement(vm)}${Cumul(vm)}`;
+}
+
+/** La vue MOIS : le calendrier, pour voir d'un coup ce qui reste. */
+export function VueMois(vm) {
+  if (vm.moisCharge) return html`${Barre(vm)}<div class="bl-load">lecture de ${vm.moisLabel}…<span class="bl-dim"> (les journées jamais ouvertes sont rejouées)</span></div>`;
+  return html`${Barre(vm)}
+    <div class="bl-mois-h"><button class="mini" data-action="mois-prec" title="Mois précédent">←</button><b>${vm.moisLabel}</b><button class="mini" data-action="mois-suiv" title="Mois suivant">→</button></div>
+    <div class="bl-grille bl-cal">${["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map(j => html`<span class="bl-jn">${j}</span>`)}${vm.grille.map(sem => sem.jours.map(CaseJour))}</div>
+    ${Avancement(vm)}${Cumul(vm)}`;
+}
+
+/** Les onglets de vue — la journée reste celle qu'on regardait. */
+const Barre = (vm) => html`<div class="bl-vues">${vm.vues.map(v => html`<button class="chip${v.on ? " on" : ""}" data-action="vue" data-vue="${v.key}">${v.label}</button>`)}<span class="bl-dim">${vm.vue === "jour" ? vm.titre : "clic sur une journée pour l'ouvrir"}</span></div>`;
+
 export function Panel(vm) {
   if (vm.error) return html`${Header(vm)}<div class="bl-err">journée illisible : ${vm.error}</div>`;
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
-  return html`${Header(vm)}${Chiffres(vm)}${Frise(vm)}${NoteDuJour(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
+  if (vm.vue === "semaine") return VueSemaine(vm);
+  if (vm.vue === "mois") return VueMois(vm);
+  return html`${Barre(vm)}${Header(vm)}${Chiffres(vm)}${Frise(vm)}${NoteDuJour(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

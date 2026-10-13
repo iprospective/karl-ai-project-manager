@@ -545,6 +545,27 @@ def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=No
     return True, ""
 
 
+def delete_issue(issue_id, *, timeout=20, creds=None):
+    """SUPPRIME une issue (`DELETE /issues/<id>.json`) — RM3468. Rend `(ok, err)`.
+
+    Définitif côté Redmine : journaux, relations et saisies de temps partent avec elle.
+    ⚠ Vérifié par relecture, comme `move_issue_project` : seul un 404 au GET qui suit
+    prouve la suppression (sans la permission « Delete issues », Redmine répond 403).
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("DELETE", f"{url}/issues/{issue_id}.json", key,
+                           timeout=timeout, basic=_basic)
+    if code not in (200, 204):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+    code, _ = http_json("GET", f"{url}/issues/{issue_id}.json", key,
+                        timeout=timeout, basic=_basic)
+    if code != 404:
+        return False, f"Redmine a accepté le DELETE mais l'issue répond encore (HTTP {code})"
+    return True, ""
+
+
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
                         notes=None, subject=None, priority_id=None, timeout=20, creds=None):
     """PUT générique sur une issue : custom_fields + estimated_hours + titre + priorité + note.

@@ -84,6 +84,13 @@ export function mountBilling({ card } = {}, ctx = {}) {
       return notify("horaires de la note reportés — à enregistrer");
     }
     if (a === "save") return garde(() => svc.adjust(), "journée ajustée");
+    if (a === "pause-trou") {
+      // Reprend le trou mesuré comme bornes de pause : un clic au lieu de deux saisies.
+      svc.setField("pauseDebut", el.dataset.debut);
+      svc.setField("pauseFin", el.dataset.fin);
+      render();
+      return notify("trou de midi repris — à enregistrer");
+    }
     if (a === "pause-midi") {
       // Un clic : la pause proposée est posée et enregistrée. Elle n'écrit rien dans
       // Redmine — elle entre dans la proposition, qui reste à valider.

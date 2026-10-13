@@ -149,14 +149,19 @@ verifie(presque(sum(refac.values()), 60.0),
 verifie(presque(refac.get((J, ("cli1", "p", None)), 0), 45.0),
         "elle suit le prorata du client dans la journée")
 
-# journée non cliente : le transversal est écarté
+# Journée à moins d'1 h de client : le pot n'a personne à qui s'imputer, il reste à la
+# charge d'iProspective — mais il est NOTÉ. Il était écarté jusqu'au 2026-10-13 :
+# « si moins de 1h sur l'ensemble des clients le pot reste pour moi, sinon il est réparti ».
 alloc_creuse = {(J, True, ("iprospective", "pm", None)): 200.0,
                 (J, True, ("cli1", "p", None)): 10.0}
 final2, ecarte2, journal2, _r2 = W.repartir_transversal(alloc_creuse, regles)
-verifie(journal2[J]["destin"] == W.NON_COMPTE, "journée à moins d'1 h de client")
-verifie(presque(sum(ecarte2.values()), 200.0), "le transversal du jour est écarté")
-verifie(presque(sum(final2.values()) + sum(ecarte2.values()), 210.0),
-        "conservation malgré l'écart")
+verifie(journal2[J]["destin"] == W.INTERNE, "journée à moins d'1 h de client : pot interne")
+verifie(presque(sum(ecarte2.values()), 0.0), "plus rien n'est écarté hors absence déclarée")
+verifie(presque(final2[(J, ("iprospective", "pm", None))], 200.0),
+        "le pot reste entier chez iProspective")
+verifie(presque(final2[(J, ("cli1", "p", None))], 10.0),
+        "…et le temps du client est facturé quand même, seuil ou pas")
+verifie(presque(sum(final2.values()) + sum(ecarte2.values()), 210.0), "conservation")
 
 # absence : l'activité cliente est signalée, pas supprimée
 regles_abs = W.Regles(types=regles.types, perso={"lemathou"},
@@ -285,6 +290,34 @@ verifie(W.duree_pause({"pause_debut": "bof", "pause_fin": "14:00"}) is None,
 verifie(W.heures_travaillees("09:00", "18:00",
                              W.duree_pause({"pause_debut": "12:30", "pause_fin": "14:00"})) == 7.5,
         "la journée se calcule sur la pause posée")
+
+# ── Plancher de 15 min par client (RM3229, 2026-10-13) ──────────────────────
+# « Si j'ai noté 4 lignes, je facture au moins 15 mn à mon client » : sous la tranche
+# d'arrondi, un client réel tombait à zéro — du travail constaté, rien de facturé.
+_rp = W.Regles(types={"calicote": "client", "pisceen": "client", "iprospective": "self"})
+
+
+def _arrondi(brut, minimum=0):
+    a = W.quantifier({("j", k): v for k, v in brut.items()}, 15)
+    a = {k[1]: v for k, v in a.items()}
+    return W.plancher_client(brut, a, 15, _rp, minimum)
+
+
+_b = {("calicote", "c", None): 3.0, ("pisceen", "p", None): 600.0}
+verifie(("calicote", "c", None) not in _arrondi(_b),
+        "sans plancher, 3 min de client disparaissent à l'arrondi")
+verifie(_arrondi(_b, 15)[("calicote", "c", None)] == 15,
+        "avec plancher, le client a son quart d'heure")
+verifie(_arrondi(_b, 15)[("pisceen", "p", None)] == 600,
+        "…sans rien retirer à personne : le plancher CRÉE du temps, comme la régie")
+verifie(_arrondi({("calicote", "c", None): 7.0}, 15)[("calicote", "c", None)] == 15,
+        "un client seul sous la tranche est servi aussi")
+verifie(_arrondi({("iprospective", "pm", None): 5.0}, 15) == {},
+        "l'interne n'a pas de plancher : il ne se facture pas")
+verifie(W.plancher_client({("calicote", "c", None): 0.0}, {}, 15, _rp, 15) == {},
+        "un client SANS travail tracé n'est jamais inventé")
+verifie(_arrondi({("calicote", "c", None): 120.0}, 15)[("calicote", "c", None)] == 120,
+        "un client au-dessus du plancher n'est pas touché")
 
 # ── Tout l'interne n'est pas du partagé (RM3229, 2026-10-13) ────────────────
 # « atombox-webmail, projet du client iprospective, n'est pas un projet partagé ! »

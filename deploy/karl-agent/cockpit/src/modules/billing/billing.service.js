@@ -20,6 +20,9 @@ export class BillingService {
     this.busy = null;                    // geste en cours : "adjust" | "apply"
     this.edit = null;                    // { debut, fin, client, projet, pause } en cours de saisie
     this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
+    this.vue = "jour";                   // jour | semaine | mois
+    this.mois = {};                      // AAAA-MM → {date → résumé}, gardé d'une vue à l'autre
+    this.moisCharge = null;              // mois en cours de lecture (pour l'attente)
   }
 
   /**
@@ -35,6 +38,40 @@ export class BillingService {
     } catch (e) { this.projets = []; }
     return this.projets;
   }
+
+  /** Bascule de vue. La journée regardée ne change pas : on la retrouve en revenant. */
+  setVue(v) { this.vue = ["jour", "semaine", "mois"].includes(v) ? v : "jour"; return this.vue; }
+
+  /**
+   * Les résumés d'un mois, lus une fois puis gardés.
+   *
+   * Une grille de semaine à cheval sur deux mois en charge DEUX : sans quoi la moitié
+   * des cases serait vide sans raison visible.
+   */
+  async chargerMois(mois) {
+    if (this.mois[mois]) return this.mois[mois];
+    this.moisCharge = mois;
+    try {
+      const r = await this.repo.month(mois, true);
+      const par = {};
+      for (const j of (r && r.jours) || []) if (j && j.date) par[j.date] = j;
+      this.mois[mois] = par;
+    } catch (e) {
+      this.error = e.message;
+      this.mois[mois] = {};
+    } finally { this.moisCharge = null; }
+    return this.mois[mois];
+  }
+
+  /** Les résumés couvrant une période — un ou deux mois selon le chevauchement. */
+  resumes(moisVoulus) {
+    const out = {};
+    for (const m of moisVoulus) Object.assign(out, this.mois[m] || {});
+    return out;
+  }
+
+  /** Oublie les résumés d'un mois : après une validation, ils sont périmés. */
+  invaliderMois(mois) { delete this.mois[mois]; }
 
   /** Change de journée : l'édition en cours ne suit pas — elle appartenait à l'autre jour. */
   setDay(jour) { this.day = String(jour); this.jour = null; this.edit = null; this.error = null; }
@@ -105,6 +142,7 @@ export class BillingService {
       const args = { day: this.day };
       if (dryRun) args.dry_run = true;
       const res = await this.run("timesheet-day-apply", args, { confirm: true });
+      this.invaliderMois(this.day.slice(0, 7));
       await this.load();
       return res;
     } finally { this.busy = null; }

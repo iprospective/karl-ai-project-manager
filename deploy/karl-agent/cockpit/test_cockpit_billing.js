@@ -325,6 +325,56 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.strictEqual(M.iaHorsPlage(JOUR).length, 0, "ici, tous les tours sont dans une plage");
   console.log("✓ blocs Redmine : un temps, une activité, un projet ; preuves et tours hors plage");
 
+  // — lot L4 : les grilles semaine et mois —
+  const RES = {
+    "2026-09-16": { date: "2026-09-16", mesure_min: 300, propose_min: 180, deja_min: 0,
+                    valide: false, par_client: { matnat: 180 }, ia_tours: 12, commits: 3,
+                    note: { fichier: "2026-09-16.md" }, ajuste: true, lieu: "presentiel" },
+    "2026-09-17": { date: "2026-09-17", mesure_min: 60, propose_min: 0, deja_min: 120,
+                    valide: true, par_client: {}, ia_tours: 2, commits: 0, note: null },
+    "2026-09-19": { date: "2026-09-19", mesure_min: 0, propose_min: 0, deja_min: 0,
+                    valide: false, par_client: {}, ia_tours: 0, commits: 0, note: null },
+    "2026-09-30": { date: "2026-09-30", mesure_min: 120, propose_min: 90, deja_min: 0,
+                    valide: false, par_client: { pisceen: 60, calicote: 30 }, ia_tours: 5,
+                    commits: 1, note: null },
+  };
+  assert.strictEqual(M.etatResume(RES["2026-09-16"]), "a_valider");
+  assert.strictEqual(M.etatResume(RES["2026-09-17"]), "validee");
+  assert.strictEqual(M.etatResume(RES["2026-09-19"]), "vide");
+  assert.strictEqual(M.etatResume(null), "hors", "un jour sans donnée n'est pas « vide », il est hors période");
+  assert.strictEqual(M.etatResume({ absence: "congé", propose_min: 0, deja_min: 0 }), "absence");
+
+  const sem = M.grilleSemaine("2026-09-16", RES);
+  assert.strictEqual(sem.length, 7, "sept cases, du lundi au dimanche");
+  assert.deepStrictEqual(sem.map(c => c.jourDuMois), ["14", "15", "16", "17", "18", "19", "20"]);
+  assert.strictEqual(sem[2].courant, true, "la journée regardée est marquée");
+  assert.deepStrictEqual([sem[5].weekend, sem[6].weekend], [true, true], "le week-end se voit");
+  assert.strictEqual(sem[2].clients[0].client, "matnat");
+  assert(/5 h mesurées · 3 h à valider/.test(sem[2].titre) && /matnat 3 h/.test(sem[2].titre),
+         "le survol dit le poids de la journée et pour qui");
+
+  const grille = M.grilleMois("2026-09", RES, "2026-09-16");
+  assert.strictEqual(grille.length, 5, "septembre 2026 tient en cinq semaines");
+  assert(grille[0].jours.some(c => c.horsMois), "les débords de mois sont marqués, pas masqués");
+  assert.strictEqual(grille.flatMap(w => w.jours).filter(c => !c.horsMois).length, 30,
+                     "les 30 jours du mois, une fois et une seule");
+  assert.deepStrictEqual(M.grilleMois("", RES), [], "un mois illisible ne casse rien");
+
+  const av = M.avancement(RES);
+  assert.deepStrictEqual([av.actives, av.validees, av.attente, av.pct], [3, 1, 2, 33],
+                         "l'avancement ne compte que les journées qui ont quelque chose");
+  assert.strictEqual(av.vides, 1, "…et dit combien n'ont rien, sans les mettre au dénominateur");
+  assert.strictEqual(av.duree, "4 h 30", "le reste à valider est chiffré");
+  assert.strictEqual(M.avancement({}).pct, 0, "aucune journée : pas de division par zéro");
+
+  assert.deepStrictEqual(M.cumulClients(RES).map(x => [x.client, x.duree]),
+                         [["matnat", "3 h"], ["pisceen", "1 h"], ["calicote", "30 min"]],
+                         "le cumul de la période, du plus gros au plus petit");
+  assert.strictEqual(M.nomMois("2026-09"), "septembre 2026");
+  assert.strictEqual(M.decalerMois("2026-01", -1), "2025-12", "le mois précédent traverse l'année");
+  assert.strictEqual(M.decalerMois("2026-12", 1), "2027-01");
+  console.log("✓ lot L4 : grilles semaine et mois, états, avancement, cumul");
+
   console.log("✓ preuves : traces, commits (travail vs plomberie), tours d'agent, référentiel clients/projets");
 
   // — service : charger, ajuster, valider —
@@ -466,7 +516,11 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   const toasts = []; const demandes = []; let repond = true;
   let jour2 = clone(JOUR); const vus = [];
   const repo2 = { day: async (j, r) => { vus.push([j, !!r]); return { day: j, jour: jour2 }; },
-                  projects: async () => ({ projects: [{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }] }) };
+                  projects: async () => ({ projects: [{ client: "pisceen", project: "dolibarr" }, { client: "pisceen", project: "infra" }, { client: "calicote", project: "infra" }] }),
+                  month: async (m, resume) => { moisLus.push([m, resume]); return { periode: m, jours: [
+                    { date: m + "-16", mesure_min: 300, propose_min: 180, deja_min: 0, valide: false,
+                      par_client: { matnat: 180 }, ia_tours: 12, commits: 3, note: null, ajuste: false }] }; } };
+  const moisLus = [];
   const runs2 = [];
   const ctl = mountBilling({ card }, {
     service: new BillingService({ repo: repo2, run: async (n, a, o) => { runs2.push([n, a, o]); return { ok: true, stdout: "✓ 3 saisie(s)" }; }, day: "2026-09-18" }),
@@ -518,6 +572,33 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert.deepStrictEqual(runs2[0], ["timesheet-day-apply", { day: "2026-08-26" }, { confirm: true }], "la validation ne porte que la journée affichée");
   assert(toasts.some(([m]) => /saisies créées/.test(m)));
   assert(/bl-state bl-validee/.test(card.innerHTML), "l'écran montre l'état relu, pas l'état espéré");
+
+  // — lot L4 : les vues, et le clic qui ouvre une journée —
+  moisLus.length = 0;
+  await card.click("vue", { vue: "mois" });
+  assert.strictEqual(ctl.svc.vue, "mois");
+  assert.deepStrictEqual(moisLus[0], [ctl.day().slice(0, 7), true],
+                         "la grille demande le mois en mode RÉSUMÉ (9 Ko, pas 3 Mo)");
+  assert(/bl-cal/.test(card.innerHTML) && /bl-case/.test(card.innerHTML), "le calendrier est dessiné");
+  moisLus.length = 0;
+  await card.click("vue", { vue: "mois" });
+  assert.strictEqual(moisLus.length, 0, "un mois déjà lu n'est pas relu");
+
+  await card.click("vue", { vue: "semaine" });
+  assert.strictEqual(ctl.svc.vue, "semaine");
+  assert(/bl-sem/.test(card.innerHTML), "la semaine est dessinée");
+
+  await card.click("aller", { jour: "2026-08-12" });
+  assert.strictEqual(ctl.svc.vue, "jour", "cliquer une case ouvre SA journée");
+  assert.strictEqual(ctl.day(), "2026-08-12");
+
+  { const avant = ctl.day().slice(0, 7);
+    await card.click("vue", { vue: "mois" });
+    await card.click("mois-prec");
+    assert.notStrictEqual(ctl.day().slice(0, 7), avant, "← change de mois");
+    await card.click("mois-suiv");
+    assert.strictEqual(ctl.day().slice(0, 7), avant, "→ revient"); }
+  await card.click("vue", { vue: "jour" });
 
   // — la reprise : à la demande, jamais toute seule —
   runs2.length = 0; demandes.length = 0; vus.length = 0;

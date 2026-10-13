@@ -752,3 +752,123 @@ export function legendeIA(jour) {
                  tickets: [...g.tickets].sort((a, b) => a - b) }))
     .sort((a, b) => b.minutes - a.minutes);
 }
+
+// ── Vues semaine et mois (RM3229, lot L4) ─────────────────────────────────────
+//
+// Valider cent journées une par une, sans jamais voir où l'on en est, décourage avant
+// d'avoir fini. Ces grilles donnent la vue d'ensemble : ce qui est validé, ce qui
+// attend, et ce qui n'a rien.
+
+/** L'état d'une journée résumée, en un mot — il pilote la couleur de sa case. */
+export function etatResume(r) {
+  if (!r) return "hors";
+  if (r.absence) return "absence";
+  if (r.valide) return "validee";
+  if (r.propose_min > 0) return "a_valider";
+  if (r.deja_min > 0) return "manuelle";
+  return "vide";
+}
+
+const MOIS_NOMS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+                   "août", "septembre", "octobre", "novembre", "décembre"];
+
+/** « 2026-09 » → « septembre 2026 ». */
+export function nomMois(mois) {
+  const [a, m] = String(mois || "").split("-");
+  return MOIS_NOMS[Number(m) - 1] ? `${MOIS_NOMS[Number(m) - 1]} ${a}` : String(mois || "");
+}
+
+/** Le mois d'une journée, et le mois voisin. */
+export function moisDe(day) { return String(day || "").slice(0, 7); }
+export function decalerMois(mois, n) {
+  const [a, m] = String(mois).split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + Number(n || 0), 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Une case de grille : la journée résumée, mise en forme. Jamais de calcul dans la vue. */
+export function caseJour(jour, resumes, { courant = "" } = {}) {
+  const r = (resumes || {})[jour] || null;
+  const d = new Date(jour + "T12:00:00Z");
+  // Triés du plus lourd au plus léger, avec leur part : la barre dit QUI, sa longueur dit
+  // COMBIEN. Des segments égaux laisseraient croire à un partage à parts égales.
+  const brut = Object.entries((r && r.par_client) || {}).sort((a, z) => z[1] - a[1]);
+  const totalCl = brut.reduce((n, [, m]) => n + m, 0) || 1;
+  const clients = brut.map(([c, m]) => ({ client: nomClient(c), couleur: couleurClient(c),
+                                          minutes: m, duree: fmtMin(m),
+                                          part: Math.round((m / totalCl) * 1000) / 1000 }));
+  return {
+    date: jour, jourDuMois: isNaN(d.getTime()) ? "" : String(d.getUTCDate()),
+    weekend: isWeekend(jour), courant: jour === courant,
+    etat: etatResume(r), vide: !r,
+    mesure: r ? fmtMin(r.mesure_min) : "", propose: r ? fmtMin(r.propose_min) : "",
+    deja: r ? fmtMin(r.deja_min) : "",
+    proposeMin: r ? r.propose_min : 0,
+    clients,
+    ia: r ? r.ia_tours : 0, commits: r ? r.commits : 0,
+    note: !!(r && r.note), ajuste: !!(r && r.ajuste), lieu: (r && r.lieu) || "",
+    titre: r
+      ? `${longDate(jour)}\n${fmtMin(r.mesure_min)} mesurées · ${fmtMin(r.propose_min)} à valider`
+        + (r.deja_min ? ` · ${fmtMin(r.deja_min)} déjà noté` : "")
+        + (clients.length ? `\n${clients.map(c => `${c.client} ${c.duree}`).join(" · ")}` : "")
+      : longDate(jour),
+  };
+}
+
+/** Les sept jours de la semaine d'une journée. */
+export function grilleSemaine(day, resumes, courant) {
+  return weekOf(day).map(j => caseJour(j, resumes, { courant: courant || day }));
+}
+
+/** Le mois en semaines complètes — lundi à dimanche, débords inclus pour l'alignement. */
+export function grilleMois(mois, resumes, courant) {
+  const [a, m] = String(mois).split("-").map(Number);
+  if (!a || !m) return [];
+  const premier = `${mois}-01`;
+  const dernier = new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
+  const semaines = [];
+  let curseur = weekOf(premier)[0];
+  while (curseur <= dernier) {
+    semaines.push({
+      lundi: curseur,
+      jours: weekOf(curseur).map(j => ({ ...caseJour(j, resumes, { courant }),
+                                         horsMois: moisDe(j) !== mois })),
+    });
+    curseur = shiftDay(curseur, 7);
+  }
+  return semaines;
+}
+
+/**
+ * Où en est la validation du mois — l'indicateur qui manquait.
+ *
+ * On ne compte QUE les journées qui ont quelque chose : une journée vide n'est pas du
+ * travail en retard, et la faire figurer au dénominateur ferait croire à un retard qui
+ * n'existe pas.
+ */
+export function avancement(resumes) {
+    const tous = Object.values(resumes || {});
+  const actives = tous.filter(r => r.propose_min > 0 || r.deja_min > 0 || r.valide);
+  const validees = actives.filter(r => r.valide);
+  const attente = actives.filter(r => !r.valide && r.propose_min > 0);
+  const minutes = attente.reduce((n, r) => n + r.propose_min, 0);
+  return {
+    actives: actives.length, validees: validees.length, attente: attente.length,
+    minutes, duree: fmtMin(minutes),
+    pct: actives.length ? Math.round((validees.length / actives.length) * 100) : 0,
+    vides: tous.length - actives.length,
+  };
+}
+
+/** Le cumul par client sur un ensemble de journées — ce que la semaine ou le mois pèse. */
+export function cumulClients(resumes) {
+  const par = new Map();
+  for (const r of Object.values(resumes || {})) {
+    for (const [c, m] of Object.entries(r.par_client || {})) {
+      par.set(c, (par.get(c) || 0) + m);
+    }
+  }
+  return [...par.entries()].sort((a, b) => b[1] - a[1])
+    .map(([c, m]) => ({ client: nomClient(c), couleur: couleurClient(c),
+                        minutes: m, duree: fmtMin(m) }));
+}

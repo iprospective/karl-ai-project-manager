@@ -157,3 +157,33 @@
 .bl-note-vide { color: var(--muted); font-size: 11px; }
 .bl-leg-t { color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; flex: 0 0 3.2em; }
 .bl-leg-ia { margin-top: 2px; opacity: .92; }
+
+// ── vues semaine et mois (lot L4) ────────────────────────────────────────────
+.bl-vues { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.bl-sem-h, .bl-mois-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; color: var(--fg-strong); }
+.bl-grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bl-jn { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; text-align: center; padding-bottom: 2px; }
+.bl-case { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 62px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--fg); cursor: pointer; font: inherit; text-align: left; }
+.bl-case:hover { border-color: var(--accent); }
+.bl-case-n { font-size: 11px; color: var(--muted); }
+.bl-case-h { font-size: 13px; font-weight: 600; color: var(--fg-strong); }
+// `align-items: flex-start` sur la case prive ses enfants de largeur : sans
+// `align-self: stretch`, les barres de client avaient 0 px et ne se voyaient pas.
+.bl-case-cl { display: flex; gap: 2px; align-self: stretch; width: 100%; margin-top: auto; }
+.bl-case-cl i { flex: 1 1 0; min-width: 3px; height: 5px; border-radius: 1px; }  // flex-grow posé en ligne = la part du client
+.bl-case-m { display: flex; gap: 3px; align-items: center; font-size: 9px; color: var(--muted); }
+.bl-case-ia { width: 4px; height: 4px; border-radius: 50%; background: var(--ok); display: inline-block; }
+.bl-case-note { color: var(--accent); font-weight: 700; }
+.bl-e-validee { border-color: var(--ok); background: var(--ok-soft); }
+.bl-e-a_valider { border-color: var(--accent); }
+.bl-e-absence { border-style: dashed; opacity: .6; }
+.bl-e-vide, .bl-e-hors { opacity: .42; }
+.bl-we-case { background: var(--bg); }
+.bl-courant { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bl-hors-mois { opacity: .3; }
+// l'avancement
+.bl-av { margin: 10px 0 6px; }
+.bl-av-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bl-av-bar i { display: block; height: 100%; background: var(--ok); }
+.bl-av-t { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.bl-av-t b { color: var(--fg-strong); }

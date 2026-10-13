@@ -90,6 +90,38 @@ refuse("mois malformé refusé", lambda: ka.op_timesheet_month({"month": "2026-9
 ka.op_timesheet_month({"month": "2026-09"})
 check("le mois passe --month", "--month" in argv and "2026-09" in argv)
 
+# RM3229 L4 : les grilles n'ont besoin que des totaux. Le détail d'un mois pèse 3 Mo
+# (commits, traces et tours d'agent de 30 journées) ; le résumé en pèse 9 Ko.
+VUE_MOIS = {"periode": "2026-09", "jours": [{
+    "date": "2026-09-18", "mesure_min": 415, "valide": False,
+    "proposition": [{"client": "pisceen", "minutes": 195},
+                    {"client": "calicote", "minutes": 60}],
+    "deja_saisi": [{"minutes": 80}], "journal": {"destin": "refacture"},
+    "ia": [{}] * 43, "commits": [{"auto": False}] * 14 + [{"auto": True}] * 380,
+    "traces": [{}] * 68, "note": {"chemin": "/Notes (2)/2026-09-18.md", "texte": "x" * 900},
+    "surcharge": {"debut": "09:00", "fin": "18:00", "lieu": "presentiel", "client": "matnat"},
+}]}
+_vue_detail = VUE["jours"]
+VUE["jours"] = VUE_MOIS["jours"]
+VUE["periode"] = "2026-09"
+plein = ka.op_timesheet_month({"month": "2026-09"})["jours"][0]
+resume = ka.op_timesheet_month({"month": "2026-09", "resume": "1"})["jours"][0]
+check("le détail est rendu tel quel sans resume", "traces" in plein and "commits" in plein)
+check("le résumé ne porte ni traces ni commits détaillés",
+      "traces" not in resume and not isinstance(resume.get("commits"), list))
+check("…mais il porte les totaux qui font la grille",
+      resume["propose_min"] == 255 and resume["deja_min"] == 80
+      and resume["par_client"]["pisceen"] == 195)
+check("…le compte des tours d'agent et des commits de travail",
+      resume["ia_tours"] == 43 and resume["commits"] == 14)
+check("…la présence d'une note, sans son texte",
+      resume["note"] == {"fichier": "2026-09-18.md"})
+check("…et l'ajustement de la journée",
+      resume["ajuste"] is True and resume["lieu"] == "presentiel")
+check("le résumé est bien plus léger que le détail",
+      len(json.dumps(resume)) * 4 < len(json.dumps(plein)))
+VUE["jours"] = _vue_detail
+
 
 class Casse:
     returncode, stdout, stderr = 1, "", "Aucune trace sur la période"

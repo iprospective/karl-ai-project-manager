@@ -431,10 +431,20 @@ def ajouter_pauses(prop, res):
     pconf = W.conf_pause(res.get("conf") or {})
     if not pconf.get("client"):
         return prop
+    # Les surcharges sont chargées par MOIS entier : sans ce bornage, la pause d'une
+    # journée hors période s'invitait dans la proposition — et comme le serveur rendait
+    # la première journée venue, l'écran affichait cette journée-là (constaté le
+    # 2026-10-13 : « 08/06 je lis 45 min proposé… et la note du 04/06 »).
+    debut = res.get("debut")
+    fin = res.get("fin")
+    dans_periode = (lambda j: True) if not (debut and fin) else (
+        lambda j: debut.strftime("%Y-%m-%d") <= j < fin.strftime("%Y-%m-%d"))
     deja = {(s["jour"], round(float(s["minutes"]))) for s in res.get("saisies", [])
             if pconf["commentaire"] and pconf["commentaire"] in (s.get("libelle") or "")}
     for jour, surcharge in sorted((res.get("surcharges") or {}).items()):
-        heures = surcharge.get("pause_h")
+        if not dans_periode(jour):
+            continue
+        heures = W.duree_pause(surcharge)
         if not heures or float(heures) <= 0:
             continue
         minutes = int(round(float(heures) * 60))

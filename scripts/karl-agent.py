@@ -12607,7 +12607,11 @@ def op_timesheet_day(qs: dict) -> dict:
         args.append("--refresh")
     data = _timesheet(args)
     jours = data.get("jours") or []
-    return {"day": day, "jour": jours[0] if jours else None}
+    # LA journée demandée, pas la première venue : le calcul peut rendre des voisines
+    # (travail à cheval sur minuit, journée ajustée du même mois). Prendre `jours[0]`
+    # affichait une AUTRE journée que celle ouverte — ses heures et sa note (2026-10-13).
+    voulu = next((j for j in jours if j.get("date") == day), None)
+    return {"day": day, "jour": voulu}
 
 
 def op_timesheet_month(qs: dict) -> dict:

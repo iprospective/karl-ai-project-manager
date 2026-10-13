@@ -1146,7 +1146,12 @@ def repartir_transversal(alloc, regles, params=None):
             }
             continue
         if not journee_cliente:
-            destin, cle = NON_COMPTE, {}
+            # Moins d'1 h de client sur la journée : le pot n'a personne à qui s'imputer,
+            # il reste à la charge d'iProspective — mais il est NOTÉ. Il était écarté
+            # jusqu'au 2026-10-13 : « si moins de 1h sur l'ensemble des clients le pot
+            # reste pour moi, sinon il est réparti ». Rien ne disparaît plus en silence ;
+            # seule une absence déclarée écarte encore du temps.
+            destin, cle = INTERNE, {}
         elif d["pot_ouvre"] > 0:
             destin = REFACTURE
             cle = {c: m / client_total for c, m in d["clients"].items()}
@@ -1695,13 +1700,43 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
     return "\n".join(L)
 
 
+def plancher_client(brut, arrondi, quantum, regles, minimum=0):
+    """Donne au moins `minimum` minutes à tout CLIENT qui a du travail tracé ce jour-là.
+
+    « Si j'ai noté 4 lignes, je facture au moins 15 mn à mon client » (2026-10-13). Sous
+    la tranche d'arrondi, un client réel tombait à zéro : du travail constaté, rien de
+    facturé. Ce plancher CRÉE du temps — c'est voulu, comme le plancher de régie, et
+    c'est pourquoi il ne s'applique qu'aux clients et seulement s'ils ont déjà quelque
+    chose. Il ne fabrique jamais un client qui n'a pas travaillé.
+    """
+    if minimum <= 0 or not regles:
+        return arrondi
+    sortie = dict(arrondi)
+    par_client = collections.defaultdict(float)
+    meilleure = {}
+    for cible, v in brut.items():
+        ent = cible[0]
+        if not regles.est_client(ent) or v <= 0:
+            continue
+        par_client[ent] += v
+        if v > brut.get(meilleure.get(ent), 0):
+            meilleure[ent] = cible
+    for ent, v in par_client.items():
+        deja = sum(m for (c, m) in ((k, m) for k, m in sortie.items()) if c[0] == ent)
+        if deja >= minimum:
+            continue
+        cible = meilleure[ent]
+        sortie[cible] = sortie.get(cible, 0) + (minimum - deja)
+    return sortie
+
+
 def _facturable(regles, entity):
     """Facturable = entité de type `client`. Sans règles connues, on ne préjuge pas."""
     return regles.facturable(entity) if regles else None
 
 
 def proposition(final, journal, quantum=None, meta=None, resolver=None,
-                activite_defaut=None, refacture=None, regles=None):
+                activite_defaut=None, refacture=None, regles=None, minimum_client=0):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
 
     Elle est relue telle quelle par `--apply` : ce que l'humain a corrigé est ce
@@ -1715,6 +1750,10 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
     refacture = refacture or {}
     for jour in sorted(par_jour):
         arrondi = quantifier({(jour, k): v for k, v in par_jour[jour].items()}, quantum)
+        arrondi = {k[1] if isinstance(k, tuple) and len(k) == 2 else k: v
+                   for k, v in arrondi.items()}
+        arrondi = plancher_client(par_jour[jour], arrondi, quantum, regles, minimum_client)
+        arrondi = {(jour, k): v for k, v in arrondi.items()}
         for (j, cible), minutes in sorted(arrondi.items(), key=lambda kv: -kv[1]):
             ent, proj, rm = cible
             # Sans ticket, une ligne mélange des natures de travail : on la

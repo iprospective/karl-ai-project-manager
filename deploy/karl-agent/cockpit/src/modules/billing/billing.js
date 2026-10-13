@@ -728,3 +728,27 @@ export function note(jour) {
     resume: lignes.map(l => l.trim()).filter(Boolean).slice(1, 4).join(" · ").slice(0, 90),
   };
 }
+
+/**
+ * La notice de la voie IA : pour qui les agents ont travaillé, et combien.
+ *
+ * La voie humaine a sa légende ; la voie IA était colorée sans rien pour la lire. Or
+ * un agent travaille souvent sur un client où l'humain n'a presque pas de trace — ce
+ * sont justement ces couleurs-là qu'on ne savait pas nommer.
+ */
+export function legendeIA(jour) {
+  const parClient = new Map();
+  for (const k of (jour && jour.ia) || []) {
+    const c = k.client || null;
+    const g = parClient.get(c) || { client: nomClient(c), couleur: couleurClient(c),
+                                    tours: 0, minutes: 0, tickets: new Set() };
+    g.tours += 1;
+    g.minutes += Number(k.minutes) || 0;
+    if (k.ticket) g.tickets.add(k.ticket);
+    parClient.set(c, g);
+  }
+  return [...parClient.values()]
+    .map(g => ({ ...g, minutes: Math.round(g.minutes), duree: fmtMin(g.minutes),
+                 tickets: [...g.tickets].sort((a, b) => a - b) }))
+    .sort((a, b) => b.minutes - a.minutes);
+}

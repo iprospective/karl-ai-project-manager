@@ -4,7 +4,7 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          poseParOutil, traces, commits, toursIA, clientsEtProjets, LIEUX,
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
-         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note } from "./billing.js";
+         bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets }) {
@@ -77,6 +77,8 @@ export class BillingViewModel {
   }
   /** La notice de la frise : un client, sa couleur, son cumul. */
   get legende() { return legende(this.j); }
+  /** La notice de la voie IA : pour qui les agents ont travaillé, et combien. */
+  get legendeIA() { return legendeIA(this.j); }
   /** Le cumul de transversal reçu par chaque client — en minutes, pas en pourcentage. */
   get transversalCumul() { return transversalParClient(this.j); }
   /** Tout ce qui s'est passé, dans l'ordre. */

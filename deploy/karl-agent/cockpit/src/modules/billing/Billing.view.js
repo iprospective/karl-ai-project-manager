@@ -65,7 +65,8 @@ export function NoteDuJour(vm) {
 export function Legende(vm) {
   const l = vm.legende;
   if (!l.length) return "";
-  return html`<div class="bl-leg">${l.map(x => html`<span class="bl-leg-i" title="${x.client} — ${x.duree} mesurées ce jour-là"><i style="background:${x.couleur}"></i>${x.client} <b>${x.duree}</b></span>`)}${vm.frise.pause ? html`<span class="bl-leg-i" title="Pause : du temps qui ne se facture à personne"><i class="bl-leg-pause"></i>pause</span>` : ""}</div>`;
+  const ia = vm.legendeIA;
+  return html`<div class="bl-leg"><span class="bl-leg-t">humain</span>${l.map(x => html`<span class="bl-leg-i" title="${x.client} — ${x.duree} mesurées ce jour-là"><i style="background:${x.couleur}"></i>${x.client} <b>${x.duree}</b></span>`)}${vm.frise.pause ? html`<span class="bl-leg-i" title="Pause : du temps qui ne se facture à personne"><i class="bl-leg-pause"></i>pause</span>` : ""}</div>${ia.length ? html`<div class="bl-leg bl-leg-ia"><span class="bl-leg-t">IA</span>${ia.map(x => html`<span class="bl-leg-i" title="${x.client} — ${String(x.tours)} tour(s) d'agent, ${x.duree}${x.tickets.length ? " · RM" + x.tickets.join(", RM") : ""}"><i style="background:${x.couleur}"></i>${x.client} <b>${String(x.tours)}×</b> ${x.duree}</span>`)}</div>` : ""}`;
 }
 
 /** Les heures normales de la journée et son client principal — ce que Mathieu corrige. */

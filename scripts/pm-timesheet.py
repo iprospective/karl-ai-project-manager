@@ -345,6 +345,13 @@ def calculer(args, cfg, conf):
     events = [e for e, _rm in items]
 
     regles = W.regles_depuis_config(conf, cfg)
+    # Les tours d'agent sont des traces au même titre que les prompts : si l'IA a
+    # travaillé, un humain l'a lancée. Indispensable au-delà de la purge des
+    # transcripts, où ils sont la seule mémoire qui reste de la journée.
+    events += W.evenements_des_tours(
+        [t for t in resolver.ticks() if debut.date().isoformat() <= t.get("jour", "")
+         <= fin.date().isoformat()], regles, resolver, params)
+    events.sort(key=lambda e: e.ts)
     alloc, periodes, totaux, par_heure, par_heure_cible, segments = W.allocate(
         W.build_intervals(events, params), params)
     alloc = W.eclater_cles_multi(alloc, regles)

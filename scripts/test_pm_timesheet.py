@@ -259,6 +259,33 @@ verifie(round(sum(aj_vide.values())) == 280, "journée non saisie : complément 
 aj_saisie, _t = W.appliquer_presences({}, pres, d0, d1, ph, deja_par_jour={"2026-08-26": 485})
 verifie(not aj_saisie, "journée déjà saisie (8 h 05) : aucun complément re-proposé")
 
+# ── Le trou de midi : un ARRÊT, pas une fenêtre vide (RM3229, 2026-10-13) ───
+# « Je vois un intervalle de pause énorme sur plusieurs dates » : sans trace entre 11h30
+# et 14h30, la fenêtre de recherche ENTIÈRE était annoncée comme pause — 3 h.
+verifie(W.trou_de_midi([["09:00", "12:15"], ["13:30", "18:00"]])["minutes"] == 75,
+        "un vrai trou entre deux blocs de travail")
+verifie(W.trou_de_midi([]) is None, "aucune trace : aucune pause (c'était 3 h)")
+verifie(W.trou_de_midi([["08:00", "11:00"]]) is None,
+        "parti à 11 h : c'est la fin de la journée, pas une pause")
+verifie(W.trou_de_midi([["19:00", "23:00"]]) is None,
+        "journée du soir : la journée n'a pas commencé à midi")
+verifie(W.trou_de_midi([["09:00", "11:59"], ["12:01", "12:20"], ["13:30", "18:00"]])["debut"]
+        == "12:20", "deux traces à 2 min d'écart ne font pas un trou : elles fusionnent")
+verifie(W.trou_de_midi([["09:00", "12:00"], ["12:30", "17:00"], ["20:00", "22:00"]])["minutes"] == 30,
+        "le trou du SOIR ne concurrence pas celui de midi")
+
+# ── Les bornes de pause, posées à la main ───────────────────────────────────
+verifie(W.duree_pause({"pause_debut": "12:30", "pause_fin": "14:00"}) == 1.5,
+        "des bornes valent une durée")
+verifie(W.duree_pause({"pause_h": 1.0}) == 1.0, "une durée seule reste acceptée")
+verifie(W.duree_pause({"pause_debut": "14:00", "pause_fin": "12:00", "pause_h": 0.5}) == 0.5,
+        "des bornes à l'envers ne gagnent pas contre une durée explicite")
+verifie(W.duree_pause({"pause_debut": "bof", "pause_fin": "14:00"}) is None,
+        "des bornes illisibles n'inventent rien")
+verifie(W.heures_travaillees("09:00", "18:00",
+                             W.duree_pause({"pause_debut": "12:30", "pause_fin": "14:00"})) == 7.5,
+        "la journée se calcule sur la pause posée")
+
 # ── Le pot n'est pas homogène (RM3229, 2026-10-12) ──────────────────────────
 # « si le pot PM/infra est bien pour tous les clients, presta/doli n'est que pour
 # pisceen/calicote/calyclay » — un produit ne se refacture qu'à ceux qui s'en servent.
@@ -427,8 +454,12 @@ verifie(W.trou_de_midi([["09:00", "18:00"]]) is None,
         "journée d'un seul tenant : aucune pause visible")
 verifie(W.trou_de_midi([["09:00", "12:50"], ["13:05", "18:00"]]) is None,
         "15 min ne font pas une pause de midi")
-verifie(W.trou_de_midi([["09:00", "11:00"], ["14:45", "18:00"]])["debut"] == "11:30",
-        "le trou est borné au créneau du midi, pas à la journée")
+# Le trou rendu est le trou RÉEL, pas sa portion dans le créneau : le travail s'est
+# arrêté à 11:00 et repris à 14:45. Rogner à 11:30–14:30 inventerait des bornes et
+# sous-estimerait la pause (comportement d'avant le 2026-10-13).
+_t = W.trou_de_midi([["09:00", "11:00"], ["14:45", "18:00"]])
+verifie((_t["debut"], _t["fin"]) == ("11:00", "14:45"),
+        "le trou rendu est celui qu'on a réellement observé, pas sa portion de créneau")
 _pc = W.conf_pause({"pause": {"client": "iprospective", "heures": 0.75}})
 verifie(_pc["client"] == "iprospective" and _pc["heures"] == 0.75
         and _pc["activity_id"] == 27,

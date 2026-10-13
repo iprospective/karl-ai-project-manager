@@ -74,7 +74,8 @@ export function Ajustement(vm) {
   return html`<div class="bl-adj">
     <label>début <input class="bl-h" type="time" data-action="field" data-field="debut" value="${h.debut}"></label>
     <label>fin <input class="bl-h" type="time" data-action="field" data-field="fin" value="${h.fin}"></label>
-    <label title="Vide : 1 h au-delà de 6 h travaillées">pause <input class="bl-p" data-action="field" data-field="pause" value="${String(h.pause)}" placeholder="auto"></label>
+    <label title="Bornes de la pause. Plus précis qu'une durée : c'est ce qui se dessine sur la frise.">pause <input class="bl-h" type="time" data-action="field" data-field="pauseDebut" value="${vm.f.pauseDebut || ""}"> → <input class="bl-h" type="time" data-action="field" data-field="pauseFin" value="${vm.f.pauseFin || ""}"></label>
+    <label title="Durée seule, si les bornes importent peu. Vide : 1 h au-delà de 6 h travaillées.">ou <input class="bl-p" data-action="field" data-field="pause" value="${String(h.pause)}" placeholder="auto"> h</label>
     ${vm.pause.declaree ? "" : html`<button class="mini${vm.pause.manquante ? " bl-manque" : ""}" data-action="pause-midi" title="Noter la pause de midi : ${String(vm.pause.proposition)} h${vm.pause.ou ? " sur " + vm.pause.ou : ""}${vm.pause.commentaire ? ", « " + vm.pause.commentaire + " »" : ""}. Elle ne se facture à personne.">+ pause midi</button>`}
     <span class="bl-worked" title="Heures travaillées, pause déduite">= ${h.label}</span>
     <label title="Client pour qui la journée a majoritairement été faite">client <select class="bl-c" data-action="field" data-field="client"><option value="">—</option>${vm.clients.map(c => html`<option value="${c.value}"${c.selected ? raw(" selected") : ""}>${c.value}</option>`)}</select></label>
@@ -84,6 +85,7 @@ export function Ajustement(vm) {
     ${vm.ajuste ? html`<button class="mini" data-action="clear" title="Revenir à ce que les traces disent">↺ ajustement</button>` : ""}
     <span class="bl-src">${vm.ajuste ? "heures ajustées à la main" : h.debut ? "heures déduites des traces" : ""}</span>
     <span class="bl-pz${vm.pause.manquante ? " bl-manque" : ""}">${vm.pause.texte}</span>
+    ${vm.pause.trou && !vm.pause.posee ? html`<button class="mini" data-action="pause-trou" data-debut="${vm.pause.trou.debut}" data-fin="${vm.pause.trou.fin}" title="Reprendre ce trou comme bornes de pause">↧ reprendre le trou</button>` : ""}
     ${vm.hors ? html`<div class="bl-hors">${vm.hors}</div>` : ""}
   </div>`;
 }

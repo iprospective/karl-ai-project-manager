@@ -574,5 +574,59 @@ with _tf.TemporaryDirectory() as _tmp:
         W.ETATS_HERITES[:] = _herite
         _os.environ.pop("PM_USER_DIR", None)
 
+# ── Les tours d'agent comme traces (RM3229, 2026-10-13) ─────────────────────
+print("\nLes tours d'agent sont des traces à part entière")
+_p = {"follow_cap": 10, "write_base": 1, "chars_per_min": 45,
+      "write_min": 2, "write_max": 30, "default_prompt_chars": 120}
+_ticks = [
+    {"jour": "2026-06-07", "heure": "10:00", "ticket": "1444", "client": "calicote",
+     "projet": "dolibarr", "modele": "m", "tokens": 1000, "minutes": 20.0},
+    {"jour": "2026-06-07", "heure": "10:15", "ticket": "1444", "client": "calicote",
+     "projet": "dolibarr", "modele": "m", "tokens": 1000, "minutes": 20.0},
+]
+_evs = W.evenements_des_tours(_ticks, params=_p)
+verifie(len(_evs) == 2, "un événement par tour d'agent")
+verifie(all(e.source == "tick-ia" for e in _evs), "les tours se reconnaissent à leur source")
+verifie(all(e.extends for e in _evs), "un tour CRÉE du temps : quelqu'un l'a demandé")
+verifie(all(e.scores == {("calicote", "dolibarr", None): 1.0} for e in _evs),
+        "le tour attribue son temps au client de son ticket")
+
+# La durée propre d'un tour ne se laisse pas raboter par le plafond de supervision.
+_long = W.Event(ts=datetime(2026, 6, 7, 10, 0), chars=0, source="tick-ia", duree=45.0)
+_long.scores = {("calicote", "dolibarr", None): 1.0}
+_iv = W.build_intervals([_long], _p)[0]
+verifie(presque((_iv.fin - _long.ts).total_seconds() / 60, 45.0),
+        "l'intervalle d'un tour couvre sa durée réelle, pas le plafond de suivi")
+
+# Des tours resserrés se rejoignent en une période continue.
+_alloc, _per, _tot, _ph, _phc, _sg = W.allocate(W.build_intervals(_evs, _p), _p)
+verifie(len(_per.get("2026-06-07", [])) == 1,
+        "des tours qui se suivent forment UNE période, pas deux")
+verifie(sum(_tot.values()) > 20, "la période couvre les deux tours, pas un seul")
+
+# … mais un vrai trou reste un trou : deux tours espacés font deux périodes.
+_ecartes = W.evenements_des_tours(
+    [{"jour": "2026-06-07", "heure": "10:00", "ticket": "1", "client": "calicote",
+      "projet": "dolibarr", "modele": "m", "tokens": 1, "minutes": 5.0},
+     {"jour": "2026-06-07", "heure": "14:00", "ticket": "1", "client": "calicote",
+      "projet": "dolibarr", "modele": "m", "tokens": 1, "minutes": 5.0}], params=_p)
+_, _per2, _, _, _, _ = W.allocate(W.build_intervals(_ecartes, _p), _p)
+verifie(len(_per2.get("2026-06-07", [])) == 2,
+        "quatre heures entre deux tours : deux périodes, pas une plage continue")
+
+# Sans tour d'agent, rien n'est fabriqué.
+verifie(W.evenements_des_tours([], params=_p) == [], "aucun tour : aucun événement")
+verifie(W.evenements_des_tours([{"jour": "x", "heure": "nope"}], params=_p) == [],
+        "un tick illisible est ignoré, il ne casse pas la journée")
+
+# Une trace humaine et un tour au même moment ne comptent pas deux fois.
+_mix = [ev(0, cible=("calicote", "dolibarr", None)),
+        W.Event(ts=datetime(2026, 8, 3, 10, 0), chars=0, source="tick-ia", duree=5.0,
+                scores={("calicote", "dolibarr", None): 1.0})]
+_a2, _p2, _t2, _, _, _ = W.allocate(W.build_intervals(_mix, _p), _p)
+verifie(presque(sum(_a2.values()), sum(_t2.values())),
+        "humain + tour au même instant : l'union, jamais la somme")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

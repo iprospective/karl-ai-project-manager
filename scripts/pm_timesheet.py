@@ -115,6 +115,7 @@ class Event:
     session: str = None
     text: str = ""
     extends: bool = True
+    duree: float = 0.0        # durée PROPRE de l'événement (tour d'agent) ; 0 = ponctuel
     scores: dict = field(default_factory=dict)   # {(entity, project, rm_id): poids}
     cible: tuple = None      # cible connue d'avance (action Redmine) : pas d'heuristique
 
@@ -833,10 +834,55 @@ def build_intervals(events, params=None):
         suivi = min(max(ecart, 0.0), p["follow_cap"])
         if not e.extends:
             redaction = suivi = 0.0
+        # Un tour d'agent dure ce qu'il dure : son intervalle ne se laisse pas
+        # raboter par le plafond de supervision, qui vise l'humain qui attend.
+        apres = max(suivi, e.duree if e.extends else 0.0)
         out.append(Interval(e.ts - timedelta(minutes=redaction),
-                            e.ts + timedelta(minutes=suivi),
+                            e.ts + timedelta(minutes=apres),
                             e.scores or {(None, None, None): 1.0}, e.extends))
     return out
+
+
+def evenements_des_tours(ticks, regles=None, resolver=None, params=None):
+    """Les tours d'agent comme traces à part entière : si l'IA a travaillé,
+    c'est qu'un humain a prompté.
+
+    Longtemps la proposition ne s'est construite qu'autour des traces humaines,
+    les tours servant seulement à les justifier. Deux raisons de changer :
+
+    - les transcripts Claude sont purgés au bout de quelques semaines, les ticks
+      inscrits dans les `.log.md` restent. Sur une journée ancienne, un client
+      pouvait n'avoir plus AUCUNE trace alors que les agents avaient travaillé
+      pour lui toute la journée — rien ne lui était facturé (07/06/2026 :
+      calicote, 8 tours sur 4 tickets, zéro proposé) ;
+    - un tour n'arrive pas tout seul : quelqu'un l'a demandé, l'a lu, l'a repris.
+
+    L'intervalle d'un tour couvre sa durée réelle — des tours resserrés se
+    rejoignent donc en une période continue — et l'union avec les intervalles
+    humains empêche de compter deux fois le même moment.
+
+    Réserve à garder en tête : un tour lancé par un automatisme, sans personne
+    derrière, crée ici du temps comme un autre. C'est assumé (RM3229, 2026-10-13).
+    """
+    p = {**DEFAULTS, **(params or {})}
+    out = []
+    par_jour = collections.defaultdict(list)
+    for t in ticks or []:
+        par_jour[t.get("jour")].append(t)
+    for jour, lot in par_jour.items():
+        for t in ticks_sans_chevauchement(sorted(lot, key=lambda x: x["heure"])):
+            ent, proj = t.get("client"), t.get("projet")
+            try:
+                ts = datetime.strptime(f"{jour} {t['heure']}", "%Y-%m-%d %H:%M")
+            except (ValueError, KeyError, TypeError):
+                continue
+            cible = None
+            if resolver is not None and ent:
+                cible = resolver.cible_ticket(t.get("ticket"), (ent, proj))
+            out.append(Event(ts=ts, chars=p["default_prompt_chars"], source="tick-ia",
+                             duree=float(t.get("minutes_reelles") or 0.0),
+                             scores={cible or (ent, proj, None): 1.0}))
+    return sorted(out, key=lambda e: e.ts)
 
 
 def _bornes(intervals, params):

@@ -47,6 +47,7 @@ class TaskCapabilities:
     parent_link: bool = False       # parent natif (sous-tâches)
     ia_tag: bool = False            # tag IA (mutex tickets PM/purs)
     move_project: bool = False      # déplacement d'un ticket vers un autre projet
+    delete_issue: bool = False      # suppression définitive d'un ticket (RM3468)
 
 
 class TaskProvider:
@@ -100,6 +101,13 @@ class TaskProvider:
         """
         raise NotImplementedError
 
+    def delete_issue(self, issue_id):
+        """Supprime DÉFINITIVEMENT le ticket. Rend `(ok: bool, err: str)`.
+
+        Garder par `capabilities.delete_issue`.
+        """
+        raise NotImplementedError
+
 
 class RedmineTaskProvider(TaskProvider):
     """Backend Redmine — délègue à `redmine_utils`, **sur son instance**.
@@ -114,7 +122,7 @@ class RedmineTaskProvider(TaskProvider):
     capabilities = TaskCapabilities(
         custom_fields=True, time_tracking=True, wiki=True,
         full_text_search=True, parent_link=True, ia_tag=True,
-        move_project=True,
+        move_project=True, delete_issue=True,
     )
 
     def __init__(self, instance=None):
@@ -171,6 +179,9 @@ class RedmineTaskProvider(TaskProvider):
 
     def move_project(self, issue_id, project_id, notes=None):
         return _ru.move_issue_project(issue_id, project_id, notes=notes, **self._kw())
+
+    def delete_issue(self, issue_id):
+        return _ru.delete_issue(issue_id, **self._kw())
 
     # ── extras Redmine (hors contrat générique ; gardés par capabilities) ─
     def update_fields(self, issue_id, **kw):

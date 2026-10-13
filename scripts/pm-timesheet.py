@@ -405,6 +405,7 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
                          resolver=res.get("resolver"), regles=res.get("regles"),
+                         minimum_client=(res.get("conf") or {}).get("minimum_client_min", 0),
                          activite_defaut=res.get("activite_defaut"),
                          refacture=res.get("refacture"),
                          meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),

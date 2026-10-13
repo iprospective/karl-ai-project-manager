@@ -140,9 +140,17 @@ Le travail sur le PM, l'infra et les écosystèmes produit (redmine, prestashop,
 n'est pas facturable en soi. La ligne « temps transversal » dit ce qu'il en a été fait, et
 selon quelle clé :
 
-- **réparti sur les clients travaillés** — en semaine, pendant les heures ouvrées ;
-- **à ma charge** — le soir, la nuit, le week-end ;
-- **écarté** — une journée sans activité cliente n'a personne à qui l'imputer.
+- **réparti sur les clients travaillés** — en semaine, pendant les heures ouvrées, et
+  seulement si la journée compte au moins 1 h de travail client ;
+- **à ma charge** — le soir, la nuit, le week-end, ou quand la journée n'atteint pas
+  cette heure de client.
+
+Deux choses à ne pas confondre : le **temps client** est *toujours* facturé, sans
+condition. C'est le **pot** qui dépend du moment et du volume de la journée. Et depuis le
+2026-10-13, rien n'est plus écarté : seule une absence déclarée retire du temps.
+
+Chaque client ayant du travail tracé est facturé **au moins 15 min**, même si l'arrondi
+l'effacerait.
 
 Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
 

@@ -420,6 +420,14 @@ def ecrire_sorties(res, dossier, libelle):
                                "sources": [{"kind": k, "path": p, "evenements": n}
                                            for k, p, n in res["sources"]]})
     ajouter_pauses(prop, res)
+    # Les rattachements corrigés à la main s'appliquent APRÈS la pause : elle aussi
+    # est une ligne, et elle doit pouvoir être recollée ailleurs.
+    orphelins = W.amender_lignes(prop["lignes"], res.get("surcharges") or {})
+    if orphelins:
+        apercu = ", ".join(f"{j} {c}" for j, c in orphelins[:3])
+        print(f"  ⚠ {len(orphelins)} correction(s) de ligne sans cible "
+              f"({apercu}{'…' if len(orphelins) > 3 else ''}) — la ligne a changé "
+              f"depuis, la correction n'a PAS été appliquée.", file=sys.stderr)
     chemin_yml = dossier / f"{libelle}.yml"
     chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
                           encoding="utf-8")
@@ -479,6 +487,14 @@ def appliquer(chemin_yml, cfg, conf, args):
                  "les saisies sont créées au nom de cet utilisateur Redmine.")
     prop = yaml.safe_load(Path(chemin_yml).read_text(encoding="utf-8")) or {}
     lignes = [l for l in prop.get("lignes", []) if l.get("valide", True) and l.get("minutes")]
+    # Écrire UNE ligne : l'unité de validation n'est plus forcément la journée entière.
+    # On vise par la clé, jamais par le rang — un recalcul réordonne les lignes.
+    if getattr(args, "ligne", None):
+        voulues = [l for l in lignes if l.get("cle") == args.ligne]
+        if not voulues:
+            sys.exit(f"Aucune ligne « {args.ligne} » dans {chemin_yml}. "
+                     f"Clés disponibles : {', '.join(sorted(l.get('cle') or '?' for l in lignes)[:8])}")
+        lignes = voulues
     if not lignes:
         sys.exit(f"Aucune ligne validée dans {chemin_yml}.")
 
@@ -744,6 +760,18 @@ def main():
                     help="avec --day : début de la pause (HH:MM) — plus précis que --pause")
     ap.add_argument("--pause-fin", dest="pause_fin",
                     help="avec --day : fin de la pause (HH:MM)")
+    ap.add_argument("--ligne", help="avec --day : clé d'UNE ligne proposée "
+                                    "(client/projet#ticket@activité), à corriger ou à écrire seule")
+    ap.add_argument("--set-client", dest="set_client",
+                    help="avec --ligne : rattacher cette ligne à un autre client")
+    ap.add_argument("--set-projet", dest="set_projet",
+                    help="avec --ligne : rattacher cette ligne à un autre projet PM")
+    ap.add_argument("--set-ticket", dest="set_ticket",
+                    help="avec --ligne : rattacher cette ligne à un autre ticket (ou `-` pour aucun)")
+    ap.add_argument("--set-activite", dest="set_activite",
+                    help="avec --ligne : changer l'activité Redmine de cette ligne")
+    ap.add_argument("--clear-ligne", dest="clear_ligne", action="store_true",
+                    help="avec --ligne : retirer la correction, la ligne redevient ce que le calcul dit")
     ap.add_argument("--heures", type=float,
                     help="avec --day : heures de travail de la journée, quand elles ne se "
                          "déduisent pas de début/fin (demi-journée sur site, par exemple)")
@@ -786,9 +814,13 @@ def main():
     ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet,
                                          args.pause, args.lieu, args.heures,
                                          args.pause_debut, args.pause_fin)) \
-        or args.exclusif or args.clear_override or args.validate_empty
+        or args.exclusif or args.clear_override or args.validate_empty \
+        or (args.ligne and (args.clear_ligne or any(
+            v is not None for v in (args.set_client, args.set_projet,
+                                    args.set_ticket, args.set_activite))))
     if ajuste and not args.day:
-        ap.error("--start/--end/--client/--clear-override/--validate-empty s'utilisent avec --day")
+        ap.error("--start/--end/--client/--clear-override/--validate-empty/--ligne "
+                 "s'utilisent avec --day")
 
     cfg = PMConfig.load()
     W.configurer_etat(cfg)          # <core>/var/timesheet — données d'exploitation du PM
@@ -857,6 +889,24 @@ def ajuster_journee(args):
                           ("pause_debut", args.pause_debut), ("pause_fin", args.pause_fin)):
         if valeur is not None:
             jour[champ] = valeur
+    # Correction du rattachement d'UNE ligne : elle vit à part des réglages de la
+    # journée, sous sa clé, pour qu'un recalcul la retrouve sans la confondre.
+    if args.ligne:
+        lignes = dict(jour.get("lignes") or {})
+        if args.clear_ligne:
+            lignes.pop(args.ligne, None)
+        else:
+            chg = dict(lignes.get(args.ligne) or {})
+            for champ, valeur in (("client", args.set_client), ("projet", args.set_projet),
+                                  ("ticket", args.set_ticket), ("activite", args.set_activite)):
+                if valeur is not None:
+                    chg[champ] = None if str(valeur) in ("-", "") else valeur
+            if chg:
+                lignes[args.ligne] = chg
+        if lignes:
+            jour["lignes"] = lignes
+        else:
+            jour.pop("lignes", None)
     if args.exclusif:
         jour["exclusif"] = True
     if args.validate_empty:

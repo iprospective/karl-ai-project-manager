@@ -1796,6 +1796,69 @@ def _facturable(regles, entity):
     return regles.facturable(entity) if regles else None
 
 
+def cle_ligne(l):
+    """Nom stable d'une ligne de proposition, pour la viser une par une.
+
+    Construite sur ce qui IDENTIFIE la ligne — client, projet, ticket, activité —
+    et non sur son rang : un recalcul réordonne les lignes, il ne les renomme pas.
+    C'est cette clé que porte un amendement et que vise une écriture isolée.
+    """
+    return (f"{l.get('client') or '-'}/{l.get('projet') or '-'}"
+            f"#{l.get('ticket') or '-'}@{l.get('activite') or '-'}")
+
+
+def _poser_cles(lignes):
+    """Pose `cle` sur chaque ligne, en levant les rares collisions d'un même jour."""
+    vus = collections.Counter()
+    for l in lignes:
+        base = cle_ligne(l)
+        n = vus[(l.get("jour"), base)]
+        vus[(l.get("jour"), base)] += 1
+        l["cle"] = base if not n else f"{base}~{n}"
+    return lignes
+
+
+def amender_lignes(lignes, surcharges):
+    """Applique les rattachements corrigés à la main. Les minutes ne bougent JAMAIS.
+
+    Changer le client d'une ligne déplace de l'argent d'un client à l'autre : c'est
+    précisément le geste voulu, mais il ne doit rien créer ni rien perdre. On ne
+    réécrit donc que la CIBLE (client, projet, ticket, activité), et la ligne garde
+    la trace de son rattachement d'origine pour que l'écran puisse le montrer.
+
+    Un amendement dont la ligne a disparu d'un recalcul n'est pas perdu en silence :
+    il est rendu dans `orphelins`, à l'appelant de le dire.
+    """
+    index = {}
+    for l in lignes:
+        index.setdefault((l.get("jour"), l.get("cle")), l)
+    orphelins = []
+    for jour, sur in (surcharges or {}).items():
+        for cle, chg in ((sur or {}).get("lignes") or {}).items():
+            cible = index.get((jour, cle))
+            if cible is None:
+                orphelins.append((jour, cle))
+                continue
+            cible["origine"] = {k: cible.get(k) for k in ("client", "projet", "ticket",
+                                                          "activite")}
+            for champ in ("client", "projet", "ticket", "activite"):
+                if champ in (chg or {}):
+                    v = chg[champ]
+                    if champ == "ticket":
+                        v = int(v) if v not in (None, "", "-") and str(v).isdigit() else None
+                    cible[champ] = v
+            # Un ticket emporte le projet : l'API `time_entries` range la saisie dans le
+            # projet du ticket, et ignore le projet qu'on lui donne. Déplacer une ligne
+            # chez un autre client en lui laissant son ticket d'origine la ferait donc
+            # revenir d'où elle vient, sans rien dire. On lâche le ticket — sauf si un
+            # ticket a été choisi explicitement.
+            if ("client" in (chg or {}) or "projet" in (chg or {})) and "ticket" not in (chg or {}):
+                cible["ticket"] = None
+                cible["ticket_abandonne"] = cible["origine"].get("ticket")
+            cible["amendee"] = True
+    return orphelins
+
+
 def proposition(final, journal, quantum=None, meta=None, resolver=None,
                 activite_defaut=None, refacture=None, regles=None, minimum_client=0):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
@@ -1854,6 +1917,7 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                 "valide": True,
                 "facturable": _facturable(regles, ent),
             })
+    _poser_cles(lignes)
     return {"meta": meta or {}, "quantum_min": quantum,
             "journees": {j: {"destin": d.get("destin"), "absence": d.get("absence"),
                              "alerte": bool(d.get("alerte_absence"))}

@@ -648,5 +648,44 @@ verifie(presque(sum(_a2.values()), sum(_t2.values())),
         "humain + tour au même instant : l'union, jamais la somme")
 
 
+# ── Corriger le rattachement d'une ligne (RM3229, 2026-10-14) ───────────────
+print("\nCorriger le rattachement d'une ligne")
+_lg = [{"jour": "2026-06-07", "client": "calicote", "projet": "dolibarr",
+        "ticket": 1855, "activite": 13, "minutes": 30},
+       {"jour": "2026-06-07", "client": "calicote", "projet": "dolibarr",
+        "ticket": None, "activite": 13, "minutes": 15}]
+W._poser_cles(_lg)
+verifie(_lg[0]["cle"] == "calicote/dolibarr#1855@13", "la clé nomme la cible, pas le rang")
+verifie(_lg[1]["cle"] == "calicote/dolibarr#-@13", "une ligne sans ticket a sa clé propre")
+_doublons = [dict(_lg[0]), dict(_lg[0])]
+W._poser_cles(_doublons)
+verifie(_doublons[0]["cle"] != _doublons[1]["cle"], "deux lignes jumelles restent distinguables")
+
+# Déplacer une ligne chez un autre client.
+_l2 = [dict(x) for x in _lg]
+_orph = W.amender_lignes(_l2, {"2026-06-07": {"lignes": {
+    "calicote/dolibarr#1855@13": {"client": "pisceen", "projet": "dolibarr"}}}})
+verifie(_l2[0]["client"] == "pisceen", "le client corrigé remplace celui du calcul")
+verifie(_l2[0]["minutes"] == 30, "les minutes ne bougent PAS : on déplace, on ne crée rien")
+verifie(_l2[0]["origine"]["client"] == "calicote", "le rattachement d'origine reste lisible")
+verifie(_l2[1]["client"] == "calicote", "les autres lignes ne sont pas touchées")
+verifie(_orph == [], "une correction qui trouve sa ligne n'est pas orpheline")
+
+# Le ticket emporte le projet dans Redmine : il est lâché quand la cible change.
+verifie(_l2[0]["ticket"] is None and _l2[0]["ticket_abandonne"] == 1855,
+        "déplacer une ligne lâche son ticket, sinon Redmine la ramènerait à son projet")
+_l3 = [dict(x) for x in _lg]
+W.amender_lignes(_l3, {"2026-06-07": {"lignes": {
+    "calicote/dolibarr#1855@13": {"client": "pisceen", "ticket": "1234"}}}})
+verifie(_l3[0]["ticket"] == 1234, "un ticket choisi explicitement est gardé")
+
+# Une correction dont la ligne a disparu se signale, elle ne se perd pas.
+_l4 = [dict(x) for x in _lg]
+_orph2 = W.amender_lignes(_l4, {"2026-06-07": {"lignes": {"parti/ailleurs#9@1": {"client": "x"}}}})
+verifie(_orph2 == [("2026-06-07", "parti/ailleurs#9@1")],
+        "une correction sans cible est rendue à l'appelant, pas avalée")
+verifie(all(not x.get("amendee") for x in _l4), "et elle ne touche aucune autre ligne")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

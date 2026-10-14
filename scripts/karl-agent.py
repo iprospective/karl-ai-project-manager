@@ -10419,6 +10419,36 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "validate_empty", "label": "Valider sans rien ajouter", "type": "bool",
           "flag": "--validate-empty"},
      ]},
+    # Corriger le rattachement d'UNE ligne proposée : le client, le projet, le ticket.
+    # Les minutes ne se touchent pas ici — on déplace du temps, on n'en invente pas.
+    {"name": "timesheet-line-adjust", "label": "Corriger le rattachement d'une ligne",
+     "category": "facturation", "script": "pm-timesheet.py", "mutate": True, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "ligne", "label": "Ligne", "type": "text", "required": True,
+          "flag": "--ligne", "max_len": 160},
+         {"name": "set_client", "label": "Client", "type": "text", "flag": "--set-client",
+          "max_len": 48},
+         {"name": "set_projet", "label": "Projet PM", "type": "text", "flag": "--set-projet",
+          "max_len": 64},
+         {"name": "set_ticket", "label": "Ticket", "type": "text", "flag": "--set-ticket",
+          "max_len": 8},
+         {"name": "set_activite", "label": "Activité", "type": "text",
+          "flag": "--set-activite", "max_len": 8},
+         {"name": "clear_ligne", "label": "Retirer la correction", "type": "bool",
+          "flag": "--clear-ligne"},
+     ]},
+    # Écrire UNE ligne dans Redmine. Même geste que la validation d'une journée, à la
+    # maille de la ligne : `--apply` reste imposé par le catalogue, jamais par le client.
+    {"name": "timesheet-line-apply", "label": "Écrire une ligne dans Redmine",
+     "category": "facturation", "script": "pm-timesheet.py", "mutate": True,
+     "confirm": True, "timeout": 600, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "ligne", "label": "Ligne", "type": "text", "required": True,
+          "flag": "--ligne", "max_len": 160},
+         {"name": "apply", "const": True, "flag": "--apply"},
+         {"name": "dry_run", "label": "Simulation (n'écrit rien)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
     # Le seul geste destructif de l'écran, et il est volontairement étroit : une journée,
     # les seules saisies portant la marque de l'outil, sauvegarde JSONL avant suppression.
     # Rien ne l'appelle automatiquement — il se demande, après avoir vu une incohérence.

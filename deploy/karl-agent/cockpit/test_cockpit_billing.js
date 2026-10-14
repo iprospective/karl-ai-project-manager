@@ -651,5 +651,72 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
   assert(/\.bl-seg/.test(fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8")), "le style du module est compilé dans cockpit.css");
   console.log("✓ page : bouton, panneau, boot, registre des types, routes, style");
 
+  // — corriger et écrire UNE ligne (RM3229, 2026-10-14) —
+  {
+    const appels = [];
+    const jour = {
+      date: "2026-06-07", mesure_min: 60, propose_min: 45,
+      proposition: [
+        { jour: "2026-06-07", client: "calicote", projet: "dolibarr", ticket: 1855,
+          activite: 13, minutes: 30, cle: "calicote/dolibarr#1855@13", facturable: true },
+        { jour: "2026-06-07", client: "pisceen", projet: "dolibarr", ticket: null,
+          activite: 13, minutes: 15, cle: "pisceen/dolibarr#-@13", facturable: true,
+          amendee: true, ticket_abandonne: 999,
+          origine: { client: "calicote", projet: "dolibarr", ticket: 999, activite: 13 } },
+      ],
+      ia: [], traces: [], commits: [], periodes: [], bandes: [], deja_saisi: [],
+    };
+    const repo = { day: async () => ({ jour }), month: async () => ({ jours: [] }),
+                   projects: async () => ({ projects: [{ client: "pisceen", project: "dolibarr" },
+                                                       { client: "calicote", project: "dolibarr" }] }) };
+    const svc = new BillingService({ repo, day: "2026-06-07",
+      run: async (n, a) => { appels.push([n, a]); return { ok: true }; } });
+    await svc.load(); await svc.chargerProjets();
+
+    const vm1 = new BillingViewModel({ day: svc.day, jour: svc.jour, form: svc.form(),
+      projets: svc.projets, ligne: svc.ligne, ligneEdit: svc.ligneEdit });
+    const toutes = vm1.groupes.flatMap(g => g.lignes);
+    assert.strictEqual(toutes.length, 2, "chaque ligne proposée est rendue");
+    assert(toutes.every(l => l.cle), "chaque ligne porte sa clé : elle est visable seule");
+    const amendee = toutes.find(l => l.amendee);
+    assert.strictEqual(amendee.origine, "calicote/dolibarr RM999",
+                       "une ligne corrigée montre d'où elle vient");
+    assert.strictEqual(amendee.abandonne, "RM999",
+                       "le ticket lâché est dit : sinon Redmine ramènerait le temps à son projet");
+
+    // Corriger : le client proposé filtre les projets offerts.
+    svc.editerLigne("calicote/dolibarr#1855@13", { client: "calicote", projet: "dolibarr", ticket: "1855" });
+    svc.setLigneChamp("client", "pisceen"); svc.setLigneChamp("projet", "");
+    const vm2 = new BillingViewModel({ day: svc.day, jour: svc.jour, form: svc.form(),
+      projets: svc.projets, ligne: svc.ligne, ligneEdit: svc.ligneEdit });
+    assert.deepStrictEqual(vm2.ligneEdit.projets, ["dolibarr"],
+                           "les projets offerts sont ceux du client choisi");
+    assert(vm2.groupes.flatMap(g => g.lignes).some(l => l.edition),
+           "la ligne en cours de correction se signale à la vue");
+
+    svc.setLigneChamp("projet", "dolibarr");
+    await svc.enregistrerLigne();
+    const adj = appels.find(([n]) => n === "timesheet-line-adjust");
+    assert(adj && adj[1].ligne === "calicote/dolibarr#1855@13" && adj[1].set_client === "pisceen",
+           "la correction vise la ligne par sa clé et porte le nouveau client");
+    assert(!("minutes" in adj[1]) && !("set_minutes" in adj[1]),
+           "une correction ne touche JAMAIS aux minutes");
+    assert.strictEqual(svc.ligne, null, "la correction enregistrée referme l'édition");
+
+    // Écrire une seule ligne : confirmation exigée, mois invalidé.
+    svc.mois["2026-06"] = { "2026-06-07": {} };
+    await svc.ecrireLigne("pisceen/dolibarr#-@13");
+    const app = appels.find(([n]) => n === "timesheet-line-apply");
+    assert(app && app[1].ligne === "pisceen/dolibarr#-@13" && app[1].day === "2026-06-07",
+           "l'écriture vise la ligne et sa journée");
+    assert.strictEqual(svc.mois["2026-06"], undefined,
+                       "après écriture, le mois est relu — jamais gardé périmé");
+
+    await svc.retablirLigne("pisceen/dolibarr#-@13");
+    const clr = appels.find(([n, a]) => n === "timesheet-line-adjust" && a.clear_ligne);
+    assert(clr, "rétablir retire la correction");
+    console.log("✓ lignes : clé stable, correction du rattachement, écriture d'une seule ligne");
+  }
+
   console.log("\nTous les tests de l'écran de facturation passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

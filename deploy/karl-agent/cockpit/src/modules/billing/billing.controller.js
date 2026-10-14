@@ -28,6 +28,7 @@ export function mountBilling({ card } = {}, ctx = {}) {
     day: svc.day, jour: svc.jour, form: svc.form(), loading: svc.loading,
     error: svc.error, busy: svc.busy, dirty: svc.dirty, projets: svc.projets,
     vue: svc.vue, resumes: svc.resumes(vueMois()), moisCharge: svc.moisCharge,
+    ligne: svc.ligne, ligneEdit: svc.ligneEdit,
   });
   /** Les mois dont la vue courante a besoin — lus du service, jamais devinés. */
   function vueMois() {
@@ -57,6 +58,9 @@ export function mountBilling({ card } = {}, ctx = {}) {
     ["click", "[data-action]", (ev, el) => onClick(ev, el)],
     ["change", "[data-action=\"field\"]", (ev, el) => onField(el)],
     ["change", "[data-action=\"date\"]", (ev, el) => goto(el.value)],
+    // Un `select` n'émet pas de clic : sans cet écouteur, corriger le client d'une
+    // ligne n'aurait jamais rien changé.
+    ["change", "[data-action=\"ligne-champ\"]", (ev, el) => onClick(ev, el)],
   ] }) : null;
 
   function render() { if (h) h.update(Card(vm())); }
@@ -164,6 +168,43 @@ export function mountBilling({ card } = {}, ctx = {}) {
       const v = vm();
       if (!confirm(`Marquer le ${v.titre} comme validée sans créer de saisie ?`)) return;
       return garde(() => svc.validateEmpty(), "journée validée (rien ajouté)");
+    }
+    // — les gestes qui ne visent QU'UNE ligne —
+    if (a === "ligne-edit") {
+      const cle = el.getAttribute("data-cle");
+      const l = vm().groupes.flatMap(g => g.lignes.map(x => ({ ...x, client: g.client })))
+                   .find(x => x.cle === cle);
+      svc.editerLigne(cle, l ? { client: l.client, projet: l.projet,
+                                 ticket: l.rm ? String(l.rm) : "" } : null);
+      return render();
+    }
+    if (a === "ligne-cancel") { svc.editerLigne(null); return render(); }
+    if (a === "ligne-champ") {
+      const champ = el.getAttribute("data-champ");
+      svc.setLigneChamp(champ, el.value);
+      // Changer de client vide le projet : celui d'avant n'existe pas forcément chez lui.
+      if (champ === "client") svc.setLigneChamp("projet", "");
+      return render();
+    }
+    if (a === "ligne-save") {
+      return garde(() => svc.enregistrerLigne(), "rattachement corrigé");
+    }
+    if (a === "ligne-clear") {
+      return garde(() => svc.retablirLigne(el.getAttribute("data-cle")),
+                   "rattachement rétabli");
+    }
+    if (a === "ligne-apply") {
+      const cle = el.getAttribute("data-cle");
+      const l = vm().groupes.flatMap(g => g.lignes.map(x => ({ ...x, client: g.client })))
+                   .find(x => x.cle === cle);
+      // Comme pour la journée, la confirmation NOMME ce qui part.
+      const quoi = l ? `${l.client} / ${l.projet}${l.rm ? ` RM${l.rm}` : " (au projet)"} — ${l.minutes}`
+                     : cle;
+      if (!confirm(`Écrire cette seule ligne dans Redmine ?\n\n  ${quoi}`)) return;
+      return garde(async () => {
+        const r = await svc.ecrireLigne(cle);
+        if (r && r.ok === false) throw new Error(String(r.stderr || r.stdout || "échec").trim().slice(-300));
+      }, "ligne écrite dans Redmine");
     }
     if (a === "apply") {
       const v = vm();

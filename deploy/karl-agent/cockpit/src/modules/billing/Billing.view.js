@@ -94,7 +94,47 @@ export function Ajustement(vm) {
 /** La proposition, par client puis par projet/ticket : ce qui sera écrit, ligne à ligne. */
 export function Proposition(vm) {
   if (!vm.groupes.length) return html`<div class="bl-empty">rien à ajouter — ${vm.t.deja ? "tout est déjà noté à la main" : "aucune trace exploitable ce jour-là"}</div>`;
-  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b${g.facturable ? raw("") : raw(' class="bl-nf"')}>${g.client}</b>${g.facturable ? "" : html`<span class="bl-nf-tag" title="Entité de type « self » : ce temps est noté, jamais facturé">non facturé</span>`}<span>${g.total}</span></div>${g.lignes.map(l => html`<div class="bl-line"><span class="bl-prj">${l.projet}</span>${l.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(l.rm)}" href="#">${l.ticket}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}<span class="bl-min">${l.minutes}</span>${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}</div>`)}</div>`)}</div>`;
+  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b${g.facturable ? raw("") : raw(' class="bl-nf"')}>${g.client}</b>${g.facturable ? "" : html`<span class="bl-nf-tag" title="Entité de type « self » : ce temps est noté, jamais facturé">non facturé</span>`}<span>${g.total}</span></div>${g.lignes.map(l => LigneProposee(l, vm))}</div>`)}</div>`;
+}
+
+/**
+ * Une ligne proposée : ce qu'elle vaut, où elle va, et les deux gestes qui la visent
+ * SEULE — corriger son rattachement, l'écrire. La journée entière reste validable en
+ * bas ; ici on traite les cas qui ne rentrent pas dans le lot.
+ */
+const LigneProposee = (l, vm) => html`<div class="bl-line${l.amendee ? " bl-l-amendee" : ""}">
+  <span class="bl-prj">${l.projet}</span>
+  ${l.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(l.rm)}" href="#">${l.ticket}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}
+  <span class="bl-min">${l.minutes}</span>
+  ${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}
+  ${l.amendee ? html`<span class="bl-l-org" title="Rattachement calculé, que vous avez corrigé">← ${l.origine}</span>` : ""}
+  ${l.abandonne ? html`<span class="bl-l-ab" title="Redmine range une saisie dans le projet de son ticket : garder ce ticket aurait ramené le temps à son projet d'origine. La ligne part donc au projet.">ticket ${l.abandonne} lâché</span>` : ""}
+  ${l.cle ? html`<span class="bl-l-act">
+    <button class="mini" data-action="ligne-edit" data-cle="${l.cle}" title="Corriger le rattachement de cette ligne">corriger</button>
+    ${l.amendee ? html`<button class="mini" data-action="ligne-clear" data-cle="${l.cle}" title="Revenir au rattachement calculé">rétablir</button>` : ""}
+    <button class="mini" data-action="ligne-apply" data-cle="${l.cle}" title="Écrire CETTE ligne dans Redmine, seule">écrire</button>
+  </span>` : ""}
+</div>${l.edition ? EditionLigne(vm) : ""}`;
+
+/** La correction d'une ligne : son rattachement, jamais ses minutes. */
+function EditionLigne(vm) {
+  const e = vm.ligneEdit;
+  if (!e) return "";
+  return html`<div class="bl-l-edit">
+    <label>client <select data-action="ligne-champ" data-champ="client" ${e.busy ? raw("disabled") : raw("")}>
+      <option value="">— inchangé —</option>
+      ${e.clients.map(c => html`<option value="${c}"${c === e.client ? raw(" selected") : raw("")}>${c}</option>`)}
+    </select></label>
+    <label>projet <select data-action="ligne-champ" data-champ="projet" ${e.busy || !e.client ? raw("disabled") : raw("")}>
+      <option value="">— inchangé —</option>
+      ${e.projets.map(x => html`<option value="${x}"${x === e.projet ? raw(" selected") : raw("")}>${x}</option>`)}
+    </select></label>
+    <label>ticket <input type="text" inputmode="numeric" placeholder="numéro, ou « - » pour aucun"
+      data-action="ligne-champ" data-champ="ticket" value="${e.ticket}" ${e.busy ? raw("disabled") : raw("")}></label>
+    <button class="btn mini" data-action="ligne-save" ${e.busy ? raw("disabled") : raw("")}>enregistrer</button>
+    <button class="mini" data-action="ligne-cancel">annuler</button>
+    <div class="bl-dim">les minutes ne changent pas : on déplace du temps, on n'en crée pas.</div>
+  </div>`;
 }
 
 /** Ce qui est DÉJÀ dans Redmine ce jour-là : la garantie qu'on ne compte pas deux fois. */

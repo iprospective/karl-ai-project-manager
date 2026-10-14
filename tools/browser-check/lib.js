@@ -21,12 +21,54 @@ const OPTIONS = {
   "--screenshot": ["screenshot", true],
   "--allow-console-errors": ["allowConsoleErrors", false],
   "--allow-missing-assets": ["allowMissingAssets", false],
+  "--mobile": ["mobile", false],
+  "--tablet": ["tablet", false],
   "--json": ["json", false],
   "--help": ["help", false],
   "-h": ["help", false],
 };
 
 const WAIT_DEFAUT = 1500;
+
+/**
+ * Profils d'émulation (RM3472). Un défaut « uniquement sur téléphone » ne se rejoue pas
+ * avec le viewport desktop par défaut : RM3456 (lien « Continuer mes achats » du panier
+ * Calicote inerte sur mobile) a demandé un script Playwright écrit à la main, hors outil,
+ * donc ni rejouable ni versionné. Deux profils fixes, pas une liste d'appareils : ce qu'on
+ * veut, c'est la LARGEUR qui déclenche les media queries, le tactile et l'UA que le serveur
+ * lit (PrestaShop détecte le mobile sur l'UA) — pas la collection complète des téléphones.
+ *   mobile : 390×844, ×3, tactile, UA Android « Mobile » (Chrome).
+ *   tablet : 820×1180, ×2, tactile, UA Android tablette (sans « Mobile »).
+ */
+const PROFILS_EMULATION = {
+  mobile: {
+    nom: "mobile", viewport: { width: 390, height: 844 }, deviceScaleFactor: 3,
+    isMobile: true, hasTouch: true,
+    userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) "
+             + "Chrome/130.0.0.0 Mobile Safari/537.36",
+  },
+  tablet: {
+    nom: "tablet", viewport: { width: 820, height: 1180 }, deviceScaleFactor: 2,
+    isMobile: true, hasTouch: true,
+    userAgent: "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) "
+             + "Chrome/130.0.0.0 Safari/537.36",
+  },
+};
+
+/** Le profil demandé par les options, ou null (viewport desktop par défaut du navigateur). */
+function emulation(opts) {
+  const o = opts || {};
+  if (o.mobile) return PROFILS_EMULATION.mobile;
+  if (o.tablet) return PROFILS_EMULATION.tablet;
+  return null;
+}
+
+/** Libellé d'un profil pour le rapport — le protocole de test doit pouvoir le citer. */
+function libelleEmulation(profil) {
+  if (!profil) return "";
+  return profil.nom + " " + profil.viewport.width + "×" + profil.viewport.height
+    + " ×" + profil.deviceScaleFactor + ", tactile, UA " + (profil.nom === "mobile" ? "Android mobile" : "Android tablette");
+}
 
 /**
  * Analyse la ligne de commande (argv SANS `node` ni le nom du script).
@@ -100,6 +142,11 @@ function parseArgs(argv) {
   }
   if (opts.url && opts.scenario) {
     erreurs.push("--url et --scenario sont exclusifs : un parcours porte ses propres URL");
+  }
+  // Un seul appareil à la fois : deux émulations ne se superposent pas, et choisir en
+  // silence la dernière ferait valider la mauvaise largeur.
+  if (opts.mobile && opts.tablet) {
+    erreurs.push("--mobile et --tablet sont exclusifs : une page se joue sur UN appareil");
   }
   // --expect-change n'a de sens qu'après un geste : sans clic, il compare une page à
   // elle-même et « échoue » toujours. Mieux vaut le dire que rendre un faux rouge.
@@ -179,6 +226,13 @@ function evaluate(opts, observe) {
   const checks = [];
   const add = (nom, ok, detail) => checks.push({ nom, ok: !!ok, detail: detail || "" });
 
+  // 0. l'APPAREIL émulé est dit en tête : un rapport collé dans un protocole de test doit
+  //    porter la largeur sur laquelle il a été rendu, sinon « OK » ne prouve rien sur mobile.
+  const profil = emulation(opts);
+  if (profil) {
+    add("émulation : " + libelleEmulation(profil), true);
+  }
+
   // 1. la page RÉPOND — un fichier déployé n'est pas une page qui s'affiche (RM3025 : 500)
   add("la page répond en 2xx/3xx",
       typeof o.status === "number" && o.status >= 200 && o.status < 400,
@@ -230,5 +284,6 @@ function formatReport(res) {
   return lignes.join("\n");
 }
 
-module.exports = { OPTIONS, WAIT_DEFAUT, PILOTES, parseArgs, pickChromium, pickDriver,
-                   waitUntil, classerErreurs, evaluate, formatReport };
+module.exports = { OPTIONS, WAIT_DEFAUT, PILOTES, PROFILS_EMULATION, parseArgs, pickChromium,
+                   pickDriver, waitUntil, classerErreurs, evaluate, formatReport, emulation,
+                   libelleEmulation };

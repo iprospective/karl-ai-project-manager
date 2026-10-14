@@ -1,5 +1,11 @@
 # Changelog des normes
 
+## [2.63.1] - 2026-10-14
+
+### Modifié
+- `testing` § 7 : un défaut signalé « sur téléphone » se rejoue avec `browser-check --mobile`
+  (ou `--tablet`, RM3472) — sans émulation le viewport desktop conclut à tort « non reproductible ».
+
 ## [2.63.0] - 2026-10-08
 
 ### Ajouté

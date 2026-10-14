@@ -22,6 +22,7 @@ const ACTIONS = {
   "memoriser":       ["selecteur"],   // prend l'état d'un élément, pour le comparer plus tard
   "attendre-selecteur": ["selecteur"],
   "verifier-selecteur": ["selecteur"],
+  "verifier-visible":   ["selecteur"],   // présent ET affiché (RM3472 : un lien masqué sur desktop)
   "verifier-texte":  ["texte"],
   "verifier-change": ["selecteur"],
   "capture":         ["fichier"],

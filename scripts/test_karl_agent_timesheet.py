@@ -225,6 +225,42 @@ check("rafraîchir une journée ne supprime rien", "--revoke" not in argv)
 ka.op_pm_run({"name": "timesheet-day-apply", "args": {"day": "2026-08-26"}, "confirm": True})
 check("valider une journée ne supprime rien", "--revoke" not in argv)
 
+# — l'écran et le catalogue parlent la même langue (RM3229, 2026-10-14) —
+#
+# « args inconnus pour timesheet-day-adjust : ['pause_debut', 'pause_fin'] » : les
+# bornes de pause avaient été ajoutées au CLI et au service du cockpit, mais pas
+# déclarées au catalogue — la commande partait et était refusée. Aucun test ne
+# regardait les deux côtés, alors c'est le seul endroit où le désaccord se voit.
+import re
+
+_svc = (HERE.parent / "deploy" / "karl-agent" / "cockpit" / "src" / "modules"
+        / "billing" / "billing.service.js")
+if _svc.is_file():
+    _js = _svc.read_text(encoding="utf-8")
+    _cat = {c["name"]: {a["name"] for a in c.get("args", [])}
+            for c in ka._PM_COMMANDS_DEFAULT}
+    # Options du runner, pas de la commande.
+    _runner = {"confirm", "dry_run"}
+    _manque = {}
+    # 1. les clés passées en objet littéral : run("cmd", { day: …, dry_run: true })
+    for _m in re.finditer(r'run\(\s*"([a-z0-9-]+)"\s*,\s*\{([^{}]*)\}', _js):
+        _nom, _corps = _m.group(1), _m.group(2)
+        if _nom not in _cat:
+            continue
+        for _k in re.findall(r'(\w+)\s*:', _corps):
+            if _k not in _runner and _k not in _cat[_nom]:
+                _manque.setdefault(_nom, set()).add(_k)
+    # 2. les paires construites en boucle : [["start", f.debut], ["end", …], …]
+    _bloc_adjust = re.search(r'async adjust\(\)\s*\{(.*?)\n  \}', _js, re.S)
+    if _bloc_adjust:
+        for _k in re.findall(r'\[\s*"(\w+)"\s*,', _bloc_adjust.group(1)):
+            if _k not in _cat.get("timesheet-day-adjust", set()):
+                _manque.setdefault("timesheet-day-adjust", set()).add(_k)
+    check("tout ce que l'écran envoie est déclaré au catalogue",
+          not _manque or print(f"    manquants : {_manque}"))
+    check("les bornes de pause sont déclarées",
+          {"pause_debut", "pause_fin"} <= _cat.get("timesheet-day-adjust", set()))
+
 print()
 if fails:
     print(f"✗ {len(fails)} test(s) en échec : {', '.join(fails)}")

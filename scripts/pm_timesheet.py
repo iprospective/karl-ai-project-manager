@@ -70,6 +70,12 @@ DEFAULTS = {
     "quantum_min": 15,
     # forfait de longueur quand la source ne donne pas le texte (opencode : table `part`)
     "default_prompt_chars": 120,
+    # Relecture d'un tour d'agent : le temps humain qu'on retient APRÈS lui. Un tour
+    # long produit plus à relire, mais l'humain ne reste pas devant l'écran pendant
+    # que l'agent travaille seul — surtout la nuit. clamp(durée × part, min, max).
+    "relecture_part": 0.25,
+    "relecture_min": 5.0,
+    "relecture_max": 30.0,
 }
 
 #: Messages de rôle `user` qui ne sont PAS un humain qui tape (CDC § 3quater).
@@ -879,8 +885,17 @@ def evenements_des_tours(ticks, regles=None, resolver=None, params=None):
             cible = None
             if resolver is not None and ent:
                 cible = resolver.cible_ticket(t.get("ticket"), (ent, proj))
+            # La durée retenue d'un tour ne dépasse jamais le temps de RELIRE ce
+            # qu'il a produit. Un tour travaille seul : sa durée n'atteste d'une
+            # présence humaine ni pendant, ni après. Le 13/06/2026 à 02:18, un tour
+            # de 113 min que rien ne suivait étirait la journée jusqu'à 04:11.
+            # Le plafond vaut pour TOUS les tours, y compris ceux qu'un autre suit
+            # (choix du 14/10/2026) : un enchaînement de tours n'est pas en soi la
+            # preuve que quelqu'un est resté devant l'écran entre les deux.
+            relecture = min(max(float(t.get("minutes") or 0.0) * p["relecture_part"],
+                                p["relecture_min"]), p["relecture_max"])
             out.append(Event(ts=ts, chars=p["default_prompt_chars"], source="tick-ia",
-                             duree=float(t.get("minutes_reelles") or 0.0),
+                             duree=min(float(t.get("minutes_reelles") or 0.0), relecture),
                              scores={cible or (ent, proj, None): 1.0}))
     return sorted(out, key=lambda e: e.ts)
 

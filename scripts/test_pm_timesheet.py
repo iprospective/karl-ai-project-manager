@@ -581,7 +581,7 @@ _p = {"follow_cap": 10, "write_base": 1, "chars_per_min": 45,
 _ticks = [
     {"jour": "2026-06-07", "heure": "10:00", "ticket": "1444", "client": "calicote",
      "projet": "dolibarr", "modele": "m", "tokens": 1000, "minutes": 20.0},
-    {"jour": "2026-06-07", "heure": "10:15", "ticket": "1444", "client": "calicote",
+    {"jour": "2026-06-07", "heure": "10:04", "ticket": "1444", "client": "calicote",
      "projet": "dolibarr", "modele": "m", "tokens": 1000, "minutes": 20.0},
 ]
 _evs = W.evenements_des_tours(_ticks, params=_p)
@@ -601,8 +601,8 @@ verifie(presque((_iv.fin - _long.ts).total_seconds() / 60, 45.0),
 # Des tours resserrés se rejoignent en une période continue.
 _alloc, _per, _tot, _ph, _phc, _sg = W.allocate(W.build_intervals(_evs, _p), _p)
 verifie(len(_per.get("2026-06-07", [])) == 1,
-        "des tours qui se suivent forment UNE période, pas deux")
-verifie(sum(_tot.values()) > 20, "la période couvre les deux tours, pas un seul")
+        "des tours qui s'enchaînent dans le temps de relecture forment UNE période")
+verifie(sum(_tot.values()) > 9, "la période couvre les deux tours, pas un seul")
 
 # … mais un vrai trou reste un trou : deux tours espacés font deux périodes.
 _ecartes = W.evenements_des_tours(
@@ -618,6 +618,26 @@ verifie(len(_per2.get("2026-06-07", [])) == 2,
 verifie(W.evenements_des_tours([], params=_p) == [], "aucun tour : aucun événement")
 verifie(W.evenements_des_tours([{"jour": "x", "heure": "nope"}], params=_p) == [],
         "un tick illisible est ignoré, il ne casse pas la journée")
+
+# Le plafond de relecture : un tour n'atteste d'une présence que le temps de relire
+# ce qu'il a produit (13/06/2026 — un tour de 113 min étirait la nuit jusqu'à 04:11).
+_pr = {**_p, "relecture_part": 0.25, "relecture_min": 5.0, "relecture_max": 30.0}
+_tick = lambda h, dec: {"jour": "2026-06-13", "heure": h, "ticket": "1895",
+                        "client": "iprospective", "projet": "pm-ai-agents",
+                        "modele": "m", "tokens": 1, "minutes": dec}
+_seul = W.evenements_des_tours([_tick("02:18", 113.6)], params=_pr)[0]
+verifie(presque(_seul.duree, 28.4), "un tour de 113 min ne retient que 28 min de relecture")
+_court = W.evenements_des_tours([_tick("02:18", 2.0)], params=_pr)[0]
+verifie(presque(_court.duree, 2.0), "un tour court n'est pas ALLONGÉ au plancher de relecture")
+_enorme = W.evenements_des_tours([_tick("02:18", 600.0)], params=_pr)[0]
+verifie(presque(_enorme.duree, 30.0), "le plafond de relecture tient : 30 min, pas davantage")
+_moyen = W.evenements_des_tours([_tick("02:18", 30.0)], params=_pr)[0]
+verifie(presque(_moyen.duree, 7.5), "entre les bornes, la relecture suit la quantité produite")
+
+# Le plafond vaut aussi quand un autre tour suit (choix du 14/10/2026).
+_suivis = W.evenements_des_tours([_tick("02:18", 113.6), _tick("03:00", 10.0)], params=_pr)
+verifie(presque(_suivis[0].duree, 28.4),
+        "un tour suivi d'un autre est plafonné lui aussi : l'enchaînement ne prouve pas la présence")
 
 # Une trace humaine et un tour au même moment ne comptent pas deux fois.
 _mix = [ev(0, cible=("calicote", "dolibarr", None)),

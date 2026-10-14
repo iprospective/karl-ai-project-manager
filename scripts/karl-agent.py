@@ -10404,6 +10404,12 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--projet", "max_len": 64},
          {"name": "pause", "label": "Pause (heures)", "type": "text", "flag": "--pause",
           "max_len": 5},
+         # Les bornes priment sur la durée : poser 12:30→13:30 vaut mieux que « 1 h »
+         # quelque part. Déclarées ici parce que l'écran les envoie (RM3229).
+         {"name": "pause_debut", "label": "Début de pause", "type": "time",
+          "flag": "--pause-debut"},
+         {"name": "pause_fin", "label": "Fin de pause", "type": "time",
+          "flag": "--pause-fin"},
          {"name": "lieu", "label": "Lieu de travail", "type": "enum", "flag": "--lieu",
           "choices": ["presentiel", "distanciel"]},
          {"name": "exclusif", "label": "Journée quasi exclusive pour ce client",

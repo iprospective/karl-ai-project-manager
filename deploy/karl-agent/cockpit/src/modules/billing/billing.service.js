@@ -20,6 +20,8 @@ export class BillingService {
     this.busy = null;                    // geste en cours : "adjust" | "apply"
     this.edit = null;                    // { debut, fin, client, projet, pause } en cours de saisie
     this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
+    this.ligne = null;                   // clé de la ligne en cours de correction
+    this.ligneEdit = null;               // {client, projet, ticket} en cours de saisie
     this.vue = "jour";                   // jour | semaine | mois
     this.mois = {};                      // AAAA-MM → {date → résumé}, gardé d'une vue à l'autre
     this.moisCharge = null;              // mois en cours de lecture (pour l'attente)
@@ -74,7 +76,71 @@ export class BillingService {
   invaliderMois(mois) { delete this.mois[mois]; }
 
   /** Change de journée : l'édition en cours ne suit pas — elle appartenait à l'autre jour. */
-  setDay(jour) { this.day = String(jour); this.jour = null; this.edit = null; this.error = null; }
+  setDay(jour) {
+    this.day = String(jour); this.jour = null; this.edit = null; this.error = null;
+    this.ligne = null; this.ligneEdit = null;
+  }
+
+  // ── Une ligne à la fois ───────────────────────────────────────────────────
+  //
+  // L'unité de validation n'est plus forcément la journée : une ligne se corrige et
+  // s'écrit seule. On ne touche jamais aux MINUTES ici — seulement au rattachement
+  // (client, projet, ticket) : déplacer du temps, ce n'est pas en créer.
+
+  /** Ouvre (ou referme) la correction d'une ligne, en partant de son état actuel. */
+  editerLigne(cle, depart = null) {
+    if (!cle || this.ligne === cle) { this.ligne = null; this.ligneEdit = null; return null; }
+    this.ligne = cle;
+    this.ligneEdit = Object.assign({ client: "", projet: "", ticket: "" }, depart || {});
+    return this.ligne;
+  }
+
+  setLigneChamp(champ, valeur) {
+    this.ligneEdit = Object.assign({}, this.ligneEdit, { [champ]: valeur });
+  }
+
+  /** Enregistre le rattachement corrigé, puis relit la journée. */
+  async enregistrerLigne() {
+    this._need();
+    if (!this.ligne) throw new Error("aucune ligne en cours de correction");
+    const e = this.ligneEdit || {};
+    const args = { day: this.day, ligne: this.ligne };
+    for (const [k, v] of [["set_client", e.client], ["set_projet", e.projet],
+                          ["set_ticket", e.ticket]]) {
+      if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
+    }
+    this.busy = "ligne";
+    try {
+      await this.run("timesheet-line-adjust", args);
+      this.ligne = null; this.ligneEdit = null;
+      return await this.load();
+    } finally { this.busy = null; }
+  }
+
+  /** Retire la correction : la ligne redevient ce que le calcul dit. */
+  async retablirLigne(cle) {
+    this._need();
+    this.busy = "ligne";
+    try {
+      await this.run("timesheet-line-adjust", { day: this.day, ligne: cle, clear_ligne: true });
+      this.ligne = null; this.ligneEdit = null;
+      return await this.load();
+    } finally { this.busy = null; }
+  }
+
+  /** ÉCRIT cette seule ligne dans Redmine. Confirmation exigée par le catalogue. */
+  async ecrireLigne(cle, { dryRun = false } = {}) {
+    this._need();
+    this.busy = "ligne-apply";
+    try {
+      const args = { day: this.day, ligne: cle };
+      if (dryRun) args.dry_run = true;
+      const res = await this.run("timesheet-line-apply", args, { confirm: true });
+      this.invaliderMois(this.day.slice(0, 7));
+      await this.load();
+      return res;
+    } finally { this.busy = null; }
+  }
 
   async load(refresh = false) {
     this.loading = true; this.error = null;

@@ -225,6 +225,31 @@ check("rafraîchir une journée ne supprime rien", "--revoke" not in argv)
 ka.op_pm_run({"name": "timesheet-day-apply", "args": {"day": "2026-08-26"}, "confirm": True})
 check("valider une journée ne supprime rien", "--revoke" not in argv)
 
+# — écrire et corriger UNE ligne (RM3229, 2026-10-14) —
+ka.op_pm_run({"name": "timesheet-line-adjust",
+              "args": {"day": "2026-08-26", "ligne": "calicote/dolibarr#1855@13",
+                       "set_client": "pisceen"}})
+check("corriger une ligne vise la journée ET la ligne",
+      "--ligne" in argv and "calicote/dolibarr#1855@13" in argv and "--set-client" in argv)
+check("corriger un rattachement n'écrit RIEN dans Redmine", "--apply" not in argv)
+
+ka.op_pm_run({"name": "timesheet-line-apply",
+              "args": {"day": "2026-08-26", "ligne": "calicote/dolibarr#1855@13"},
+              "confirm": True})
+check("écrire une ligne porte --apply et la clé de la ligne",
+      "--apply" in argv and "calicote/dolibarr#1855@13" in argv)
+check("écrire une ligne ne vise qu'une journée",
+      sum(1 for a in argv if a.startswith("2026-")) == 1)
+check("écrire une ligne ne supprime rien", "--revoke" not in argv)
+
+try:
+    ka.op_pm_run({"name": "timesheet-line-apply",
+                  "args": {"day": "2026-08-26", "ligne": "x/y#1@1"}})
+    _refuse = False
+except ka.ApiError as _e:
+    _refuse = "confirmation" in str(_e)
+check("écrire une ligne sans confirmation est refusé", _refuse)
+
 # — l'écran et le catalogue parlent la même langue (RM3229, 2026-10-14) —
 #
 # « args inconnus pour timesheet-day-adjust : ['pause_debut', 'pause_fin'] » : les

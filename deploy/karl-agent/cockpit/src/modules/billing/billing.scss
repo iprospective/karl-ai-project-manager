@@ -187,3 +187,20 @@
 .bl-av-bar i { display: block; height: 100%; background: var(--ok); }
 .bl-av-t { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
 .bl-av-t b { color: var(--fg-strong); }
+
+// — corriger et écrire une ligne (RM3229) —
+// Visibles au repos, sinon le geste n'existe pas pour qui ne survole rien — juste
+// assez discrets pour que l'oeil lise d'abord les heures.
+.bl-line .bl-l-act { margin-left: auto; display: flex; gap: 4px; opacity: .45; transition: opacity .12s; }
+.bl-line:hover .bl-l-act, .bl-line:focus-within .bl-l-act { opacity: 1; }
+.bl-l-amendee { border-left: 2px solid var(--accent, #6ab); padding-left: 6px; }
+.bl-l-org, .bl-l-ab { font-size: .82em; color: var(--fg-dim); white-space: nowrap; }
+.bl-l-ab { color: var(--warn, #c93); }
+.bl-l-edit {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin: 2px 0 8px 6px; padding: 8px; border-radius: 4px;
+  background: var(--bg-soft, rgba(127, 127, 127, .08));
+}
+.bl-l-edit label { display: flex; gap: 4px; align-items: center; font-size: .9em; }
+.bl-l-edit input { width: 10em; }
+.bl-l-edit .bl-dim { flex-basis: 100%; font-size: .82em; }

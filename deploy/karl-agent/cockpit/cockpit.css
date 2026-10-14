@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 9f41311a50b38680 (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 971d9011d473d2c7 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -6704,4 +6704,58 @@ button.mini.soft:hover {
 
 .bl-av-t b {
   color: var(--fg-strong);
+}
+
+.bl-line .bl-l-act {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+.bl-line:hover .bl-l-act, .bl-line:focus-within .bl-l-act {
+  opacity: 1;
+}
+
+.bl-l-amendee {
+  border-left: 2px solid var(--accent, #6ab);
+  padding-left: 6px;
+}
+
+.bl-l-org, .bl-l-ab {
+  font-size: 0.82em;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.bl-l-ab {
+  color: var(--warn, #c93);
+}
+
+.bl-l-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0 8px 6px;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--bg-soft, rgba(127, 127, 127, 0.08));
+}
+
+.bl-l-edit label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+.bl-l-edit input {
+  width: 10em;
+}
+
+.bl-l-edit .bl-dim {
+  flex-basis: 100%;
+  font-size: 0.82em;
 }

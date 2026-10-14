@@ -301,6 +301,35 @@ ne suppriment quoi que ce soit. Il faut le demander, journée par journée.
 
 En CLI : `mmi-pm timesheet --day <jour> --revoke` (ajouter `--dry-run` pour voir sans supprimer).
 
+## Ligne par ligne
+
+Une journée se valide d'un bloc, mais **chaque ligne proposée se traite aussi seule** —
+pour les cas qui ne rentrent pas dans le lot.
+
+Au bout de chaque ligne, deux gestes :
+
+- **corriger** — change le **rattachement** : client, projet, ticket. Les **minutes ne
+  bougent jamais** : on déplace du temps d'un client à l'autre, on n'en crée pas. La
+  ligne garde sa provenance affichée (`← calicote/dolibarr RM1855`) et un bouton
+  **rétablir** la rend au calcul.
+- **écrire** — crée **cette seule saisie** dans Redmine. La confirmation nomme ce qui
+  part. Une fois écrite, la ligne est relue depuis Redmine et passe en « déjà noté ».
+
+⚠ **Un ticket emporte son projet.** Redmine range une saisie dans le projet du ticket et
+ignore le projet qu'on lui donne. Déplacer une ligne chez un autre client en lui laissant
+son ticket la ferait donc revenir d'où elle vient, sans rien dire — alors le ticket est
+**lâché** et la ligne part au projet du nouveau client. L'écran l'affiche
+(« ticket RM1855 lâché »). Pour garder un ticket, en choisir un explicitement.
+
+En CLI : `mmi-pm timesheet --day <jour> --ligne "<clé>" --set-client <client>
+[--set-projet <projet>] [--set-ticket <n>|-]`, `--clear-ligne` pour rétablir, et
+`--apply --ligne "<clé>"` pour n'écrire que celle-là. La **clé** d'une ligne est
+`client/projet#ticket@activité` : elle nomme la cible, pas le rang, donc un recalcul la
+retrouve.
+
+Une correction dont la ligne a disparu d'un recalcul n'est **pas** appliquée en silence :
+elle est signalée.
+
 ## Valider
 
 Le bouton du bas **annonce ce qu'il va écrire** : les clients et le total. La confirmation

@@ -8,7 +8,9 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          cumulClients, nomMois, moisDe, decalerMois, weekOf } from "./billing.js";
 
 export class BillingViewModel {
-  constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge }) {
+  constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
+                ligne, ligneEdit }) {
+    this.ligne = ligne || null; this.le = ligneEdit || null;
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
     this.p = clientsEtProjets(projets || []);
@@ -185,8 +187,28 @@ export class BillingViewModel {
         projet: l.projet, ticket: l.ticket ? `RM${l.ticket}` : "", rm: l.ticket || null,
         minutes: fmtMin(l.minutes),
         outillage: l.outillage_min ? `dont ${fmtMin(l.outillage_min)} d'outillage PM mutualisé` : "",
+        // Une ligne se corrige et s'écrit seule : il lui faut un nom stable.
+        cle: l.cle || "",
+        amendee: !!l.amendee,
+        origine: l.origine ? `${l.origine.client || "?"}/${l.origine.projet || "?"}`
+                             + (l.origine.ticket ? ` RM${l.origine.ticket}` : "") : "",
+        // Le ticket lâché en déplaçant la ligne : Redmine range une saisie dans le
+        // projet de son ticket, le garder ramènerait le temps d'où il vient.
+        abandonne: l.ticket_abandonne ? `RM${l.ticket_abandonne}` : "",
+        edition: this.ligne === l.cle,
       })),
     }));
+  }
+
+  /** La ligne en cours de correction : sa saisie et les cibles proposées. */
+  get ligneEdit() {
+    if (!this.ligne) return null;
+    const e = this.le || {};
+    return { cle: this.ligne, client: e.client || "", projet: e.projet || "",
+             ticket: e.ticket || "",
+             clients: this.p.clients,
+             projets: e.client ? this.p.projets(e.client) : [],
+             busy: this.busy === "ligne" || this.busy === "ligne-apply" };
   }
 
   get dejaSaisi() {

@@ -178,11 +178,47 @@ def banner(rel_source, sha):
             f"conflit → fichier `.wikiconflict` côté git.\n\n")
 
 
+def _title_h1_re(human_title):
+    return re.compile(r"^# " + re.escape(human_title) + r"\n+")
+
+
+def title_h1(human_title):
+    """Le H1 que `build_page_body` dérive du `title:` du frontmatter."""
+    return f"# {human_title}\n\n"
+
+
+def has_title_h1(body, human_title):
+    """Le corps commence-t-il par un H1 égal au `title:` du frontmatter ?"""
+    return bool(human_title) and bool(_title_h1_re(human_title).match(body))
+
+
+def strip_title_h1(body, human_title):
+    """Retire un H1 initial égal au `title:` — c'est un WRAPPER, pas du contenu (RM3474).
+
+    Le gabarit d'aspect de `pm-task-doc` écrit le titre DEUX fois : en `title:` dans
+    le frontmatter et en `# <même titre>` en tête du corps. Sans ce strip, le push
+    réinjecte le H1 par-dessus celui du corps et la page publiée porte deux fois le
+    même titre de niveau 1. Le corps canonique (celui qu'on hashe, qu'on compare au
+    `.base` et qu'on merge) est donc TOUJOURS dépourvu de ce H1 — invariant dont
+    dépend la symétrie avec `canonicalize_remote`. Le fichier local, lui, garde le
+    sien : `do_foldback` le remet (sinon un fold-back l'effacerait en silence).
+    """
+    if not human_title:
+        return body
+    return _title_h1_re(human_title).sub("", body, count=1)
+
+
 def build_page_body(rel_source, sha, human_title, canon_body):
-    """Corps complet poussé = bandeau + H1 (title humain) + corps canonique."""
+    """Corps complet poussé = bandeau + H1 (title humain) + corps canonique.
+
+    `canon_body` est passé SANS H1 de titre (cf. `strip_title_h1`) : le H1 est un
+    wrapper géré, ajouté ici et retiré par `canonicalize_remote`. Ne pas ajouter
+    de garde « si déjà présent » : elle rendrait les deux sens dissymétriques et
+    ferait osciller la page entre push et fold-back à chaque passage.
+    """
     head = banner(rel_source, sha)
     if human_title:
-        head += f"# {human_title}\n\n"
+        head += title_h1(human_title)
     return head + canon_body
 
 
@@ -612,7 +648,8 @@ def sync_aspect(a, *, url, key, rproj, repo, state, state_dir, maps, args):
     # Garde anti-secret sur le corps local (bloque tout push de cette cible).
     secret_hits = scan_secrets(a["body_canon"])
 
-    local = canonicalize(rewrite_links_push(a["body_canon"], basename_to_title))
+    local = canonicalize(rewrite_links_push(strip_title_h1(a["body_canon"], title),
+                                            basename_to_title))
     exists, wiki_text, version = wiki_get(url, key, rproj, wtitle)
     remote = canonicalize_remote(wiki_text, title) if exists else None
     tgt = state["targets"].get(slug)
@@ -642,7 +679,11 @@ def sync_aspect(a, *, url, key, rproj, repo, state, state_dir, maps, args):
             print(f"  ✎ {slug} ← [[{wtitle}]] {why} (fold-back simulé)")
             return "folded"
         raw = a["path"].read_text(encoding="utf-8")  # relecture À CHAUD (anti-TOCTOU)
-        header, _ = split_raw(raw)
+        header, old_body = split_raw(raw)
+        if has_title_h1(old_body, title):
+            # Le fichier portait son titre en H1 : wrapper retiré au push, rendu ici
+            # — sans quoi le fold-back le supprimerait en silence (RM3474).
+            new_body = title_h1(title) + new_body.lstrip("\n")
         a["path"].write_text(header + new_body, encoding="utf-8")
         write_base_state(content, v)
         print(f"  ✓ {slug} ← [[{wtitle}]] {why} (fold-back → {rel_source})")

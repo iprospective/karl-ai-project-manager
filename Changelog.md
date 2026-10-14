@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Wiki : le titre d'un aspect n'apparaît plus deux fois (RM3474).** Le gabarit de `pm-task-doc`
+  écrit le titre à la fois en `title:` (frontmatter) et en `# <même titre>` en tête du corps, et
+  `pm-wiki-sync` réinjectait le H1 par-dessus : la page publiée portait deux titres de niveau 1
+  identiques. Le H1 de titre est désormais un **wrapper géré**, au même titre que le bandeau —
+  retiré du corps canonique avant comparaison et push, ajouté à la page, et **rendu au fichier
+  local par le fold-back** (sans quoi un aller-retour depuis le wiki l'effaçait en silence). Les
+  aspects déjà publiés se réparent au prochain passage, sans toucher à leur markdown. Les aspects
+  plus anciens, sans `title:`, n'étaient pas touchés et ne le sont toujours pas.
 - **browser-check : émulation mobile et tablette (RM3472).** `--mobile` (390×844 ×3, tactile, UA
   Android « Mobile ») et `--tablet` (820×1180 ×2, tactile, UA Android), exclusifs, valables en mode
   simple et en mode parcours, avec les deux pilotes ; l'appareil est cité en tête du rapport (texte

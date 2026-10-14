@@ -58,6 +58,34 @@ check("--wait numérique retenu", opts.wait === 4000);
 ({ opts, erreurs } = L.parseArgs(["--help"]));
 check("--help ne réclame pas --url", opts.help === true && erreurs.length === 0);
 
+// ── émulation d'appareil (RM3472) ────────────────────────────────────────────
+({ opts, erreurs } = L.parseArgs(["--url", "https://x", "--mobile"]));
+check("--mobile reconnu", erreurs.length === 0 && opts.mobile === true, erreurs.join(", "));
+({ opts, erreurs } = L.parseArgs(["--url", "https://x", "--tablet"]));
+check("--tablet reconnu", erreurs.length === 0 && opts.tablet === true, erreurs.join(", "));
+({ erreurs } = L.parseArgs(["--url", "https://x", "--mobile", "--tablet"]));
+check("--mobile ET --tablet => erreur (un seul appareil à la fois)",
+      erreurs.some((e) => e.includes("--mobile") && e.includes("--tablet")));
+({ erreurs } = L.parseArgs(["--scenario", "p.json", "--mobile"]));
+check("--mobile accepté avec --scenario", erreurs.length === 0, erreurs.join(", "));
+check("sans option : aucune émulation (viewport desktop du navigateur)", L.emulation({ url: "u" }) === null);
+let prof = L.emulation({ mobile: true });
+check("mobile : largeur de téléphone, tactile, densité ×3",
+      prof.viewport.width === 390 && prof.viewport.height === 844 && prof.isMobile && prof.hasTouch
+      && prof.deviceScaleFactor === 3);
+check("mobile : UA Android « Mobile » (ce que lit la détection serveur)", /Android/.test(prof.userAgent) && /Mobile/.test(prof.userAgent));
+prof = L.emulation({ tablet: true });
+check("tablette : largeur de tablette, tactile, densité ×2",
+      prof.viewport.width === 820 && prof.viewport.height === 1180 && prof.hasTouch && prof.deviceScaleFactor === 2);
+check("tablette : UA Android SANS « Mobile »", /Android/.test(prof.userAgent) && !/Mobile/.test(prof.userAgent));
+check("libellé : cite le profil et la largeur (le protocole de test doit pouvoir le citer)",
+      L.libelleEmulation(L.emulation({ mobile: true })).includes("mobile 390×844"));
+let rEm = L.evaluate({ url: "u", mobile: true }, { status: 200, consoleErrors: [] });
+check("évaluation en --mobile : l'émulation est rendue EN TÊTE du rapport, ok",
+      rEm.checks[0].nom.includes("émulation : mobile 390×844") && rEm.checks[0].ok && rEm.ok);
+rEm = L.evaluate({ url: "u" }, { status: 200, consoleErrors: [] });
+check("sans émulation : aucune ligne d'émulation inventée", !rEm.checks.some((c) => c.nom.includes("émulation")));
+
 // ── pickChromium ─────────────────────────────────────────────────────────────
 const HOME = "/home/dev";
 check("cache puppeteer préféré au navigateur système",

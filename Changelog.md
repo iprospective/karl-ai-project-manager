@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **browser-check : émulation mobile et tablette (RM3472).** `--mobile` (390×844 ×3, tactile, UA
+  Android « Mobile ») et `--tablet` (820×1180 ×2, tactile, UA Android), exclusifs, valables en mode
+  simple et en mode parcours, avec les deux pilotes ; l'appareil est cité en tête du rapport (texte
+  et JSON). Nouvelle étape de parcours `verifier-visible` (présent **et** affiché). Déclencheur :
+  RM3456, un défaut « uniquement sur téléphone » rejoué à la main hors outil.
 - **Mails de Karl : corps markdown et pièces jointes (RM3440).** `karl-mail-send.py --markdown <f.md>`
   envoie un multipart texte + HTML dont la version HTML est le rendu du markdown (tableaux compris) ;
   `--attach <fichier>` (répétable) joint des fichiers, total plafonné (`PM_MAIL_ATTACH_MAX_MB`, 20 Mo) et

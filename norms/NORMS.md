@@ -1,9 +1,9 @@
 ---
-schema_version: "2.63.0"
+schema_version: "2.63.1"
 updated: 2026-10-08
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.63.0
+# Normes de gestion des tâches — v2.63.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -3993,7 +3993,9 @@ node tools/browser-check/browser-check.js --url <URL> \
 ```
 
 Il rend `0`/`1`, cite l'erreur fautive, et **distingue un asset 404 d'un plantage JS** —
-la distinction qui manquait sur RM3025. Détail : `tools/browser-check/README.md`.
+la distinction qui manquait sur RM3025. Un défaut signalé « sur téléphone » se rejoue avec
+`--mobile` (ou `--tablet`, RM3472) — sans quoi le viewport desktop conclut « non reproductible ».
+Détail : `tools/browser-check/README.md`.
 
 **Sur quel environnement** : celui du ticket, monté par `pm-task-take`, seul dont on
 sache qu'il porte exactement la branche testée. **Ne pas rsyncer vers une préprod

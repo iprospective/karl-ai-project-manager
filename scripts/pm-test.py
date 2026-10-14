@@ -51,7 +51,10 @@ def discover(motifs):
     ne lance est un décor. Elles sont ici, avec le reste."""
     files = sorted(set(SCRIPTS.glob("test_*.py")) | set(SCRIPTS.glob("test-*.py"))
                    | set(SCRIPTS.glob("test_*.sh")) | set(SCRIPTS.glob("test-*.sh"))
-                   | set((SCRIPTS.parent / "tools" / "env-runtime").glob("test-*.sh")))
+                   | set((SCRIPTS.parent / "tools" / "env-runtime").glob("test-*.sh"))
+                   # RM3472 — les tests NODE de browser-check (logique pure, sans Chromium) : un
+                   # test que `mmi-pm test` ne lance pas est un décor, la règle vaut aussi pour eux.
+                   | set((SCRIPTS.parent / "tools" / "browser-check").glob("test_*.js")))
     files = [f for f in files if f.name != "test_support.py"]
     if motifs:
         files = [f for f in files if any(m in f.name for m in motifs)]
@@ -61,7 +64,9 @@ def discover(motifs):
 def run_one(path, env, timeout):
     t0 = time.monotonic()
     try:
-        argv = ["bash", str(path)] if path.suffix == ".sh" else [sys.executable, str(path)]
+        argv = (["bash", str(path)] if path.suffix == ".sh"
+                else ["node", str(path)] if path.suffix == ".js"
+                else [sys.executable, str(path)])
         r = subprocess.run(argv, env=env, cwd=str(SCRIPTS),
                            capture_output=True, text=True, timeout=timeout)
         rc, out = r.returncode, (r.stdout or "") + (r.stderr or "")

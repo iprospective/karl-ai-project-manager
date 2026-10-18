@@ -79,3 +79,4 @@ surprenant, une commande non documentée, un workaround), capitaliser ici plutô
 le re-découvrir à la prochaine occurrence. Garder les fichiers actionnables (pas de
 blabla).
 - [dovecot](./dovecot/) — boîte karl@ : dossiers, règle Sieve réelle et ses deux écarts (liste statique, aucune condition d'authenticité), capacités du serveur (RM2667)
+- [opensvc](./opensvc/) — bascule d'un conteneur entre nœuds : les trois étapes (arrêt applicatif à arbitrer, `sync nodes`, `switch --to`) et ce qui ne suit pas le conteneur — passerelle liée à l'hôte, bridge d'attache, config LXC à aligner sur les trois nœuds, MAC virtuelle OVH (RM3478)

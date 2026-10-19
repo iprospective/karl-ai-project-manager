@@ -189,6 +189,11 @@ export class BillingViewModel {
         outillage: l.outillage_min ? `dont ${fmtMin(l.outillage_min)} d'outillage PM mutualisé` : "",
         // Une ligne se corrige et s'écrit seule : il lui faut un nom stable.
         cle: l.cle || "",
+        // Ce que Redmine recevra en commentaire. La marque `[timesheet:…]` sert à ne
+        // pas créer deux fois la même saisie : elle part aussi, mais elle n'intéresse
+        // pas le lecteur — on la sépare plutôt que de la cacher.
+        description: (l.description || "").replace(/\s*\[timesheet:[^\]]*\]\s*$/, ""),
+        marque: (String(l.description || "").match(/\[timesheet:[^\]]*\]/) || [""])[0],
         amendee: !!l.amendee,
         origine: l.origine ? `${l.origine.client || "?"}/${l.origine.projet || "?"}`
                              + (l.origine.ticket ? ` RM${l.origine.ticket}` : "") : "",

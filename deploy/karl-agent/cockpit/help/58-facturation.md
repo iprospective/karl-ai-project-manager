@@ -312,6 +312,11 @@ En CLI : `mmi-pm timesheet --day <jour> --revoke` (ajouter `--dry-run` pour voir
 Une journée se valide d'un bloc, mais **chaque ligne proposée se traite aussi seule** —
 pour les cas qui ne rentrent pas dans le lot.
 
+Chaque ligne affiche **le commentaire qui partira dans Redmine**, en italique entre
+guillemets — c'est ce que le client lira. La marque technique `[timesheet:…]`, qui
+empêche de créer deux fois la même saisie, part avec mais n'est pas affichée (elle est
+dans l'infobulle).
+
 Au bout de chaque ligne, deux gestes :
 
 - **corriger** — change le **rattachement** : client, projet, ticket. Les **minutes ne

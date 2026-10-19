@@ -718,5 +718,20 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     console.log("✓ lignes : clé stable, correction du rattachement, écriture d'une seule ligne");
   }
 
+  // — la pause héritée des horaires habituels (RM3229, 2026-10-19) —
+  {
+    const B = await import(path.join(DIR, "src/modules/billing/billing.js"));
+    const heritee = B.pause({ pause: { declaree_h: 1, debut: "12:30", fin: "13:30",
+                                       origine: "presence", cible: {} } });
+    assert(heritee.heritee, "une pause venue de la présence se signale comme habituelle");
+    assert.strictEqual(heritee.debut, "12:30", "et porte ses bornes");
+    const main = B.pause({ pause: { declaree_h: 1, debut: "12:00", fin: "13:00",
+                                    origine: "journee", cible: {} } });
+    assert(!main.heritee, "une pause notée sur la journée n'est pas dite habituelle");
+    const vide = B.pause({ pause: { declaree_h: 0, cible: {} } });
+    assert(!vide.heritee, "sans pause, rien n'est hérité");
+    console.log("✓ pause : bornes habituelles de la présence, origine affichée");
+  }
+
   console.log("\nTous les tests de l'écran de facturation passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

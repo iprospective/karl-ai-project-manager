@@ -82,6 +82,12 @@ le temps de la journée quand les traces ne le disent pas seules. Le **lieu**
 
 ### La pause de midi
 
+**Si vos journées chez un client ont une pause habituelle**, déclarez-la une fois sur la
+présence (`pause_debut` / `pause_fin` dans `timesheet.yml`) : elle est alors proposée sur
+toutes ses journées, marquée « habituelle ». La poser à la main sur une journée l'emporte
+toujours, et rien n'est figé dans l'état — changer les horaires change les journées à
+venir.
+
 Sous les horaires, l'écran dit ce qu'il en sait : *« pause visible dans les traces :
 12:36–13:32 »*, ou *« aucune pause visible ce jour-là »* — en orange dans ce cas.
 

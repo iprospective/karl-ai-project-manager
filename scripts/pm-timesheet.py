@@ -378,6 +378,15 @@ def calculer(args, cfg, conf):
     for mois in sorted({j[:7] for j in jours}):
         surcharges.update(W.surcharges_charger(mois))
     presences = W.presences_effectives(conf.get("presences"), surcharges)
+    # La pause habituelle d'une journée de présence (« chez matnat, 12h30-13h30 ») :
+    # un DÉFAUT, calculé à la volée. Il ne va pas dans l'état — sinon il s'y figerait
+    # et survivrait à un changement d'horaires. Une pause notée à la main l'emporte.
+    pauses_defaut = W.pauses_par_presence(conf.get("presences"), debut.date(),
+                                          (fin - timedelta(days=1)).date(), surcharges)
+    surcharges_vues = {j: {**(surcharges.get(j) or {}), **v}
+                       for j, v in pauses_defaut.items()}
+    for j, v in (surcharges or {}).items():
+        surcharges_vues.setdefault(j, v)
     deja_par_jour = collections.Counter()
     for sa in toutes:
         deja_par_jour[sa["jour"]] += float(sa["minutes"])
@@ -393,6 +402,9 @@ def calculer(args, cfg, conf):
             "activites": activites,
             "conf": conf,
             "saisies": toutes, "surcharges": surcharges,
+            # Ce que l'écran et la proposition VOIENT : les surcharges, complétées des
+            # pauses habituelles. L'état sur disque, lui, ne contient que le saisi.
+            "surcharges_vues": surcharges_vues, "pauses_defaut": pauses_defaut,
             "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
@@ -457,7 +469,8 @@ def ajouter_pauses(prop, res):
         lambda j: debut.strftime("%Y-%m-%d") <= j < fin.strftime("%Y-%m-%d"))
     deja = {(s["jour"], round(float(s["minutes"]))) for s in res.get("saisies", [])
             if pconf["commentaire"] and pconf["commentaire"] in (s.get("libelle") or "")}
-    for jour, surcharge in sorted((res.get("surcharges") or {}).items()):
+    for jour, surcharge in sorted((res.get("surcharges_vues")
+                                   or res.get("surcharges") or {}).items()):
         if not dans_periode(jour):
             continue
         heures = W.duree_pause(surcharge)
@@ -1073,6 +1086,10 @@ def vue_json(res, prop, commits=True):
     sortie = []
     for j in jours:
         surcharge = (res.get("surcharges") or {}).get(j) or {}
+        # Ce que l'écran montre inclut la pause habituelle de la présence ; `surcharge`
+        # reste ce qui est VRAIMENT écrit dans l'état, pour que « retirer l'ajustement »
+        # ne prétende pas effacer un défaut qu'il ne possède pas.
+        vue = (res.get("surcharges_vues") or {}).get(j) or surcharge
         saisies = [s for s in res.get("saisies", []) if s["jour"] == j]
         sortie.append({
             "date": j,
@@ -1107,9 +1124,15 @@ def vue_json(res, prop, commits=True):
                                           or "Mathieu Moulin") if commits else []),
             "note": (res.get("notes").note(j) if res.get("notes") else None),
             "pause": {
-                "declaree_h": W.duree_pause(surcharge),
-                "debut": surcharge.get("pause_debut"),
-                "fin": surcharge.get("pause_fin"),
+                "declaree_h": W.duree_pause(vue),
+                "debut": vue.get("pause_debut"),
+                "fin": vue.get("pause_fin"),
+                # D'où vient cette pause : notée à la main sur la journée, ou héritée
+                # des horaires habituels de la présence.
+                "origine": ("presence" if (res.get("pauses_defaut") or {}).get(j)
+                            and not (surcharge.get("pause_debut") or surcharge.get("pause_fin")
+                                     or surcharge.get("pause_h"))
+                            else ("journee" if W.duree_pause(surcharge) else None)),
                 "trou": W.trou_de_midi(
                     [[a.strftime("%H:%M"), b.strftime("%H:%M")]
                      for a, b in res["periodes"].get(j, [])]),

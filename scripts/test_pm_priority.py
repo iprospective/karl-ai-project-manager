@@ -78,6 +78,19 @@ if _load:
     redmine_utils.load_reference = _load
 P.reset_cache()
 
+print("\n[RM3275] la DOC suit le code — le runtime a divergé une fois, plus jamais")
+# Trou constaté à la recette en prod : l'outillage acceptait `immediat` alors que
+# `norms/runtime/schema.md` — ce que les agents relisent APRÈS COMPACTION — listait
+# encore quatre valeurs. Un agent qui reprenait ne connaissait donc pas le cran livré,
+# et rien ne le disait : le runtime est généré à part, et son générateur exige un
+# fournisseur LLM qu'aucune instance ne sert (RM3135), donc il se tient à la main.
+# Ce test est le garde qui manquait.
+ROOT = HERE.parent
+for fichier in ("norms/runtime/schema.md", "norms/src/NORMS-KERNEL.md"):
+    texte = (ROOT / fichier).read_text(encoding="utf-8")
+    manquants = [l for l in P.labels() if f"`{l}`" not in texte]
+    check(f"{fichier} liste les {len(P.labels())} priorités", not manquants, str(manquants))
+
 print("\n[RM3275] la regex d'argument couvre les cinq")
 check("choices_re les liste toutes",
       P.choices_re() == "low|normal|high|urgent|immediat", P.choices_re())

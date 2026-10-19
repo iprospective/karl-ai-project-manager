@@ -1310,6 +1310,11 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
             continue
         projet = p.get("projet")
         reunion = float(p.get("reunion_h", 0) or 0)
+        # La réunion n'a pas lieu tous les jours de présence : chez MatNat, c'est le
+        # jeudi (19/10/2026). Sans cette liste, une présence jeudi+vendredi facturait
+        # deux réunions par semaine au lieu d'une.
+        reunion_jours = {JOURS_FR[j.lower()] for j in (p.get("reunion_jours") or [])
+                         if j.lower() in JOURS_FR}
         sauf = {str(x) for x in (p.get("sauf") or [])}
         # Une journée sort rarement du moule : réunion du matin seule, départ
         # anticipé, télétravail. `exceptions` surcharge la présence pour CE jour
@@ -1334,6 +1339,10 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
             surcharge = exceptions.get(cle, {})
             heures_jour = float(surcharge.get("heures", heures))
             reunion_jour = float(surcharge.get("reunion_h", reunion))
+            # Une exception de journée reste souveraine : elle dit explicitement ce
+            # qu'il en est ce jour-là, la liste des jours ne la contredit pas.
+            if reunion_jours and "reunion_h" not in surcharge and jour.weekday() not in reunion_jours:
+                reunion_jour = 0.0
             exclusif_jour = surcharge.get("exclusif", p.get("exclusif"))
             if concerne and cle not in sauf:
                 if exclusif_jour and par_heure_cible and h_debut is not None:

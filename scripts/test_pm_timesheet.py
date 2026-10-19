@@ -731,5 +731,37 @@ verifie(W.pauses_par_presence([{**_pres[0], "pause_debut": None, "pause_fin": No
         "une présence sans pause déclarée n'en fabrique pas")
 
 
+# ── La réunion n'a pas lieu tous les jours de présence (2026-10-19) ─────────
+print("\nLa réunion ne vaut que pour les jours où elle a lieu")
+_pres_r = [{"client": "matnat", "projet": "infra", "jours": ["jeudi", "vendredi"],
+            "depuis": "2026-09-24", "heures": 8, "reunion_h": 1,
+            "reunion_jours": ["jeudi"]}]
+_d0r, _d1r = datetime(2026, 10, 15), datetime(2026, 10, 17)   # jeudi → vendredi inclus
+_final_r = {}
+_ajouts_r, _ = W.appliquer_presences(_final_r, _pres_r, _d0r, _d1r, None, None, None)
+_par_jour = {}
+for (j, _cible, motif), v in _ajouts_r.items():
+    _par_jour.setdefault(j, {})
+    _par_jour[j][motif] = _par_jour[j].get(motif, 0) + v
+verifie("réunion" in _par_jour.get("2026-10-15", {}),
+        "le jeudi porte bien sa réunion")
+verifie("réunion" not in _par_jour.get("2026-10-16", {}),
+        "le vendredi n'en porte pas : une réunion par semaine, pas deux")
+verifie(round(sum(_par_jour["2026-10-15"].values())) == round(sum(_par_jour["2026-10-16"].values())),
+        "les deux journées font le même total : la réunion ventile, elle n'ajoute pas")
+
+# Sans la liste, le comportement d'avant ne bouge pas.
+_sans = [{k: v for k, v in _pres_r[0].items() if k != "reunion_jours"}]
+_a2, _ = W.appliquer_presences({}, _sans, _d0r, _d1r, None, None, None)
+verifie(any(m == "réunion" and j == "2026-10-16" for (j, _c, m) in _a2),
+        "sans `reunion_jours`, tous les jours de présence gardent leur réunion")
+
+# Une exception de journée reste souveraine.
+_exc = [{**_pres_r[0], "exceptions": {"2026-10-16": {"reunion_h": 2}}}]
+_a3, _ = W.appliquer_presences({}, _exc, _d0r, _d1r, None, None, None)
+verifie(any(m == "réunion" and j == "2026-10-16" for (j, _c, m) in _a3),
+        "une exception de journée rétablit la réunion malgré la liste")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

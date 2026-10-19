@@ -138,6 +138,20 @@ for nom, texte in (
 ):
     check(f"{nom} : détecté", S.scan(texte) != [], str(S.scan(texte)))
 
+print("\n[RM3476] un opérateur n'est pas une affectation, une citation n'est pas une fuite")
+for texte in ("const masquer = secret => secret.length;",
+              "if (password === saisie) ok();",
+              "api_key == attendu",
+              "Ce que le détecteur a vu : la chaîne `secret =>`, une fonction fléchée JavaScript.",
+              "le motif `secret=…` et `password: …` dans la doc",
+              "secret = `"):
+    check(f"ne déclenche plus : {texte[:50]!r}", S.scan(texte) == [], str(S.scan(texte)))
+for texte, attendu in (("password: hunter2", "password: <valeur>"),
+                       ("secret=s3cr3tvalue", "secret: <valeur>"),
+                       ("API_KEY = 0123456789abcdef", "api_key: <valeur>")):
+    check(f"déclenche toujours : {texte!r}", attendu in [h["label"] for h in S.scan(texte)],
+          str(S.scan(texte)))
+
 print("\n[RM3274] entrées dégénérées")
 for val in (None, "", 12345):
     check(f"{val!r} ne fait pas tomber le scan", S.scan(val if isinstance(val, str) else "") == [])

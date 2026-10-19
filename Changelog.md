@@ -13,6 +13,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **pm-secret-watch : `secret =>` n'est plus un secret (RM3476).** Les motifs mot-clé du scanner
+  (`secret:`, `password=`, `api_key:`…) acceptaient le `=` de `=>` (fonction fléchée JS) et de
+  `==`/`===` (comparaison) : afficher `tools/browser-check/test_scenario.js` a ouvert un ticket de
+  rotation critique (RM3473), puis la restitution qui l'expliquait en a ouvert un second (RM3477) —
+  la chaîne se relançait à chaque citation du faux positif. Désormais `=` n'est une affectation que
+  s'il n'est suivi ni de `>` ni de `=`, et une « valeur » sans aucun caractère alphanumérique
+  (`` ` ``, `…`, `,`) est tenue pour de la ponctuation. Tests : les six formes de code et de
+  citation ne déclenchent plus, `password: hunter2` / `secret=…` / `API_KEY = …` toujours.
+
 - **Wiki : le titre d'un aspect n'apparaît plus deux fois (RM3474).** Le gabarit de `pm-task-doc`
   écrit le titre à la fois en `title:` (frontmatter) et en `# <même titre>` en tête du corps, et
   `pm-wiki-sync` réinjectait le H1 par-dessus : la page publiée portait deux titres de niveau 1

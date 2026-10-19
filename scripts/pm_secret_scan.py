@@ -47,10 +47,12 @@ _RX_BASE64 = re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b")
 
 _SECRET_PATTERNS = [
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "clé privée PEM"),
-    (re.compile(r"(?i)\bpassword\s*[:=]\s*\S+"), "password: <valeur>"),
-    (re.compile(r"(?i)\bpasswd\s*[:=]\s*\S+"), "passwd: <valeur>"),
-    (re.compile(r"(?i)\bsecret\s*[:=]\s*\S+"), "secret: <valeur>"),
-    (re.compile(r"(?i)\bapi[_-]?key\s*[:=]\s*\S+"), "api_key: <valeur>"),
+    # RM3476 : `=` non suivi de `>` ni `=` — `secret => x` (fonction fléchée JS), `password === x`
+    # (comparaison) ne sont pas des affectations ; le `=` de `=>`/`==` ouvrait un ticket.
+    (re.compile(r"(?i)\bpassword\s*(?::|=(?![>=]))\s*\S+"), "password: <valeur>"),
+    (re.compile(r"(?i)\bpasswd\s*(?::|=(?![>=]))\s*\S+"), "passwd: <valeur>"),
+    (re.compile(r"(?i)\bsecret\s*(?::|=(?![>=]))\s*\S+"), "secret: <valeur>"),
+    (re.compile(r"(?i)\bapi[_-]?key\s*(?::|=(?![>=]))\s*\S+"), "api_key: <valeur>"),
     # Jetons de forge, ancrés sur leur préfixe (RM2826). Le motif base64 ne les
     # voit pas : `_` et `-` cassent la classe de caractères, si bien que `\b…{32,}`
     # n'y trouve jamais 32 caractères contigus.
@@ -168,10 +170,16 @@ _RX_SECRET_INSTANCE = re.compile(r"(?i)^secret\s*:\s*[a-z][a-z_-]*$|^secret:\S")
 _RX_PROSE = re.compile(r"^\w+\s+:")
 
 
+# RM3476 : une « valeur » sans aucun caractère alphanumérique (`>`, `` ` ``, `…`, `,`) est un
+# opérateur ou de la ponctuation — typiquement la citation d'un faux positif dans une
+# restitution ou un ticket, qui relançait le garde en chaîne (RM3473 → RM3477).
+_RX_ALNUM = re.compile(r"[A-Za-z0-9]")
+
+
 def _valeur_factice(match):
     valeur = re.split(r"[:=]\s*", match, maxsplit=1)[-1]
     return bool(_RX_VALEUR_FACTICE.match(valeur) or _RX_SECRET_INSTANCE.match(match)
-                or _RX_PROSE.match(match))
+                or _RX_PROSE.match(match) or not _RX_ALNUM.search(valeur))
 
 
 def fingerprint(value):

@@ -717,6 +717,32 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     assert.strictEqual(svc.mois["2026-06"], undefined,
                        "après écriture, le mois est relu — jamais gardé périmé");
 
+    // Scinder, retirer, ajouter.
+    await svc.scinderLigne("calicote/dolibarr#1855@13", 10);
+    const sp = appels.find(([n, a]) => n === "timesheet-line-adjust" && a.split);
+    assert(sp && sp[1].split === 10, "scinder envoie les minutes gardées par la première");
+    await svc.supprimerLigne("pisceen/dolibarr#-@13");
+    const del = appels.find(([n, a]) => n === "timesheet-line-adjust" && a.delete_ligne);
+    assert(del, "retirer vise la ligne par sa clé");
+
+    svc.editerAjout(true);
+    svc.setAjoutChamp("client", "pisceen"); svc.setAjoutChamp("minutes", "45");
+    svc.setAjoutChamp("commentaire", "appel client");
+    await svc.ajouterLigne();
+    const add = appels.find(([n]) => n === "timesheet-line-add");
+    assert(add && add[1].set_client === "pisceen" && add[1].set_minutes === 45
+           && add[1].commentaire === "appel client",
+           "ajouter porte client, durée et commentaire");
+    assert.strictEqual(svc.ajout, null, "le formulaire se referme après l'ajout");
+
+    svc.editerAjout(true); svc.setAjoutChamp("client", "");
+    await assert.rejects(() => svc.ajouterLigne(), /client/,
+                         "ajouter sans client est refusé AVANT l'appel");
+    svc.setAjoutChamp("client", "pisceen"); svc.setAjoutChamp("minutes", "0");
+    await assert.rejects(() => svc.ajouterLigne(), /durée/,
+                         "ajouter sans durée est refusé AVANT l'appel");
+    svc.editerAjout(false);
+
     await svc.retablirLigne("pisceen/dolibarr#-@13");
     const clr = appels.find(([n, a]) => n === "timesheet-line-adjust" && a.clear_ligne);
     assert(clr, "rétablir retire la correction");

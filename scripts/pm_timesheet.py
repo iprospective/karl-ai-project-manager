@@ -2271,6 +2271,63 @@ def heures_travaillees(debut, fin, pause_h=None):
     return max(round(amplitude - pause_h, 2), 0.0)
 
 
+def jours_de_presence(p, debut, fin):
+    """Les dates qu'une présence couvre sur la période demandée.
+
+    Mêmes règles que le plancher de régie : les jours de la semaine déclarés, les
+    dates explicites, la fenêtre `depuis`/`jusqu_a` (inclusive), et les `sauf`.
+    """
+    jours = {JOURS_FR[j.lower()] for j in (p.get("jours") or []) if j.lower() in JOURS_FR}
+    dates = {str(x) for x in (p.get("dates") or [])}
+    sauf = {str(x) for x in (p.get("sauf") or [])}
+    d0 = date.fromisoformat(str(p["depuis"])) if p.get("depuis") else debut
+    d1 = date.fromisoformat(str(p["jusqu_a"])) if p.get("jusqu_a") else fin
+    out = []
+    jour = max(debut, d0)
+    while jour <= min(fin, d1):
+        cle = jour.isoformat()
+        if (cle in dates or (jours and jour.weekday() in jours)) and cle not in sauf:
+            out.append(cle)
+        jour += timedelta(days=1)
+    return out
+
+
+def pauses_par_presence(presences, debut, fin, surcharges=None):
+    """La pause HABITUELLE d'une journée de présence — « chez matnat, 12h30-13h30 ».
+
+    Une présence régulière a des horaires réguliers : redemander la pause à chaque
+    journée sur site revient à faire saisir trente fois la même chose. Elle est donc
+    déclarée une fois, sur la présence, et proposée sur toutes ses journées.
+
+    Ce n'est qu'un DÉFAUT : une pause posée à la main sur une journée l'emporte
+    toujours, et une journée particulière (`exceptions`) peut la redéfinir ou
+    l'annuler (`pause: false`). Rien n'est écrit dans l'état — le défaut se
+    recalcule, il ne se fige pas.
+    """
+    out = {}
+    for p in presences or []:
+        base = {k: p.get(k) for k in ("pause_debut", "pause_fin", "pause_h")
+                if p.get(k) is not None}
+        exceptions = {str(k): (v or {}) for k, v in (p.get("exceptions") or {}).items()}
+        if not base and not any(
+                k in e for e in exceptions.values()
+                for k in ("pause_debut", "pause_fin", "pause_h", "pause")):
+            continue
+        for jour in jours_de_presence(p, debut, fin):
+            sur = (surcharges or {}).get(jour) or {}
+            # Une pause notée à la main sur la journée fait foi : on ne la recouvre pas.
+            if sur.get("pause_debut") or sur.get("pause_fin") or sur.get("pause_h"):
+                continue
+            ex = exceptions.get(jour, {})
+            if ex.get("pause") is False:
+                continue
+            valeur = {**base, **{k: v for k, v in ex.items()
+                                 if k in ("pause_debut", "pause_fin", "pause_h")}}
+            if valeur:
+                out[jour] = {**valeur, "origine": "presence", "client": p.get("client")}
+    return out
+
+
 def presences_effectives(presences, surcharges):
     """Les présences déclarées, plus les journées ajustées une à une.
 

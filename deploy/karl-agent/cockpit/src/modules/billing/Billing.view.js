@@ -86,6 +86,7 @@ export function Ajustement(vm) {
     ${vm.ajuste ? html`<button class="mini" data-action="clear" title="Revenir à ce que les traces disent">↺ ajustement</button>` : ""}
     <span class="bl-src">${vm.ajuste ? "heures ajustées à la main" : h.debut ? "heures déduites des traces" : ""}</span>
     <span class="bl-pz${vm.pause.manquante ? " bl-manque" : ""}">${vm.pause.texte}</span>
+    ${vm.pause.heritee ? html`<span class="bl-pz-her" title="Pause habituelle de vos journées sur site, déclarée sur la présence. La poser à la main sur cette journée l'emporte.">habituelle</span>` : ""}
     ${vm.pause.trou && !vm.pause.posee ? html`<button class="mini" data-action="pause-trou" data-debut="${vm.pause.trou.debut}" data-fin="${vm.pause.trou.fin}" title="Reprendre ce trou comme bornes de pause">↧ reprendre le trou</button>` : ""}
     ${vm.hors ? html`<div class="bl-hors">${vm.hors}</div>` : ""}
   </div>`;

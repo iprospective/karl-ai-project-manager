@@ -10436,6 +10436,33 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--set-activite", "max_len": 8},
          {"name": "clear_ligne", "label": "Retirer la correction", "type": "bool",
           "flag": "--clear-ligne"},
+         {"name": "set_minutes", "label": "Durée (minutes)", "type": "int",
+          "flag": "--set-minutes", "min": 0, "max": 1440},
+         {"name": "split", "label": "Scinder : minutes gardées par la 1re", "type": "int",
+          "flag": "--split", "min": 1, "max": 1439},
+         {"name": "delete_ligne", "label": "Retirer la ligne", "type": "bool",
+          "flag": "--delete-ligne"},
+         {"name": "commentaire", "label": "Commentaire", "type": "text",
+          "flag": "--commentaire", "max_len": 200},
+     ]},
+    # Ajouter une ligne que le calcul n'a pas vue : un appel, un déplacement, une
+    # réunion sans trace. Elle CRÉE du temps, donc elle dit tout d'elle-même.
+    {"name": "timesheet-line-add", "label": "Ajouter une ligne à la main",
+     "category": "facturation", "script": "pm-timesheet.py", "mutate": True, "args": [
+         {"name": "day", "label": "Journée", "type": "date", "required": True, "flag": "--day"},
+         {"name": "add_ligne", "const": True, "flag": "--add-ligne"},
+         {"name": "set_client", "label": "Client", "type": "text", "required": True,
+          "flag": "--set-client", "max_len": 48},
+         {"name": "set_projet", "label": "Projet PM", "type": "text", "flag": "--set-projet",
+          "max_len": 64},
+         {"name": "set_ticket", "label": "Ticket", "type": "text", "flag": "--set-ticket",
+          "max_len": 8},
+         {"name": "set_activite", "label": "Activité", "type": "text",
+          "flag": "--set-activite", "max_len": 8},
+         {"name": "set_minutes", "label": "Durée (minutes)", "type": "int", "required": True,
+          "flag": "--set-minutes", "min": 1, "max": 1440},
+         {"name": "commentaire", "label": "Commentaire", "type": "text",
+          "flag": "--commentaire", "max_len": 200},
      ]},
     # Écrire UNE ligne dans Redmine. Même geste que la validation d'une journée, à la
     # maille de la ligne : `--apply` reste imposé par le catalogue, jamais par le client.

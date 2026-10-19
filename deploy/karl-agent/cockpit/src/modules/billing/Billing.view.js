@@ -93,9 +93,31 @@ export function Ajustement(vm) {
 }
 
 /** La proposition, par client puis par projet/ticket : ce qui sera écrit, ligne à ligne. */
+/** Ajouter une ligne que le calcul n'a pas vue : un appel, un déplacement, une réunion. */
+function AjoutLigne(vm) {
+  const a = vm.ajout;
+  if (!a) return html`<div class="bl-ajout-b"><button class="mini" data-action="ajout-open" title="Ajouter une ligne que le calcul n'a pas vue — elle crée du temps">+ ajouter une ligne</button></div>`;
+  return html`<div class="bl-l-edit bl-ajout">
+    <label>client <select data-action="ajout-champ" data-champ="client" ${a.busy ? raw("disabled") : raw("")}>
+      <option value="">— choisir —</option>
+      ${a.clients.map(c => html`<option value="${c}"${c === a.client ? raw(" selected") : raw("")}>${c}</option>`)}
+    </select></label>
+    <label>projet <select data-action="ajout-champ" data-champ="projet" ${a.busy || !a.client ? raw("disabled") : raw("")}>
+      <option value="">— aucun —</option>
+      ${a.projets.map(x => html`<option value="${x}"${x === a.projet ? raw(" selected") : raw("")}>${x}</option>`)}
+    </select></label>
+    <label>ticket <input type="text" inputmode="numeric" placeholder="numéro" data-action="ajout-champ" data-champ="ticket" value="${a.ticket}" ${a.busy ? raw("disabled") : raw("")}></label>
+    <label>durée <input type="text" inputmode="numeric" placeholder="minutes" data-action="ajout-champ" data-champ="minutes" value="${String(a.minutes)}" ${a.busy ? raw("disabled") : raw("")}></label>
+    <label>commentaire <input type="text" placeholder="ce que recouvre ce temps" data-action="ajout-champ" data-champ="commentaire" value="${a.commentaire}" ${a.busy ? raw("disabled") : raw("")}></label>
+    <button class="btn mini" data-action="ajout-save" ${a.busy ? raw("disabled") : raw("")}>ajouter</button>
+    <button class="mini" data-action="ajout-cancel">annuler</button>
+    <div class="bl-dim">cette ligne CRÉE du temps : elle s'ajoute au total proposé.</div>
+  </div>`;
+}
+
 export function Proposition(vm) {
-  if (!vm.groupes.length) return html`<div class="bl-empty">rien à ajouter — ${vm.t.deja ? "tout est déjà noté à la main" : "aucune trace exploitable ce jour-là"}</div>`;
-  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b${g.facturable ? raw("") : raw(' class="bl-nf"')}>${g.client}</b>${g.facturable ? "" : html`<span class="bl-nf-tag" title="Entité de type « self » : ce temps est noté, jamais facturé">non facturé</span>`}<span>${g.total}</span></div>${g.lignes.map(l => LigneProposee(l, vm))}</div>`)}</div>`;
+  if (!vm.groupes.length) return html`<div class="bl-empty">rien à ajouter — ${vm.t.deja ? "tout est déjà noté à la main" : "aucune trace exploitable ce jour-là"}${AjoutLigne(vm)}</div>`;
+  return html`<div class="bl-prop">${vm.groupes.map(g => html`<div class="bl-grp"><div class="bl-grp-h"><b${g.facturable ? raw("") : raw(' class="bl-nf"')}>${g.client}</b>${g.facturable ? "" : html`<span class="bl-nf-tag" title="Entité de type « self » : ce temps est noté, jamais facturé">non facturé</span>`}<span>${g.total}</span></div>${g.lignes.map(l => LigneProposee(l, vm))}</div>`)}${AjoutLigne(vm)}</div>`;
 }
 
 /**
@@ -108,12 +130,15 @@ const LigneProposee = (l, vm) => html`<div class="bl-line${l.amendee ? " bl-l-am
   ${l.rm ? html`<a class="bl-rm" data-action="ticket" data-rm="${String(l.rm)}" href="#">${l.ticket}</a>` : html`<span class="bl-rm bl-none">sans ticket</span>`}
   <span class="bl-min">${l.minutes}</span>
   ${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}
+  ${l.manuelle ? html`<span class="bl-l-man" title="Ligne ajoutée à la main : le calcul ne l'avait pas vue">à la main</span>` : ""}
   ${l.amendee ? html`<span class="bl-l-org" title="Rattachement calculé, que vous avez corrigé">← ${l.origine}</span>` : ""}
   ${l.description ? html`<span class="bl-l-desc" title="Commentaire inséré dans Redmine à la validation${l.marque ? ` — suivi de la marque ${l.marque}, qui empêche de créer deux fois la même saisie` : ""}">« ${l.description} »</span>` : ""}
   ${l.abandonne ? html`<span class="bl-l-ab" title="Redmine range une saisie dans le projet de son ticket : garder ce ticket aurait ramené le temps à son projet d'origine. La ligne part donc au projet.">ticket ${l.abandonne} lâché</span>` : ""}
   ${l.cle ? html`<span class="bl-l-act">
     <button class="mini" data-action="ligne-edit" data-cle="${l.cle}" title="Corriger le rattachement de cette ligne">corriger</button>
     ${l.amendee ? html`<button class="mini" data-action="ligne-clear" data-cle="${l.cle}" title="Revenir au rattachement calculé">rétablir</button>` : ""}
+    <button class="mini" data-action="ligne-split" data-cle="${l.cle}" title="Couper cette ligne en deux : le total ne change pas">scinder</button>
+    <button class="mini" data-action="ligne-delete" data-cle="${l.cle}" title="Retirer cette ligne de la proposition — ce temps ne sera facturé à personne">retirer</button>
     <button class="mini" data-action="ligne-apply" data-cle="${l.cle}" title="Écrire CETTE ligne dans Redmine, seule">écrire</button>
   </span>` : ""}
 </div>${l.edition ? EditionLigne(vm) : ""}`;

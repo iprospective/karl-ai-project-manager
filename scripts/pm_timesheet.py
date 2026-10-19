@@ -1827,7 +1827,7 @@ def _poser_cles(lignes):
     return lignes
 
 
-def amender_lignes(lignes, surcharges):
+def amender_lignes(lignes, surcharges, regles=None):
     """Applique les rattachements corrigés à la main. Les minutes ne bougent JAMAIS.
 
     Changer le client d'une ligne déplace de l'argent d'un client à l'autre : c'est
@@ -1842,14 +1842,31 @@ def amender_lignes(lignes, surcharges):
     for l in lignes:
         index.setdefault((l.get("jour"), l.get("cle")), l)
     orphelins = []
+    a_retirer = []
     for jour, sur in (surcharges or {}).items():
         for cle, chg in ((sur or {}).get("lignes") or {}).items():
             cible = index.get((jour, cle))
             if cible is None:
                 orphelins.append((jour, cle))
                 continue
-            cible["origine"] = {k: cible.get(k) for k in ("client", "projet", "ticket",
-                                                          "activite")}
+            # Une ligne supprimée à la main s'en va : son temps n'est facturé à
+            # personne. C'est le seul amendement qui RETIRE du temps, il est donc
+            # explicite et réversible (`--clear-ligne` la ramène).
+            if (chg or {}).get("supprimee"):
+                a_retirer.append(cible)
+                continue
+            # L'origine est figée AVANT toute réécriture, et une seule fois : elle
+            # dit d'où vient la ligne, pas par quelles mains elle est passée.
+            cible.setdefault("origine", {k: cible.get(k) for k in
+                                         ("client", "projet", "ticket", "activite", "minutes")})
+            if "minutes" in (chg or {}):
+                try:
+                    m = int(chg["minutes"])
+                except (TypeError, ValueError):
+                    m = None
+                if m is not None and m >= 0:
+                    cible["minutes"] = m
+                    cible["amendee"] = True
             for champ in ("client", "projet", "ticket", "activite"):
                 if champ in (chg or {}):
                     v = chg[champ]
@@ -1865,6 +1882,33 @@ def amender_lignes(lignes, surcharges):
                 cible["ticket"] = None
                 cible["ticket_abandonne"] = cible["origine"].get("ticket")
             cible["amendee"] = True
+    for l in a_retirer:
+        if l in lignes:
+            lignes.remove(l)
+    # Les lignes ajoutées à la main viennent APRÈS : elles ne se corrigent pas
+    # elles-mêmes, elles SONT la correction.
+    for jour, sur in sorted((surcharges or {}).items()):
+        for n, brut in enumerate((sur or {}).get("lignes_manuelles") or [], 1):
+            if not brut:
+                continue
+            try:
+                minutes = int(brut.get("minutes") or 0)
+            except (TypeError, ValueError):
+                continue
+            if minutes <= 0:
+                continue
+            ticket = brut.get("ticket")
+            lignes.append({
+                "jour": jour, "client": brut.get("client"), "projet": brut.get("projet"),
+                "ticket": int(ticket) if ticket and str(ticket).isdigit() else None,
+                "minutes": minutes,
+                "activite": brut.get("activite"),
+                "commentaire": brut.get("commentaire") or None,
+                "outillage_min": None, "valide": True,
+                "cle": brut.get("cle") or f"man{n}",
+                "manuelle": True,
+                "facturable": _facturable(regles, brut.get("client")) if regles else None,
+            })
     return orphelins
 
 

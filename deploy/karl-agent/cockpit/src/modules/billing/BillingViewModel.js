@@ -9,8 +9,8 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
-                ligne, ligneEdit }) {
-    this.ligne = ligne || null; this.le = ligneEdit || null;
+                ligne, ligneEdit, ajout }) {
+    this.ligne = ligne || null; this.le = ligneEdit || null; this.aj = ajout || null;
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
     this.p = clientsEtProjets(projets || []);
@@ -201,6 +201,8 @@ export class BillingViewModel {
         // projet de son ticket, le garder ramènerait le temps d'où il vient.
         abandonne: l.ticket_abandonne ? `RM${l.ticket_abandonne}` : "",
         edition: this.ligne === l.cle,
+        manuelle: !!l.manuelle,
+        minutesBrutes: l.minutes,
       })),
     }));
   }
@@ -214,6 +216,17 @@ export class BillingViewModel {
              clients: this.p.clients,
              projets: e.client ? this.p.projets(e.client) : [],
              busy: this.busy === "ligne" || this.busy === "ligne-apply" };
+  }
+
+  /** Le formulaire d'ajout d'une ligne, s'il est ouvert. */
+  get ajout() {
+    if (!this.aj) return null;
+    const a = this.aj;
+    return { client: a.client || "", projet: a.projet || "", ticket: a.ticket || "",
+             minutes: a.minutes || "", commentaire: a.commentaire || "",
+             clients: this.p.clients,
+             projets: a.client ? this.p.projets(a.client) : [],
+             busy: this.busy === "ligne" };
   }
 
   get dejaSaisi() {

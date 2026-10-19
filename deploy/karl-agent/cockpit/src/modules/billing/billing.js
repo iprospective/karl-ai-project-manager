@@ -361,6 +361,9 @@ export function pause(jour) {
   const trou = posee || ((p && p.trou) || null);
   return {
     declaree, trou, posee,
+    // D'où vient cette pause : notée sur la journée, ou héritée des horaires
+    // habituels de la présence. Sans le dire, elle paraîtrait sortie de nulle part.
+    heritee: !!p && p.origine === "presence",
     debut: posee ? posee.debut : "", fin: posee ? posee.fin : "",
     visible: !!trou,
     // Sans bloc `pause` du serveur, on ne SAIT pas : une journée d'avant cette

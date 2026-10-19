@@ -204,3 +204,10 @@
 .bl-l-edit label { display: flex; gap: 4px; align-items: center; font-size: .9em; }
 .bl-l-edit input { width: 10em; }
 .bl-l-edit .bl-dim { flex-basis: 100%; font-size: .82em; }
+
+// La pause héritée des horaires habituels : signalée, pour qu'elle ne paraisse pas
+// surgie de nulle part.
+.bl-pz-her {
+  font-size: .78em; padding: 1px 5px; border-radius: 3px;
+  color: var(--fg-dim); border: 1px solid var(--border, rgba(127, 127, 127, .35));
+}

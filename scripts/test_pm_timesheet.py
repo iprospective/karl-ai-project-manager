@@ -687,5 +687,49 @@ verifie(_orph2 == [("2026-06-07", "parti/ailleurs#9@1")],
 verifie(all(not x.get("amendee") for x in _l4), "et elle ne touche aucune autre ligne")
 
 
+# ── La pause habituelle d'une présence (RM3229, 2026-10-19) ─────────────────
+print("\nLa pause habituelle d'une journée de présence")
+_pres = [{"client": "matnat", "projet": "infra", "jours": ["jeudi", "vendredi"],
+          "depuis": "2026-09-24", "pause_debut": "12:30", "pause_fin": "13:30",
+          "heures": 8}]
+_d0, _d1 = date(2026, 10, 12), date(2026, 10, 18)   # lundi → dimanche
+_pz = W.pauses_par_presence(_pres, _d0, _d1)
+verifie(sorted(_pz) == ["2026-10-15", "2026-10-16"],
+        "la pause ne vise que les jours de présence déclarés")
+verifie(_pz["2026-10-15"]["pause_debut"] == "12:30" and _pz["2026-10-15"]["pause_fin"] == "13:30",
+        "elle porte les bornes déclarées sur la présence")
+verifie(W.duree_pause(_pz["2026-10-15"]) == 1.0, "une heure, lue depuis les bornes")
+verifie(_pz["2026-10-15"]["origine"] == "presence", "son origine est dite : c'est un défaut")
+
+# Une pause notée à la main l'emporte toujours.
+_pz2 = W.pauses_par_presence(_pres, _d0, _d1,
+                             {"2026-10-15": {"pause_debut": "13:00", "pause_fin": "13:30"}})
+verifie("2026-10-15" not in _pz2, "une pause notée à la main n'est jamais recouverte")
+verifie("2026-10-16" in _pz2, "mais les autres journées gardent leur défaut")
+
+# Une journée particulière peut la redéfinir ou l'annuler.
+_pres2 = [{**_pres[0], "exceptions": {"2026-10-15": {"pause": False},
+                                      "2026-10-16": {"pause_debut": "12:00",
+                                                     "pause_fin": "12:45"}}}]
+_pz3 = W.pauses_par_presence(_pres2, _d0, _d1)
+verifie("2026-10-15" not in _pz3, "une exception peut annuler la pause d'un jour")
+verifie(_pz3["2026-10-16"]["pause_fin"] == "12:45", "une exception peut la redéfinir")
+
+# Hors de la fenêtre de la présence, rien.
+verifie(W.pauses_par_presence(_pres, date(2026, 9, 1), date(2026, 9, 7)) == {},
+        "avant le début de la présence, aucune pause n'est proposée")
+_bornee = [{**_pres[0], "jusqu_a": "2026-10-15"}]
+verifie(sorted(W.pauses_par_presence(_bornee, _d0, _d1)) == ["2026-10-15"],
+        "`jusqu_a` est inclusif, et ferme bien la série")
+_sauf = [{**_pres[0], "sauf": ["2026-10-15"]}]
+verifie(sorted(W.pauses_par_presence(_sauf, _d0, _d1)) == ["2026-10-16"],
+        "un jour mis de côté n'a pas de pause")
+
+# Sans pause déclarée sur la présence, rien n'est inventé.
+verifie(W.pauses_par_presence([{**_pres[0], "pause_debut": None, "pause_fin": None}],
+                              _d0, _d1) == {},
+        "une présence sans pause déclarée n'en fabrique pas")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

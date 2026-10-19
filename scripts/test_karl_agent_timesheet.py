@@ -250,6 +250,25 @@ except ka.ApiError as _e:
     _refuse = "confirmation" in str(_e)
 check("écrire une ligne sans confirmation est refusé", _refuse)
 
+# — scinder, retirer, ajouter (RM3229, 2026-10-20) —
+ka.op_pm_run({"name": "timesheet-line-adjust",
+              "args": {"day": "2026-08-26", "ligne": "matnat/infra#-@9", "split": 300}})
+check("scinder porte la coupure et la ligne visée",
+      "--split" in argv and "300" in argv and "matnat/infra#-@9" in argv)
+check("scinder n'écrit rien dans Redmine", "--apply" not in argv)
+
+ka.op_pm_run({"name": "timesheet-line-adjust",
+              "args": {"day": "2026-08-26", "ligne": "matnat/infra#-@9", "delete_ligne": True}})
+check("retirer une ligne passe par son drapeau", "--delete-ligne" in argv)
+
+ka.op_pm_run({"name": "timesheet-line-add",
+              "args": {"day": "2026-08-26", "set_client": "pisceen", "set_minutes": 45,
+                       "commentaire": "appel client"}})
+check("ajouter une ligne impose --add-ligne et porte ses champs",
+      "--add-ligne" in argv and "--set-client" in argv and "pisceen" in argv
+      and "45" in argv and "appel client" in argv)
+check("ajouter une ligne n'écrit rien dans Redmine", "--apply" not in argv)
+
 # — l'écran et le catalogue parlent la même langue (RM3229, 2026-10-14) —
 #
 # « args inconnus pour timesheet-day-adjust : ['pause_debut', 'pause_fin'] » : les

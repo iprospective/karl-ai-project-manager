@@ -217,3 +217,11 @@
   font-size: .85em; color: var(--fg-dim); font-style: italic;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
 }
+
+// Ajouter une ligne, et signaler celles qui viennent de la main plutôt du calcul.
+.bl-ajout-b { padding: 6px 0 2px; }
+.bl-ajout input { width: 11em; }
+.bl-l-man {
+  font-size: .78em; padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+  color: var(--fg-dim); border: 1px dashed var(--border, rgba(127, 127, 127, .45));
+}

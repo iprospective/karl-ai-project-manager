@@ -147,26 +147,67 @@ _CACHE_PROJET_REDMINE = {}
 
 
 def _marque_heritee(marque, deja):
-    """Retrouve une saisie posée AVANT que les lignes sans ticket portent leur activité.
+    """Retrouve une saisie posée sous une FORME ANCIENNE de la marque.
 
-    Sans cela, `[timesheet:…/-@13]` ne reconnaîtrait pas `[timesheet:…/-]` déjà
-    en base et la recréerait : un doublon de facturation, le défaut le plus grave
-    que puisse avoir cet outil.
+    La marque s'est précisée deux fois : l'activité d'abord, puis le projet et le
+    rang (2026-10-20). Sans ces replis, `[timesheet:…/-@13/infra]` ne reconnaîtrait
+    pas `[timesheet:…/-@13]` déjà en base et la recréerait : un doublon de
+    facturation, le défaut le plus grave que puisse avoir cet outil.
+
+    Les formes sont essayées de la plus précise à la plus ancienne.
     """
-    if "@" not in marque:
-        return None
-    ancienne = marque.split("@")[0] + "]"
-    return ancienne if ancienne in deja else None
+    corps = marque[:-1] if marque.endswith("]") else marque
+    formes = []
+    sans_rang = corps.split("+")[0] if "+" in corps.split("#")[-1] else corps
+    if sans_rang != corps:
+        formes.append(sans_rang)
+    base = sans_rang
+    if "@" in base:
+        tete, reste = base.split("@", 1)
+        if "/" in reste:                       # @<activité>/<projet> → @<activité>
+            formes.append(f"{tete}@{reste.split('/', 1)[0]}")
+        formes.append(tete)                    # → sans activité du tout
+    for f in formes:
+        if f + "]" in deja:
+            return f + "]"
+    return None
 
 
 def _marque(ligne):
-    """Clé de déduplication d'une ligne. Une ligne sans ticket porte son activité :
-    plusieurs natures de travail cohabitent le même jour sur le même projet."""
+    """Clé de déduplication d'une ligne.
+
+    Une ligne sans ticket porte son activité ET son projet : deux projets d'un même
+    client, le même jour, avec la même activité, partageaient sinon une marque — et
+    la seconde n'était jamais écrite, prise pour un doublon de la première (constaté
+    le 2026-10-20 : 4 cas sur le seul mois de septembre, dont `calicote/infra` et
+    `calicote/prestashop` le 01/09).
+
+    Le `rang` distingue ce qui reste indiscernable : deux morceaux d'une même ligne
+    scindée. Il vient de l'ordre des CLÉS, stable d'un recalcul à l'autre.
+    """
     base = (f"[timesheet:{ligne['jour']}#{ligne.get('client') or '-'}"
             f"/{ligne.get('ticket') or '-'}")
-    if not ligne.get("ticket") and ligne.get("activite"):
-        base += f"@{ligne['activite']}"
+    if not ligne.get("ticket"):
+        if ligne.get("activite"):
+            base += f"@{ligne['activite']}"
+        if ligne.get("projet"):
+            base += f"/{ligne['projet']}"
+    if ligne.get("rang"):
+        base += f"+{ligne['rang']}"
     return base + "]"
+
+
+def _poser_rangs(lignes):
+    """Numérote les lignes qui partageraient une marque, dans l'ordre stable des clés."""
+    groupes = {}
+    for l in sorted(lignes, key=lambda x: str(x.get("cle") or "")):
+        l.pop("rang", None)
+        m = _marque(l)
+        n = groupes.get(m, 0)
+        groupes[m] = n + 1
+        if n:
+            l["rang"] = n
+    return lignes
 
 
 def _libelle(ligne, marque):
@@ -178,6 +219,10 @@ def _libelle(ligne, marque):
     """
     if ligne.get("pause"):
         return f"{ligne.get('commentaire') or 'repas midi'} {marque}"[:255]
+    # Un commentaire écrit à la main fait foi : c'est tout l'intérêt d'ajouter une
+    # ligne soi-même que de pouvoir dire ce qu'elle recouvre.
+    if ligne.get("commentaire"):
+        return f"{ligne['commentaire']} {marque}"[:255]
     part = ligne.get("outillage_min") or 0
     if ligne.get("ticket"):
         base = "Travail assisté" + (f", dont {part} min d'outillage" if part >= 5 else "")
@@ -437,10 +482,13 @@ def ecrire_sorties(res, dossier, libelle):
     # La pause est ajoutée après coup : sans ce rappel elle n'aurait pas de clé, donc
     # ni bouton « corriger » ni bouton « écrire ». Reposer les clés est idempotent.
     W._poser_cles(prop["lignes"])
-    orphelins = W.amender_lignes(prop["lignes"], res.get("surcharges") or {})
+    orphelins = W.amender_lignes(prop["lignes"], res.get("surcharges") or {},
+                                 res.get("regles"))
+    W._poser_cles(prop["lignes"])
     # Le commentaire qui partira dans Redmine, calculé APRÈS les corrections : il
     # dépend du projet et du ticket, qu'on vient peut-être de changer. L'écran le
     # montre — on ne valide pas à l'aveugle un texte que le client lira.
+    _poser_rangs(prop["lignes"])
     for _l in prop["lignes"]:
         _l["description"] = _libelle(_l, _marque(_l))
     if orphelins:
@@ -793,6 +841,18 @@ def main():
                     help="avec --ligne : changer l'activité Redmine de cette ligne")
     ap.add_argument("--clear-ligne", dest="clear_ligne", action="store_true",
                     help="avec --ligne : retirer la correction, la ligne redevient ce que le calcul dit")
+    ap.add_argument("--set-minutes", dest="set_minutes", type=int,
+                    help="avec --ligne : forcer la durée de cette ligne, en minutes")
+    ap.add_argument("--split", dest="split", type=int,
+                    help="avec --ligne : scinder en deux — cette ligne garde N minutes, "
+                         "une seconde reçoit le reste")
+    ap.add_argument("--delete-ligne", dest="delete_ligne", action="store_true",
+                    help="avec --ligne : retirer cette ligne de la proposition")
+    ap.add_argument("--add-ligne", dest="add_ligne", action="store_true",
+                    help="avec --day : ajouter une ligne à la main (--set-client/--set-projet/"
+                         "--set-ticket/--set-activite/--set-minutes/--commentaire)")
+    ap.add_argument("--commentaire", dest="commentaire",
+                    help="avec --add-ligne : commentaire de la saisie Redmine")
     ap.add_argument("--heures", type=float,
                     help="avec --day : heures de travail de la journée, quand elles ne se "
                          "déduisent pas de début/fin (demi-journée sur site, par exemple)")
@@ -835,10 +895,11 @@ def main():
     ajuste = any(v is not None for v in (args.start, args.end, args.client, args.projet,
                                          args.pause, args.lieu, args.heures,
                                          args.pause_debut, args.pause_fin)) \
-        or args.exclusif or args.clear_override or args.validate_empty \
-        or (args.ligne and (args.clear_ligne or any(
-            v is not None for v in (args.set_client, args.set_projet,
-                                    args.set_ticket, args.set_activite))))
+        or args.exclusif or args.clear_override or args.validate_empty or args.add_ligne \
+        or (args.ligne and (args.clear_ligne or args.delete_ligne
+                            or args.split is not None or args.set_minutes is not None
+                            or any(v is not None for v in (args.set_client, args.set_projet,
+                                                           args.set_ticket, args.set_activite))))
     if ajuste and not args.day:
         ap.error("--start/--end/--client/--clear-override/--validate-empty/--ligne "
                  "s'utilisent avec --day")
@@ -896,6 +957,38 @@ def main():
     return 0
 
 
+def _proposition_courante(args):
+    """La proposition déjà calculée pour cette journée, si elle est sur disque.
+
+    Scinder suppose de connaître la durée de la ligne : on la lit, on ne la devine pas.
+    """
+    chemin = W.ETAT / f"{args.day}.yml"
+    if yaml is None or not chemin.is_file():
+        return {}
+    return yaml.safe_load(chemin.read_text(encoding="utf-8")) or {}
+
+
+def _ligne_courante(args):
+    for l in (_proposition_courante(args).get("lignes") or []):
+        if l.get("cle") == args.ligne and l.get("jour") == args.day:
+            return l
+    return {}
+
+
+def _reste_a_scinder(args, chg):
+    """Ce qui revient à la seconde ligne. Refuse une coupure qui ne tient pas."""
+    src = _ligne_courante(args)
+    total = chg.get("minutes", src.get("minutes"))
+    if total is None:
+        sys.exit(f"ligne « {args.ligne} » introuvable dans la proposition du {args.day} — "
+                 f"relancer `mmi-pm timesheet --day {args.day}` d'abord.")
+    reste = int(total) - int(args.split)
+    if int(args.split) <= 0 or reste <= 0:
+        sys.exit(f"--split {args.split} impossible sur une ligne de {total} min : "
+                 f"les deux morceaux doivent être > 0.")
+    return reste
+
+
 def ajuster_journee(args):
     """Pose, modifie ou efface la surcharge d'une journée (début, fin, client principal).
 
@@ -923,18 +1016,55 @@ def ajuster_journee(args):
         lignes = dict(jour.get("lignes") or {})
         if args.clear_ligne:
             lignes.pop(args.ligne, None)
+        elif args.delete_ligne:
+            lignes[args.ligne] = {**(lignes.get(args.ligne) or {}), "supprimee": True}
         else:
             chg = dict(lignes.get(args.ligne) or {})
             for champ, valeur in (("client", args.set_client), ("projet", args.set_projet),
                                   ("ticket", args.set_ticket), ("activite", args.set_activite)):
                 if valeur is not None:
                     chg[champ] = None if str(valeur) in ("-", "") else valeur
+            if args.set_minutes is not None:
+                chg["minutes"] = int(args.set_minutes)
+            # Scinder : la ligne d'origine garde N minutes, une ligne manuelle reçoit
+            # le reste. Le TOTAL de la journée ne change pas — c'est une coupure, pas
+            # un ajout. Le reste se lit sur la proposition courante, pas sur une
+            # supposition : scinder une ligne qu'on n'a pas sous les yeux n'a pas de sens.
+            if args.split is not None:
+                reste = _reste_a_scinder(args, chg)
+                chg["minutes"] = int(args.split)
+                manuelles = list(jour.get("lignes_manuelles") or [])
+                src = _ligne_courante(args)
+                manuelles.append({
+                    "client": chg.get("client", src.get("client")),
+                    "projet": chg.get("projet", src.get("projet")),
+                    "ticket": chg.get("ticket", src.get("ticket")),
+                    "activite": chg.get("activite", src.get("activite")),
+                    "minutes": reste,
+                    "commentaire": args.commentaire or None,
+                    "cle": f"man{len(manuelles) + 1}",
+                })
+                jour["lignes_manuelles"] = manuelles
             if chg:
                 lignes[args.ligne] = chg
         if lignes:
             jour["lignes"] = lignes
         else:
             jour.pop("lignes", None)
+    if args.add_ligne:
+        manuelles = list(jour.get("lignes_manuelles") or [])
+        if args.set_minutes is None or int(args.set_minutes) <= 0:
+            sys.exit("--add-ligne exige --set-minutes (durée en minutes, > 0)")
+        if not args.set_client:
+            sys.exit("--add-ligne exige --set-client")
+        manuelles.append({
+            "client": args.set_client, "projet": args.set_projet,
+            "ticket": args.set_ticket if args.set_ticket not in ("-", "") else None,
+            "activite": args.set_activite, "minutes": int(args.set_minutes),
+            "commentaire": args.commentaire or None,
+            "cle": f"man{len(manuelles) + 1}",
+        })
+        jour["lignes_manuelles"] = manuelles
     if args.exclusif:
         jour["exclusif"] = True
     if args.validate_empty:

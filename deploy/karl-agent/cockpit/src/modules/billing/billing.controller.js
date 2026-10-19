@@ -28,7 +28,7 @@ export function mountBilling({ card } = {}, ctx = {}) {
     day: svc.day, jour: svc.jour, form: svc.form(), loading: svc.loading,
     error: svc.error, busy: svc.busy, dirty: svc.dirty, projets: svc.projets,
     vue: svc.vue, resumes: svc.resumes(vueMois()), moisCharge: svc.moisCharge,
-    ligne: svc.ligne, ligneEdit: svc.ligneEdit,
+    ligne: svc.ligne, ligneEdit: svc.ligneEdit, ajout: svc.ajout,
   });
   /** Les mois dont la vue courante a besoin — lus du service, jamais devinés. */
   function vueMois() {
@@ -61,6 +61,7 @@ export function mountBilling({ card } = {}, ctx = {}) {
     // Un `select` n'émet pas de clic : sans cet écouteur, corriger le client d'une
     // ligne n'aurait jamais rien changé.
     ["change", "[data-action=\"ligne-champ\"]", (ev, el) => onClick(ev, el)],
+    ["change", "[data-action=\"ajout-champ\"]", (ev, el) => onClick(ev, el)],
   ] }) : null;
 
   function render() { if (h) h.update(Card(vm())); }
@@ -192,6 +193,40 @@ export function mountBilling({ card } = {}, ctx = {}) {
     if (a === "ligne-clear") {
       return garde(() => svc.retablirLigne(el.getAttribute("data-cle")),
                    "rattachement rétabli");
+    }
+    if (a === "ligne-split") {
+      const cle = el.getAttribute("data-cle");
+      const l = vm().groupes.flatMap(g => g.lignes).find(x => x.cle === cle);
+      const total = l ? l.minutesBrutes : 0;
+      const rep = prompt(`Scinder « ${l ? l.projet : cle} » (${total} min) en deux.\n\n`
+                         + `Minutes gardées par la première ligne :`, String(Math.round(total / 2)));
+      if (rep === null) return;
+      const n = parseInt(rep, 10);
+      if (!(n > 0) || n >= total) {
+        return garde(() => { throw new Error(`coupure impossible : les deux morceaux doivent être > 0 (ligne de ${total} min)`); });
+      }
+      return garde(() => svc.scinderLigne(cle, n), `ligne scindée en ${n} + ${total - n} min`);
+    }
+    if (a === "ligne-delete") {
+      const cle = el.getAttribute("data-cle");
+      const l = vm().groupes.flatMap(g => g.lignes.map(x => ({ ...x, client: g.client })))
+                   .find(x => x.cle === cle);
+      const quoi = l ? `${l.client} / ${l.projet} — ${l.minutes}` : cle;
+      // Le seul geste qui RETIRE du temps de la proposition : il se nomme.
+      if (!confirm(`Retirer cette ligne de la proposition ?\n\n  ${quoi}\n\n`
+                   + `Ce temps ne sera facturé à personne. « rétablir » la ramène.`)) return;
+      return garde(() => svc.supprimerLigne(cle), "ligne retirée de la proposition");
+    }
+    if (a === "ajout-open") { svc.editerAjout(true); return render(); }
+    if (a === "ajout-cancel") { svc.editerAjout(false); return render(); }
+    if (a === "ajout-champ") {
+      const champ = el.getAttribute("data-champ");
+      svc.setAjoutChamp(champ, el.value);
+      if (champ === "client") svc.setAjoutChamp("projet", "");
+      return render();
+    }
+    if (a === "ajout-save") {
+      return garde(() => svc.ajouterLigne(), "ligne ajoutée");
     }
     if (a === "ligne-apply") {
       const cle = el.getAttribute("data-cle");

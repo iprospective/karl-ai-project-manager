@@ -21,6 +21,7 @@ export class BillingService {
     this.edit = null;                    // { debut, fin, client, projet, pause } en cours de saisie
     this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
     this.ligne = null;                   // clé de la ligne en cours de correction
+    this.ajout = null;                   // formulaire d'ajout d'une ligne, s'il est ouvert
     this.ligneEdit = null;               // {client, projet, ticket} en cours de saisie
     this.vue = "jour";                   // jour | semaine | mois
     this.mois = {};                      // AAAA-MM → {date → résumé}, gardé d'une vue à l'autre
@@ -78,7 +79,7 @@ export class BillingService {
   /** Change de journée : l'édition en cours ne suit pas — elle appartenait à l'autre jour. */
   setDay(jour) {
     this.day = String(jour); this.jour = null; this.edit = null; this.error = null;
-    this.ligne = null; this.ligneEdit = null;
+    this.ligne = null; this.ligneEdit = null; this.ajout = null;
   }
 
   // ── Une ligne à la fois ───────────────────────────────────────────────────
@@ -124,6 +125,60 @@ export class BillingService {
     try {
       await this.run("timesheet-line-adjust", { day: this.day, ligne: cle, clear_ligne: true });
       this.ligne = null; this.ligneEdit = null;
+      return await this.load();
+    } finally { this.busy = null; }
+  }
+
+  /** Scinde une ligne : elle garde `minutes`, une seconde reçoit le reste. */
+  async scinderLigne(cle, minutes) {
+    this._need();
+    this.busy = "ligne";
+    try {
+      await this.run("timesheet-line-adjust", { day: this.day, ligne: cle, split: minutes });
+      this.ligne = null; this.ligneEdit = null;
+      return await this.load();
+    } finally { this.busy = null; }
+  }
+
+  /** Retire une ligne de la proposition. Réversible : `retablirLigne` la ramène. */
+  async supprimerLigne(cle) {
+    this._need();
+    this.busy = "ligne";
+    try {
+      await this.run("timesheet-line-adjust", { day: this.day, ligne: cle, delete_ligne: true });
+      this.ligne = null; this.ligneEdit = null;
+      return await this.load();
+    } finally { this.busy = null; }
+  }
+
+  /** Ouvre (ou referme) le formulaire d'ajout d'une ligne. */
+  editerAjout(ouvrir = true) {
+    this.ajout = ouvrir ? Object.assign({ client: "", projet: "", ticket: "",
+                                          minutes: "", commentaire: "" }, this.ajout || {})
+                        : null;
+    return this.ajout;
+  }
+
+  setAjoutChamp(champ, valeur) {
+    this.ajout = Object.assign({}, this.ajout, { [champ]: valeur });
+  }
+
+  /** Ajoute une ligne que le calcul n'a pas vue. Elle CRÉE du temps. */
+  async ajouterLigne() {
+    this._need();
+    const a = this.ajout || {};
+    if (!a.client) throw new Error("un client est nécessaire");
+    const minutes = parseInt(a.minutes, 10);
+    if (!(minutes > 0)) throw new Error("une durée en minutes est nécessaire");
+    const args = { day: this.day, set_client: a.client, set_minutes: minutes };
+    for (const [k, v] of [["set_projet", a.projet], ["set_ticket", a.ticket],
+                          ["commentaire", a.commentaire]]) {
+      if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
+    }
+    this.busy = "ligne";
+    try {
+      await this.run("timesheet-line-add", args);
+      this.ajout = null;
       return await this.load();
     } finally { this.busy = null; }
   }

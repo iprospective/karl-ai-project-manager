@@ -62,5 +62,47 @@ SURCHARGES["2026-06-08"] = {"client": "calicote", "pause_debut": "12:30", "pause
 lignes = proposition(datetime(2026, 6, 8), datetime(2026, 6, 10))
 verifie(lignes and lignes[0]["minutes"] == 45, "des bornes de pause valent leur durée")
 
+# ── La marque de déduplication distingue ce qui doit l'être (2026-10-20) ────
+#
+# Deux projets d'un même client, le même jour, sans ticket et avec la même activité
+# partageaient une marque : la seconde saisie était prise pour un doublon de la
+# première et n'était JAMAIS écrite. Quatre cas sur le seul mois de septembre, dont
+# `calicote/infra` et `calicote/prestashop` le 01/09.
+_j = "2026-09-01"
+_a = {"jour": _j, "client": "calicote", "projet": "infra", "ticket": None, "activite": 9}
+_b = {"jour": _j, "client": "calicote", "projet": "prestashop", "ticket": None, "activite": 9}
+verifie(cli._marque(_a) != cli._marque(_b),
+        "deux projets d'un même client ne partagent plus une marque")
+verifie("infra" in cli._marque(_a), "la marque d'une ligne sans ticket nomme son projet")
+
+# Un ticket détermine son projet : sa marque n'a pas à le répéter.
+_t = {"jour": _j, "client": "calicote", "projet": "infra", "ticket": 2827, "activite": 9}
+verifie(cli._marque(_t) == f"[timesheet:{_j}#calicote/2827]",
+        "une ligne à ticket garde sa marque d'avant : rien à migrer")
+
+# Deux morceaux d'une ligne scindée restent discernables.
+_m = [dict(_a, cle="calicote/infra#-@9"), dict(_a, cle="calicote/infra#-@9~1")]
+cli._poser_rangs(_m)
+verifie(cli._marque(_m[0]) != cli._marque(_m[1]),
+        "deux morceaux d'une même ligne scindée ont des marques distinctes")
+verifie(not _m[0].get("rang"), "le premier morceau garde la marque sans rang")
+
+# Le rang suit l'ordre des CLÉS, pas celui de la liste : il est stable au recalcul.
+_m2 = list(reversed([dict(x) for x in _m]))
+cli._poser_rangs(_m2)
+verifie({cli._marque(x) for x in _m} == {cli._marque(x) for x in _m2},
+        "l'ordre de la liste ne change pas les marques — sinon : doublons au recalcul")
+
+# Les saisies déjà posées sous l'ancienne forme sont retrouvées, pas recréées.
+_ancienne = f"[timesheet:{_j}#calicote/-@9]"
+verifie(cli._marque_heritee(cli._marque(_a), {_ancienne}) == _ancienne,
+        "une saisie posée avant le projet dans la marque est reconnue")
+verifie(cli._marque_heritee(cli._marque(_a), {f"[timesheet:{_j}#calicote/-]"})
+        == f"[timesheet:{_j}#calicote/-]",
+        "et celle posée avant même l'activité aussi")
+verifie(cli._marque_heritee(cli._marque(_a), set()) is None,
+        "sans rien en base, aucune forme ancienne n'est inventée")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

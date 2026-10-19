@@ -323,8 +323,18 @@ Au bout de chaque ligne, deux gestes :
   bougent jamais** : on déplace du temps d'un client à l'autre, on n'en crée pas. La
   ligne garde sa provenance affichée (`← calicote/dolibarr RM1855`) et un bouton
   **rétablir** la rend au calcul.
+- **scinder** — coupe la ligne en deux : la première garde ce que vous indiquez, la
+  seconde reçoit le reste. Le **total ne change pas**. Utile quand un même créneau
+  recouvre deux choses à facturer séparément.
+- **retirer** — sort la ligne de la proposition. Ce temps **ne sera facturé à personne**.
+  C'est le seul geste qui retire du temps ; **rétablir** la ramène.
 - **écrire** — crée **cette seule saisie** dans Redmine. La confirmation nomme ce qui
   part. Une fois écrite, la ligne est relue depuis Redmine et passe en « déjà noté ».
+
+Sous la liste, **+ ajouter une ligne** crée une ligne que le calcul n'a pas vue : un
+appel, un déplacement, une réunion sans trace. Elle demande un client, une durée, et
+accepte un projet, un ticket et un **commentaire** — qui devient le texte de la saisie.
+Contrairement aux autres gestes, elle **crée du temps** : elle s'ajoute au total.
 
 ⚠ **Un ticket emporte son projet.** Redmine range une saisie dans le projet du ticket et
 ignore le projet qu'on lui donne. Déplacer une ligne chez un autre client en lui laissant

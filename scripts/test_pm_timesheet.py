@@ -763,5 +763,50 @@ verifie(any(m == "réunion" and j == "2026-10-16" for (j, _c, m) in _a3),
         "une exception de journée rétablit la réunion malgré la liste")
 
 
+# ── Scinder, ajouter, retirer une ligne (RM3229, 2026-10-20) ───────────────
+print("\nScinder, ajouter, retirer une ligne")
+_base = [{"jour": "2026-10-15", "client": "matnat", "projet": "infra", "ticket": None,
+          "activite": 9, "minutes": 480}]
+W._poser_cles(_base)
+_k = _base[0]["cle"]
+
+# Scinder : la première garde N, une ligne manuelle reçoit le reste. Total conservé.
+_l = [dict(x) for x in _base]
+W.amender_lignes(_l, {"2026-10-15": {"lignes": {_k: {"minutes": 300}},
+                                     "lignes_manuelles": [{"client": "matnat", "projet": "infra",
+                                                           "activite": 9, "minutes": 180,
+                                                           "cle": "man1"}]}})
+verifie(len(_l) == 2, "scinder donne deux lignes")
+verifie(sum(x["minutes"] for x in _l) == 480, "le TOTAL ne change pas : c'est une coupure")
+verifie(_l[0]["origine"]["minutes"] == 480, "la ligne d'origine garde sa durée d'avant")
+verifie(_l[1]["manuelle"] is True, "le second morceau est marqué comme posé à la main")
+
+# Retirer : la ligne s'en va, son temps avec.
+_l2 = [dict(x) for x in _base]
+W.amender_lignes(_l2, {"2026-10-15": {"lignes": {_k: {"supprimee": True}}}})
+verifie(_l2 == [], "une ligne retirée disparaît de la proposition")
+
+# Ajouter : une ligne que le calcul n'a pas vue CRÉE du temps.
+_l3 = [dict(x) for x in _base]
+W.amender_lignes(_l3, {"2026-10-15": {"lignes_manuelles": [
+    {"client": "pisceen", "projet": "dolibarr", "minutes": 45, "activite": 9,
+     "commentaire": "appel client", "cle": "man1"}]}})
+verifie(len(_l3) == 2 and sum(x["minutes"] for x in _l3) == 525,
+        "une ligne ajoutée s'ajoute au total")
+verifie(_l3[1]["commentaire"] == "appel client", "son commentaire est gardé")
+
+# Une ligne manuelle sans durée, ou de durée nulle, n'est pas créée.
+_l4 = [dict(x) for x in _base]
+W.amender_lignes(_l4, {"2026-10-15": {"lignes_manuelles": [
+    {"client": "x", "minutes": 0}, {"client": "y"}, None]}})
+verifie(len(_l4) == 1, "une ligne manuelle sans durée n'existe pas")
+
+# Retirer puis rétablir : l'état d'origine revient (aucun amendement = calcul nu).
+_l5 = [dict(x) for x in _base]
+W.amender_lignes(_l5, {"2026-10-15": {}})
+verifie(len(_l5) == 1 and _l5[0]["minutes"] == 480,
+        "sans amendement, la ligne est celle du calcul")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

@@ -109,6 +109,7 @@ const LigneProposee = (l, vm) => html`<div class="bl-line${l.amendee ? " bl-l-am
   <span class="bl-min">${l.minutes}</span>
   ${l.outillage ? html`<span class="bl-tool" title="Temps d'outillage PM mutualisé, réparti sur les clients travaillés">${l.outillage}</span>` : ""}
   ${l.amendee ? html`<span class="bl-l-org" title="Rattachement calculé, que vous avez corrigé">← ${l.origine}</span>` : ""}
+  ${l.description ? html`<span class="bl-l-desc" title="Commentaire inséré dans Redmine à la validation${l.marque ? ` — suivi de la marque ${l.marque}, qui empêche de créer deux fois la même saisie` : ""}">« ${l.description} »</span>` : ""}
   ${l.abandonne ? html`<span class="bl-l-ab" title="Redmine range une saisie dans le projet de son ticket : garder ce ticket aurait ramené le temps à son projet d'origine. La ligne part donc au projet.">ticket ${l.abandonne} lâché</span>` : ""}
   ${l.cle ? html`<span class="bl-l-act">
     <button class="mini" data-action="ligne-edit" data-cle="${l.cle}" title="Corriger le rattachement de cette ligne">corriger</button>

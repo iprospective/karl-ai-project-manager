@@ -434,7 +434,15 @@ def ecrire_sorties(res, dossier, libelle):
     ajouter_pauses(prop, res)
     # Les rattachements corrigés à la main s'appliquent APRÈS la pause : elle aussi
     # est une ligne, et elle doit pouvoir être recollée ailleurs.
+    # La pause est ajoutée après coup : sans ce rappel elle n'aurait pas de clé, donc
+    # ni bouton « corriger » ni bouton « écrire ». Reposer les clés est idempotent.
+    W._poser_cles(prop["lignes"])
     orphelins = W.amender_lignes(prop["lignes"], res.get("surcharges") or {})
+    # Le commentaire qui partira dans Redmine, calculé APRÈS les corrections : il
+    # dépend du projet et du ticket, qu'on vient peut-être de changer. L'écran le
+    # montre — on ne valide pas à l'aveugle un texte que le client lira.
+    for _l in prop["lignes"]:
+        _l["description"] = _libelle(_l, _marque(_l))
     if orphelins:
         apercu = ", ".join(f"{j} {c}" for j, c in orphelins[:3])
         print(f"  ⚠ {len(orphelins)} correction(s) de ligne sans cible "
@@ -867,7 +875,14 @@ def main():
     res = calculer(args, cfg, conf)
     md, yml, prop = ecrire_sorties(res, dossier, libelle)
     if args.json:
-        print(json.dumps(vue_json(res, prop), ensure_ascii=False, default=str))
+        vue = vue_json(res, prop)
+        # La fenêtre de collecte déborde la journée (une trace à 23h50 tire la
+        # suivante), donc le calcul porte sur plusieurs dates. En `--day`, on ne rend
+        # QUE celle demandée : sinon le premier élément de la liste est une autre
+        # journée, et qui lit `jours[0]` analyse le mauvais jour — ça m'est arrivé.
+        if args.day:
+            vue["jours"] = [j for j in vue["jours"] if j.get("date") == args.day]
+        print(json.dumps(vue, ensure_ascii=False, default=str))
         return 0
     total = sum(res["final"].values())
     print(f"✓ timesheet {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "

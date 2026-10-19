@@ -211,3 +211,9 @@
   font-size: .78em; padding: 1px 5px; border-radius: 3px;
   color: var(--fg-dim); border: 1px solid var(--border, rgba(127, 127, 127, .35));
 }
+
+// Le commentaire qui partira dans Redmine : lisible sans voler la vedette aux heures.
+.bl-l-desc {
+  font-size: .85em; color: var(--fg-dim); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
+}

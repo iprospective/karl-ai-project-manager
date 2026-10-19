@@ -658,7 +658,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
       date: "2026-06-07", mesure_min: 60, propose_min: 45,
       proposition: [
         { jour: "2026-06-07", client: "calicote", projet: "dolibarr", ticket: 1855,
-          activite: 13, minutes: 30, cle: "calicote/dolibarr#1855@13", facturable: true },
+          activite: 13, minutes: 30, cle: "calicote/dolibarr#1855@13", facturable: true,
+          description: "Travail assisté [timesheet:2026-06-07#calicote/1855]" },
         { jour: "2026-06-07", client: "pisceen", projet: "dolibarr", ticket: null,
           activite: 13, minutes: 15, cle: "pisceen/dolibarr#-@13", facturable: true,
           amendee: true, ticket_abandonne: 999,
@@ -678,6 +679,10 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     const toutes = vm1.groupes.flatMap(g => g.lignes);
     assert.strictEqual(toutes.length, 2, "chaque ligne proposée est rendue");
     assert(toutes.every(l => l.cle), "chaque ligne porte sa clé : elle est visable seule");
+    assert.strictEqual(toutes[0].description, "Travail assisté",
+                       "la ligne montre le commentaire qui partira dans Redmine");
+    assert.strictEqual(toutes[0].marque, "[timesheet:2026-06-07#calicote/1855]",
+                       "la marque de déduplication est séparée, pas perdue");
     const amendee = toutes.find(l => l.amendee);
     assert.strictEqual(amendee.origine, "calicote/dolibarr RM999",
                        "une ligne corrigée montre d'où elle vient");

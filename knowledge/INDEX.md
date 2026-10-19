@@ -17,6 +17,10 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 
 ## Index par produit / techno
 
+- [migration](./migration/) — migrer des configurations locales d'un hébergement à
+  l'autre : les confs exclues du git **et** préservées par le script de synchro sont
+  celles que rien ne répare ; comparer par `diff` réel et pas clé par clé ; identifiants
+  d'instance dont dépendent les secrets chiffrés en base ; services tiers filtrant par IP
 - [redmine](./redmine/) — projet/issue tracking, wiki, API, migration Textile → Markdown
 - [zabbix](./zabbix/) — API JSON-RPC (search=faux négatifs, FQDN), triggers figés/nodata,
   manual_close, items dépendants

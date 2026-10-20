@@ -235,5 +235,51 @@ verifie("RM7" in I.description_ligne(_mix, {7: "Sujet"})
         "mêlé au travail du client, il vient après lui, en minuscule")
 
 
+# ── TVA et suppression d'un brouillon (2026-10-20) ─────────────────────────
+print("\nTVA et remplacement d'un brouillon")
+import pm_erp as E
+
+_appels = []
+def _http(methode, url, cle, charge=None):
+    _appels.append((methode, url.split("index.php/")[-1], charge))
+    if methode == "GET" and "invoices/900" in url:
+        return {"id": 900, "ref": "(PROV900)", "status": "0"}
+    if methode == "GET" and "invoices/901" in url:
+        return {"id": 901, "ref": "FA-901", "status": "1"}
+    return {"id": 42}
+
+_erp = E.DolibarrErpProvider(inst, http=_http)
+verifie(_erp.supprimer_brouillon(900) == "(PROV900)", "un brouillon se supprime")
+verifie(any(m == "DELETE" for m, _u, _c in _appels), "et c'est bien un DELETE")
+_avant = len(_appels)
+try:
+    _erp.supprimer_brouillon(901)
+    _refus = False
+except RuntimeError as e:
+    _refus = "validée" in str(e)
+verifie(_refus, "une facture VALIDÉE ne se supprime pas — c'est ce qu'on ne rattrape pas")
+verifie(not any(m == "DELETE" for m, _u, _c in _appels[_avant:]),
+        "et aucun DELETE n'est parti pour elle")
+
+# Le taux de TVA voyage jusqu'à la ligne créée.
+_appels.clear()
+_erp.creer_brouillon(7, [E.Ligne(quantite=2, prix_unitaire=45, tva=20.0)])
+_lignes = [c for m, u, c in _appels if m == "POST" and "lines" in u]
+verifie(_lignes and _lignes[0].get("tva_tx") == 20.0,
+        "la ligne part avec son taux : sans lui, Dolibarr pose 0 %")
+_appels.clear()
+_erp.creer_brouillon(7, [E.Ligne(quantite=2, prix_unitaire=45)])
+_l2 = [c for m, u, c in _appels if m == "POST" and "lines" in u]
+verifie(_l2 and "tva_tx" not in _l2[0], "sans taux connu, on ne l'invente pas")
+
+_ft = [F("FA9", 7, date(2026, 6, 1), 100, "payée",
+         [E.Ligne(2, 45, tva=20.0), E.Ligne(1, 45, tva=20.0)]),
+       F("PROV9", 7, date(2026, 6, 2), 50, "brouillon", [E.Ligne(1, 45, tva=0.0)])]
+verifie(_erp.dernier_taux_tva(7, _ft) == 20.0,
+        "le taux vient de la dernière facture ÉMISE, pas d'un brouillon")
+verifie(_erp.dernier_taux_tva(99, _ft) is None,
+        "sans facture antérieure, aucun taux n'est supposé")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

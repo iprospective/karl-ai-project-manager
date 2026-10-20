@@ -153,7 +153,7 @@ export class BillingService {
 
   /** Ouvre (ou referme) le formulaire d'ajout d'une ligne. */
   editerAjout(ouvrir = true) {
-    this.ajout = ouvrir ? Object.assign({ client: "", projet: "", ticket: "",
+    this.ajout = ouvrir ? Object.assign({ client: "", projet: "", ticket: "", activite: "",
                                           minutes: "", commentaire: "" }, this.ajout || {})
                         : null;
     return this.ajout;
@@ -172,7 +172,7 @@ export class BillingService {
     if (!(minutes > 0)) throw new Error("une durée en minutes est nécessaire");
     const args = { day: this.day, set_client: a.client, set_minutes: minutes };
     for (const [k, v] of [["set_projet", a.projet], ["set_ticket", a.ticket],
-                          ["commentaire", a.commentaire]]) {
+                          ["commentaire", a.commentaire], ["set_activite", a.activite]]) {
       if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
     }
     this.busy = "ligne";

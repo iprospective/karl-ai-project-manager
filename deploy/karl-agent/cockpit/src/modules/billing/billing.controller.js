@@ -55,7 +55,14 @@ export function mountBilling({ card } = {}, ctx = {}) {
     render();
   }
   const h = card ? mount(card, "", { events: [
-    ["click", "[data-action]", (ev, el) => onClick(ev, el)],
+    // Un champ de saisie porte un `data-action` pour ses CHANGEMENTS, pas pour les
+    // clics : laisser passer le clic rejouait le geste et re-rendait l'écran, ce qui
+    // détruisait le champ sous le curseur — « ça saute dès que je clique » (20/10).
+    ["click", "[data-action]", (ev, el) => {
+      const t = (el.tagName || "").toLowerCase();
+      if (t === "input" || t === "select" || t === "textarea") return;
+      onClick(ev, el);
+    }],
     ["change", "[data-action=\"field\"]", (ev, el) => onField(el)],
     ["change", "[data-action=\"date\"]", (ev, el) => goto(el.value)],
     // Un `select` n'émet pas de clic : sans cet écouteur, corriger le client d'une

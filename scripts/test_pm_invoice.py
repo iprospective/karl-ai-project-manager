@@ -156,5 +156,130 @@ verifie(appels[1][2]["fk_product"] == 3 and "fk_product" not in appels[2][2],
         "service du catalogue, ou ligne libre")
 verifie(not any("validate" in a[1] for a in appels), "aucune validation : le brouillon reste brouillon")
 
+# ── Projets qu'on ne facture pas (2026-10-20) ──────────────────────────────
+print("\nProjets hors facturation")
+_s = [I.Saisie(jour="2026-06-01", projet="ultramobile-kamishibai", heures=1.0,
+               activite=9, commentaire="migration site"),
+      I.Saisie(jour="2026-06-02", projet="calicote", heures=2.0,
+               activite=9, commentaire="dev")]
+_g, _e = I.ecarter_non_facturables(_s, ["ultramobile-kamishibai"])
+verifie(len(_g) == 1 and _g[0].projet == "calicote", "le projet déclaré sort du lot")
+verifie(len(_e) == 1 and _e[0].heures == 1.0, "et il est rendu à part, pas perdu en silence")
+verifie(I.ecarter_non_facturables(_s, [])[1] == [], "sans liste, rien n'est écarté")
+verifie(len(I.ecarter_non_facturables(_s, None)[0]) == 2, "ni avec une liste absente")
+_, _orph = I.rattacher(_g, {}, {"calicote"})
+verifie(_orph == [], "ce qui reste se rattache normalement")
+# ── Ce que la ligne de facture dit du travail (2026-10-20) ─────────────────
+print("\nDescription des lignes de facture")
+verifie(I._sujet(1915, "Incident — IP failover (srv-prd/srv-mail), OVH Advance")
+        == "RM1915 Incident — IP failover, OVH Advance",
+        "un marqueur interne entre parenthèses sort, sans laisser sa ponctuation")
+verifie("[À CHIFFRER]" not in I._sujet(1937, "Calibrer les coefficients [À CHIFFRER] du modèle"),
+        "les mentions internes entre crochets ne partent pas chez le client")
+verifie(I._sujet(999, "") == "RM999",
+        "un ticket sans titre garde son numéro : il renvoie au détail en ligne")
+verifie(I._sujet(1, "x" * 200).endswith("…") and len(I._sujet(1, "x" * 200)) <= I.MAX_TITRE + 12,
+        "un titre trop long est coupé proprement")
+verifie(I._sujet(2, "Analyse : le cas") == "RM2 Analyse : le cas",
+        "l'espace avant « : » reste — c'est du français")
+
+_lg = I.LigneProposee(libelle="", heures=3.0, service_ref="SRV1",
+                      tickets=[11, 22], jours=["2026-06-03", "2026-06-07"])
+_d = I.description_ligne(_lg, {11: "Migration", 22: "Correctif panier"})
+verifie("RM11 Migration" in _d and "RM22 Correctif panier" in _d,
+        "la description nomme les sujets traités")
+verifie("les 03 et 07 juin" in _d, "et les jours concernés")
+_un = I.LigneProposee(libelle="", heures=1.0, tickets=[5], jours=["2026-06-03"])
+verifie("le 03 juin" in I.description_ligne(_un, {5: "X"}), "un seul jour se dit au singulier")
+_bcp = I.LigneProposee(libelle="", heures=9.0, tickets=list(range(1, 10)),
+                       jours=["2026-06-03"])
+_db = I.description_ligne(_bcp, {})
+verifie("et 5 autres" in _db, "au-delà de quatre sujets, on compte le reste")
+verifie(len(I.description_ligne(
+    I.LigneProposee(libelle="", heures=9.0, tickets=list(range(1, 5)),
+                    jours=["2026-06-0%d" % d for d in range(1, 10)]),
+    {i: "titre très long " * 5 for i in range(1, 5)})) <= I.MAX_DESCRIPTION + 2,
+    "une description ne déborde jamais la longueur tenue")
+verifie(I.description_ligne(I.LigneProposee(libelle="", heures=1.0), {}) == "",
+        "sans ticket ni jour, pas de description inventée")
+
+
+print("\nCe qui, dans un commentaire, mérite la facture")
+verifie(I.commentaire_utile("Install NC Camille", "calicote") == "Install NC Camille",
+        "une note écrite à la main est la meilleure description qui existe")
+verifie(I.commentaire_utile("Travail assisté [timesheet:2026-06-01#x/1]", "x") == "",
+        "la formule de l'outil et sa marque ne disent rien au client")
+verifie(I.commentaire_utile("Travail assisté, dont 20 min d'outillage", "x") == "",
+        "l'habillage « dont N min d'outillage » ne la rend pas parlante")
+verifie(I.commentaire_utile("pisceen-presta", "pisceen-presta") == "",
+        "redire le projet n'apprend rien : c'est déjà l'objet de la ligne")
+verifie(I.commentaire_utile("Gestion+Réunion IA à détailler : parti 20h57", "x") == "",
+        "une note écrite POUR SOI ne part pas chez le client")
+verifie(I.commentaire_utile("opé 9h45 => 10h15 boulot à répartir", "x") == "",
+        "un calcul d'heures à reprendre non plus")
+verifie(I.commentaire_utile("Relai emails (pourquoi ??)", "x") == "",
+        "ni une interrogation qu'on s'adresse")
+verifie(I.commentaire_utile("ingestion tarifs", "x", deja=["ingestion tarifs fournisseur"]) == "",
+        "un commentaire déjà dit par un titre ne se répète pas")
+
+_lp = I.LigneProposee(libelle="", heures=2.0, jours=["2026-06-02"],
+                      partages=["SFY", "Dolibarr"])
+_dp = I.description_ligne(_lp, {})
+verifie(_dp.startswith("Outillage commun partagé : SFY et Dolibarr"),
+        "le travail mutualisé se dit par son objet, en tête quand il est seul")
+verifie("RM" not in _dp, "et SANS ses tickets : ils parlent du commun, pas de ce client")
+_mix = I.LigneProposee(libelle="", heures=2.0, jours=["2026-06-02"],
+                       tickets=[7], partages=["SFY"])
+verifie("RM7" in I.description_ligne(_mix, {7: "Sujet"})
+        and "outillage commun partagé : SFY" in I.description_ligne(_mix, {7: "Sujet"}),
+        "mêlé au travail du client, il vient après lui, en minuscule")
+
+
+# ── TVA et suppression d'un brouillon (2026-10-20) ─────────────────────────
+print("\nTVA et remplacement d'un brouillon")
+import pm_erp as E
+
+_appels = []
+def _http(methode, url, cle, charge=None):
+    _appels.append((methode, url.split("index.php/")[-1], charge))
+    if methode == "GET" and "invoices/900" in url:
+        return {"id": 900, "ref": "(PROV900)", "status": "0"}
+    if methode == "GET" and "invoices/901" in url:
+        return {"id": 901, "ref": "FA-901", "status": "1"}
+    return {"id": 42}
+
+_erp = E.DolibarrErpProvider(inst, http=_http)
+verifie(_erp.supprimer_brouillon(900) == "(PROV900)", "un brouillon se supprime")
+verifie(any(m == "DELETE" for m, _u, _c in _appels), "et c'est bien un DELETE")
+_avant = len(_appels)
+try:
+    _erp.supprimer_brouillon(901)
+    _refus = False
+except RuntimeError as e:
+    _refus = "validée" in str(e)
+verifie(_refus, "une facture VALIDÉE ne se supprime pas — c'est ce qu'on ne rattrape pas")
+verifie(not any(m == "DELETE" for m, _u, _c in _appels[_avant:]),
+        "et aucun DELETE n'est parti pour elle")
+
+# Le taux de TVA voyage jusqu'à la ligne créée.
+_appels.clear()
+_erp.creer_brouillon(7, [E.Ligne(quantite=2, prix_unitaire=45, tva=20.0)])
+_lignes = [c for m, u, c in _appels if m == "POST" and "lines" in u]
+verifie(_lignes and _lignes[0].get("tva_tx") == 20.0,
+        "la ligne part avec son taux : sans lui, Dolibarr pose 0 %")
+_appels.clear()
+_erp.creer_brouillon(7, [E.Ligne(quantite=2, prix_unitaire=45)])
+_l2 = [c for m, u, c in _appels if m == "POST" and "lines" in u]
+verifie(_l2 and "tva_tx" not in _l2[0], "sans taux connu, on ne l'invente pas")
+
+_ft = [F("FA9", 7, date(2026, 6, 1), 100, "payée",
+         [E.Ligne(2, 45, tva=20.0), E.Ligne(1, 45, tva=20.0)]),
+       F("PROV9", 7, date(2026, 6, 2), 50, "brouillon", [E.Ligne(1, 45, tva=0.0)])]
+verifie(_erp.dernier_taux_tva(7, _ft) == 20.0,
+        "le taux vient de la dernière facture ÉMISE, pas d'un brouillon")
+verifie(_erp.dernier_taux_tva(99, _ft) is None,
+        "sans facture antérieure, aucun taux n'est supposé")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

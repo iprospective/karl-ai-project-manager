@@ -34,6 +34,11 @@ class Saisie:
     commentaire: str = ""
     client: str = None        # rempli par rattacher()
     part: float = 1.0         # < 1 quand un projet mutualisé est éclaté (SFY 70/30)
+    #: Vrai quand la saisie vient d'un projet MUTUALISÉ, réparti entre plusieurs
+    #: clients. Sur la facture, son détail ne se dit pas : le ticket parle du commun,
+    #: pas de ce client-là.
+    partage: bool = False
+    projet_nom: str = ""      # nom lisible du projet Redmine (pour le dire au client)
 
 
 @dataclass
@@ -43,9 +48,36 @@ class LigneProposee:
     service_ref: str = None   # None = ligne libre
     tickets: list = field(default_factory=list)
     jours: list = field(default_factory=list)
+    #: Le temps SANS ticket, par projet : {nom du projet : [notes retenues]}. Un
+    #: ticket se décrit par son titre ; sans ticket, il ne reste que le projet et ce
+    #: qui a été noté à la main — et c'est là que la note vaut (20/10/2026).
+    sans_ticket: dict = field(default_factory=dict)
+    #: Projets MUTUALISÉS touchés par cette ligne, par leur nom lisible. Leur détail
+    #: ne se dit pas au client : c'est du commun, pas son travail à lui.
+    partages: list = field(default_factory=list)
+    #: Ce que la ligne recouvre, tel que le client le lira sous l'intitulé du service.
+    #: Sans elle, une facture ne dit que « Développement 15 h » — exact, et muet.
+    description: str = ""
 
 
 # ── Rattacher une saisie à un client ─────────────────────────────────────────
+
+def ecarter_non_facturables(saisies, exclus):
+    """Sépare les saisies des projets qu'on ne facture pas. Rend (gardées, écartées).
+
+    Un projet hors facturation n'est pas un projet « non rattaché » : le signaler
+    comme orphelin à chaque mois reviendrait à demander de corriger ce qui est déjà
+    correct. On le déclare une fois, et le rapport dit ce qui a été écarté — jamais
+    en silence, sinon des heures disparaîtraient sans qu'on sache pourquoi.
+    """
+    exclus = {str(x) for x in (exclus or [])}
+    if not exclus:
+        return list(saisies), []
+    gardees, ecartees = [], []
+    for s in saisies:
+        (ecartees if s.projet in exclus else gardees).append(s)
+    return gardees, ecartees
+
 
 def rattacher(saisies, projet_vers_client, entites, cles_multi=None):
     """Donne un client à chaque saisie ; éclate les projets mutualisés.
@@ -70,7 +102,8 @@ def rattacher(saisies, projet_vers_client, entites, cles_multi=None):
         if cle:
             total = sum(p for _c, p in cle) or 1
             for c, p in cle:
-                sortie.append(Saisie(**{**s.__dict__, "client": c, "part": s.part * p / total}))
+                sortie.append(Saisie(**{**s.__dict__, "client": c,
+                                        "part": s.part * p / total, "partage": True}))
         else:
             sortie.append(Saisie(**{**s.__dict__, "client": client}))
     return sortie, orphelins
@@ -101,16 +134,154 @@ def lignes_facture(saisies, services_par_activite, groupement="activite", titres
         g = groupes.setdefault(cle, LigneProposee(libelle=libelle or "", heures=0.0,
                                                   service_ref=service if cle[0] != "libre" else None))
         g.heures += s.heures * s.part
-        if s.ticket and s.ticket not in g.tickets:
+        if s.partage:
+            nom = s.projet_nom or s.projet
+            if nom and nom not in g.partages:
+                g.partages.append(nom)
+        elif s.ticket and s.ticket not in g.tickets:
             g.tickets.append(s.ticket)
         if s.jour not in g.jours:
             g.jours.append(s.jour)
+        if not s.ticket and not s.partage:
+            projet = s.projet_nom or s.projet or "divers"
+            notes = g.sans_ticket.setdefault(projet, [])
+            note = commentaire_utile(s.commentaire, s.projet_nom, notes, s.projet)
+            if note and note not in notes:
+                notes.append(note)
     for (nature, _cle), g in groupes.items():
         if nature == "libre":
             # la pratique des factures existantes : « Divers les 07, 13, 14, 27 avril »
             mois = MOIS[date.fromisoformat(sorted(g.jours)[0]).month - 1]
             g.libelle = f"Divers les {enumerer(j[8:10] for j in sorted(g.jours))} {mois}"
+        g.description = description_ligne(g, titres)
     return [g for g in groupes.values() if g.heures > 0]
+
+
+#: Au-delà, une ligne de facture devient illisible — on dit « et N autres ».
+MAX_SUJETS = 4
+#: Un titre de ticket est écrit pour soi : au-delà, il déborde sur la facture.
+MAX_TITRE = 70
+#: Longueur totale d'une description. Une facture se lit, elle ne se dépouille pas.
+MAX_DESCRIPTION = 300
+
+#: Marqueurs internes qu'un titre de ticket traîne parfois — « [À CHIFFRER] »,
+#: « [URGENT] », « (bloqué) ». Ils ne regardent pas le client.
+_INTERNE_RE = re.compile(r"\s*[\[(](?:[^\])]{0,40})[\])]\s*")
+
+
+#: Ce que l'outil écrit lui-même dans un commentaire : la marque de déduplication,
+#: ses formules passe-partout. Rien de cela n'apprend quoi que ce soit au client.
+_MARQUE_RE = re.compile(r"\s*\[timesheet:[^\]]*\]\s*")
+#: Le suffixe que l'outil ajoute à ses propres commentaires. Il habille une formule
+#: passe-partout sans la rendre parlante — « Travail assisté, dont 20 min d'outillage »
+#: n'apprend rien de plus que « Travail assisté ». On le retire AVANT de juger.
+_OUTILLAGE_RE = re.compile(r",?\s*dont\s+\d+\s*min\s+d['’]outillage\s*$", re.I)
+_GENERIQUES = {"travail assiste", "travail assisté", "divers", "repas midi", "",
+               "dev ia", "gestion ia", "divers dev"}
+
+#: Marques d'une note écrite POUR SOI : un calcul d'heures à reprendre, un point
+#: d'interrogation, une tâche en suspens. Une facture n'est pas un pense-bête —
+#: « Gestion+Réunion IA à détailler : parti 20h57 » ne se lit pas chez un client.
+_POUR_SOI_RE = re.compile(
+    r"(\bà détailler\b|\bà répartir\b|\bà revoir\b|\bà reprendre\b|\bTODO\b|\bFIXME\b"
+    r"|\?\?|=>|\bstopp?é\b|\bparti \d|\bboulot\b)", re.I)
+
+
+def commentaire_utile(texte, projet=None, deja=(), projet_id=None):
+    """Le commentaire d'une saisie, s'il dit quelque chose. Sinon : rien.
+
+    Mathieu note souvent à la main ce que le ticket ne dit pas (« Install NC Camille »,
+    « config redir vacances »). C'est la description la plus juste qui existe — mais
+    seulement quand elle est écrite : les formules de l'outil (« Travail assisté ») et
+    les reprises du nom de projet n'apprennent rien et encombrent la facture.
+    """
+    t = _MARQUE_RE.sub(" ", texte or "").strip(" -—·,;")
+    t = _OUTILLAGE_RE.sub("", t).strip(" -—·,;")
+    t = re.sub(r"\s+", " ", t)
+    if not t or t.lower() in _GENERIQUES:
+        return ""
+    if _POUR_SOI_RE.search(t):
+        return ""
+    # Un fragment d'un ou deux caractères (« IA », « ok ») ne décrit rien : c'est
+    # souvent ce qui reste d'une note qu'on vient d'élaguer.
+    if len(t) < 6 and len(t.split()) < 2:
+        return ""
+    # Un commentaire qui ne fait que redire le projet (« pisceen-presta ») n'apprend
+    # rien : le client sait pour quel projet il paie, c'est l'objet de la ligne.
+    plat = lambda x: re.sub(r"[^a-z0-9]+", " ", str(x or "").lower()).strip()
+    pt = plat(t)
+    # Égal au projet, ou simple morceau de son nom (« site_sf7 » dans « MatNat site
+    # SF7 ») : le client sait déjà pour quel projet il paie.
+    if pt and any(pt == p or (p and pt in p) for p in (plat(projet), plat(projet_id)) if p):
+        return ""
+    # Le commentaire qui redit un titre déjà cité ne l'enrichit pas.
+    norme = t.lower()
+    if any(norme in str(d).lower() for d in deja):
+        return ""
+    if len(t) > MAX_TITRE:
+        t = t[:MAX_TITRE].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+    return t
+
+
+def _sujet(ticket, titre):
+    """Un sujet présentable : le titre nettoyé, coupé, ou le numéro à défaut."""
+    t = _INTERNE_RE.sub(" ", titre or "").strip(" -—:·")
+    t = re.sub(r"\s+", " ", t)
+    # Retirer un morceau laisse sa ponctuation orpheline (« injoignables , OVH »).
+    # Seules la virgule et le point perdent leur espace : en français, « : », « ; »,
+    # « ! » et « ? » la gardent.
+    t = re.sub(r"\s+([,.])", r"\1", t)
+    t = re.sub(r"([,;:])\s*(?=[,;:])", "", t).strip(" ,;:-—")
+    if len(t) > MAX_TITRE:
+        t = t[:MAX_TITRE].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+    return f"RM{ticket} {t}".strip() if t else f"RM{ticket}"
+
+
+def description_ligne(ligne, titres=None, max_sujets=MAX_SUJETS):
+    """Ce que la ligne recouvre : les sujets traités, puis les jours.
+
+    Une facture qui ne porte que « Développement — 15 h » est exacte et illisible :
+    le client ne peut ni la vérifier ni s'en souvenir. On lui donne les SUJETS, pris
+    des titres de tickets — ce que le ticket dit de lui-même, pas un résumé inventé.
+
+    Les tickets sans titre connu restent nommés par leur numéro plutôt que tus : un
+    numéro renvoie au détail en ligne, une absence ne renvoie à rien.
+    """
+    titres = titres or {}
+    sujets = [_sujet(t, titres.get(t) or titres.get(str(t)) or "")
+              for t in (ligne.tickets or [])]
+    tete = sujets[:max_sujets]
+    reste = len(sujets) - len(tete)
+    morceaux = []
+    if tete:
+        morceaux.append(" · ".join(tete) + (f" · et {reste} autre{'s' if reste > 1 else ''}"
+                                            if reste > 0 else ""))
+    # Le travail MUTUALISÉ se dit par son objet, jamais par ses tickets : ceux-ci
+    # parlent du commun — d'autres clients, d'autres besoins — et n'ont pas à figurer
+    # sur la facture de celui-ci (arbitrage du 20/10/2026).
+    if ligne.partages:
+        quoi = enumerer(ligne.partages[:max_sujets])
+        tete_mot = "outillage commun partagé" if morceaux else "Outillage commun partagé"
+        morceaux.append(f"{tete_mot} : {quoi}")
+    # Le temps sans ticket se dit par son PROJET, suivi de ce qui a été noté à la
+    # main : c'est là, et seulement là, que la note apporte quelque chose.
+    for projet, notes in (ligne.sans_ticket or {}).items():
+        utiles = [n for n in notes if n][:max_sujets]
+        if utiles:
+            morceaux.append(f"{projet} : {' · '.join(utiles)}")
+        elif not sujets:
+            # Un projet sans note ne vaut d'être nommé que si rien d'autre ne parle.
+            morceaux.append(str(projet))
+    jours = sorted(set(ligne.jours or []))
+    if jours:
+        mois = MOIS[date.fromisoformat(jours[0]).month - 1]
+        morceaux.append(f"les {enumerer(j[8:10] for j in jours)} {mois}"
+                        if len(jours) > 1 else
+                        f"le {jours[0][8:10]} {mois}")
+    texte = " — ".join(morceaux)
+    if len(texte) > MAX_DESCRIPTION:
+        texte = texte[:MAX_DESCRIPTION].rsplit(" · ", 1)[0].rstrip(" ·—,") + " …"
+    return texte
 
 
 def arrondir_heures(h, pas=0.01):
@@ -211,7 +382,7 @@ def deja_facture(marque_attendue, factures_du_tiers):
 # ── Assemblage ───────────────────────────────────────────────────────────────
 
 def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_activite,
-             groupement=None, titres=None, meps=None):
+             groupement=None, titres=None, meps=None, tva=None, reglements=None):
     """Une proposition de facture par client. Pure : tout arrive en paramètre."""
     groupement = groupement or {}
     par_client = collections.defaultdict(list)
@@ -232,11 +403,25 @@ def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_acti
             "heures": round(total_h, 2),
             "total_ht": round(sum(arrondir_heures(l.heures) for l in lignes) * tarif, 2) if tarif else None,
             "lignes": [{"libelle": l.libelle, "service": l.service_ref,
-                        "heures": arrondir_heures(l.heures), "tickets": l.tickets} for l in lignes],
+                        "heures": arrondir_heures(l.heures), "tickets": l.tickets,
+                        # Amendable à la main dans le `.yml` avant `--apply` : c'est le
+                        # texte que le client lira, il doit pouvoir être corrigé.
+                        "description": l.description} for l in lignes],
             "note_publique": note_publique(debut, fin, jours_principaux(heures_jour),
                                            (meps or {}).get(client)),
+            "tva": (tva or {}).get(client),
+            "reglement": (reglements or {}).get(client),
             "alertes": ([] if tiers else ["tiers ERP inconnu pour ce client"])
-                       + ([] if tarif else ["aucune facture antérieure : tarif à saisir"]),
+                       + ([] if tarif else ["aucune facture antérieure : tarif à saisir"])
+                       # Une TVA absente ne s'invente pas, mais elle se DIT : sans
+                       # taux, Dolibarr pose 0 % et la facture part sans TVA. On
+                       # n'alerte que si la reprise a été TENTÉE : un appelant qui
+                       # ne gère pas la TVA ne se fait pas rappeler à l'ordre.
+                       + ([] if tva is None or tva.get(client) is not None
+                          else ["aucun taux de TVA repris : à vérifier avant d'appliquer"])
+                       + ([] if reglements is None or reglements.get(client)
+                          else ["aucun délai de paiement repris : la facture partirait "
+                                "sans échéance"]),
             "valide": bool(tiers and tarif),
         })
     return propositions

@@ -35,16 +35,40 @@ def charger_conf(chemin):
     return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
 
 
+def titres_tickets(url, key, ids):
+    """Le sujet de chaque ticket cité, pour que les lignes disent ce qu'elles couvrent.
+
+    Lus par paquets : une requête par ticket coûterait des centaines d'allers-retours
+    sur un mois chargé. Un ticket introuvable (supprimé, hors périmètre) est ignoré —
+    sa ligne le nommera par son numéro.
+    """
+    from redmine_utils import http_json
+    out = {}
+    ids = sorted({int(i) for i in ids if i})
+    for i in range(0, len(ids), 50):
+        lot = ids[i:i + 50]
+        code, b = http_json("GET", f"{url}/issues.json?issue_id={','.join(map(str, lot))}"
+                                   f"&status_id=*&limit=100", key)
+        if code != 200:
+            continue
+        for issue in b.get("issues", []):
+            out[int(issue["id"])] = (issue.get("subject") or "").strip()
+    return out
+
+
 def saisies_redmine(url, key, user_id, debut, fin):
     """Saisies de l'utilisateur sur la période, avec l'identifiant de leur projet."""
     from redmine_utils import http_json
-    projets, off = {}, 0
+    projets, noms, off = {}, {}, 0
     while True:
         code, body = http_json("GET", f"{url}/projects.json?limit=100&offset={off}", key)
         if code != 200:
             break
         for p in body.get("projects", []):
             projets[p["id"]] = p.get("identifier") or str(p["id"])
+            # Le NOM lisible sert à nommer un projet mutualisé au client : « Dolibarr »
+            # se comprend, « synchro-prestashop-dolibarr » non.
+            noms[p.get("identifier") or str(p["id"])] = (p.get("name") or "").strip()
         off += 100
         if off >= body.get("total_count", 0):
             break
@@ -56,9 +80,11 @@ def saisies_redmine(url, key, user_id, debut, fin):
         if code != 200:
             sys.exit(f"Redmine : lecture des saisies refusée (HTTP {code}).")
         for t in body.get("time_entries", []):
+            pid = (t.get("project") or {}).get("id")
+            ident = projets.get(pid, str(pid))
             sortie.append(I.Saisie(
                 jour=t["spent_on"], heures=float(t["hours"]),
-                projet=projets.get(t["project"]["id"], str(t["project"]["id"])),
+                projet=ident, projet_nom=noms.get(ident, ""),
                 ticket=(t.get("issue") or {}).get("id"),
                 activite_id=(t.get("activity") or {}).get("id"),
                 activite=(t.get("activity") or {}).get("name", ""),
@@ -110,7 +136,8 @@ def tiers_des_clients(clients, tiers, conf):
     return sortie, deduits
 
 
-def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref):
+def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref,
+            hors_facturation=None):
     L = [f"# Factures proposées — {debut:%m/%Y}", "",
          f"Période du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}. **Rien n'est créé** : relire, amender la "
          "proposition `.yml`, puis appliquer.", ""]
@@ -131,6 +158,13 @@ def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref
     if internes:
         L += ["## Non facturé — interne ou perso", ""]
         L += [f"- {c} : {h:.2f} h" for c, h in sorted(internes.items())] + [""]
+    if hors_facturation:
+        h = sum(x.heures for x in hors_facturation)
+        L += ["## Hors facturation", "",
+              f"Projets déclarés `non_facturable` : **{h:.2f} h** écartées, "
+              f"{len(hors_facturation)} saisie(s).", ""]
+        L += [f"- {s.jour} {s.projet} {s.heures:.2f} h — {s.commentaire[:60]}"
+              for s in hors_facturation] + [""]
     if orphelins:
         L += ["## ⚠ Saisies sans client", "",
               "Projet Redmine non rattaché : à déclarer dans `redmine_projects`.", ""]
@@ -161,13 +195,37 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
             continue
         m = I.marque(client, prop.get("periode", args.month))
         existante = I.deja_facture(m, erp.factures_du_tiers(f["tiers"]))
+        if existante and getattr(args, "replace", False):
+            # Remplacer : on supprime le BROUILLON précédent, jamais autre chose —
+            # `supprimer_brouillon` relit le statut sur le serveur et refuse le reste.
+            if args.dry_run:
+                print(f"  [dry-run] {client:12} remplacerait "
+                      f"{existante['ref'] or existante['id']}")
+            else:
+                try:
+                    ref = erp.supprimer_brouillon(existante["id"])
+                    print(f"  ↺ {client:12} ancien brouillon {ref} supprimé")
+                except Exception as e:
+                    refus.append((client, f"remplacement impossible : {e}"))
+                    continue
+            existante = None
         if existante:
             ignore.append((client, existante["ref"] or existante["id"]))
             continue
-        lignes = [pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
-                               service_id=ref_vers_id.get(l.get("service")),
-                               libelle="" if l.get("service") else l.get("libelle", ""))
-                  for l in f.get("lignes", []) if l.get("heures")]
+        # La description part dans le champ `desc` de Dolibarr. Sous un service du
+        # catalogue elle complète son intitulé ; sans service, le libellé reste la
+        # seule identité de la ligne, et la description le prolonge.
+        lignes = []
+        for l in f.get("lignes", []):
+            if not l.get("heures"):
+                continue
+            desc = (l.get("description") or "").strip()
+            if not l.get("service"):
+                base = l.get("libelle", "")
+                desc = f"{base} — {desc}" if desc and base else (desc or base)
+            lignes.append(pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
+                                       service_id=ref_vers_id.get(l.get("service")),
+                                       libelle=desc, tva=f.get("tva")))
         if args.dry_run:
             print(f"  [dry-run] {client:12} {f['heures']:6.2f} h × {f['tarif']} = "
                   f"{f['total_ht']:9.2f} € HT · {len(lignes)} ligne(s) · brouillon")
@@ -175,7 +233,8 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
             continue
         fid = erp.creer_brouillon(f["tiers"], lignes, note_publique=f.get("note_publique", ""),
                                   note_privee=m, quand=quand,
-                                  projet_id=projet_du_tiers.get(f["tiers"]))
+                                  projet_id=projet_du_tiers.get(f["tiers"]),
+                                  reglement_id=f.get("reglement"))
         cree.append((client, fid))
         print(f"  ✓ {client:12} brouillon #{fid} · {f['total_ht']:.2f} € HT")
     verbe = "à créer" if args.dry_run else "créés"
@@ -226,6 +285,9 @@ def main():
     ap.add_argument("--apply", action="store_true",
                     help="crée les BROUILLONS dans l'ERP depuis la proposition amendée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
+    ap.add_argument("--replace", action="store_true",
+                    help="avec --apply : remplace le BROUILLON déjà créé pour ce mois "
+                         "(supprimé puis recréé ; une facture validée est refusée)")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
 
@@ -244,6 +306,10 @@ def main():
     saisies = saisies_redmine(url, key, uid, debut.isoformat(), fin.isoformat())
     types = {e: (cfg.client_meta(e) or {}).get("type") for e, _ in cfg.iter_entities()}
     table = table_projets(cfg, conf, {s.projet for s in saisies})
+    # Les projets qu'on ne facture pas sortent AVANT le rattachement : sinon ils
+    # reviendraient chaque mois dans les « saisies sans client », à corriger sans fin.
+    saisies, hors_facturation = I.ecarter_non_facturables(
+        saisies, conf.get("non_facturable"))
     rattachees, orphelins = I.rattacher(saisies, table, set(types) | set(conf.get("multi_client") or {}),
                                         {k: [(x["client"], x["weight"]) for x in v]
                                          for k, v in (conf.get("multi_client") or {}).items()})
@@ -266,17 +332,29 @@ def main():
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)
     tarifs = {c: erp.dernier_tarif(tiers_c[c], factures) for c in clients if c in tiers_c}
+    # Le taux de TVA suit la même règle que le tarif : la dernière facture fait foi.
+    tva = {c: erp.dernier_taux_tva(tiers_c[c], factures) for c in clients if c in tiers_c}
+    # Délai de paiement : la dernière facture du client fait foi ; à défaut, celui
+    # déclaré en conf (`paiement_defaut`). Les clients n'ont pas tous le même —
+    # 10 jours pour certains, 14 pour d'autres (constaté le 20/10/2026).
+    defaut_reg = (conf.get("paiement_defaut") or {})
+    reglements = {c: (erp.dernier_reglement(tiers_c[c], factures)
+                      or defaut_reg.get(c) or defaut_reg.get("*"))
+                  for c in clients if c in tiers_c}
     services = {int(k) if str(k).isdigit() else k: v for k, v in (conf.get("services") or {}).items()}
     groupement = {c: (conf.get("clients") or {}).get(c, {}).get("groupement", "activite") for c in clients}
     meps = {c: I.mises_en_production(cfg, c, debut, fin) for c in clients}
+    titres = titres_tickets(url, key, {s.ticket for s in facturables if s.ticket})
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
-                       services_par_activite=services, groupement=groupement, meps=meps)
+                       services_par_activite=services, groupement=groupement, meps=meps,
+                       titres=titres, tva=tva, reglements=reglements)
 
     dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)
     ref_libelle = {v["ref"]: f"{v['ref']} {v['libelle']}" for v in catalogue.values()}
     md = dossier / f"{args.month}.md"
-    md.write_text(rapport(props, debut, fin, orphelins, internes, deduits, tiers, ref_libelle),
+    md.write_text(rapport(props, debut, fin, orphelins, internes, deduits, tiers, ref_libelle,
+                          hors_facturation=hors_facturation),
                   encoding="utf-8")
     yml = dossier / f"{args.month}.yml"
     yml.write_text(yaml.safe_dump({"periode": args.month, "genere": datetime.now().isoformat(timespec="minutes"),
@@ -288,6 +366,9 @@ def main():
         print(f"  {p['client']:10} {p['heures']:7.2f} h × {p['tarif'] or '?'} → "
               f"{p['total_ht'] if p['total_ht'] is not None else '?'} € HT"
               + (f"  ⚠ {', '.join(p['alertes'])}" if p["alertes"] else ""))
+    if hors_facturation:
+        print(f"  · {sum(x.heures for x in hors_facturation):.2f} h écartées "
+              f"(projets non facturables)")
     if orphelins:
         print(f"  ⚠ {len(orphelins)} saisie(s) sans client — voir le rapport")
     print(f"  rapport : {md}\n  proposition : {yml}")

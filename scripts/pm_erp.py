@@ -53,6 +53,9 @@ class Ligne:
     prix_unitaire: float
     service_id: int = None
     libelle: str = ""
+    #: Taux de TVA en pourcentage. `None` laisse Dolibarr décider — et il décide 0,
+    #: ce qui donne une facture FAUSSE (constaté le 20/10/2026 sur cinq brouillons).
+    tva: float = None
 
 
 @dataclass
@@ -65,6 +68,9 @@ class Facture:
     lignes: list
     note_publique: str = ""
     projet_id: int = None
+    #: Conditions de règlement (délai de paiement). 0 ou None = aucune posée, et
+    #: Dolibarr n'en met pas de lui-même : la facture part sans échéance.
+    reglement_id: int = None
 
 
 class ErpProvider:
@@ -88,9 +94,37 @@ class ErpProvider:
         raise NotImplementedError
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
-                        quand=None, projet_id=None):
+                        quand=None, projet_id=None, reglement_id=None):
         """Crée une facture BROUILLON. Ne valide jamais : la validation reste humaine."""
         raise NotImplementedError
+
+    def dernier_taux_tva(self, tiers_id, factures=None):
+        """Taux de TVA de la DERNIÈRE facture de ce tiers, ou None.
+
+        Même règle que le tarif : la facture précédente fait foi. Un tiers exonéré
+        garde son 0 % parce que ses factures le portent, pas parce qu'on l'a oublié.
+        """
+        for f in (factures if factures is not None else self.factures()):
+            if f.tiers_id != tiers_id or f.statut == "brouillon":
+                continue
+            taux = collections.Counter(round(l.tva, 3) for l in f.lignes
+                                       if l.quantite > 0 and l.tva is not None)
+            if taux:
+                return taux.most_common(1)[0][0]
+        return None
+
+    def dernier_reglement(self, tiers_id, factures=None):
+        """Conditions de règlement de la DERNIÈRE facture de ce tiers, ou None.
+
+        Même règle que le tarif et la TVA. Les valeurs nulles sont ignorées : une
+        facture partie SANS délai ne fait pas jurisprudence, elle témoigne d'un oubli.
+        """
+        for f in (factures if factures is not None else self.factures()):
+            if f.tiers_id != tiers_id or f.statut == "brouillon":
+                continue
+            if f.reglement_id:
+                return f.reglement_id
+        return None
 
     def dernier_tarif(self, tiers_id, factures=None):
         """Prix horaire de la DERNIÈRE facture de ce tiers, ou None s'il n'en a pas.
@@ -172,7 +206,8 @@ class DolibarrErpProvider(ErpProvider):
         brut = self.api("GET", f"invoices?limit={limite}&sortfield=t.datef&sortorder=DESC") or []
         sortie = []
         for f in brut:
-            lignes = [Ligne(quantite=float(l.get("qty") or 0),
+            lignes = [Ligne(tva=float(l.get("tva_tx") or 0),
+                            quantite=float(l.get("qty") or 0),
                             prix_unitaire=float(l.get("subprice") or 0),
                             service_id=int(l["fk_product"]) if l.get("fk_product") else None,
                             libelle=(l.get("desc") or "").strip())
@@ -183,12 +218,13 @@ class DolibarrErpProvider(ErpProvider):
                 total_ht=float(f.get("total_ht") or 0),
                 statut=_STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
                 lignes=lignes, note_publique=(f.get("note_public") or "").strip(),
-                projet_id=int(f["fk_project"]) if f.get("fk_project") else None))
+                projet_id=int(f["fk_project"]) if f.get("fk_project") else None,
+                reglement_id=int(f["cond_reglement_id"]) if f.get("cond_reglement_id") else None))
         return sortie
 
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
-                        quand=None, projet_id=None):
+                        quand=None, projet_id=None, reglement_id=None):
         """Facture brouillon Dolibarr : l'entête, puis ses lignes. Jamais `validate`.
 
         Une facture émise ne se rattrape pas : l'outil s'arrête au brouillon, que
@@ -201,6 +237,10 @@ class DolibarrErpProvider(ErpProvider):
             entete["date"] = quand.isoformat() if hasattr(quand, "isoformat") else quand
         if projet_id:
             entete["fk_project"] = int(projet_id)
+        # Sans conditions de règlement, Dolibarr n'en pose aucune : la facture part
+        # sans échéance de paiement (constaté le 20/10/2026 sur les cinq de juin).
+        if reglement_id:
+            entete["cond_reglement_id"] = int(reglement_id)
         fid = self.api("POST", "invoices", entete)
         if isinstance(fid, dict):
             fid = fid.get("id") or fid.get("rowid")
@@ -209,6 +249,9 @@ class DolibarrErpProvider(ErpProvider):
         for l in lignes:
             ligne = {"qty": round(float(l.quantite), 2), "subprice": float(l.prix_unitaire),
                      "product_type": 1, "desc": l.libelle or ""}
+            # Sans `tva_tx`, Dolibarr pose 0 % : la facture part sans TVA.
+            if l.tva is not None:
+                ligne["tva_tx"] = float(l.tva)
             if l.service_id:
                 ligne["fk_product"] = int(l.service_id)
             self.api("POST", f"invoices/{fid}/lines", ligne)
@@ -218,7 +261,24 @@ class DolibarrErpProvider(ErpProvider):
         brut = self.api("GET", f"invoices?thirdparty_ids={int(tiers_id)}&limit={limite}"
                                f"&sortfield=t.rowid&sortorder=DESC") or []
         return [{"id": int(f["id"]), "ref": f.get("ref") or "",
+                 "statut": _STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
                  "note_privee": (f.get("note_private") or "")} for f in brut]
+
+    def supprimer_brouillon(self, facture_id):
+        """Supprime une facture — et SEULEMENT si elle est encore un brouillon.
+
+        Le statut est relu sur le serveur juste avant : se fier à ce qu'on croyait
+        savoir reviendrait à risquer d'effacer une facture validée, voire envoyée.
+        C'est l'opération qu'on ne rattrape pas.
+        """
+        f = self.api("GET", f"invoices/{int(facture_id)}") or {}
+        statut = _STATUTS.get(str(f.get("statut", f.get("status"))), "?")
+        if statut != "brouillon":
+            raise RuntimeError(
+                f"facture {f.get('ref') or facture_id} au statut « {statut} » : "
+                f"seul un brouillon peut être supprimé")
+        self.api("DELETE", f"invoices/{int(facture_id)}")
+        return f.get("ref") or str(facture_id)
 
 
 _BACKENDS = {"dolibarr": DolibarrErpProvider}

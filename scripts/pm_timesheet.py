@@ -1358,7 +1358,10 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                         if cible[0] == client or _est_perso_ou_transversal(cible[0], p):
                             continue
                         a_rapatrier[cible] += v
-                    projet_presence.setdefault((cle, client), projet)
+                    # Le projet est figé AVANT le rapatriement : celui-ci vide le
+                    # temps du client, et le projet dominant ne serait plus lisible.
+                    projet_presence.setdefault(
+                        (cle, client), projet or _projet_dominant(final, cle, client, par_heure_cible))
                     for cible, v in a_rapatrier.items():
                         restant = final.get((cle, cible), 0.0)
                         pris = min(restant, v)
@@ -1381,12 +1384,16 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                 mesure = max(mesure, (deja_par_jour or {}).get(cle, 0))
                 manque = heures_jour * 60 - mesure
                 if manque > 1:
+                    cible_reunion = (projet or projet_presence.get((cle, client))
+                                     or _projet_dominant(final, cle, client, par_heure_cible))
                     if reunion_jour > 0:
                         part_reunion = min(reunion_jour * 60, manque)
-                        ajouts[(cle, (client, projet, None), "réunion")] += part_reunion
+                        ajouts[(cle, (client, cible_reunion, None), "réunion")] += part_reunion
                         manque -= part_reunion
+                    cible_jour = (projet or projet_presence.get((cle, client))
+                                  or _projet_dominant(final, cle, client, par_heure_cible))
                     if manque > 1:
-                        ajouts[(cle, (client, projet, None), "présence sur site")] += manque
+                        ajouts[(cle, (client, cible_jour, None), "présence sur site")] += manque
             jour += timedelta(days=1)
     # Le temps rapatrié rejoint le client SANS son ticket d'origine : un ticket
     # d'un autre projet ne peut pas être crédité ici (il appartient à son projet).
@@ -1394,12 +1401,37 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
     # inécrivable dans Redmine (« 1 ligne sans projet résolu : matnat/None ») et son
     # temps se perd en silence à la validation (constaté le 2026-10-13).
     for (cle, cible, client), v in transferts.items():
-        projet = projet_presence.get((cle, client))
+        projet = projet_presence.get((cle, client)) or _projet_dominant(final, cle, client, par_heure_cible)
         dest = (client, projet, None)
         final[(cle, dest)] = final.get((cle, dest), 0.0) + v
     for k in [k for k, v in final.items() if v <= 0]:
         del final[k]
     return dict(ajouts), dict(transferts)
+
+
+def _projet_dominant(final, jour, client, par_heure_cible=None):
+    """Le projet de ce client qui pèse le plus ce jour-là, ou None.
+
+    Une journée peut déclarer son client sans dire sur quel projet — c'est un menu
+    séparé dans l'écran, et on l'oublie. Le temps rapatrié tombait alors sur
+    `<client>/None` : une ligne qu'aucune saisie Redmine ne peut recevoir, dont le
+    temps se perdait à la validation (22/07/2026, 165 min pour matnat).
+
+    Plutôt que de perdre ce temps, on le pose sur le projet que la journée a le plus
+    travaillé pour ce client — l'hypothèse la moins surprenante, et corrigeable
+    ligne par ligne.
+    """
+    poids = collections.Counter()
+    for (j, cible), v in (final or {}).items():
+        if j == jour and cible[0] == client and cible[1] and v > 0:
+            poids[cible[1]] += v
+    if not poids:
+        # `final` a pu être vidé de ce client par la déduction des saisies déjà
+        # posées : la mesure BRUTE, elle, garde la trace du projet travaillé.
+        for (j, _h, cible), v in (par_heure_cible or {}).items():
+            if j == jour and cible[0] == client and cible[1] and v > 0:
+                poids[cible[1]] += v
+    return poids.most_common(1)[0][0] if poids else None
 
 
 def _est_perso_ou_transversal(entity, presence):

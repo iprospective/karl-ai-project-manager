@@ -374,6 +374,32 @@ export function activites(jour) {
     .sort((x, z) => x.libelle.localeCompare(z.libelle, "fr"));
 }
 
+/**
+ * Les mois clos restés sans facture (RM3488).
+ *
+ * Rien n'a été facturé du 01/06 au 20/10/2026 — quatre mois — et aucun mécanisme
+ * ne l'a dit. Ce rappel est l'endroit où ça se voit : le montant d'heures en jeu,
+ * le mois le plus ancien d'abord, car c'est lui qui dort depuis le plus longtemps.
+ */
+export function enAttente(liste) {
+  const l = (liste || []).filter(x => x && x.mois && x.client);
+  if (!l.length) return null;
+  const parMois = new Map();
+  for (const x of l) {
+    const m = parMois.get(x.mois) || { mois: x.mois, heures: 0, clients: [] };
+    m.heures += Number(x.heures) || 0;
+    if (!m.clients.includes(x.client)) m.clients.push(x.client);
+    parMois.set(x.mois, m);
+  }
+  const mois = [...parMois.values()].sort((a, z) => a.mois.localeCompare(z.mois));
+  for (const m of mois) m.clients.sort();
+  return {
+    mois, total: Math.round(mois.reduce((n, m) => n + m.heures, 0) * 100) / 100,
+    titre: mois.length === 1 ? "1 mois clos sans facture"
+                             : `${mois.length} mois clos sans facture`,
+  };
+}
+
 // ── La pause de midi (RM3229) ─────────────────────────────────────────────────
 
 /**

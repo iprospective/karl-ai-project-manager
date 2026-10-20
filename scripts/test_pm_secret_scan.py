@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests RM3274 (lot 1) — pm_secret_scan : reconnaître un secret sans jamais le recopier.
+"""Tests RM3274 (lot 1) + RM3465 (faux positifs) — pm_secret_scan : reconnaître un secret sans jamais le recopier.
 
 Ce qui doit tenir : les motifs de forge et de fournisseurs sont vus ; les faux
 positifs de RM2826 (chemins de fichiers) restent écartés ; l'agent qui signale
@@ -101,6 +101,42 @@ check("sans marque demandée, la détection tient",
 check("avec la marque demandée, le garde se tait",
       S.scan_secrets(f"{GLPAT} <!-- wiki-sync: allow -->",
                      allow_mark="<!-- wiki-sync: allow -->") == [])
+
+print("\n[RM3465] ce qui n'en a que l'air ne déclenche plus")
+SHA = "33184ae3feeeded031da64a7e9870f78cf7d9173"
+MD5 = "5cc77527d35007e28ddf04f30600c011"
+for nom, texte in (
+    ("hash git (submodule status)", f" {SHA} modules/mmi_x (heads/main)"),
+    ("hash git (ls-remote)", f"{SHA}\trefs/heads/main"),
+    ("hash git seul, sous un Merge", f"2da64c78c Merge branch 'dev' into 'master'\n{SHA}"),
+    ("hash dans une variable *_SHA", f"EXPECTED_SHA={SHA}"),
+    ("nom de classe PHP sans chiffre", "class MmiCombinationAttributePlannerTransformsRepository"),
+    ("chemin aux segments longs", "modules/x/controllers/admin/AdminMmiCombinationAttributesController.php:74"),
+    ("fichier de cache md5", f"?? adminpisc/yaml/{MD5}.php"),
+    ("jeton d'URL du BO PrestaShop", f"index.php?controller=AdminProducts&token={MD5}"),
+    ("jeton Symfony _token=", "employees/new?_token=h89A209mp09uWCtLZ6RfO4BCCKBu2aBtq0bE"),
+    ("clé publique d'un DSN Sentry", f"$sentryDsn = 'https://{MD5}@o298402.ingest.sentry.io/6066714'"),
+    ("classe générée dans une pile d'appels", "9. ComposerAutoloaderInit5f3e2a1b9c8d7e6f5a4b3c2d1e0f9a8b::getLoader()"),
+    ("blob base64 (capture d'écran)", "iVBORw0KGgo" + "A1b2C3d4" * 80),
+    ("URI de coffre secret:<chemin>", "resolve-secret.sh secret:karl@pisceen-presta.test.iprospective.fr password"),
+    ("URI de coffre secret://", "secret://<instance>/<chemin…>[#champ]"),
+    ("instance de coffre en config", "providers:\n  defaults:\n    secret: vaultwarden"),
+    ("gabarit <valeur>", "Sécurité : régénérer (password: <valeur>, secret: <valeur>)"),
+    ("prose française", "**le texte montre** un secret : préfixes connus"),
+):
+    check(f"{nom} : pas de détection", S.scan(texte) == [], str(S.scan(texte)))
+
+print("\n[RM3465] les vrais secrets restent vus")
+REDMINE = "7d1f" + "0a9be2c4d6f8" * 3
+for nom, texte in (
+    ("clé Redmine (40 hexa) en en-tête", f"X-Redmine-API-Key: {REDMINE}"),
+    ("clé Redmine (40 hexa) en .env", f"REDMINE_API_KEY={REDMINE}"),
+    ("blob base64 mixte de 40c", "token: Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdo"),
+    ("mot de passe en YAML", "password: S3cr3t-Pa55word"),
+    ("secret en YAML", "secret: s3cr3t9value"),
+    ("glpat- dans une ligne git", f"git push https://oauth2:{GLPAT}@gitlab.example/x.git"),
+):
+    check(f"{nom} : détecté", S.scan(texte) != [], str(S.scan(texte)))
 
 print("\n[RM3274] entrées dégénérées")
 for val in (None, "", 12345):

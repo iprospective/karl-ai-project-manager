@@ -5,12 +5,14 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
          bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA, grilleSemaine, grilleMois, avancement,
-         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda, activites } from "./billing.js";
+         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda, activites,
+         enAttente } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
-                ligne, ligneEdit, ajout }) {
+                ligne, ligneEdit, ajout, enAttente: att }) {
     this.ligne = ligne || null; this.le = ligneEdit || null; this.aj = ajout || null;
+    this.att = att || null;
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
     this.p = clientsEtProjets(projets || []);
@@ -193,6 +195,11 @@ export class BillingViewModel {
         // pas créer deux fois la même saisie : elle part aussi, mais elle n'intéresse
         // pas le lecteur — on la sépare plutôt que de la cacher.
         description: (l.description || "").replace(/\s*\[timesheet:[^\]]*\]\s*$/, ""),
+        //
+
+        // Ce que l'humain a écrit pour le client, s'il l'a écrit : c'est lui qui
+        // part en facture, pas le texte reconstruit.
+        commentaire: l.commentaire || "",
         marque: (String(l.description || "").match(/\[timesheet:[^\]]*\]/) || [""])[0],
         amendee: !!l.amendee,
         origine: l.origine ? `${l.origine.client || "?"}/${l.origine.projet || "?"}`
@@ -212,7 +219,7 @@ export class BillingViewModel {
     if (!this.ligne) return null;
     const e = this.le || {};
     return { cle: this.ligne, client: e.client || "", projet: e.projet || "",
-             ticket: e.ticket || "",
+             ticket: e.ticket || "", commentaire: e.commentaire || "",
              clients: this.p.clients,
              projets: e.client ? this.p.projets(e.client) : [],
              busy: this.busy === "ligne" || this.busy === "ligne-apply" };
@@ -237,6 +244,9 @@ export class BillingViewModel {
 
   /** Les rendez-vous de la journée — ce qui justifie la proposition. */
   get agenda() { return agenda(this.j); }
+
+  /** Le rappel des mois clos sans facture, s'il y en a. */
+  get enAttente() { return enAttente(this.att); }
 
   get dejaSaisi() {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({

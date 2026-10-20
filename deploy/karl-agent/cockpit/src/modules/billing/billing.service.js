@@ -22,6 +22,7 @@ export class BillingService {
     this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
     this.ligne = null;                   // clé de la ligne en cours de correction
     this.ajout = null;                   // formulaire d'ajout d'une ligne, s'il est ouvert
+    this.enAttente = null;               // mois clos sans facture (null = pas encore lu)
     this.ligneEdit = null;               // {client, projet, ticket} en cours de saisie
     this.vue = "jour";                   // jour | semaine | mois
     this.mois = {};                      // AAAA-MM → {date → résumé}, gardé d'une vue à l'autre
@@ -40,6 +41,19 @@ export class BillingService {
       this.projets = (r && r.projects) || [];
     } catch (e) { this.projets = []; }
     return this.projets;
+  }
+
+  /**
+   * Les mois clos restés sans facture. Chargés UNE fois, en arrière-plan : c'est un
+   * rappel, pas une dépendance — un échec le fait disparaître, il ne casse rien.
+   */
+  async chargerEnAttente() {
+    if (this.enAttente !== null) return this.enAttente;
+    try {
+      const r = await this.repo.pending();
+      this.enAttente = (r && r.a_facturer) || [];
+    } catch (e) { this.enAttente = []; }
+    return this.enAttente;
   }
 
   /** Bascule de vue. La journée regardée ne change pas : on la retrouve en revenant. */
@@ -92,7 +106,8 @@ export class BillingService {
   editerLigne(cle, depart = null) {
     if (!cle || this.ligne === cle) { this.ligne = null; this.ligneEdit = null; return null; }
     this.ligne = cle;
-    this.ligneEdit = Object.assign({ client: "", projet: "", ticket: "" }, depart || {});
+    this.ligneEdit = Object.assign({ client: "", projet: "", ticket: "", commentaire: "" },
+                                   depart || {});
     return this.ligne;
   }
 
@@ -107,7 +122,7 @@ export class BillingService {
     const e = this.ligneEdit || {};
     const args = { day: this.day, ligne: this.ligne };
     for (const [k, v] of [["set_client", e.client], ["set_projet", e.projet],
-                          ["set_ticket", e.ticket]]) {
+                          ["set_ticket", e.ticket], ["set_commentaire", e.commentaire]]) {
       if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
     }
     this.busy = "ligne";

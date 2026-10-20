@@ -25,6 +25,12 @@ function check(nom, cond, detail) {
   if (!cond) fails++;
 }
 
+// ── actions (RM3472) ────────────────────────────────────────────────────────
+check("verifier-visible : action reconnue, exige un sélecteur",
+      Array.isArray(S.ACTIONS["verifier-visible"]) && S.ACTIONS["verifier-visible"].includes("selecteur"));
+check("verifier-visible non observé => ÉCHEC",
+      S.verdictEtape({ numero: 1, action: "verifier-visible", selecteur: ".a" }, {}).ok === false);
+
 // ── substitution de paramètres ──────────────────────────────────────────────
 let r = S.substituer("bonjour {{prenom}}", { prenom: "Paul" });
 check("variable remplacée", r.valeur === "bonjour Paul" && r.manquantes.length === 0);

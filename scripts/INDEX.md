@@ -17,6 +17,7 @@
 - `pm-task-brief` — le « pack contexte » d'un ticket en ≤ 30 lignes
 - `pm-task-cd` — imprime le chemin de travail d'un ticket (frontmatter `git.worktree`).
 - `pm-task-comment` — Poste une note Redmine ET append au log local.
+- `pm-task-delete` — SUPPRIME réellement un ticket créé par erreur (Redmine + fichiers PM).
 - `pm-task-deliver` — livraison d'un ticket en UN appel
 - `pm-task-deploy` — actions à effectuer au déploiement : CF Redmine + frontmatter
 - `pm-task-description-update` — Met à jour la DESCRIPTION d'un ticket Redmine + sync MD.

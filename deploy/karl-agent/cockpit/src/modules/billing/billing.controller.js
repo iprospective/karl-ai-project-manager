@@ -29,6 +29,7 @@ export function mountBilling({ card } = {}, ctx = {}) {
     error: svc.error, busy: svc.busy, dirty: svc.dirty, projets: svc.projets,
     vue: svc.vue, resumes: svc.resumes(vueMois()), moisCharge: svc.moisCharge,
     ligne: svc.ligne, ligneEdit: svc.ligneEdit, ajout: svc.ajout,
+    enAttente: svc.enAttente,
   });
   /** Les mois dont la vue courante a besoin — lus du service, jamais devinés. */
   function vueMois() {
@@ -73,7 +74,12 @@ export function mountBilling({ card } = {}, ctx = {}) {
 
   function render() { if (h) h.update(Card(vm())); }
 
-  async function load(refresh) { render(); await svc.load(refresh); render(); }
+  async function load(refresh) {
+    render(); await svc.load(refresh); render();
+    // Le rappel des mois non facturés arrive APRÈS la journée : il ne doit jamais
+    // retarder l'écran, c'est un pense-bête.
+    if (svc.enAttente === null) { await svc.chargerEnAttente(); render(); }
+  }
 
   /** Ouverture du menu : la première fois charge, ensuite réaffiche (et relit si la journée est celle du jour). */
   async function open() {
@@ -189,7 +195,8 @@ export function mountBilling({ card } = {}, ctx = {}) {
       const l = vm().groupes.flatMap(g => g.lignes.map(x => ({ ...x, client: g.client })))
                    .find(x => x.cle === cle);
       svc.editerLigne(cle, l ? { client: l.client, projet: l.projet,
-                                 ticket: l.rm ? String(l.rm) : "" } : null);
+                                 ticket: l.rm ? String(l.rm) : "",
+                                 commentaire: l.commentaire || "" } : null);
       return render();
     }
     if (a === "ligne-cancel") { svc.editerLigne(null); return render(); }

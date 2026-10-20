@@ -14,7 +14,8 @@ Ce hook `Stop` relit le tour qui vient de finir et agit **sans geste de l'agent*
    (arbitrage Mathieu, 2026-09-21 : le réglage porte sur la précision de la
    détection, jamais sur le niveau) ;
 2. **ticket de rotation créé automatiquement**, type `security`, priorité
-   `immediat`, dans le projet du dossier courant, lié au ticket du tour ;
+   `immediat`, dans le projet du dossier courant, lié au ticket du tour — sauf sur le
+   seul signal « jeton haute entropie », qui notifie sans ouvrir de ticket (RM3465) ;
 3. **entrée au `.log.md`** du ticket courant, pour que l'incident survive à la
    session.
 
@@ -116,6 +117,19 @@ def dernier_tour(events):
             if role == "assistant" and b.get("type") == "text":
                 dit.append(txt)
     return "\n".join(montre), "\n".join(dit)
+
+
+def ticket_merite(inc):
+    """Faut-il un ticket de rotation ? (RM3465)
+
+    Non sur le seul « jeton haute entropie » : c'est une forme, pas un secret identifié,
+    et c'est lui qui a ouvert des tickets sur des hash git, des noms de classes et des
+    jetons d'URL PrestaShop (RM3433/3434/3436, supprimés). Oui dès qu'un motif porteur
+    (préfixe connu, `password:`, clé PEM…) ou un aveu de l'agent s'y ajoute.
+    """
+    if inc.get("avowal"):
+        return True
+    return any(h["label"] != pm_secret_scan.LABEL_HAUTE_ENTROPIE for h in inc.get("hits") or [])
 
 
 def message_notification(inc, rm_courant, ticket_rotation, plafonne):
@@ -258,10 +272,14 @@ def traiter(montre, dit, cwd=None, sid=None, rm_courant=None, dry_run=False):
     plafonne = n >= plafond
 
     rm_rotation, souci = (None, None)
-    if not plafonne:
+    ticket = ticket_merite(inc)
+    if ticket and not plafonne:
         rm_rotation, souci = ouvrir_ticket_rotation(inc, cwd, rm_courant, dry_run=dry_run)
 
     msg = message_notification(inc, rm_courant, rm_rotation, plafonne)
+    if not ticket:
+        msg += (" Signal statistique seul (forme de jeton, sans motif porteur ni aveu) : "
+                "pas de ticket de rotation — vérifier, et n'en ouvrir un que si c'est un vrai secret.")
     if souci:
         msg += f" ⚠ {souci}"
 

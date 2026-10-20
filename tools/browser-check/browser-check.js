@@ -21,6 +21,9 @@
  *     --screenshot <fichier.png>    capture pleine page, y compris en cas d'échec
  *     --allow-console-errors        n'échoue pas sur une erreur JS (à justifier)
  *     --allow-missing-assets        n'échoue pas sur un 404 de ressource (à justifier)
+ *     --mobile                      émule un téléphone : 390×844 ×3, tactile, UA Android
+ *     --tablet                      émule une tablette : 820×1180 ×2, tactile, UA Android
+ *                                   (RM3472 — exclusifs ; valent aussi pour --scenario)
  *     --json                        sortie machine
  *
  *   Mode PARCOURS (RM3359) — un tunnel de commande ne se joue pas en un clic :
@@ -97,12 +100,36 @@ async function lancer(pilote, mod, exe) {
   return mod.launch({ ...commun, headless: "new" });
 }
 
+/**
+ * Ouvre un onglet, avec l'appareil émulé si demandé (RM3472).
+ * playwright porte l'émulation sur le CONTEXTE (newContext), puppeteer sur la PAGE
+ * (page.emulate) — même résultat : viewport, densité, tactile et User-Agent.
+ */
+async function ouvrirPage(navigateur, pilote, profil) {
+  if (pilote.indexOf("playwright") === 0) {
+    const ctx = await navigateur.newContext(profil ? {
+      viewport: profil.viewport, deviceScaleFactor: profil.deviceScaleFactor,
+      isMobile: profil.isMobile, hasTouch: profil.hasTouch, userAgent: profil.userAgent,
+    } : {});
+    return ctx.newPage();
+  }
+  const page = await navigateur.newPage();
+  if (profil) {
+    await page.emulate({
+      viewport: { ...profil.viewport, deviceScaleFactor: profil.deviceScaleFactor,
+                  isMobile: profil.isMobile, hasTouch: profil.hasTouch },
+      userAgent: profil.userAgent,
+    });
+  }
+  return page;
+}
+
 /** Charge la page, joue le scénario, et rapporte CE QUI A ÉTÉ OBSERVÉ (aucun verdict ici). */
 async function observer(pilote, mod, exe, opts) {
   const obs = { consoleErrors: [] };
   const navigateur = await lancer(pilote, mod, exe);
   try {
-    const page = await navigateur.newPage();
+    const page = await ouvrirPage(navigateur, pilote, L.emulation(opts));
     page.on("console", (m) => { if (m.type() === "error") obs.consoleErrors.push(m.text()); });
     page.on("pageerror", (e) => obs.consoleErrors.push(String((e && e.message) || e)));
 
@@ -146,7 +173,7 @@ async function jouerScenario(pilote, mod, exe, plan, opts) {
   const resultats = [];
   const erreursJs = [];
   try {
-    const page = await navigateur.newPage();
+    const page = await ouvrirPage(navigateur, pilote, L.emulation(opts));
     page.on("console", (m) => { if (m.type() === "error") erreursJs.push(m.text()); });
     page.on("pageerror", (e) => erreursJs.push(String((e && e.message) || e)));
 
@@ -217,6 +244,15 @@ async function jouerEtape(page, etape, pilote, opts, memoire) {
       }
     case "verifier-selecteur":
       return { ok: !!(await page.$(etape.selecteur)), detail: "sélecteur absent" };
+    case "verifier-visible": {
+      // Présent dans le DOM ne veut pas dire affiché : un lien `hidden-md-up` existe sur
+      // desktop sans qu'on puisse le toucher. boundingBox() est null pour un élément masqué,
+      // dans les deux pilotes.
+      const el = await page.$(etape.selecteur);
+      if (!el) return { ok: false, detail: "sélecteur absent" };
+      const boite = await el.boundingBox();
+      return { ok: !!boite, detail: "présent mais masqué (display:none / hors rendu)" };
+    }
     case "verifier-texte":
       return { ok: (await page.content()).includes(etape.texte), detail: "texte absent de la page" };
     case "memoriser": {
@@ -305,6 +341,10 @@ async function main() {
     }
 
     const { resultats, erreursJs } = await jouerScenario(pilote, mod, exe, plan, opts);
+    const profil = L.emulation(opts);
+    if (profil) {
+      resultats.unshift({ nom: "émulation : " + L.libelleEmulation(profil), ok: true, detail: "" });
+    }
     const { js, assets } = L.classerErreurs(erreursJs);
     if (assets.length && !opts.allowMissingAssets) {
       resultats.push({ nom: "ressources chargées", ok: false, detail: assets.slice(0, 3).join(" | ") });
@@ -315,7 +355,7 @@ async function main() {
     const v = SC.verdict(resultats);
     const rendu = (txt) => SC.masquer(txt, secrets);
     if (opts.json) {
-      console.log(rendu(JSON.stringify({ scenario: plan.nom, ...v }, null, 2)));
+      console.log(rendu(JSON.stringify({ scenario: plan.nom, emulation: profil ? profil.nom : null, ...v }, null, 2)));
     } else {
       console.log(rendu(plan.nom + " :"));
       for (const r of v.etapes) {
@@ -337,7 +377,9 @@ async function main() {
   const res = L.evaluate(opts, obs);
 
   if (opts.json) {
-    console.log(JSON.stringify({ url: opts.url, pilote, chromium: exe, observe: obs, ...res }, null, 2));
+    const profil = L.emulation(opts);
+    console.log(JSON.stringify({ url: opts.url, pilote, chromium: exe, emulation: profil ? profil.nom : null,
+                                 observe: obs, ...res }, null, 2));
   } else {
     console.log(L.formatReport(res));
     if (obs.screenshot) console.log("capture : " + obs.screenshot);

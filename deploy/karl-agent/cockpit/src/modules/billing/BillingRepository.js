@@ -11,7 +11,7 @@ export class BillingRepository extends Repository {
     super({ name: "timesheet", ttl: 60000, max: 40,
             factory: new Factory({ type: "timesheet_day" }),
             routes: { day: "timesheet.day", month: "timesheet.month",
-                      projects: "project.projects" } });
+                      projects: "project.projects", pending: "invoice.pending" } });
   }
 
   /** Une journée. `refresh` rejoue les traces au lieu de lire le cache du jour (~20 s). */
@@ -32,4 +32,7 @@ export class BillingRepository extends Repository {
 
   /** Les clients et projets PM — ce que les menus du formulaire proposent. */
   projects() { return get(this.path("projects")); }
+  /** Les mois clos qui ont du temps facturable et pas de facture (RM3488). */
+  pending() { return get(this.path("pending")); }
+
 }

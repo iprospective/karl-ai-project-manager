@@ -234,3 +234,16 @@
 
 // Clore sans écrire : une sortie, pas une action de premier plan.
 .bl-clore { opacity: .75; &:hover { opacity: 1; } }
+
+// Le rappel des mois clos sans facture : visible sans voler la place à la journée.
+.bl-attente {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  margin: 0 0 10px; padding: 7px 10px; border-radius: 4px;
+  background: rgba(200, 150, 40, .12);
+  border-left: 3px solid var(--warn, #c93);
+  font-size: .9em;
+}
+.bl-att-m { white-space: nowrap; i { color: var(--fg-dim); font-style: normal; } }
+
+// La description client : le champ le plus large du formulaire, c'est du texte.
+.bl-l-desc-in input { width: 22em; }

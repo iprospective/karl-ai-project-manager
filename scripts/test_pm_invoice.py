@@ -281,5 +281,74 @@ verifie(_erp.dernier_taux_tva(99, _ft) is None,
         "sans facture antérieure, aucun taux n'est supposé")
 
 
+# ── Ce qui a du temps facturable et pas de facture (RM3488) ───────────────
+print("\nMois clos non facturés")
+verifie(I.mois_clos(date(2026, 10, 20), max_mois=3) == ["2026-07", "2026-08", "2026-09"],
+        "les mois ENTIÈREMENT écoulés, le mois courant exclu")
+verifie(I.mois_clos(date(2026, 1, 5), max_mois=2) == ["2025-11", "2025-12"],
+        "le passage d'année ne casse pas le compte")
+verifie(I.mois_clos(date(2026, 10, 20), depuis="2026-09", max_mois=12) == ["2026-09"],
+        "`depuis` borne au démarrage de l'outil : avant, on facturait à la main")
+
+_h = {("2026-07", "pisceen"): 15.75, ("2026-07", "matnat"): 11.25,
+      ("2026-08", "pisceen"): 35.5, ("2026-06", "pisceen"): 26.75}
+_m = {"pisceen": {"2026-06", "2026-07"}}
+_r = I.a_facturer(_h, _m, ["2026-07", "2026-08"])
+verifie([(x["mois"], x["client"]) for x in _r] == [("2026-07", "matnat"), ("2026-08", "pisceen")],
+        "ce qui est déjà facturé sort, le reste est rendu du plus ancien au plus récent")
+verifie(all(x["heures"] > 0 for x in _r), "et chaque manque dit ce qu'il pèse")
+verifie(I.a_facturer(_h, _m, []) == [], "aucun mois à voir : rien à dire")
+verifie(I.a_facturer({("2026-07", "x"): 0.0}, {}, ["2026-07"]) == [],
+        "un mois sans temps facturable n'est pas un manque")
+verifie(I.a_facturer({}, {}, ["2026-07"]) == [], "ni un mois sans aucune saisie")
+
+
+print("\nCe qui a été écrit pour le client passe devant (RM3489)")
+_sd = [I.Saisie(jour="2026-10-15", projet="matnat-infra", projet_nom="MatNat Infra",
+                heures=2.0, ticket=42, activite_id=9,
+                commentaire="Mise en place de la validation des journées [timesheet:x]")]
+_ld = I.lignes_facture(_sd, {}, titres={42: "Refonte interne du suivi"})
+_dd = _ld[0].description
+verifie(_dd.startswith("Mise en place de la validation des journées"),
+        "la phrase écrite pour le client ouvre la description")
+verifie("RM42 Refonte interne du suivi" in _dd,
+        "le titre du ticket suit, il ne disparaît pas")
+
+_sf = [I.Saisie(jour="2026-10-15", projet="matnat-infra", projet_nom="MatNat Infra",
+                heures=2.0, ticket=42, activite_id=9,
+                commentaire="Travail assisté [timesheet:x]")]
+_lf = I.lignes_facture(_sf, {}, titres={42: "Refonte"})
+verifie(not _lf[0].dites, "une formule de l'outil ne devient pas une phrase client")
+
+
+# ── Parler la langue du client (RM3490) ───────────────────────────────────
+print("\nReformulation par glossaire")
+_g = {"*": {"reappro": "réapprovisionnement", "sysadmin": "administration système"},
+      "calicote": {"antigaspi": "anti-gaspillage"}}
+verifie(I.reformuler("Réappro étape 3", _g, "calicote") == "Réapprovisionnement étape 3",
+        "le terme est remplacé, et la MAJUSCULE d'origine conservée")
+verifie(I.reformuler("badge ANTIGASPI", _g, "calicote") == "badge ANTI-GASPILLAGE",
+        "un mot tout en capitales le reste")
+verifie(I.reformuler("badge antigaspi", _g, "pisceen") == "badge antigaspi",
+        "le glossaire d'un client ne déborde pas sur un autre")
+verifie(I.reformuler("du sysadmin", _g, "pisceen") == "du administration système",
+        "le glossaire commun vaut pour tous — à charge du rédacteur que ça s'insère")
+verifie(I.reformuler("reapprovisionnement fait", _g, None) == "reapprovisionnement fait",
+        "un mot déjà clair n'est pas retouché")
+verifie(I.reformuler("stock-reappro", _g, None) == "stock-réapprovisionnement",
+        "un terme composé par un tiret est reconnu")
+verifie(I.reformuler("Réapprochement", _g, None) == "Réapprochement",
+        "pas de remplacement au milieu d'un mot : « réappro » n'est pas « réapprochement »")
+verifie(I.reformuler("Réappro", None, "x") == "Réappro", "sans glossaire, rien ne bouge")
+verifie(I.reformuler("", _g, "x") == "", "ni sur un texte vide")
+verifie(I.reformuler("Réappro", {"*": {"reappro": ""}}, None) == "Réappro",
+        "un remplacement vide est ignoré : on n'efface pas un mot par accident")
+
+_lg = I.LigneProposee(libelle="", heures=1.0, tickets=[7], jours=["2026-06-03"])
+_d = I.description_ligne(_lg, {7: "Réappro des stocks"}, glossaire=_g, client="calicote")
+verifie("Réapprovisionnement des stocks" in _d,
+        "la description d'une ligne passe par le glossaire")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

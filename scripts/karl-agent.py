@@ -10444,6 +10444,10 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--delete-ligne"},
          {"name": "commentaire", "label": "Commentaire", "type": "text",
           "flag": "--commentaire", "max_len": 200},
+         # Ce que la ligne dira AU CLIENT : écrit ici, il part dans Redmine puis sur
+         # la facture, à la place du texte reconstruit depuis les titres de tickets.
+         {"name": "set_commentaire", "label": "Description client", "type": "text",
+          "flag": "--set-commentaire", "max_len": 200},
      ]},
     # Ajouter une ligne que le calcul n'a pas vue : un appel, un déplacement, une
     # réunion sans trace. Elle CRÉE du temps, donc elle dit tout d'elle-même.
@@ -12724,6 +12728,31 @@ def op_timesheet_month(qs: dict) -> dict:
     return data
 
 
+def op_invoice_pending(qs: dict) -> dict:
+    """Les mois clos qui ont du temps facturable et pas de facture (RM3488).
+
+    LECTURE SEULE : `pm-invoice --pending` ne crée ni ne modifie rien. C'est la
+    question que personne ne posait — quatre mois ont passé sans facture avant
+    qu'une relecture à la main ne le voie (20/10/2026).
+    """
+    path = (REPO_ROOT / "scripts" / "pm-invoice.py").resolve()
+    if not path.is_file():
+        raise ApiError(500, "script introuvable : pm-invoice.py")
+    try:
+        p = subprocess.run([sys.executable, str(path), "--pending", "--json"],
+                           cwd=str(REPO_ROOT), capture_output=True, text=True,
+                           timeout=600, env=_env_acteur())
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "pm-invoice : timeout (600s)")
+    # `--pending` sort en 1 quand il TROUVE quelque chose : c'est un constat, pas
+    # une panne. Seule une sortie illisible est une erreur.
+    sortie = (p.stdout or "").strip().splitlines()
+    try:
+        return json.loads(sortie[-1]) if sortie else {"a_facturer": []}
+    except ValueError:
+        raise ApiError(502, f"pm-invoice : {(p.stderr or p.stdout or '').strip()[-300:]}")
+
+
 def _mr_deliver_context(rm_id: str):
     """Résout (bare_code, branche_source, intégration) d'un ticket pour livrer sa
     MR SANS dépendre d'un worktree (RM2355) : projet de code depuis le bare
@@ -13756,6 +13785,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/timesheet/day":       # RM3229 : la journée à valider
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_timesheet_day(qs))
+            if path == "/invoice/pending":     # RM3488 : les mois clos non facturés
+                return self._send_json(200, op_invoice_pending(qs))
             if path == "/timesheet/month":     # RM3229 : les vues semaine et mois
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_timesheet_month(qs))

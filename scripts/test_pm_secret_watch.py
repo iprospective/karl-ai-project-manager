@@ -114,6 +114,19 @@ with tempfile.TemporaryDirectory() as tmp:
     m3, d3 = W.dernier_tour(tick._load_transcript(str(t3)))
     check("pas d'incident sur un chemin", W.traiter(m3, d3, cwd=tmp, sid="s3", dry_run=True).get("incident") is not True)
 
+    print("\n[RM3465] le signal statistique seul notifie sans ouvrir de ticket")
+    BLOB = "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdo"
+    seul = S.incident(f"sortie : {BLOB}", "rien à signaler")
+    check("forme de jeton seule → incident", bool(seul) and seul["labels"] == [S.LABEL_HAUTE_ENTROPIE],
+          str(seul))
+    check("… mais pas de ticket", W.ticket_merite(seul) is False)
+    res2 = W.traiter(f"sortie : {BLOB}", "rien à signaler", cwd=tmp, sid="s9", rm_courant=1234, dry_run=True)
+    check("la notification le dit", "pas de ticket de rotation" in (res2.get("message") or ""),
+          res2.get("message"))
+    check("motif porteur → ticket", W.ticket_merite(S.incident(f"{GLPAT} et {BLOB}", "")) is True)
+    check("aveu de l'agent → ticket", W.ticket_merite(S.incident(f"sortie : {BLOB}",
+          "j'ai affiché en clair le jeton, il faut le régénérer")) is True)
+
     print("\n[RM3274] le hook ne fait jamais échouer le tour")
     exe = [sys.executable, str(HERE / "pm-secret-watch.py")]
     for nom, entree in (("payload vide", ""),

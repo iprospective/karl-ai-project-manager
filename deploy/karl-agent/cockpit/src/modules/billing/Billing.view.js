@@ -167,9 +167,11 @@ function EditionLigne(vm) {
       <option value="">— inchangée —</option>
       ${e.activites.map(x => html`<option value="${x.id}"${x.id === String(e.activite) ? raw(" selected") : raw("")}>${x.libelle}</option>`)}
     </select></label>
+    <label class="bl-l-desc-in">description client <input type="text" placeholder="ce que le client lira"
+      data-action="ligne-champ" data-champ="commentaire" value="${e.commentaire}" ${e.busy ? raw("disabled") : raw("")}></label>
     <button class="btn mini" data-action="ligne-save" ${e.busy ? raw("disabled") : raw("")}>enregistrer</button>
     <button class="mini" data-action="ligne-cancel">annuler</button>
-    <div class="bl-dim">les minutes ne changent pas : on déplace du temps, on n'en crée pas.</div>
+    <div class="bl-dim">les minutes ne changent pas : on déplace du temps, on n'en crée pas. La description écrite ici part telle quelle sur la facture.</div>
   </div>`;
 }
 
@@ -292,6 +294,17 @@ export function Correspondances(vm) {
   </details>`;
 }
 
+/** Le rappel des mois clos sans facture — l'alerte qui manquait (RM3488). */
+export function EnAttente(vm) {
+  const a = vm.enAttente;
+  if (!a) return "";
+  return html`<div class="bl-attente" title="Mois entièrement écoulés qui ont du temps facturable sans facture portant la marque de l'outil">
+    <b>⚠ ${a.titre}</b> — ${String(a.total)} h facturables
+    ${a.mois.map(m => html`<span class="bl-att-m">${m.mois} <i>${m.clients.join(", ")}</i> ${String(Math.round(m.heures * 10) / 10)} h</span>`)}
+    <span class="bl-dim">· <code>mmi-pm invoice --month &lt;mois&gt;</code></span>
+  </div>`;
+}
+
 /** Une case de grille : une journée, son état, son poids, ses clients. */
 const CaseJour = (c) => html`<button class="bl-case bl-e-${c.etat}${c.weekend ? " bl-we-case" : ""}${c.courant ? " bl-courant" : ""}${c.horsMois ? " bl-hors-mois" : ""}" data-action="aller" data-jour="${c.date}" title="${c.titre}">
   <span class="bl-case-n">${c.jourDuMois}</span>
@@ -337,7 +350,7 @@ export function Panel(vm) {
   if (vm.loading && !vm.j) return html`${Header(vm)}<div class="bl-load">lecture de la journée…<span class="bl-dim"> (la première fois, les traces sont rejouées : quelques secondes)</span></div>`;
   if (vm.vue === "semaine") return VueSemaine(vm);
   if (vm.vue === "mois") return VueMois(vm);
-  return html`${Barre(vm)}${Header(vm)}${Chiffres(vm)}${Frise(vm)}${NoteDuJour(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
+  return html`${Barre(vm)}${EnAttente(vm)}${Header(vm)}${Chiffres(vm)}${Frise(vm)}${NoteDuJour(vm)}${Ajustement(vm)}${Contexte(vm)}${Proposition(vm)}${DejaSaisi(vm)}${Actions(vm)}${Blocs(vm)}${Correspondances(vm)}${Fil(vm)}`;
 }
 
 export function Card(vm) {

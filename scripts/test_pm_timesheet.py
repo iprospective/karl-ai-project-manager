@@ -808,5 +808,25 @@ verifie(len(_l5) == 1 and _l5[0]["minutes"] == 480,
         "sans amendement, la ligne est celle du calcul")
 
 
+# ── La description écrite POUR LE CLIENT (RM3489) ──────────────────────────
+print("\nLa description écrite pour le client")
+_lc = [{"jour": "2026-10-15", "client": "matnat", "projet": "infra", "ticket": 42,
+        "activite": 9, "minutes": 60}]
+W._poser_cles(_lc)
+W.amender_lignes(_lc, {"2026-10-15": {"lignes": {
+    _lc[0]["cle"]: {"commentaire": "Mise en place de la validation des journées"}}}})
+verifie(_lc[0]["commentaire"] == "Mise en place de la validation des journées",
+        "le texte écrit pour le client est porté par la ligne")
+verifie(_lc[0]["ticket"] == 42,
+        "écrire une description ne LÂCHE PAS le ticket : la cible n'a pas changé")
+verifie(_lc[0]["minutes"] == 60, "ni les minutes")
+verifie(_lc[0]["origine"].get("commentaire") is None,
+        "l'origine garde qu'il n'y avait rien avant")
+
+_vide = [dict(_lc[0], commentaire="x")]
+W.amender_lignes(_vide, {"2026-10-15": {"lignes": {_vide[0]["cle"]: {"commentaire": None}}}})
+verifie(_vide[0]["commentaire"] is None, "« - » efface la description et rend la main au calcul")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

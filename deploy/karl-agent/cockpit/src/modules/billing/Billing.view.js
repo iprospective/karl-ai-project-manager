@@ -159,9 +159,11 @@ function EditionLigne(vm) {
     </select></label>
     <label>ticket <input type="text" inputmode="numeric" placeholder="numéro, ou « - » pour aucun"
       data-action="ligne-champ" data-champ="ticket" value="${e.ticket}" ${e.busy ? raw("disabled") : raw("")}></label>
+    <label class="bl-l-desc-in">description client <input type="text" placeholder="ce que le client lira"
+      data-action="ligne-champ" data-champ="commentaire" value="${e.commentaire}" ${e.busy ? raw("disabled") : raw("")}></label>
     <button class="btn mini" data-action="ligne-save" ${e.busy ? raw("disabled") : raw("")}>enregistrer</button>
     <button class="mini" data-action="ligne-cancel">annuler</button>
-    <div class="bl-dim">les minutes ne changent pas : on déplace du temps, on n'en crée pas.</div>
+    <div class="bl-dim">les minutes ne changent pas : on déplace du temps, on n'en crée pas. La description écrite ici part telle quelle sur la facture.</div>
   </div>`;
 }
 

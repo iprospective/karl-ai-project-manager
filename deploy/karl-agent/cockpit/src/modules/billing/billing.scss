@@ -244,3 +244,6 @@
   font-size: .9em;
 }
 .bl-att-m { white-space: nowrap; i { color: var(--fg-dim); font-style: normal; } }
+
+// La description client : le champ le plus large du formulaire, c'est du texte.
+.bl-l-desc-in input { width: 22em; }

@@ -188,7 +188,8 @@ export function mountBilling({ card } = {}, ctx = {}) {
       const l = vm().groupes.flatMap(g => g.lignes.map(x => ({ ...x, client: g.client })))
                    .find(x => x.cle === cle);
       svc.editerLigne(cle, l ? { client: l.client, projet: l.projet,
-                                 ticket: l.rm ? String(l.rm) : "" } : null);
+                                 ticket: l.rm ? String(l.rm) : "",
+                                 commentaire: l.commentaire || "" } : null);
       return render();
     }
     if (a === "ligne-cancel") { svc.editerLigne(null); return render(); }

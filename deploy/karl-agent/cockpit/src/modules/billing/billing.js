@@ -362,6 +362,19 @@ export function agenda(jour) {
 }
 
 /**
+ * Les activités Redmine proposables, {id, libelle}, triées par libellé.
+ *
+ * Une saisie sans activité part sur l'activité par défaut de la configuration :
+ * c'est rarement la bonne, et personne ne le voit. Autant la choisir.
+ */
+export function activites(jour) {
+  const a = (jour && jour.activites) || {};
+  return Object.entries(a)
+    .map(([id, libelle]) => ({ id: String(id), libelle: String(libelle || id) }))
+    .sort((x, z) => x.libelle.localeCompare(z.libelle, "fr"));
+}
+
+/**
  * Les mois clos restés sans facture (RM3488).
  *
  * Rien n'a été facturé du 01/06 au 20/10/2026 — quatre mois — et aucun mécanisme

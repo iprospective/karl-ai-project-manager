@@ -108,6 +108,10 @@ function AjoutLigne(vm) {
       ${a.projets.map(x => html`<option value="${x}"${x === a.projet ? raw(" selected") : raw("")}>${x}</option>`)}
     </select></label>
     <label>ticket <input type="text" inputmode="numeric" placeholder="numéro" data-action="ajout-champ" data-champ="ticket" value="${a.ticket}" ${a.busy ? raw("disabled") : raw("")}></label>
+    <label>activité <select data-action="ajout-champ" data-champ="activite" ${a.busy ? raw("disabled") : raw("")}>
+      <option value="">— par défaut —</option>
+      ${a.activites.map(x => html`<option value="${x.id}"${x.id === String(a.activite) ? raw(" selected") : raw("")}>${x.libelle}</option>`)}
+    </select></label>
     <label>durée <input type="text" inputmode="numeric" placeholder="minutes" data-action="ajout-champ" data-champ="minutes" value="${String(a.minutes)}" ${a.busy ? raw("disabled") : raw("")}></label>
     <label>commentaire <input type="text" placeholder="ce que recouvre ce temps" data-action="ajout-champ" data-champ="commentaire" value="${a.commentaire}" ${a.busy ? raw("disabled") : raw("")}></label>
     <button class="btn mini" data-action="ajout-save" ${a.busy ? raw("disabled") : raw("")}>ajouter</button>
@@ -159,6 +163,10 @@ function EditionLigne(vm) {
     </select></label>
     <label>ticket <input type="text" inputmode="numeric" placeholder="numéro, ou « - » pour aucun"
       data-action="ligne-champ" data-champ="ticket" value="${e.ticket}" ${e.busy ? raw("disabled") : raw("")}></label>
+    <label>activité <select data-action="ligne-champ" data-champ="activite" ${e.busy ? raw("disabled") : raw("")}>
+      <option value="">— inchangée —</option>
+      ${e.activites.map(x => html`<option value="${x.id}"${x.id === String(e.activite) ? raw(" selected") : raw("")}>${x.libelle}</option>`)}
+    </select></label>
     <label class="bl-l-desc-in">description client <input type="text" placeholder="ce que le client lira"
       data-action="ligne-champ" data-champ="commentaire" value="${e.commentaire}" ${e.busy ? raw("disabled") : raw("")}></label>
     <button class="btn mini" data-action="ligne-save" ${e.busy ? raw("disabled") : raw("")}>enregistrer</button>

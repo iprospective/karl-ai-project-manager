@@ -5,7 +5,8 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
          bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA, grilleSemaine, grilleMois, avancement,
-         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda, enAttente } from "./billing.js";
+         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda, activites,
+         enAttente } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
@@ -225,11 +226,14 @@ export class BillingViewModel {
   }
 
   /** Le formulaire d'ajout d'une ligne, s'il est ouvert. */
+  get activites() { return activites(this.j); }
+
   get ajout() {
     if (!this.aj) return null;
     const a = this.aj;
     return { client: a.client || "", projet: a.projet || "", ticket: a.ticket || "",
              minutes: a.minutes || "", commentaire: a.commentaire || "",
+             activite: a.activite || "", activites: this.activites,
              clients: this.p.clients,
              projets: a.client ? this.p.projets(a.client) : [],
              busy: this.busy === "ligne" };

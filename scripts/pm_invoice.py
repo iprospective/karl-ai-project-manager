@@ -15,6 +15,7 @@ Une proposition ne crée rien : elle se relit, s'amende, puis s'applique.
 """
 import collections
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -116,7 +117,8 @@ def rattacher(saisies, projet_vers_client, entites, cles_multi=None):
 
 # ── Regrouper en lignes de facture ───────────────────────────────────────────
 
-def lignes_facture(saisies, services_par_activite, groupement="activite", titres=None):
+def lignes_facture(saisies, services_par_activite, groupement="activite", titres=None,
+                   glossaire=None, client=None):
     """Lignes d'une facture pour UN client.
 
     - `activite` (pratique historique) : une ligne par service du catalogue ; ce qui
@@ -162,7 +164,7 @@ def lignes_facture(saisies, services_par_activite, groupement="activite", titres
             # la pratique des factures existantes : « Divers les 07, 13, 14, 27 avril »
             mois = MOIS[date.fromisoformat(sorted(g.jours)[0]).month - 1]
             g.libelle = f"Divers les {enumerer(j[8:10] for j in sorted(g.jours))} {mois}"
-        g.description = description_ligne(g, titres)
+        g.description = description_ligne(g, titres, glossaire=glossaire, client=client)
     return [g for g in groupes.values() if g.heures > 0]
 
 
@@ -232,6 +234,63 @@ def commentaire_utile(texte, projet=None, deja=(), projet_id=None):
     return t
 
 
+def _sans_accent(mot):
+    """Minuscules sans accents : « Réappro » et « reappro » sont le même terme."""
+    plat = unicodedata.normalize("NFKD", str(mot or ""))
+    return "".join(c for c in plat if not unicodedata.combining(c)).lower()
+
+
+def reformuler(texte, glossaire=None, client=None):
+    """Remplace le vocabulaire interne par celui du client (RM3490).
+
+    « réappro », « presta », « sysadmin » : des mots qu'on s'écrit entre soi. Le
+    client paie, il doit comprendre ce qu'il lit.
+
+    Remplacement sur MOT ENTIER, insensible à la casse et aux accents, et la casse
+    d'origine est respectée : « Réappro étape 3 » devient « Réapprovisionnement
+    étape 3 », pas « réapprovisionnement étape 3 ». Le glossaire du client prime
+    sur le glossaire commun (`*`).
+    """
+    if not texte or not glossaire:
+        return texte
+    table = {}
+    for cle in ("*", client):
+        for terme, remplacement in (glossaire.get(cle) or {}).items():
+            if terme and remplacement:
+                table[_sans_accent(terme)] = str(remplacement)
+    if not table:
+        return texte
+
+    def _casse(source, cible):
+        """Rend `cible` dans la casse de `source` : MAJUSCULES, Capitale, ou tel quel."""
+        if source.isupper() and len(source) > 1:
+            return cible.upper()
+        if source[:1].isupper():
+            return cible[:1].upper() + cible[1:]
+        return cible
+
+    def _remplace(m):
+        mot = m.group(0)
+        cible = table.get(_sans_accent(mot))
+        if cible:
+            return _casse(mot, cible)
+        # Le mot entier n'est pas au glossaire : ses segments le sont peut-être
+        # (« stock-reappro », « synchro-presta »). On ne touche que ceux qui y sont.
+        if not re.search(r"[-'\u2019]", mot):
+            return mot
+        bouts = re.split(r"([-'\u2019])", mot)
+        change = False
+        for i, bout in enumerate(bouts):
+            c = table.get(_sans_accent(bout))
+            if c:
+                bouts[i] = _casse(bout, c)
+                change = True
+        return "".join(bouts) if change else mot
+
+    # `\w` couvre les accents en Python 3 : « réappro » est un seul mot.
+    return re.sub(r"\w+(?:[-'\u2019]\w+)*", _remplace, texte)
+
+
 def _sujet(ticket, titre):
     """Un sujet présentable : le titre nettoyé, coupé, ou le numéro à défaut."""
     t = _INTERNE_RE.sub(" ", titre or "").strip(" -—:·")
@@ -246,7 +305,8 @@ def _sujet(ticket, titre):
     return f"RM{ticket} {t}".strip() if t else f"RM{ticket}"
 
 
-def description_ligne(ligne, titres=None, max_sujets=MAX_SUJETS):
+def description_ligne(ligne, titres=None, max_sujets=MAX_SUJETS,
+                      glossaire=None, client=None):
     """Ce que la ligne recouvre : les sujets traités, puis les jours.
 
     Une facture qui ne porte que « Développement — 15 h » est exacte et illisible :
@@ -291,7 +351,7 @@ def description_ligne(ligne, titres=None, max_sujets=MAX_SUJETS):
         morceaux.append(f"les {enumerer(j[8:10] for j in jours)} {mois}"
                         if len(jours) > 1 else
                         f"le {jours[0][8:10]} {mois}")
-    texte = " — ".join(morceaux)
+    texte = reformuler(" — ".join(morceaux), glossaire, client)
     if len(texte) > MAX_DESCRIPTION:
         texte = texte[:MAX_DESCRIPTION].rsplit(" · ", 1)[0].rstrip(" ·—,") + " …"
     return texte
@@ -433,7 +493,8 @@ def a_facturer(heures_par_mois, marques_par_client, mois_a_voir):
 # ── Assemblage ───────────────────────────────────────────────────────────────
 
 def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_activite,
-             groupement=None, titres=None, meps=None, tva=None, reglements=None):
+             groupement=None, titres=None, meps=None, tva=None, reglements=None,
+             glossaire=None):
     """Une proposition de facture par client. Pure : tout arrive en paramètre."""
     groupement = groupement or {}
     par_client = collections.defaultdict(list)
@@ -443,7 +504,8 @@ def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_acti
     for client, liste in sorted(par_client.items()):
         tiers = tiers_par_client.get(client)
         lignes = lignes_facture(liste, services_par_activite,
-                                groupement.get(client, "activite"), titres)
+                                groupement.get(client, "activite"), titres,
+                                glossaire=glossaire, client=client)
         heures_jour = collections.Counter()
         for s in liste:
             heures_jour[s.jour] += s.heures * s.part

@@ -321,5 +321,34 @@ _lf = I.lignes_facture(_sf, {}, titres={42: "Refonte"})
 verifie(not _lf[0].dites, "une formule de l'outil ne devient pas une phrase client")
 
 
+# ── Parler la langue du client (RM3490) ───────────────────────────────────
+print("\nReformulation par glossaire")
+_g = {"*": {"reappro": "réapprovisionnement", "sysadmin": "administration système"},
+      "calicote": {"antigaspi": "anti-gaspillage"}}
+verifie(I.reformuler("Réappro étape 3", _g, "calicote") == "Réapprovisionnement étape 3",
+        "le terme est remplacé, et la MAJUSCULE d'origine conservée")
+verifie(I.reformuler("badge ANTIGASPI", _g, "calicote") == "badge ANTI-GASPILLAGE",
+        "un mot tout en capitales le reste")
+verifie(I.reformuler("badge antigaspi", _g, "pisceen") == "badge antigaspi",
+        "le glossaire d'un client ne déborde pas sur un autre")
+verifie(I.reformuler("du sysadmin", _g, "pisceen") == "du administration système",
+        "le glossaire commun vaut pour tous — à charge du rédacteur que ça s'insère")
+verifie(I.reformuler("reapprovisionnement fait", _g, None) == "reapprovisionnement fait",
+        "un mot déjà clair n'est pas retouché")
+verifie(I.reformuler("stock-reappro", _g, None) == "stock-réapprovisionnement",
+        "un terme composé par un tiret est reconnu")
+verifie(I.reformuler("Réapprochement", _g, None) == "Réapprochement",
+        "pas de remplacement au milieu d'un mot : « réappro » n'est pas « réapprochement »")
+verifie(I.reformuler("Réappro", None, "x") == "Réappro", "sans glossaire, rien ne bouge")
+verifie(I.reformuler("", _g, "x") == "", "ni sur un texte vide")
+verifie(I.reformuler("Réappro", {"*": {"reappro": ""}}, None) == "Réappro",
+        "un remplacement vide est ignoré : on n'efface pas un mot par accident")
+
+_lg = I.LigneProposee(libelle="", heures=1.0, tickets=[7], jours=["2026-06-03"])
+_d = I.description_ligne(_lg, {7: "Réappro des stocks"}, glossaire=_g, client="calicote")
+verifie("Réapprovisionnement des stocks" in _d,
+        "la description d'une ligne passe par le glossaire")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

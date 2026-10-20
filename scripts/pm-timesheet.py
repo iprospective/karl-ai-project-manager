@@ -380,9 +380,16 @@ def calculer(args, cfg, conf):
             if j < aujourdhui:
                 W.cache_ecrire(j, frais.get(j, []))
             items += frais.get(j, [])
-    if not items:
-        sys.exit(f"Aucune trace sur la période {libelle} — sources : "
-                 + ", ".join(s.get("kind", "?") for s in _sources(conf)))
+    # Aucune trace n'est pas une erreur : un jour férié, un week-end, une journée dont
+    # les transcripts sont purgés gardent ce qui compte — ce qui est DÉJÀ dans Redmine,
+    # l'agenda, la note, et le droit de clore la journée. Sortir en erreur rendait ces
+    # journées-là inaccessibles à l'écran (« journée illisible », 2026-10-20).
+    sans_trace = not items
+    if sans_trace:
+        print(f"  ⚠ aucune trace sur {libelle} — sources : "
+              + ", ".join(s.get("kind", "?") for s in _sources(conf))
+              + ". La journée reste consultable (déjà saisi, agenda, note).",
+              file=sys.stderr)
 
     resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
     for e, rm in items:
@@ -455,6 +462,7 @@ def calculer(args, cfg, conf):
             "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
+            "sans_trace": sans_trace, "jour_demande": args.day or None,
             "deduit": deduit, "events": len(events), "sources": detail,
             "debut": debut, "fin": fin}
 
@@ -1271,7 +1279,11 @@ def vue_json(res, prop, commits=True):
     de croire un chiffre ; avec eux, il le donne à vérifier.
     """
     jours = sorted(set(res["totaux"]) | {l["jour"] for l in prop["lignes"]}
-                   | {s["jour"] for s in res.get("saisies", [])})
+                   | {s["jour"] for s in res.get("saisies", [])}
+                   # La journée DEMANDÉE figure toujours, même si rien ne la peuple :
+                   # sans cela une journée sans aucune trace ni saisie n'existait pas
+                   # pour l'écran, et ne pouvait donc être ni consultée ni close.
+                   | ({res["jour_demande"]} if res.get("jour_demande") else set()))
     table_clients = res.get("table_clients") or {}
     slugs = res.get("slugs_redmine") or {}
     sortie = []

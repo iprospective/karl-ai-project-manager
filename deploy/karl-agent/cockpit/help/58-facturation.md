@@ -69,6 +69,16 @@ de les enregistrer. Rien n'est appliqué d'office : sur quatre notes réelles, u
 plus permissive prenait la pause (« Pause 2h repas 12h30-14h30 ») et une estimation de
 réunion (« entre 1.5 et 3h ») pour des horaires de journée.
 
+## Une journée sans trace reste une journée
+
+Quand aucune trace de travail n'est trouvée — transcripts purgés, journée passée
+ailleurs, dimanche — l'écran **affiche quand même la journée** : ce qui est déjà dans
+Redmine, les tours d'agent, l'agenda, la note du jour. Et elle se **clôt** normalement.
+
+Auparavant l'écran répondait « journée illisible » et la journée devenait inaccessible.
+Elle gardait pourtant souvent l'essentiel : le 02/06/2026 n'avait aucune trace, mais
+**6 saisies Redmine, 9 tours d'agent, une note et un rendez-vous**.
+
 ## Le client, depuis l'agenda
 
 L'**agenda pro** (Nextcloud) sait chez **qui** vous étiez — ce qu'aucune trace de

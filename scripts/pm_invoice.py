@@ -47,6 +47,23 @@ class LigneProposee:
 
 # ── Rattacher une saisie à un client ─────────────────────────────────────────
 
+def ecarter_non_facturables(saisies, exclus):
+    """Sépare les saisies des projets qu'on ne facture pas. Rend (gardées, écartées).
+
+    Un projet hors facturation n'est pas un projet « non rattaché » : le signaler
+    comme orphelin à chaque mois reviendrait à demander de corriger ce qui est déjà
+    correct. On le déclare une fois, et le rapport dit ce qui a été écarté — jamais
+    en silence, sinon des heures disparaîtraient sans qu'on sache pourquoi.
+    """
+    exclus = {str(x) for x in (exclus or [])}
+    if not exclus:
+        return list(saisies), []
+    gardees, ecartees = [], []
+    for s in saisies:
+        (ecartees if s.projet in exclus else gardees).append(s)
+    return gardees, ecartees
+
+
 def rattacher(saisies, projet_vers_client, entites, cles_multi=None):
     """Donne un client à chaque saisie ; éclate les projets mutualisés.
 

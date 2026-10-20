@@ -204,7 +204,8 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
                       f"{existante['ref'] or existante['id']}")
             else:
                 try:
-                    ref = erp.supprimer_brouillon(existante["id"])
+                    ref = erp.supprimer_brouillon(existante["id"],
+                                                  force=getattr(args, "force", False))
                     print(f"  ↺ {client:12} ancien brouillon {ref} supprimé")
                 except Exception as e:
                     refus.append((client, f"remplacement impossible : {e}"))
@@ -358,6 +359,9 @@ def main():
                     help="liste les mois CLOS qui ont du temps facturable sans facture "
                          "(n'écrit rien, ne crée rien)")
     ap.add_argument("--json", action="store_true", help="avec --pending : sortie JSON")
+    ap.add_argument("--force", action="store_true",
+                    help="avec --replace : remplace MÊME un brouillon retouché à la main "
+                         "(son travail en cours est perdu)")
     ap.add_argument("--replace", action="store_true",
                     help="avec --apply : remplace le BROUILLON déjà créé pour ce mois "
                          "(supprimé puis recréé ; une facture validée est refusée)")

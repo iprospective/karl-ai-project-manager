@@ -89,6 +89,10 @@ if (window.matchMedia) {
 </div>
 <header>
   <span class="dot" id="health"></span>
+  <!-- RM3497 : ce qui tourne en ce moment. Caché tant que l'attente reste brève —
+       le seuil porte sur la RAFALE, pas sur chaque appel : quinze appels de 150 ms
+       font deux secondes et demie qu'aucun seuil par appel ne verrait. -->
+  <span id="activity" class="activity" hidden aria-live="polite"><i class="activity-spin"></i><span id="activity-txt"></span></span>
   <!-- RM3065 : la marque — le K qui relie une note, une page web et du code (variante A4, currentColor suit le thème) -->
   <svg class="brand" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M30 26v50M30 52l38-30M30 52l38 30"/></g><circle cx="30" cy="52" r="7" fill="currentColor"/><g fill="none" stroke="var(--accent)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"><path d="M20 6h14l7 7v13H20z"/><rect x="65" y="6" width="26" height="20" rx="2.5"/><path d="M74 74l-6 7 6 7M84 74l6 7-6 7"/></g><circle cx="78" cy="18" r="3.5" fill="var(--accent)"/></svg>
   <h1>Cockpit karl-agent</h1>

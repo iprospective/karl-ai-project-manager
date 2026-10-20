@@ -233,7 +233,8 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
             continue
         fid = erp.creer_brouillon(f["tiers"], lignes, note_publique=f.get("note_publique", ""),
                                   note_privee=m, quand=quand,
-                                  projet_id=projet_du_tiers.get(f["tiers"]))
+                                  projet_id=projet_du_tiers.get(f["tiers"]),
+                                  reglement_id=f.get("reglement"))
         cree.append((client, fid))
         print(f"  ✓ {client:12} brouillon #{fid} · {f['total_ht']:.2f} € HT")
     verbe = "à créer" if args.dry_run else "créés"
@@ -333,13 +334,20 @@ def main():
     tarifs = {c: erp.dernier_tarif(tiers_c[c], factures) for c in clients if c in tiers_c}
     # Le taux de TVA suit la même règle que le tarif : la dernière facture fait foi.
     tva = {c: erp.dernier_taux_tva(tiers_c[c], factures) for c in clients if c in tiers_c}
+    # Délai de paiement : la dernière facture du client fait foi ; à défaut, celui
+    # déclaré en conf (`paiement_defaut`). Les clients n'ont pas tous le même —
+    # 10 jours pour certains, 14 pour d'autres (constaté le 20/10/2026).
+    defaut_reg = (conf.get("paiement_defaut") or {})
+    reglements = {c: (erp.dernier_reglement(tiers_c[c], factures)
+                      or defaut_reg.get(c) or defaut_reg.get("*"))
+                  for c in clients if c in tiers_c}
     services = {int(k) if str(k).isdigit() else k: v for k, v in (conf.get("services") or {}).items()}
     groupement = {c: (conf.get("clients") or {}).get(c, {}).get("groupement", "activite") for c in clients}
     meps = {c: I.mises_en_production(cfg, c, debut, fin) for c in clients}
     titres = titres_tickets(url, key, {s.ticket for s in facturables if s.ticket})
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
                        services_par_activite=services, groupement=groupement, meps=meps,
-                       titres=titres, tva=tva)
+                       titres=titres, tva=tva, reglements=reglements)
 
     dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)

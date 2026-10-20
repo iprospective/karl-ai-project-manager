@@ -382,7 +382,7 @@ def deja_facture(marque_attendue, factures_du_tiers):
 # ── Assemblage ───────────────────────────────────────────────────────────────
 
 def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_activite,
-             groupement=None, titres=None, meps=None, tva=None):
+             groupement=None, titres=None, meps=None, tva=None, reglements=None):
     """Une proposition de facture par client. Pure : tout arrive en paramètre."""
     groupement = groupement or {}
     par_client = collections.defaultdict(list)
@@ -410,6 +410,7 @@ def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_acti
             "note_publique": note_publique(debut, fin, jours_principaux(heures_jour),
                                            (meps or {}).get(client)),
             "tva": (tva or {}).get(client),
+            "reglement": (reglements or {}).get(client),
             "alertes": ([] if tiers else ["tiers ERP inconnu pour ce client"])
                        + ([] if tarif else ["aucune facture antérieure : tarif à saisir"])
                        # Une TVA absente ne s'invente pas, mais elle se DIT : sans
@@ -417,7 +418,10 @@ def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_acti
                        # n'alerte que si la reprise a été TENTÉE : un appelant qui
                        # ne gère pas la TVA ne se fait pas rappeler à l'ordre.
                        + ([] if tva is None or tva.get(client) is not None
-                          else ["aucun taux de TVA repris : à vérifier avant d'appliquer"]),
+                          else ["aucun taux de TVA repris : à vérifier avant d'appliquer"])
+                       + ([] if reglements is None or reglements.get(client)
+                          else ["aucun délai de paiement repris : la facture partirait "
+                                "sans échéance"]),
             "valide": bool(tiers and tarif),
         })
     return propositions

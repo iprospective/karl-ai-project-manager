@@ -169,6 +169,70 @@ verifie(I.ecarter_non_facturables(_s, [])[1] == [], "sans liste, rien n'est éca
 verifie(len(I.ecarter_non_facturables(_s, None)[0]) == 2, "ni avec une liste absente")
 _, _orph = I.rattacher(_g, {}, {"calicote"})
 verifie(_orph == [], "ce qui reste se rattache normalement")
+# ── Ce que la ligne de facture dit du travail (2026-10-20) ─────────────────
+print("\nDescription des lignes de facture")
+verifie(I._sujet(1915, "Incident — IP failover (srv-prd/srv-mail), OVH Advance")
+        == "RM1915 Incident — IP failover, OVH Advance",
+        "un marqueur interne entre parenthèses sort, sans laisser sa ponctuation")
+verifie("[À CHIFFRER]" not in I._sujet(1937, "Calibrer les coefficients [À CHIFFRER] du modèle"),
+        "les mentions internes entre crochets ne partent pas chez le client")
+verifie(I._sujet(999, "") == "RM999",
+        "un ticket sans titre garde son numéro : il renvoie au détail en ligne")
+verifie(I._sujet(1, "x" * 200).endswith("…") and len(I._sujet(1, "x" * 200)) <= I.MAX_TITRE + 12,
+        "un titre trop long est coupé proprement")
+verifie(I._sujet(2, "Analyse : le cas") == "RM2 Analyse : le cas",
+        "l'espace avant « : » reste — c'est du français")
+
+_lg = I.LigneProposee(libelle="", heures=3.0, service_ref="SRV1",
+                      tickets=[11, 22], jours=["2026-06-03", "2026-06-07"])
+_d = I.description_ligne(_lg, {11: "Migration", 22: "Correctif panier"})
+verifie("RM11 Migration" in _d and "RM22 Correctif panier" in _d,
+        "la description nomme les sujets traités")
+verifie("les 03 et 07 juin" in _d, "et les jours concernés")
+_un = I.LigneProposee(libelle="", heures=1.0, tickets=[5], jours=["2026-06-03"])
+verifie("le 03 juin" in I.description_ligne(_un, {5: "X"}), "un seul jour se dit au singulier")
+_bcp = I.LigneProposee(libelle="", heures=9.0, tickets=list(range(1, 10)),
+                       jours=["2026-06-03"])
+_db = I.description_ligne(_bcp, {})
+verifie("et 5 autres" in _db, "au-delà de quatre sujets, on compte le reste")
+verifie(len(I.description_ligne(
+    I.LigneProposee(libelle="", heures=9.0, tickets=list(range(1, 5)),
+                    jours=["2026-06-0%d" % d for d in range(1, 10)]),
+    {i: "titre très long " * 5 for i in range(1, 5)})) <= I.MAX_DESCRIPTION + 2,
+    "une description ne déborde jamais la longueur tenue")
+verifie(I.description_ligne(I.LigneProposee(libelle="", heures=1.0), {}) == "",
+        "sans ticket ni jour, pas de description inventée")
+
+
+print("\nCe qui, dans un commentaire, mérite la facture")
+verifie(I.commentaire_utile("Install NC Camille", "calicote") == "Install NC Camille",
+        "une note écrite à la main est la meilleure description qui existe")
+verifie(I.commentaire_utile("Travail assisté [timesheet:2026-06-01#x/1]", "x") == "",
+        "la formule de l'outil et sa marque ne disent rien au client")
+verifie(I.commentaire_utile("Travail assisté, dont 20 min d'outillage", "x") == "",
+        "l'habillage « dont N min d'outillage » ne la rend pas parlante")
+verifie(I.commentaire_utile("pisceen-presta", "pisceen-presta") == "",
+        "redire le projet n'apprend rien : c'est déjà l'objet de la ligne")
+verifie(I.commentaire_utile("Gestion+Réunion IA à détailler : parti 20h57", "x") == "",
+        "une note écrite POUR SOI ne part pas chez le client")
+verifie(I.commentaire_utile("opé 9h45 => 10h15 boulot à répartir", "x") == "",
+        "un calcul d'heures à reprendre non plus")
+verifie(I.commentaire_utile("Relai emails (pourquoi ??)", "x") == "",
+        "ni une interrogation qu'on s'adresse")
+verifie(I.commentaire_utile("ingestion tarifs", "x", deja=["ingestion tarifs fournisseur"]) == "",
+        "un commentaire déjà dit par un titre ne se répète pas")
+
+_lp = I.LigneProposee(libelle="", heures=2.0, jours=["2026-06-02"],
+                      partages=["SFY", "Dolibarr"])
+_dp = I.description_ligne(_lp, {})
+verifie(_dp.startswith("Outillage commun partagé : SFY et Dolibarr"),
+        "le travail mutualisé se dit par son objet, en tête quand il est seul")
+verifie("RM" not in _dp, "et SANS ses tickets : ils parlent du commun, pas de ce client")
+_mix = I.LigneProposee(libelle="", heures=2.0, jours=["2026-06-02"],
+                       tickets=[7], partages=["SFY"])
+verifie("RM7" in I.description_ligne(_mix, {7: "Sujet"})
+        and "outillage commun partagé : SFY" in I.description_ligne(_mix, {7: "Sujet"}),
+        "mêlé au travail du client, il vient après lui, en minuscule")
 
 
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))

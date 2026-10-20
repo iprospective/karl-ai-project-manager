@@ -195,6 +195,20 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
             continue
         m = I.marque(client, prop.get("periode", args.month))
         existante = I.deja_facture(m, erp.factures_du_tiers(f["tiers"]))
+        if existante and getattr(args, "replace", False):
+            # Remplacer : on supprime le BROUILLON précédent, jamais autre chose —
+            # `supprimer_brouillon` relit le statut sur le serveur et refuse le reste.
+            if args.dry_run:
+                print(f"  [dry-run] {client:12} remplacerait "
+                      f"{existante['ref'] or existante['id']}")
+            else:
+                try:
+                    ref = erp.supprimer_brouillon(existante["id"])
+                    print(f"  ↺ {client:12} ancien brouillon {ref} supprimé")
+                except Exception as e:
+                    refus.append((client, f"remplacement impossible : {e}"))
+                    continue
+            existante = None
         if existante:
             ignore.append((client, existante["ref"] or existante["id"]))
             continue
@@ -211,7 +225,7 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
                 desc = f"{base} — {desc}" if desc and base else (desc or base)
             lignes.append(pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
                                        service_id=ref_vers_id.get(l.get("service")),
-                                       libelle=desc))
+                                       libelle=desc, tva=f.get("tva")))
         if args.dry_run:
             print(f"  [dry-run] {client:12} {f['heures']:6.2f} h × {f['tarif']} = "
                   f"{f['total_ht']:9.2f} € HT · {len(lignes)} ligne(s) · brouillon")
@@ -270,6 +284,9 @@ def main():
     ap.add_argument("--apply", action="store_true",
                     help="crée les BROUILLONS dans l'ERP depuis la proposition amendée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
+    ap.add_argument("--replace", action="store_true",
+                    help="avec --apply : remplace le BROUILLON déjà créé pour ce mois "
+                         "(supprimé puis recréé ; une facture validée est refusée)")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
 
@@ -314,13 +331,15 @@ def main():
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)
     tarifs = {c: erp.dernier_tarif(tiers_c[c], factures) for c in clients if c in tiers_c}
+    # Le taux de TVA suit la même règle que le tarif : la dernière facture fait foi.
+    tva = {c: erp.dernier_taux_tva(tiers_c[c], factures) for c in clients if c in tiers_c}
     services = {int(k) if str(k).isdigit() else k: v for k, v in (conf.get("services") or {}).items()}
     groupement = {c: (conf.get("clients") or {}).get(c, {}).get("groupement", "activite") for c in clients}
     meps = {c: I.mises_en_production(cfg, c, debut, fin) for c in clients}
     titres = titres_tickets(url, key, {s.ticket for s in facturables if s.ticket})
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
                        services_par_activite=services, groupement=groupement, meps=meps,
-                       titres=titres)
+                       titres=titres, tva=tva)
 
     dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)

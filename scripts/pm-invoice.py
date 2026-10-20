@@ -424,7 +424,8 @@ def main():
     titres = titres_tickets(url, key, {s.ticket for s in facturables if s.ticket})
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
                        services_par_activite=services, groupement=groupement, meps=meps,
-                       titres=titres, tva=tva, reglements=reglements)
+                       titres=titres, tva=tva, reglements=reglements,
+                       glossaire=conf.get("glossaire"))
 
     dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)

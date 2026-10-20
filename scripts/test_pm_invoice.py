@@ -303,5 +303,23 @@ verifie(I.a_facturer({("2026-07", "x"): 0.0}, {}, ["2026-07"]) == [],
 verifie(I.a_facturer({}, {}, ["2026-07"]) == [], "ni un mois sans aucune saisie")
 
 
+print("\nCe qui a été écrit pour le client passe devant (RM3489)")
+_sd = [I.Saisie(jour="2026-10-15", projet="matnat-infra", projet_nom="MatNat Infra",
+                heures=2.0, ticket=42, activite_id=9,
+                commentaire="Mise en place de la validation des journées [timesheet:x]")]
+_ld = I.lignes_facture(_sd, {}, titres={42: "Refonte interne du suivi"})
+_dd = _ld[0].description
+verifie(_dd.startswith("Mise en place de la validation des journées"),
+        "la phrase écrite pour le client ouvre la description")
+verifie("RM42 Refonte interne du suivi" in _dd,
+        "le titre du ticket suit, il ne disparaît pas")
+
+_sf = [I.Saisie(jour="2026-10-15", projet="matnat-infra", projet_nom="MatNat Infra",
+                heures=2.0, ticket=42, activite_id=9,
+                commentaire="Travail assisté [timesheet:x]")]
+_lf = I.lignes_facture(_sf, {}, titres={42: "Refonte"})
+verifie(not _lf[0].dites, "une formule de l'outil ne devient pas une phrase client")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

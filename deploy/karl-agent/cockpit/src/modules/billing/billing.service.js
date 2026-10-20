@@ -106,7 +106,8 @@ export class BillingService {
   editerLigne(cle, depart = null) {
     if (!cle || this.ligne === cle) { this.ligne = null; this.ligneEdit = null; return null; }
     this.ligne = cle;
-    this.ligneEdit = Object.assign({ client: "", projet: "", ticket: "" }, depart || {});
+    this.ligneEdit = Object.assign({ client: "", projet: "", ticket: "", commentaire: "" },
+                                   depart || {});
     return this.ligne;
   }
 
@@ -121,7 +122,7 @@ export class BillingService {
     const e = this.ligneEdit || {};
     const args = { day: this.day, ligne: this.ligne };
     for (const [k, v] of [["set_client", e.client], ["set_projet", e.projet],
-                          ["set_ticket", e.ticket]]) {
+                          ["set_ticket", e.ticket], ["set_commentaire", e.commentaire]]) {
       if (v !== null && v !== undefined && String(v) !== "") args[k] = String(v);
     }
     this.busy = "ligne";

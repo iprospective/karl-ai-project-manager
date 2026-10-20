@@ -298,21 +298,47 @@ class DolibarrErpProvider(ErpProvider):
         cible = base + timedelta(days=int(jours))
         return int(datetime(cible.year, cible.month, cible.day).timestamp())
 
-    def supprimer_brouillon(self, facture_id):
-        """Supprime une facture — et SEULEMENT si elle est encore un brouillon.
+    #: Marge entre création et modification en deçà de laquelle on considère que
+    #: personne n'y a touché : Dolibarr écrit les deux dates à quelques secondes.
+    TOLERANCE_RETOUCHE_S = 90
 
-        Le statut est relu sur le serveur juste avant : se fier à ce qu'on croyait
-        savoir reviendrait à risquer d'effacer une facture validée, voire envoyée.
-        C'est l'opération qu'on ne rattrape pas.
+    def supprimer_brouillon(self, facture_id, force=False):
+        """Supprime une facture — brouillon, et non retouchée à la main.
+
+        Deux relectures sur le serveur avant d'effacer, parce que c'est l'opération
+        qu'on ne rattrape pas :
+
+        - le STATUT : une facture validée, voire envoyée, ne se supprime pas ;
+        - la date de MODIFICATION : un brouillon retouché depuis sa création porte
+          du travail humain. L'écraser a déjà coûté des corrections en cours
+          (20/10/2026 : « tu as supprimé les autres factures sur lesquelles je
+          faisais des modifs »). `force` passe outre, en connaissance de cause.
         """
         f = self.api("GET", f"invoices/{int(facture_id)}") or {}
+        ref = f.get("ref") or str(facture_id)
         statut = _STATUTS.get(str(f.get("statut", f.get("status"))), "?")
         if statut != "brouillon":
             raise RuntimeError(
-                f"facture {f.get('ref') or facture_id} au statut « {statut} » : "
+                f"facture {ref} au statut « {statut} » : "
                 f"seul un brouillon peut être supprimé")
+        if not force and self._retouchee(f):
+            raise RuntimeError(
+                f"brouillon {ref} modifié à la main depuis sa création : "
+                f"il porte peut-être un travail en cours. Le supprimer dans l'ERP, "
+                f"ou relancer avec --force si c'est bien ce qu'on veut.")
         self.api("DELETE", f"invoices/{int(facture_id)}")
-        return f.get("ref") or str(facture_id)
+        return ref
+
+    def _retouchee(self, facture):
+        """Vrai si la facture a été modifiée nettement après sa création."""
+        try:
+            cree = int(facture.get("date_creation") or 0)
+            modif = int(facture.get("date_modification") or facture.get("datem") or 0)
+        except (TypeError, ValueError):
+            return False
+        if not cree or not modif:
+            return False
+        return (modif - cree) > self.TOLERANCE_RETOUCHE_S
 
 
 _BACKENDS = {"dolibarr": DolibarrErpProvider}

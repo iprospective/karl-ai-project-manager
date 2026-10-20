@@ -379,5 +379,32 @@ verifie(_e2._echeance(date(2026, 10, 20), 999) is None,
 verifie(_e2._echeance(None, 9) is not None, "sans date fournie, on part d'aujourd'hui")
 
 
+print("\nUn brouillon retouché ne s'écrase pas (20/10/2026)")
+_a3 = []
+def _h3(methode, url, cle, charge=None):
+    _a3.append((methode, url.split("index.php/")[-1]))
+    if methode == "GET" and "invoices/300" in url:      # intact
+        return {"id": 300, "ref": "(PROV300)", "status": "0",
+                "date_creation": 1000, "date_modification": 1010}
+    if methode == "GET" and "invoices/301" in url:      # retouché
+        return {"id": 301, "ref": "(PROV301)", "status": "0",
+                "date_creation": 1000, "date_modification": 9000}
+    return {}
+_e4 = E.DolibarrErpProvider(inst, http=_h3)
+verifie(_e4.supprimer_brouillon(300) == "(PROV300)",
+        "un brouillon que personne n'a touché se remplace")
+_avant3 = len(_a3)
+try:
+    _e4.supprimer_brouillon(301)
+    _refus3 = False
+except RuntimeError as e:
+    _refus3 = "modifié à la main" in str(e)
+verifie(_refus3, "un brouillon RETOUCHÉ est refusé : il porte un travail en cours")
+verifie(not any(m2 == "DELETE" for m2, _u in _a3[_avant3:]),
+        "et aucun DELETE n'est parti pour lui")
+verifie(_e4.supprimer_brouillon(301, force=True) == "(PROV301)",
+        "`force` passe outre, en connaissance de cause")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

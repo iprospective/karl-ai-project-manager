@@ -22,6 +22,7 @@ export class BillingService {
     this.projets = [];                   // {client, project}[] — chargé une fois, pour les menus
     this.ligne = null;                   // clé de la ligne en cours de correction
     this.ajout = null;                   // formulaire d'ajout d'une ligne, s'il est ouvert
+    this.enAttente = null;               // mois clos sans facture (null = pas encore lu)
     this.ligneEdit = null;               // {client, projet, ticket} en cours de saisie
     this.vue = "jour";                   // jour | semaine | mois
     this.mois = {};                      // AAAA-MM → {date → résumé}, gardé d'une vue à l'autre
@@ -40,6 +41,19 @@ export class BillingService {
       this.projets = (r && r.projects) || [];
     } catch (e) { this.projets = []; }
     return this.projets;
+  }
+
+  /**
+   * Les mois clos restés sans facture. Chargés UNE fois, en arrière-plan : c'est un
+   * rappel, pas une dépendance — un échec le fait disparaître, il ne casse rien.
+   */
+  async chargerEnAttente() {
+    if (this.enAttente !== null) return this.enAttente;
+    try {
+      const r = await this.repo.pending();
+      this.enAttente = (r && r.a_facturer) || [];
+    } catch (e) { this.enAttente = []; }
+    return this.enAttente;
   }
 
   /** Bascule de vue. La journée regardée ne change pas : on la retrouve en revenant. */

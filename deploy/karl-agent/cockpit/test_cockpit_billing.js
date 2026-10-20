@@ -841,5 +841,35 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     console.log("✓ clore : sortie offerte à tout moment, sans aucune écriture");
   }
 
+  // — le rappel des mois clos sans facture (RM3488) —
+  {
+    const B = await import(path.join(DIR, "src/modules/billing/billing.js"));
+    const a = B.enAttente([
+      { mois: "2026-08", client: "pisceen", heures: 35.5 },
+      { mois: "2026-07", client: "matnat", heures: 11.25 },
+      { mois: "2026-08", client: "matnat", heures: 35.25 },
+    ]);
+    assert.deepStrictEqual(a.mois.map(m => m.mois), ["2026-07", "2026-08"],
+                           "le plus ancien d'abord : c'est lui qui dort depuis le plus longtemps");
+    assert.deepStrictEqual(a.mois[1].clients, ["matnat", "pisceen"],
+                           "les clients d'un mois sont regroupés");
+    assert.strictEqual(a.total, 82, "le total dit ce qui est en jeu");
+    assert.strictEqual(a.titre, "2 mois clos sans facture", "et le titre compte les mois");
+    assert.strictEqual(B.enAttente([]), null, "rien en attente : aucun rappel");
+    assert.strictEqual(B.enAttente(null), null, "pas de donnée : aucun rappel non plus");
+    assert.strictEqual(B.enAttente([{ mois: "", client: "" }]), null,
+                       "une entrée vide ne fabrique pas d'alerte");
+
+    // Un échec de lecture ne casse pas l'écran : c'est un pense-bête, pas une dépendance.
+    const svcA = new BillingService({
+      repo: { day: async () => ({ jour: { date: "2026-10-20" } }),
+              month: async () => ({ jours: [] }), projects: async () => ({ projects: [] }),
+              pending: async () => { throw new Error("réseau"); } },
+      day: "2026-10-20", run: async () => ({ ok: true }) });
+    await svcA.chargerEnAttente();
+    assert.deepStrictEqual(svcA.enAttente, [], "un échec rend une liste vide, sans lever");
+    console.log("✓ rappel : mois non facturés groupés, total, échec sans conséquence");
+  }
+
   console.log("\nTous les tests de l'écran de facturation passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

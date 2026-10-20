@@ -379,6 +379,44 @@ def deja_facture(marque_attendue, factures_du_tiers):
     return None
 
 
+def mois_clos(jusqu_a, depuis=None, max_mois=12):
+    """Les mois ENTIÈREMENT écoulés, du plus ancien au plus récent.
+
+    Le mois courant n'en est pas : on ne facture pas un mois qu'on travaille encore.
+    """
+    an, mois = jusqu_a.year, jusqu_a.month
+    out = []
+    for _ in range(max_mois):
+        mois -= 1
+        if mois == 0:
+            an, mois = an - 1, 12
+        cle = f"{an:04d}-{mois:02d}"
+        if depuis and cle < depuis:
+            break
+        out.append(cle)
+    return sorted(out)
+
+
+def a_facturer(heures_par_mois, marques_par_client, mois_a_voir):
+    """Ce qui a du temps facturable et pas de facture. La question qu'on oubliait.
+
+    Rien n'a été facturé du 01/06 au 20/10/2026 — quatre mois, et aucun mécanisme
+    ne l'a dit. Le constat n'est venu que d'une relecture à la main.
+
+    `heures_par_mois` : {(mois, client) : heures}. `marques_par_client` : {client :
+    {mois déjà facturés}}. Rend une liste de {mois, client, heures}, du plus ancien
+    au plus récent — l'ancien d'abord, c'est lui qui dort depuis le plus longtemps.
+    """
+    manques = []
+    for (mois, client), heures in (heures_par_mois or {}).items():
+        if mois not in set(mois_a_voir or ()) or heures <= 0:
+            continue
+        if mois in (marques_par_client or {}).get(client, set()):
+            continue
+        manques.append({"mois": mois, "client": client, "heures": round(heures, 2)})
+    return sorted(manques, key=lambda m: (m["mois"], m["client"]))
+
+
 # ── Assemblage ───────────────────────────────────────────────────────────────
 
 def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_activite,

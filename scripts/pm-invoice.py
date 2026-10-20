@@ -15,6 +15,7 @@ Réglages : `<core>/var/users/<user>/invoice.yml` (RM3318 ; modèle : `invoice.e
 """
 import argparse
 import calendar
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -276,20 +277,96 @@ def dossier_etat(cfg=None, migrer=True):
     return cible
 
 
+def controler(args):
+    """Dit ce qui a du temps facturable et pas de facture. N'écrit RIEN.
+
+    La question qui n'était jamais posée : quatre mois ont passé sans facture, et
+    seule une relecture à la main l'a vu (20/10/2026).
+    """
+    import json as _json
+    from redmine_utils import redmine_creds, http_json
+    from pm_registry import Registry
+    import pm_erp
+
+    cfg = PMConfig.load()
+    conf = charger_conf(args.config)
+    uid = conf.get("user_id")
+    if not uid:
+        sys.exit("`user_id:` requis dans invoice.yml.")
+    mois_vus = I.mois_clos(date.today(), depuis=conf.get("facturation_depuis"),
+                           max_mois=int(conf.get("controle_mois", 12)))
+    if not mois_vus:
+        print("aucun mois clos à contrôler")
+        return 0
+    debut, fin = f"{mois_vus[0]}-01", date.today().isoformat()
+    url, key = redmine_creds()[:2]
+    saisies = saisies_redmine(url, key, uid, debut, fin)
+    saisies, _hors = I.ecarter_non_facturables(saisies, conf.get("non_facturable"))
+    types = {e: (cfg.client_meta(e) or {}).get("type") for e, _ in cfg.iter_entities()}
+    table = table_projets(cfg, conf, {s.projet for s in saisies})
+    rattachees, _orph = I.rattacher(
+        saisies, table, set(types) | set(conf.get("multi_client") or {}),
+        {k: [(x["client"], x["weight"]) for x in v]
+         for k, v in (conf.get("multi_client") or {}).items()})
+    heures = {}
+    for s in rattachees:
+        if types.get(s.client) != "client":
+            continue            # soi-même, perso : jamais facturé
+        cle = (s.jour[:7], s.client)
+        heures[cle] = heures.get(cle, 0.0) + s.heures * s.part
+
+    erp = pm_erp.get_erp_provider(registry=Registry.from_config(cfg.providers))
+    tiers_c, _ded = tiers_des_clients(sorted({c for _m, c in heures}), erp.tiers(), conf)
+    marques = {}
+    for client, tid in tiers_c.items():
+        faits = set()
+        for f in erp.factures_du_tiers(tid, limite=60):
+            for bout in re.findall(r"\[invoice:([^\]]+)\]", f.get("note_privee") or ""):
+                if "#" in bout:
+                    faits.add(bout.split("#", 1)[1])
+        marques[client] = faits
+    # Les mois réglés hors de l'outil n'ont pas sa marque : on les tait une fois
+    # pour toutes plutôt que de les signaler à chaque passage.
+    a_la_main = {str(x) for x in (conf.get("facture_a_la_main") or [])}
+    mois_vus = [m for m in mois_vus if m not in a_la_main]
+    manques = I.a_facturer(heures, marques, mois_vus)
+    if args.json:
+        print(_json.dumps({"mois_controles": mois_vus, "a_facturer": manques},
+                          ensure_ascii=False))
+        return 0
+    if not manques:
+        print(f"✓ rien en attente — {len(mois_vus)} mois clos contrôlés")
+        return 0
+    total = sum(m["heures"] for m in manques)
+    print(f"⚠ {len(manques)} mois/client sans facture — {total:.2f} h facturables")
+    for m in manques:
+        print(f"   {m['mois']}  {m['client']:12} {m['heures']:7.2f} h")
+    print("  → `mmi-pm invoice --month <mois>` pour proposer, puis `--apply`")
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--month", required=True, help="mois facturé (AAAA-MM)")
+    ap.add_argument("--month", help="mois facturé (AAAA-MM) — requis sauf avec --pending")
     ap.add_argument("--client", help="un seul client PM")
     ap.add_argument("--config", help="réglages (défaut : <core>/var/users/<user>/invoice.yml)")
     ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/users/<user>/invoice)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les BROUILLONS dans l'ERP depuis la proposition amendée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
+    ap.add_argument("--pending", action="store_true",
+                    help="liste les mois CLOS qui ont du temps facturable sans facture "
+                         "(n'écrit rien, ne crée rien)")
+    ap.add_argument("--json", action="store_true", help="avec --pending : sortie JSON")
     ap.add_argument("--replace", action="store_true",
                     help="avec --apply : remplace le BROUILLON déjà créé pour ce mois "
                          "(supprimé puis recréé ; une facture validée est refusée)")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
+    if args.pending:
+        return controler(args)
+    if not args.month:
+        ap.error("--month AAAA-MM est requis (ou --pending)")
 
     an, mois = (int(x) for x in args.month.split("-"))
     debut, fin = date(an, mois, 1), date(an, mois, calendar.monthrange(an, mois)[1])

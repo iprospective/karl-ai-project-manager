@@ -69,6 +69,23 @@ de les enregistrer. Rien n'est appliqué d'office : sur quatre notes réelles, u
 plus permissive prenait la pause (« Pause 2h repas 12h30-14h30 ») et une estimation de
 réunion (« entre 1.5 et 3h ») pour des horaires de journée.
 
+## Le client, depuis l'agenda
+
+L'**agenda pro** (Nextcloud) sait chez **qui** vous étiez — ce qu'aucune trace de
+travail ne sait. Quand un rendez-vous du jour nomme un client connu, un bouton
+**📅 agenda : ‹client›** apparaît à côté du menu client : un clic le retient.
+
+- Il n'apparaît que si **aucun client n'est déjà choisi** pour la journée — une
+  suggestion ne discute pas un choix fait.
+- Une **journée entière** l'emporte sur un rendez-vous ponctuel : être chez quelqu'un
+  toute la journée pèse plus qu'un appel.
+- **Deux clients en journée entière** le même jour : rien n'est proposé. Mieux vaut ne
+  rien dire qu'induire en erreur sur une facture.
+- Un agenda injoignable fait **disparaître la suggestion**, pas la journée.
+
+Les noms de produits se ramènent à leur client par les `alias` de la configuration
+(`calyprint: calyclay`). Lecture seule : rien n'est jamais écrit dans l'agenda.
+
 ## Corriger la journée
 
 La ligne **début / fin / pause** est une *proposition*, déduite des traces et **ramenée

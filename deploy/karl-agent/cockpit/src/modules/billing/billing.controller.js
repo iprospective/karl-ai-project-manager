@@ -194,6 +194,13 @@ export function mountBilling({ card } = {}, ctx = {}) {
       return garde(() => svc.retablirLigne(el.getAttribute("data-cle")),
                    "rattachement rétabli");
     }
+    // Retenir le client que l'agenda propose : un clic, pas une saisie. Il ne
+    // s'applique jamais tout seul — proposer n'est pas décider.
+    if (a === "sugg-client") {
+      svc.setField("client", el.getAttribute("data-client"));
+      render();
+      return garde(() => svc.adjust(), "client de la journée retenu depuis l'agenda");
+    }
     if (a === "ligne-split") {
       const cle = el.getAttribute("data-cle");
       const l = vm().groupes.flatMap(g => g.lignes).find(x => x.cle === cle);

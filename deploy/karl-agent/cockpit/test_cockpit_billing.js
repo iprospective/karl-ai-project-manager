@@ -797,5 +797,49 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     console.log("✓ agenda : client proposé, relayé, applicable en un clic");
   }
 
+  // — clore une journée sans rien écrire (RM3229, 2026-10-20) —
+  {
+    // Les totaux se calculent depuis les LIGNES, pas depuis `propose_min` : le test
+    // doit donc fournir de vraies lignes, sans quoi il mesure autre chose.
+    const jr = (propose, deja, valide) => ({
+      date: "2026-10-19", mesure_min: 600, valide,
+      proposition: propose ? [{ jour: "2026-10-19", client: "matnat", projet: "infra",
+                                minutes: propose, cle: "matnat/infra#-@9" }] : [],
+      deja_saisi: deja ? [{ minutes: deja, client: "matnat", projet: "infra" }] : [],
+      ia: [], traces: [], periodes: [], bandes: [],
+    });
+    const vmOf = (j) => new BillingViewModel({ day: j.date, jour: j, form: {}, projets: [] });
+
+    // Le cas qui manquait : la journée propose des heures qu'on ne veut PAS écrire.
+    const v1 = vmOf(jr(450, 0, false));
+    assert(v1.clore, "une journée qui propose encore peut être close sans écrire");
+    assert.strictEqual(v1.clore.resteLabel, "7 h 30",
+                       "et la sortie dit ce qui ne sera pas écrit");
+    assert.strictEqual(v1.action.geste, "apply",
+                       "le bouton principal reste l'écriture : clore est une porte de côté");
+
+    // Une journée déjà validée ne se referme pas deux fois.
+    assert.strictEqual(vmOf(jr(0, 60, true)).clore, null, "une journée validée n'a plus de sortie");
+
+    // Une journée vide se clôt aussi — sinon elle reste « à valider » pour toujours.
+    const v3 = vmOf(jr(0, 0, false));
+    assert(v3.clore, "une journée sans rien à écrire se clôt quand même");
+    assert.strictEqual(v3.clore.resteLabel, "", "et n'annonce aucun reste");
+
+    // Le geste appelle bien la commande qui n'écrit rien.
+    const appels = [];
+    const svcC = new BillingService({
+      repo: { day: async () => ({ jour: jr(450, 0, false) }), month: async () => ({ jours: [] }),
+              projects: async () => ({ projects: [] }) },
+      day: "2026-10-19", run: async (n, a) => { appels.push([n, a]); return { ok: true }; } });
+    await svcC.load();
+    await svcC.validateEmpty();
+    const c = appels.find(([n]) => n === "timesheet-day-adjust");
+    assert(c && c[1].validate_empty === true, "clore passe par validate_empty");
+    assert(!appels.some(([n]) => n === "timesheet-day-apply"),
+           "clore n'écrit RIEN dans Redmine");
+    console.log("✓ clore : sortie offerte à tout moment, sans aucune écriture");
+  }
+
   console.log("\nTous les tests de l'écran de facturation passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

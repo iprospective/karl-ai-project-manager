@@ -185,6 +185,7 @@ export function Actions(vm) {
   return html`<div class="bl-actions">
     <button class="btn bl-apply" data-action="${a.geste}" ${a.disabled ? raw("disabled") : raw("")}>${a.label}</button>
     ${!vm.validee && vm.t.propose > 0 ? html`<button class="mini" data-action="dry" title="Voir ce qui serait écrit, sans rien écrire">simuler</button>` : ""}
+    ${vm.clore ? html`<button class="mini bl-clore" data-action="validate-empty" title="Marquer la journée traitée sans créer aucune saisie${vm.clore.resteLabel ? ` — les ${vm.clore.resteLabel} proposées ne seront PAS écrites` : ""}">${vm.clore.label}</button>` : ""}
     ${vm.reprenable ? html`<button class="mini bl-revoke" data-action="revoke" title="Retirer les saisies que l'outil a posées ce jour-là, pour réanalyser la journée. Les saisies notées à la main ne sont pas touchées. Une sauvegarde est écrite avant.">↺ reprendre — retirer ${vm.auto.label}</button>` : ""}
     <span class="bl-hint">la validation écrit les saisies de CETTE journée dans Redmine, au nom de Mathieu</span>
   </div>`;

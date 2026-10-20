@@ -110,7 +110,8 @@ def tiers_des_clients(clients, tiers, conf):
     return sortie, deduits
 
 
-def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref):
+def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref,
+            hors_facturation=None):
     L = [f"# Factures proposées — {debut:%m/%Y}", "",
          f"Période du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}. **Rien n'est créé** : relire, amender la "
          "proposition `.yml`, puis appliquer.", ""]
@@ -131,6 +132,13 @@ def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref
     if internes:
         L += ["## Non facturé — interne ou perso", ""]
         L += [f"- {c} : {h:.2f} h" for c, h in sorted(internes.items())] + [""]
+    if hors_facturation:
+        h = sum(x.heures for x in hors_facturation)
+        L += ["## Hors facturation", "",
+              f"Projets déclarés `non_facturable` : **{h:.2f} h** écartées, "
+              f"{len(hors_facturation)} saisie(s).", ""]
+        L += [f"- {s.jour} {s.projet} {s.heures:.2f} h — {s.commentaire[:60]}"
+              for s in hors_facturation] + [""]
     if orphelins:
         L += ["## ⚠ Saisies sans client", "",
               "Projet Redmine non rattaché : à déclarer dans `redmine_projects`.", ""]
@@ -244,6 +252,10 @@ def main():
     saisies = saisies_redmine(url, key, uid, debut.isoformat(), fin.isoformat())
     types = {e: (cfg.client_meta(e) or {}).get("type") for e, _ in cfg.iter_entities()}
     table = table_projets(cfg, conf, {s.projet for s in saisies})
+    # Les projets qu'on ne facture pas sortent AVANT le rattachement : sinon ils
+    # reviendraient chaque mois dans les « saisies sans client », à corriger sans fin.
+    saisies, hors_facturation = I.ecarter_non_facturables(
+        saisies, conf.get("non_facturable"))
     rattachees, orphelins = I.rattacher(saisies, table, set(types) | set(conf.get("multi_client") or {}),
                                         {k: [(x["client"], x["weight"]) for x in v]
                                          for k, v in (conf.get("multi_client") or {}).items()})
@@ -276,7 +288,8 @@ def main():
     dossier.mkdir(parents=True, exist_ok=True)
     ref_libelle = {v["ref"]: f"{v['ref']} {v['libelle']}" for v in catalogue.values()}
     md = dossier / f"{args.month}.md"
-    md.write_text(rapport(props, debut, fin, orphelins, internes, deduits, tiers, ref_libelle),
+    md.write_text(rapport(props, debut, fin, orphelins, internes, deduits, tiers, ref_libelle,
+                          hors_facturation=hors_facturation),
                   encoding="utf-8")
     yml = dossier / f"{args.month}.yml"
     yml.write_text(yaml.safe_dump({"periode": args.month, "genere": datetime.now().isoformat(timespec="minutes"),
@@ -288,6 +301,9 @@ def main():
         print(f"  {p['client']:10} {p['heures']:7.2f} h × {p['tarif'] or '?'} → "
               f"{p['total_ht'] if p['total_ht'] is not None else '?'} € HT"
               + (f"  ⚠ {', '.join(p['alertes'])}" if p["alertes"] else ""))
+    if hors_facturation:
+        print(f"  · {sum(x.heures for x in hors_facturation):.2f} h écartées "
+              f"(projets non facturables)")
     if orphelins:
         print(f"  ⚠ {len(orphelins)} saisie(s) sans client — voir le rapport")
     print(f"  rapport : {md}\n  proposition : {yml}")

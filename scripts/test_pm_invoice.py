@@ -156,5 +156,20 @@ verifie(appels[1][2]["fk_product"] == 3 and "fk_product" not in appels[2][2],
         "service du catalogue, ou ligne libre")
 verifie(not any("validate" in a[1] for a in appels), "aucune validation : le brouillon reste brouillon")
 
+# ── Projets qu'on ne facture pas (2026-10-20) ──────────────────────────────
+print("\nProjets hors facturation")
+_s = [I.Saisie(jour="2026-06-01", projet="ultramobile-kamishibai", heures=1.0,
+               activite=9, commentaire="migration site"),
+      I.Saisie(jour="2026-06-02", projet="calicote", heures=2.0,
+               activite=9, commentaire="dev")]
+_g, _e = I.ecarter_non_facturables(_s, ["ultramobile-kamishibai"])
+verifie(len(_g) == 1 and _g[0].projet == "calicote", "le projet déclaré sort du lot")
+verifie(len(_e) == 1 and _e[0].heures == 1.0, "et il est rendu à part, pas perdu en silence")
+verifie(I.ecarter_non_facturables(_s, [])[1] == [], "sans liste, rien n'est écarté")
+verifie(len(I.ecarter_non_facturables(_s, None)[0]) == 2, "ni avec une liste absente")
+_, _orph = I.rattacher(_g, {}, {"calicote"})
+verifie(_orph == [], "ce qui reste se rattache normalement")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

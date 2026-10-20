@@ -167,7 +167,13 @@ export function mountBilling({ card } = {}, ctx = {}) {
     }
     if (a === "validate-empty") {
       const v = vm();
-      if (!confirm(`Marquer le ${v.titre} comme validée sans créer de saisie ?`)) return;
+      // La confirmation NOMME ce qui ne sera PAS écrit : clore une journée qui
+      // propose encore des heures, c'est renoncer à les facturer.
+      const reste = v.clore && v.clore.reste > 0
+        ? `\n\n⚠ les ${v.clore.resteLabel} proposées ne seront PAS écrites.`
+        : "";
+      if (!confirm(`Clore le ${v.titre} sans créer aucune saisie ?${reste}`
+                   + `\n\nLa journée passera en « validée ». « reprendre » la rouvre.`)) return;
       return garde(() => svc.validateEmpty(), "journée validée (rien ajouté)");
     }
     // — les gestes qui ne visent QU'UNE ligne —

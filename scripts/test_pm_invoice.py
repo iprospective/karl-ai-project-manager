@@ -281,5 +281,27 @@ verifie(_erp.dernier_taux_tva(99, _ft) is None,
         "sans facture antérieure, aucun taux n'est supposé")
 
 
+# ── Ce qui a du temps facturable et pas de facture (RM3488) ───────────────
+print("\nMois clos non facturés")
+verifie(I.mois_clos(date(2026, 10, 20), max_mois=3) == ["2026-07", "2026-08", "2026-09"],
+        "les mois ENTIÈREMENT écoulés, le mois courant exclu")
+verifie(I.mois_clos(date(2026, 1, 5), max_mois=2) == ["2025-11", "2025-12"],
+        "le passage d'année ne casse pas le compte")
+verifie(I.mois_clos(date(2026, 10, 20), depuis="2026-09", max_mois=12) == ["2026-09"],
+        "`depuis` borne au démarrage de l'outil : avant, on facturait à la main")
+
+_h = {("2026-07", "pisceen"): 15.75, ("2026-07", "matnat"): 11.25,
+      ("2026-08", "pisceen"): 35.5, ("2026-06", "pisceen"): 26.75}
+_m = {"pisceen": {"2026-06", "2026-07"}}
+_r = I.a_facturer(_h, _m, ["2026-07", "2026-08"])
+verifie([(x["mois"], x["client"]) for x in _r] == [("2026-07", "matnat"), ("2026-08", "pisceen")],
+        "ce qui est déjà facturé sort, le reste est rendu du plus ancien au plus récent")
+verifie(all(x["heures"] > 0 for x in _r), "et chaque manque dit ce qu'il pèse")
+verifie(I.a_facturer(_h, _m, []) == [], "aucun mois à voir : rien à dire")
+verifie(I.a_facturer({("2026-07", "x"): 0.0}, {}, ["2026-07"]) == [],
+        "un mois sans temps facturable n'est pas un manque")
+verifie(I.a_facturer({}, {}, ["2026-07"]) == [], "ni un mois sans aucune saisie")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

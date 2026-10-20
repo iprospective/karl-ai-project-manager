@@ -120,20 +120,105 @@ Ce qui est perdu dans l'affaire, ce ne sont pas les messages mais les **actions*
 lu/non lu, classements et suppressions faits sur la destination avant le miroir.
 À annoncer aux utilisateurs.
 
-## Résidus de vidage : les accents décomposés
+## Résidus de vidage : les doublons de la source
 
 Après `--delete1`, 99 messages sont restés sur la source dans 7 boîtes, alors
 qu'`imapsync` annonçait `0 messages found in host1 not in host2`.
 
-La cause : les noms de dossiers. La source écrivait `TRE&AwE-SORS DE CORALIE`
-(accent **décomposé** : E + U+0301) là où la destination avait
-`TRÉSORS DE CORALIE` (**précomposé**). Pour imapsync ce sont deux dossiers
-distincts : il ne reconnaît pas les messages comme déjà copiés et ne les supprime
-donc pas.
+Ce sont les **exemplaires en double de la source**. imapsync dédoublonne : quand
+un dossier source contient plusieurs fois le même message, il n'en copie qu'un.
+Et `--delete1` ne supprime que les messages **appariés un pour un** — les
+exemplaires surnuméraires n'ont pas de correspondant à destination, donc il les
+laisse. Le log le dit, dossier par dossier :
 
-Sans gravité — vérifier par Message-ID que chaque résidu existe bien à
-destination avant de le supprimer à la main — mais à savoir pour ne pas croire
-à une perte.
+```
+Host1: folder [Sent] selected 240 messages, duplicates 3
+Host2: folder [Sent] selected 237 messages, duplicates 0
+```
+
+240 − 3 = 237, et cette boîte avait exactement 3 résidus dans `Sent`. La somme
+des `duplicates` du log de vidage correspondait, boîte par boîte, aux résidus
+constatés — 99 des deux côtés.
+
+Ce n'est donc ni une perte ni une anomalie, mais un nettoyage : les utilisateurs
+retrouvent un exemplaire là où la source en avait deux ou trois. Pour le compter
+avant de s'inquiéter :
+
+```sh
+grep -o 'Host1: folder .* duplicates [1-9][0-9]*' <log> | sed 's/.*duplicates //' \
+  | awk '{s+=$1} END {print s+0}'
+```
+
+**Deux fausses pistes à ne pas reprendre.** On a d'abord cru aux noms de dossiers
+à accent décomposé (`TRE&AwE-SORS` côté source contre `TRÉSORS` côté
+destination) : 94 des 99 résidus étaient dans des dossiers sans aucun accent.
+Puis à un écart de taille empêchant l'appariement, après avoir mesuré 2 à 4
+octets de différence sur 12 d'entre eux : c'est une conséquence et non une cause,
+ces douze-là sont des quasi-doublons, même Message-ID reçu par deux chemins.
+Les deux hypothèses étaient plausibles et fausses ; **le log d'imapsync
+contenait la réponse depuis le début.**
+
+## Purger les dossiers de la source, une fois les messages partis
+
+Vider les messages ne vide pas l'arborescence : sur cette migration il restait
+686 dossiers pour 24 boîtes, dont 525 créés par les utilisateurs au fil des ans.
+Les supprimer n'est utile que pour une raison : **toute vérification ultérieure
+parcourt les dossiers un par un**, et 500 dossiers vides coûtent plusieurs
+minutes à chaque passe.
+
+Ce qu'on garde, et comment le reconnaître **sans deviner d'après le nom** :
+
+- `INBOX` ;
+- tout dossier portant un attribut IMAP **SPECIAL-USE** — `\Sent`, `\Drafts`,
+  `\Junk`, `\Trash`, `\Archive` — que le `LIST` donne gratuitement ;
+- les noms standards **au premier niveau seulement**, pour attraper ceux que le
+  serveur n'a pas étiquetés : `Sent Messages`, `Deleted Messages`, `Notes`,
+  `Spam`, et leurs formes françaises `Éléments envoyés`, `Éléments supprimés`,
+  `Brouillons`, `Envoyés`, `Corbeille` ;
+- **`dovecot` et `dovecot/sieve`** : ce n'est pas du courrier mais le répertoire
+  des filtres Sieve, que la source expose comme un dossier IMAP quand le home est
+  un Maildir. Les supprimer effacerait les règles de tri des utilisateurs.
+
+Le premier niveau compte : un `Archives` à la racine est le dossier standard,
+un `AA FOURNISSEURS/401 ARCHIVES DIVERS` est un dossier métier. Une recherche
+par sous-chaîne confondrait les deux.
+
+Deux précautions dans le script :
+
+- **trier par profondeur décroissante** — supprimer les feuilles avant leurs
+  parents, sinon le serveur transforme le parent en `\Noselect` au lieu de le
+  supprimer, et il reste dans l'arbre ;
+- **re-sélectionner chaque dossier juste avant son `DELETE`** et ne le supprimer
+  que si le serveur le trouve vide à cet instant. La liste a pu être établie
+  plusieurs minutes plus tôt, et entre-temps un message a pu arriver.
+
+Même principe pour les messages : supprimer par **UID précis**, jamais « tout le
+dossier », et relire le Message-ID de chaque UID juste avant de poser `\Deleted`
+— c'est ce qui garantit qu'on ne supprime pas un message arrivé entre
+l'inventaire et la suppression.
+
+## Ce qui continue d'arriver sur l'ancien serveur
+
+La bascule du MX ne tarit pas la source. Deux fuites, trouvées parce que deux
+messages inconnus de la destination sont apparus pendant la purge finale :
+
+- **les domaines secondaires.** Le MX de `calicote.com` était basculé, celui de
+  `calicote.fr` non — et personne ne regardait plus la source. Lister *tous* les
+  domaines de l'ancien serveur et vérifier le MX de chacun, pas seulement celui
+  du domaine principal. Attention au piège : déclarer le domaine secondaire à
+  destination ne suffit pas, il lui faut aussi ses **alias** (un catch-all
+  `@dom.fr → @dom.com` suffit), sinon la bascule du MX transforme une fuite
+  silencieuse en « User unknown ».
+- **les équipements qui envoient en SMTP authentifié.** Un scanner, une
+  imprimante multifonction, une application métier ont un compte sur l'ancien
+  serveur et continuent de lui soumettre leur courrier, MX ou pas. Ici un Xerox
+  posté depuis le site du client vers `mail.<ancien>` avec un compte local.
+  Inventorier ces expéditeurs **avant** la bascule, dans les logs de la source :
+  ce sont eux qui restent branchés le plus longtemps.
+
+Pour les quelques messages déjà tombés dans le trou, `doveadm save -u <boîte>
+-m INBOX < message.eml` les dépose à destination ; la date interne devient celle
+de l'import, l'en-tête `Date:` reste juste et les clients trient dessus.
 
 ## Vérifier : faire confiance à imapsync, pas à ses propres comptages
 
@@ -164,6 +249,17 @@ Et pour trancher un doute, la comparaison par **Message-ID** est la seule fiable
 - Ne jamais laisser de fichier `.bak` dans un répertoire `conf.d` : il est chargé
   comme les autres, et un `50-user.bak-…` lu après `50-user` réimpose l'ancienne
   valeur sans que rien ne le signale.
+- `doveadm fetch 'hdr.<nom>'` restitue l'en-tête **tel qu'il est dans le
+  message**, repli compris : un `Message-ID:` plié par Outlook sort sur deux
+  lignes, la première vide. Un parseur naïf en ligne à ligne perd ces
+  valeurs-là — ici 6 256 sur 31 112, soit une « absence » massive et purement
+  imaginaire. Recoller les lignes de continuation (celles qui commencent par une
+  espace ou une tabulation) avant de comparer.
+- `size.physical` est la taille **sur disque** (fins de ligne en LF),
+  `size.virtual` la taille **RFC822** (CRLF). Comparer un `size.physical` de
+  Dovecot à un `RFC822.SIZE` d'IMAP donne un écart systématique d'environ 1,3 %
+  — un octet par ligne — qu'on prend pour une troncature. Comparer
+  `size.virtual`.
 
 ## Checklist
 
@@ -176,3 +272,6 @@ Et pour trancher un doute, la comparaison par **Message-ID** est la seule fiable
 - [ ] vider le transport, **vérifier la livraison locale**, puis basculer le MX
 - [ ] vidage de la source avec `--delete1`, jamais `--delete2` après bascule
 - [ ] contrôler par le verdict d'imapsync, pas par des totaux maison
+- [ ] vérifier le MX de **tous** les domaines de la source, pas seulement le principal
+- [ ] inventorier les équipements qui soumettent en SMTP authentifié sur la source
+- [ ] purger les dossiers de la source en épargnant les SPECIAL-USE et `dovecot/sieve`

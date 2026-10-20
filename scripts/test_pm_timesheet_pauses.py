@@ -104,5 +104,25 @@ verifie(cli._marque_heritee(cli._marque(_a), set()) is None,
         "sans rien en base, aucune forme ancienne n'est inventée")
 
 
+# ── Une journée sans aucune trace reste traitable (2026-10-20) ─────────────
+#
+# `calculer` sortait en erreur quand la période ne portait aucune trace : l'écran
+# affichait « journée illisible » et la journée devenait inaccessible — alors
+# qu'elle gardait souvent l'essentiel (le 02/06/2026 avait 6 saisies Redmine, 9
+# tours d'agent, une note et un rendez-vous). Une absence de trace n'est pas une
+# erreur : c'est un fait, parfois celui d'un dimanche.
+import inspect as _inspect
+
+_src = _inspect.getsource(cli.calculer)
+verifie("sys.exit(f\"Aucune trace" not in _src and "sans_trace" in _src,
+        "l'absence de trace n'interrompt plus le calcul")
+verifie('"jour_demande"' in _src,
+        "le résultat porte la journée demandée, pour qu'elle existe même vide")
+
+_vj = _inspect.getsource(cli.vue_json)
+verifie("jour_demande" in _vj,
+        "la vue rend TOUJOURS la journée demandée — sinon : rien à clore")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

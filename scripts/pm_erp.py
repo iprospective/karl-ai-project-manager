@@ -19,7 +19,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -80,6 +80,7 @@ class ErpProvider:
     def __init__(self, instance=None, http=None):
         self.instance = instance
         self._http = http
+        self._terms = None          # dictionnaire des conditions de règlement, lu une fois
 
     def tiers(self):
         """{id: {"nom", "alias"}} — les clients facturables."""
@@ -239,8 +240,16 @@ class DolibarrErpProvider(ErpProvider):
             entete["fk_project"] = int(projet_id)
         # Sans conditions de règlement, Dolibarr n'en pose aucune : la facture part
         # sans échéance de paiement (constaté le 20/10/2026 sur les cinq de juin).
+        #
+        # Et on pose l'ÉCHÉANCE nous-mêmes : laissée à Dolibarr, elle tombait une
+        # fois sur deux en 1970 — il la calcule à partir d'une date qu'il n'a pas
+        # encore enregistrée, donc depuis zéro, et le délai seul fait « 15/01/1970 ».
+        # Une facture est partie validée avec cette échéance (FA2610-0190).
         if reglement_id:
             entete["cond_reglement_id"] = int(reglement_id)
+            echeance = self._echeance(quand, reglement_id)
+            if echeance is not None:
+                entete["date_lim_reglement"] = echeance
         fid = self.api("POST", "invoices", entete)
         if isinstance(fid, dict):
             fid = fid.get("id") or fid.get("rowid")
@@ -263,6 +272,31 @@ class DolibarrErpProvider(ErpProvider):
         return [{"id": int(f["id"]), "ref": f.get("ref") or "",
                  "statut": _STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
                  "note_privee": (f.get("note_private") or "")} for f in brut]
+
+    def _jours_reglement(self, reglement_id):
+        """Nombre de jours d'une condition de règlement, depuis le dictionnaire."""
+        if self._terms is None:
+            self._terms = {}
+            for d in (self.api("GET", "setup/dictionary/payment_terms?limit=100") or []):
+                try:
+                    self._terms[int(d["id"])] = int(d.get("nbjour") or 0)
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return self._terms.get(int(reglement_id))
+
+    def _echeance(self, quand, reglement_id):
+        """Date d'échéance = date de facture + délai, en timestamp. None si inconnue."""
+        jours = self._jours_reglement(reglement_id)
+        if not jours:
+            return None
+        base = quand or date.today()
+        if not hasattr(base, "toordinal"):
+            try:
+                base = date.fromisoformat(str(base))
+            except (TypeError, ValueError):
+                return None
+        cible = base + timedelta(days=int(jours))
+        return int(datetime(cible.year, cible.month, cible.day).timestamp())
 
     def supprimer_brouillon(self, facture_id):
         """Supprime une facture — et SEULEMENT si elle est encore un brouillon.

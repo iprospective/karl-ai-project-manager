@@ -9,7 +9,7 @@ reproduit le modèle des factures existantes, et le tarif vient bien de la
 dernière facture — sans jamais prendre un brouillon ou un avoir pour un tarif.
 """
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -348,6 +348,35 @@ _lg = I.LigneProposee(libelle="", heures=1.0, tickets=[7], jours=["2026-06-03"])
 _d = I.description_ligne(_lg, {7: "Réappro des stocks"}, glossaire=_g, client="calicote")
 verifie("Réapprovisionnement des stocks" in _d,
         "la description d'une ligne passe par le glossaire")
+
+
+print("\nÉchéance de paiement (RM2891, 20/10/2026)")
+_ap = []
+def _h2(methode, url, cle, charge=None):
+    _ap.append((methode, url.split("index.php/")[-1], charge))
+    if "payment_terms" in url:
+        return [{"id": 9, "code": "10D", "nbjour": 10}, {"id": 11, "code": "14D", "nbjour": 14}]
+    return 77
+_e2 = E.DolibarrErpProvider(inst, http=_h2)
+_e2.creer_brouillon(7, [E.Ligne(quantite=1, prix_unitaire=45, tva=20.0)],
+                    quand=date(2026, 10, 20), reglement_id=11)
+_entete = next(c for m2, u, c in _ap if m2 == "POST" and u == "invoices")
+verifie(_entete.get("cond_reglement_id") == 11, "la condition de règlement part avec la facture")
+_att = int(datetime(2026, 11, 3).timestamp())
+verifie(_entete.get("date_lim_reglement") == _att,
+        "et l'ÉCHÉANCE est calculée ICI : 20/10 + 14 jours = 03/11")
+
+_ap.clear()
+_e2.creer_brouillon(7, [E.Ligne(quantite=1, prix_unitaire=45)], quand=date(2026, 10, 20))
+_e3 = next(c for m2, u, c in _ap if m2 == "POST" and u == "invoices")
+verifie("date_lim_reglement" not in _e3,
+        "sans condition de règlement, aucune échéance inventée")
+
+verifie(_e2._echeance(date(2026, 10, 20), 9) == int(datetime(2026, 10, 30).timestamp()),
+        "10 jours donnent le 30/10")
+verifie(_e2._echeance(date(2026, 10, 20), 999) is None,
+        "une condition inconnue ne produit pas une date absurde — surtout pas 1970")
+verifie(_e2._echeance(None, 9) is not None, "sans date fournie, on part d'aujourd'hui")
 
 
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))

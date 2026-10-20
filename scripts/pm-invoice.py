@@ -35,16 +35,40 @@ def charger_conf(chemin):
     return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
 
 
+def titres_tickets(url, key, ids):
+    """Le sujet de chaque ticket cité, pour que les lignes disent ce qu'elles couvrent.
+
+    Lus par paquets : une requête par ticket coûterait des centaines d'allers-retours
+    sur un mois chargé. Un ticket introuvable (supprimé, hors périmètre) est ignoré —
+    sa ligne le nommera par son numéro.
+    """
+    from redmine_utils import http_json
+    out = {}
+    ids = sorted({int(i) for i in ids if i})
+    for i in range(0, len(ids), 50):
+        lot = ids[i:i + 50]
+        code, b = http_json("GET", f"{url}/issues.json?issue_id={','.join(map(str, lot))}"
+                                   f"&status_id=*&limit=100", key)
+        if code != 200:
+            continue
+        for issue in b.get("issues", []):
+            out[int(issue["id"])] = (issue.get("subject") or "").strip()
+    return out
+
+
 def saisies_redmine(url, key, user_id, debut, fin):
     """Saisies de l'utilisateur sur la période, avec l'identifiant de leur projet."""
     from redmine_utils import http_json
-    projets, off = {}, 0
+    projets, noms, off = {}, {}, 0
     while True:
         code, body = http_json("GET", f"{url}/projects.json?limit=100&offset={off}", key)
         if code != 200:
             break
         for p in body.get("projects", []):
             projets[p["id"]] = p.get("identifier") or str(p["id"])
+            # Le NOM lisible sert à nommer un projet mutualisé au client : « Dolibarr »
+            # se comprend, « synchro-prestashop-dolibarr » non.
+            noms[p.get("identifier") or str(p["id"])] = (p.get("name") or "").strip()
         off += 100
         if off >= body.get("total_count", 0):
             break
@@ -56,9 +80,11 @@ def saisies_redmine(url, key, user_id, debut, fin):
         if code != 200:
             sys.exit(f"Redmine : lecture des saisies refusée (HTTP {code}).")
         for t in body.get("time_entries", []):
+            pid = (t.get("project") or {}).get("id")
+            ident = projets.get(pid, str(pid))
             sortie.append(I.Saisie(
                 jour=t["spent_on"], heures=float(t["hours"]),
-                projet=projets.get(t["project"]["id"], str(t["project"]["id"])),
+                projet=ident, projet_nom=noms.get(ident, ""),
                 ticket=(t.get("issue") or {}).get("id"),
                 activite_id=(t.get("activity") or {}).get("id"),
                 activite=(t.get("activity") or {}).get("name", ""),
@@ -172,10 +198,20 @@ def appliquer(prop, erp, catalogue, factures, conf, args):
         if existante:
             ignore.append((client, existante["ref"] or existante["id"]))
             continue
-        lignes = [pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
-                               service_id=ref_vers_id.get(l.get("service")),
-                               libelle="" if l.get("service") else l.get("libelle", ""))
-                  for l in f.get("lignes", []) if l.get("heures")]
+        # La description part dans le champ `desc` de Dolibarr. Sous un service du
+        # catalogue elle complète son intitulé ; sans service, le libellé reste la
+        # seule identité de la ligne, et la description le prolonge.
+        lignes = []
+        for l in f.get("lignes", []):
+            if not l.get("heures"):
+                continue
+            desc = (l.get("description") or "").strip()
+            if not l.get("service"):
+                base = l.get("libelle", "")
+                desc = f"{base} — {desc}" if desc and base else (desc or base)
+            lignes.append(pm_erp.Ligne(quantite=l["heures"], prix_unitaire=f["tarif"],
+                                       service_id=ref_vers_id.get(l.get("service")),
+                                       libelle=desc))
         if args.dry_run:
             print(f"  [dry-run] {client:12} {f['heures']:6.2f} h × {f['tarif']} = "
                   f"{f['total_ht']:9.2f} € HT · {len(lignes)} ligne(s) · brouillon")
@@ -281,8 +317,10 @@ def main():
     services = {int(k) if str(k).isdigit() else k: v for k, v in (conf.get("services") or {}).items()}
     groupement = {c: (conf.get("clients") or {}).get(c, {}).get("groupement", "activite") for c in clients}
     meps = {c: I.mises_en_production(cfg, c, debut, fin) for c in clients}
+    titres = titres_tickets(url, key, {s.ticket for s in facturables if s.ticket})
     props = I.proposer(facturables, debut, fin, tiers_par_client=tiers_c, tarifs=tarifs,
-                       services_par_activite=services, groupement=groupement, meps=meps)
+                       services_par_activite=services, groupement=groupement, meps=meps,
+                       titres=titres)
 
     dossier = Path(args.out).expanduser() if args.out else dossier_etat(cfg)
     dossier.mkdir(parents=True, exist_ok=True)

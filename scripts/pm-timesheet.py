@@ -158,10 +158,12 @@ def _marque_heritee(marque, deja):
     """
     corps = marque[:-1] if marque.endswith("]") else marque
     formes = []
-    sans_rang = corps.split("+")[0] if "+" in corps.split("#")[-1] else corps
-    if sans_rang != corps:
-        formes.append(sans_rang)
-    base = sans_rang
+    # Le RANG fait partie de l'identité : `…+1` est une SECONDE ligne de même cible,
+    # pas une autre écriture de la première. Le confondre avec elle empêchait de
+    # créer le complément d'une ligne déjà partiellement posée (22/07/2026).
+    if "+" in corps.split("#")[-1]:
+        return None
+    base = corps
     if "@" in base:
         tete, reste = base.split("@", 1)
         if "/" in reste:                       # @<activité>/<projet> → @<activité>
@@ -500,6 +502,7 @@ def ecrire_sorties(res, dossier, libelle):
     _poser_rangs(prop["lignes"])
     for _l in prop["lignes"]:
         _l["description"] = _libelle(_l, _marque(_l))
+    _retirer_deja_posees(prop, res)
     if orphelins:
         apercu = ", ".join(f"{j} {c}" for j, c in orphelins[:3])
         print(f"  ⚠ {len(orphelins)} correction(s) de ligne sans cible "
@@ -509,6 +512,54 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
                           encoding="utf-8")
     return chemin_md, chemin_yml, prop
+
+
+def _retirer_deja_posees(prop, res):
+    """Défalque de la proposition ce qui est DÉJÀ posé sous la même marque.
+
+    `--apply` reconnaît une ligne déjà posée à sa marque et ne la recrée pas : c'est
+    la garde contre les doublons. Mais l'écran continuait de proposer la ligne
+    ENTIÈRE — on cliquait, rien ne se créait, elle restait. « Il reste 2 h 45 déjà
+    écrites qu'il veut réécrire, il n'y arrive pas » (22/07/2026).
+
+    On ne la supprime pas pour autant : une ligne de 105 min dont 60 sont posées
+    doit encore 45 min. On retranche donc, et ce qui reste prend un RANG libre —
+    sans quoi sa marque resterait celle de la saisie existante, et `--apply` la
+    prendrait de nouveau pour un doublon.
+    """
+    deja = {}
+    for saisie in (res.get("saisies") or []):
+        lib = saisie.get("libelle") or ""
+        if "[timesheet:" not in lib:
+            continue
+        m = lib[lib.index("[timesheet:"):].split("]")[0] + "]"
+        deja[m] = deja.get(m, 0.0) + float(saisie.get("minutes") or 0)
+    if not deja:
+        return prop
+    gardees = []
+    for l in prop["lignes"]:
+        m = _marque(l)
+        cle = m if m in deja else _marque_heritee(m, deja)
+        if not cle:
+            gardees.append(l)
+            continue
+        reste = int(round(float(l.get("minutes") or 0) - deja[cle]))
+        if reste <= 0:
+            continue                    # tout est déjà écrit : plus rien à proposer
+        l["minutes"] = reste
+        l["deja_pose_min"] = int(round(deja[cle]))
+        # Un rang libre, pour que la marque ne soit plus celle de la saisie en place.
+        rang = (l.get("rang") or 0) + 1
+        while True:
+            essai = dict(l, rang=rang)
+            if _marque(essai) not in deja:
+                break
+            rang += 1
+        l["rang"] = rang
+        l["description"] = _libelle(l, _marque(l))
+        gardees.append(l)
+    prop["lignes"] = gardees
+    return prop
 
 
 def _agenda_periode(conf, cfg, debut, fin):

@@ -124,5 +124,31 @@ verifie("jour_demande" in _vj,
         "la vue rend TOUJOURS la journée demandée — sinon : rien à clore")
 
 
+# ── Ce qui est déjà posé se défalque, il ne se re-propose pas (22/07/2026) ──
+_m_base = "[timesheet:2026-07-22#matnat/-@9/infra]"
+_m_rang = "[timesheet:2026-07-22#matnat/-@9/infra+1]"
+verifie(cli._marque_heritee(_m_rang, {_m_base}) is None,
+        "un RANG est une seconde ligne, pas une autre écriture de la première")
+verifie(cli._marque_heritee("[timesheet:2026-07-22#matnat/-@9/infra]",
+                            {"[timesheet:2026-07-22#matnat/-@9]"})
+        == "[timesheet:2026-07-22#matnat/-@9]",
+        "les formes anciennes (sans projet) restent reconnues")
+
+_prop = {"lignes": [{"jour": "2026-07-22", "client": "matnat", "projet": "infra",
+                     "ticket": None, "activite": 9, "minutes": 105}]}
+_res = {"saisies": [{"jour": "2026-07-22", "minutes": 60,
+                     "libelle": "infra [timesheet:2026-07-22#matnat/-@9]"}]}
+cli._retirer_deja_posees(_prop, _res)
+verifie(len(_prop["lignes"]) == 1 and _prop["lignes"][0]["minutes"] == 45,
+        "105 min dont 60 posées : il en reste 45 à écrire, pas 105 ni 0")
+verifie(_prop["lignes"][0].get("rang") == 1,
+        "et le reste prend un rang, sinon `--apply` le prendrait pour un doublon")
+
+_prop2 = {"lignes": [{"jour": "2026-07-22", "client": "matnat", "projet": "infra",
+                      "ticket": None, "activite": 9, "minutes": 60}]}
+cli._retirer_deja_posees(_prop2, _res)
+verifie(_prop2["lignes"] == [], "tout posé : plus rien à proposer")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

@@ -234,3 +234,26 @@ jobs:
     description: >
       Promeut par lot les auto-commits pm-* repliés sur `dev` vers `main` du repo
       de données PM (MR auto-créée et auto-mergée).
+
+  # ── Fraîcheur des répliques de conteneurs (RM3496) ─────────────────────────
+  replicas-watch:
+    schedule: "0 */2 * * *"
+    shell: >
+      /zfs/workspaces/iprospective/infra/envs/infrastructure-dev/scripts/monitoring/check-replicas.sh
+      --notify
+    timeout: 600
+    description: >
+      Dit quels conteneurs n'ont plus de réplique fraîche sur les autres nœuds, en
+      comparant les dates des snapshots ZFS — jamais le statut d'opensvc. La
+      réplication de `cloud` est restée morte trois jours en affichant « warn »,
+      noyé parmi d'autres : opensvc rejouait un incrément figé, chaque passage
+      « réussissant » sans rien faire avancer, parce que le couple
+      sync.root.sent/tosend n'est rotaté qu'en cas de succès sur TOUS les nœuds —
+      un seul nœud en échec gèle donc la réplication vers les autres. Sans ce
+      contrôle, on ne découvre l'âge réel des copies que le jour où on en a besoin.
+      Verse dans le fil (`critical` si une copie manque ou qu'un retard dépasse la
+      journée) ; le fil ne duplique pas, un défaut qui dure fait une ligne qui
+      remonte. Toutes les 2 h : assez pour ne pas découvrir un arrêt le lendemain,
+      assez peu pour que 31 couples vérifiés en ssh ne pèsent rien.
+      Le script vit dans le repo infra, où est sa matière (ZFS, hyperviseurs, clé
+      karl) — d'où le chemin absolu, seul cas du registre.

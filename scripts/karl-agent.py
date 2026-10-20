@@ -10444,6 +10444,10 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--delete-ligne"},
          {"name": "commentaire", "label": "Commentaire", "type": "text",
           "flag": "--commentaire", "max_len": 200},
+         # Ce que la ligne dira AU CLIENT : écrit ici, il part dans Redmine puis sur
+         # la facture, à la place du texte reconstruit depuis les titres de tickets.
+         {"name": "set_commentaire", "label": "Description client", "type": "text",
+          "flag": "--set-commentaire", "max_len": 200},
      ]},
     # Ajouter une ligne que le calcul n'a pas vue : un appel, un déplacement, une
     # réunion sans trace. Elle CRÉE du temps, donc elle dit tout d'elle-même.

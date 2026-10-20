@@ -1858,7 +1858,8 @@ def amender_lignes(lignes, surcharges, regles=None):
             # L'origine est figée AVANT toute réécriture, et une seule fois : elle
             # dit d'où vient la ligne, pas par quelles mains elle est passée.
             cible.setdefault("origine", {k: cible.get(k) for k in
-                                         ("client", "projet", "ticket", "activite", "minutes")})
+                                         ("client", "projet", "ticket", "activite",
+                                          "minutes", "commentaire")})
             if "minutes" in (chg or {}):
                 try:
                     m = int(chg["minutes"])
@@ -1867,7 +1868,7 @@ def amender_lignes(lignes, surcharges, regles=None):
                 if m is not None and m >= 0:
                     cible["minutes"] = m
                     cible["amendee"] = True
-            for champ in ("client", "projet", "ticket", "activite"):
+            for champ in ("client", "projet", "ticket", "activite", "commentaire"):
                 if champ in (chg or {}):
                     v = chg[champ]
                     if champ == "ticket":
@@ -1878,7 +1879,7 @@ def amender_lignes(lignes, surcharges, regles=None):
             # chez un autre client en lui laissant son ticket d'origine la ferait donc
             # revenir d'où elle vient, sans rien dire. On lâche le ticket — sauf si un
             # ticket a été choisi explicitement.
-            if ("client" in (chg or {}) or "projet" in (chg or {})) and "ticket" not in (chg or {}):
+            if ("client" in (chg or {}) or "projet" in (chg or {})) and "ticket" not in (chg or {}):  # noqa: E501
                 cible["ticket"] = None
                 cible["ticket_abandonne"] = cible["origine"].get("ticket")
             cible["amendee"] = True

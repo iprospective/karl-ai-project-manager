@@ -194,6 +194,11 @@ export class BillingViewModel {
         // pas créer deux fois la même saisie : elle part aussi, mais elle n'intéresse
         // pas le lecteur — on la sépare plutôt que de la cacher.
         description: (l.description || "").replace(/\s*\[timesheet:[^\]]*\]\s*$/, ""),
+        //
+
+        // Ce que l'humain a écrit pour le client, s'il l'a écrit : c'est lui qui
+        // part en facture, pas le texte reconstruit.
+        commentaire: l.commentaire || "",
         marque: (String(l.description || "").match(/\[timesheet:[^\]]*\]/) || [""])[0],
         amendee: !!l.amendee,
         origine: l.origine ? `${l.origine.client || "?"}/${l.origine.projet || "?"}`
@@ -213,7 +218,7 @@ export class BillingViewModel {
     if (!this.ligne) return null;
     const e = this.le || {};
     return { cle: this.ligne, client: e.client || "", projet: e.projet || "",
-             ticket: e.ticket || "",
+             ticket: e.ticket || "", commentaire: e.commentaire || "",
              clients: this.p.clients,
              projets: e.client ? this.p.projets(e.client) : [],
              busy: this.busy === "ligne" || this.busy === "ligne-apply" };

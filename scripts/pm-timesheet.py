@@ -885,6 +885,10 @@ def main():
                          "--set-ticket/--set-activite/--set-minutes/--commentaire)")
     ap.add_argument("--commentaire", dest="commentaire",
                     help="avec --add-ligne : commentaire de la saisie Redmine")
+    ap.add_argument("--set-commentaire", dest="set_commentaire",
+                    help="avec --ligne : ce que cette ligne dira au client — c'est ce "
+                         "texte qui part dans Redmine, puis sur la facture "
+                         "(`-` pour revenir au texte calculé)")
     ap.add_argument("--heures", type=float,
                     help="avec --day : heures de travail de la journée, quand elles ne se "
                          "déduisent pas de début/fin (demi-journée sur site, par exemple)")
@@ -931,7 +935,8 @@ def main():
         or (args.ligne and (args.clear_ligne or args.delete_ligne
                             or args.split is not None or args.set_minutes is not None
                             or any(v is not None for v in (args.set_client, args.set_projet,
-                                                           args.set_ticket, args.set_activite))))
+                                                           args.set_ticket, args.set_activite,
+                                                           args.set_commentaire))))
     if ajuste and not args.day:
         ap.error("--start/--end/--client/--clear-override/--validate-empty/--ligne "
                  "s'utilisent avec --day")
@@ -1053,7 +1058,8 @@ def ajuster_journee(args):
         else:
             chg = dict(lignes.get(args.ligne) or {})
             for champ, valeur in (("client", args.set_client), ("projet", args.set_projet),
-                                  ("ticket", args.set_ticket), ("activite", args.set_activite)):
+                                  ("ticket", args.set_ticket), ("activite", args.set_activite),
+                                  ("commentaire", args.set_commentaire)):
                 if valeur is not None:
                     chg[champ] = None if str(valeur) in ("-", "") else valeur
             if args.set_minutes is not None:

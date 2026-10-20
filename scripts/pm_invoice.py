@@ -52,6 +52,11 @@ class LigneProposee:
     #: ticket se décrit par son titre ; sans ticket, il ne reste que le projet et ce
     #: qui a été noté à la main — et c'est là que la note vaut (20/10/2026).
     sans_ticket: dict = field(default_factory=dict)
+    #: Ce qui a été écrit POUR LE CLIENT sur une ligne à ticket (RM3489). Rare et
+    #: volontaire : les formules de l'outil sont filtrées en amont. Passe AVANT les
+    #: titres — qui décrit mieux le travail que celui qui l'a fait, pour celui qui
+    #: le paie ?
+    dites: list = field(default_factory=list)
     #: Projets MUTUALISÉS touchés par cette ligne, par leur nom lisible. Leur détail
     #: ne se dit pas au client : c'est du commun, pas son travail à lui.
     partages: list = field(default_factory=list)
@@ -148,6 +153,10 @@ def lignes_facture(saisies, services_par_activite, groupement="activite", titres
             note = commentaire_utile(s.commentaire, s.projet_nom, notes, s.projet)
             if note and note not in notes:
                 notes.append(note)
+        elif s.ticket:
+            dite = commentaire_utile(s.commentaire, s.projet_nom, g.dites, s.projet)
+            if dite and dite not in g.dites:
+                g.dites.append(dite)
     for (nature, _cle), g in groupes.items():
         if nature == "libre":
             # la pratique des factures existantes : « Divers les 07, 13, 14, 27 avril »
@@ -253,6 +262,10 @@ def description_ligne(ligne, titres=None, max_sujets=MAX_SUJETS):
     tete = sujets[:max_sujets]
     reste = len(sujets) - len(tete)
     morceaux = []
+    # Ce qui a été écrit pour le client passe en PREMIER : un titre de ticket est
+    # écrit pour soi, cette phrase-là est écrite pour lui (RM3489).
+    if ligne.dites:
+        morceaux.append(" · ".join(ligne.dites[:max_sujets]))
     if tete:
         morceaux.append(" · ".join(tete) + (f" · et {reste} autre{'s' if reste > 1 else ''}"
                                             if reste > 0 else ""))

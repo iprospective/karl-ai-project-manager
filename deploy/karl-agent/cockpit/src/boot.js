@@ -18,6 +18,7 @@ import { createProbe } from "./core/probe.js";
 import { createPrefs } from "./core/prefs.js";
 import { mountMemory } from "./modules/memory/memory.controller.js";
 import { mount, on, domStats, domStatsByModule, paint } from "./core/dom.js";
+import { abonner } from "./core/activity.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
 import { AppError, ApiError, asAppError } from "./core/errors.js";
@@ -706,4 +707,30 @@ window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
   safe("tableau de bord", () => dashboard.refresh()); safe("poste", () => env.boot());       // RM2697 / RM2722-2748
   safe("compte-rendu client", () => clientnotify.refresh());                                 // RM3052 : combien d'évolutions livrées attendent d'être annoncées
   refreshCtl.start();                                                                        // pile /refresh : premier tick (tous les blocs dus), cadence adaptative
+})();
+
+
+// ── L'indicateur d'activité (RM3497) ────────────────────────────────────────
+//
+// Branché une fois, au boot : `core/api` déclare chaque appel, ce module n'a qu'à
+// montrer. Le DOM est touché seulement quand l'état CHANGE — un abonné appelé à
+// chaque fin d'opération ne doit pas provoquer un rendu à chaque fois.
+(function indicateurActivite() {
+  const zone = document.getElementById("activity");
+  const txt = document.getElementById("activity-txt");
+  if (!zone || !txt) return;
+  let affiche = null;
+  abonner((e) => {
+    const montrer = !!e.actif;
+    const libelle = montrer
+      ? (e.nombre > 1 ? `${e.libelle} +${e.nombre - 1}` : e.libelle)
+      : "";
+    if (montrer === affiche && txt.textContent === libelle) return;
+    affiche = montrer;
+    txt.textContent = libelle;
+    zone.hidden = !montrer;
+    zone.title = montrer
+      ? `${e.nombre} opération(s) en cours depuis ${Math.round(e.attente / 100) / 10} s`
+      : "";
+  });
 })();

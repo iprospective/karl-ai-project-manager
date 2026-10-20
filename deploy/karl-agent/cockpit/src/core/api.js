@@ -10,6 +10,7 @@
 // testable sous node nu (C5) avec un `fetch` injecté.
 
 import { ApiError } from "./errors.js";
+import { suivre } from "./activity.js";
 
 const cfg = {
   authRequired: false,
@@ -40,6 +41,18 @@ export function headers(extra) {
  * @param {object} opts   options de fetch
  */
 export async function api(path, opts) {
+  // Tout passe par ici : brancher le suivi d'activité au plus bas niveau évite de
+  // le réclamer à chaque module — et n'en oublie aucun (RM3497).
+  return suivre(_api(path, opts), _nom(path));
+}
+
+/** Nom court d'une opération, pour dire ce qu'on attend : « timesheet/day ». */
+function _nom(path) {
+  const p = String(path || "").split("?")[0].replace(/^\/api\//, "").replace(/^\//, "");
+  return p || "serveur";
+}
+
+async function _api(path, opts) {
   opts = opts || {};
   opts.headers = headers(opts.headers);
   const r = await cfg.fetch(path, opts);

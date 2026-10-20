@@ -341,6 +341,26 @@ export function clientsEtProjets(liste) {
   return { clients: [...parClient.keys()].sort(), projets: (c) => (parClient.get(c) || []).slice() };
 }
 
+/**
+ * Ce que l'agenda dit du client de la journée (RM3229).
+ *
+ * L'agenda sait chez QUI on était ; les traces ne savent que sur quoi on a travaillé.
+ * La suggestion ne vaut que tant que rien n'a été choisi — le serveur ne l'envoie
+ * d'ailleurs pas quand la journée porte déjà un client.
+ */
+export function suggestion(jour) {
+  const s = (jour && jour.client_suggere) || null;
+  if (!s || !s.client) return null;
+  return { client: s.client, source: s.source || "", journee: !!s.journee };
+}
+
+/** Les rendez-vous de la journée, tels quels. */
+export function agenda(jour) {
+  return ((jour && jour.agenda) || []).map(e => ({
+    resume: e.resume || "", journee: !!e.journee, lieu: e.lieu || "",
+  }));
+}
+
 // ── La pause de midi (RM3229) ─────────────────────────────────────────────────
 
 /**

@@ -5,7 +5,7 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
          bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA, grilleSemaine, grilleMois, avancement,
-         cumulClients, nomMois, moisDe, decalerMois, weekOf } from "./billing.js";
+         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
@@ -228,6 +228,12 @@ export class BillingViewModel {
              projets: a.client ? this.p.projets(a.client) : [],
              busy: this.busy === "ligne" };
   }
+
+  /** Le client que l'agenda propose pour cette journée, s'il en propose un. */
+  get suggestion() { return suggestion(this.j); }
+
+  /** Les rendez-vous de la journée — ce qui justifie la proposition. */
+  get agenda() { return agenda(this.j); }
 
   get dejaSaisi() {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({

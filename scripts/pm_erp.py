@@ -68,6 +68,9 @@ class Facture:
     lignes: list
     note_publique: str = ""
     projet_id: int = None
+    #: Conditions de règlement (délai de paiement). 0 ou None = aucune posée, et
+    #: Dolibarr n'en met pas de lui-même : la facture part sans échéance.
+    reglement_id: int = None
 
 
 class ErpProvider:
@@ -91,7 +94,7 @@ class ErpProvider:
         raise NotImplementedError
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
-                        quand=None, projet_id=None):
+                        quand=None, projet_id=None, reglement_id=None):
         """Crée une facture BROUILLON. Ne valide jamais : la validation reste humaine."""
         raise NotImplementedError
 
@@ -108,6 +111,19 @@ class ErpProvider:
                                        if l.quantite > 0 and l.tva is not None)
             if taux:
                 return taux.most_common(1)[0][0]
+        return None
+
+    def dernier_reglement(self, tiers_id, factures=None):
+        """Conditions de règlement de la DERNIÈRE facture de ce tiers, ou None.
+
+        Même règle que le tarif et la TVA. Les valeurs nulles sont ignorées : une
+        facture partie SANS délai ne fait pas jurisprudence, elle témoigne d'un oubli.
+        """
+        for f in (factures if factures is not None else self.factures()):
+            if f.tiers_id != tiers_id or f.statut == "brouillon":
+                continue
+            if f.reglement_id:
+                return f.reglement_id
         return None
 
     def dernier_tarif(self, tiers_id, factures=None):
@@ -202,12 +218,13 @@ class DolibarrErpProvider(ErpProvider):
                 total_ht=float(f.get("total_ht") or 0),
                 statut=_STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
                 lignes=lignes, note_publique=(f.get("note_public") or "").strip(),
-                projet_id=int(f["fk_project"]) if f.get("fk_project") else None))
+                projet_id=int(f["fk_project"]) if f.get("fk_project") else None,
+                reglement_id=int(f["cond_reglement_id"]) if f.get("cond_reglement_id") else None))
         return sortie
 
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
-                        quand=None, projet_id=None):
+                        quand=None, projet_id=None, reglement_id=None):
         """Facture brouillon Dolibarr : l'entête, puis ses lignes. Jamais `validate`.
 
         Une facture émise ne se rattrape pas : l'outil s'arrête au brouillon, que
@@ -220,6 +237,10 @@ class DolibarrErpProvider(ErpProvider):
             entete["date"] = quand.isoformat() if hasattr(quand, "isoformat") else quand
         if projet_id:
             entete["fk_project"] = int(projet_id)
+        # Sans conditions de règlement, Dolibarr n'en pose aucune : la facture part
+        # sans échéance de paiement (constaté le 20/10/2026 sur les cinq de juin).
+        if reglement_id:
+            entete["cond_reglement_id"] = int(reglement_id)
         fid = self.api("POST", "invoices", entete)
         if isinstance(fid, dict):
             fid = fid.get("id") or fid.get("rowid")

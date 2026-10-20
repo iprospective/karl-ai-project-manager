@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 308a788220ee675b (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 271e248aeea95c0f (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -600,6 +600,38 @@ details.card[open] > summary::before {
   border-color: var(--danger);
 }
 
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82em;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.activity[hidden] {
+  display: none;
+}
+
+.activity-spin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(127, 127, 127, 0.4));
+  border-top-color: var(--accent);
+  animation: activity-turn 0.7s linear infinite;
+}
+
+@keyframes activity-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-spin {
+    animation: none;
+    border-top-color: var(--accent);
+  }
+}
 .e-entity {
   color: var(--fg);
 }

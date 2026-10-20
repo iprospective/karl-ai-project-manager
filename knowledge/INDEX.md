@@ -17,6 +17,9 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 
 ## Index par produit / techno
 
+- [mail](./mail/) — migrer des boîtes IMAP d'un hébergement à l'autre : la synchro additive
+  ne réplique pas les suppressions (28 000 messages ressuscités chez un client), le master user
+  masque les mots de passe faux, les UIDVALIDITY ne survivent pas, l'ordre transport/MX
 - [migration](./migration/) — migrer des configurations locales d'un hébergement à
   l'autre : les confs exclues du git **et** préservées par le script de synchro sont
   celles que rien ne répare ; comparer par `diff` réel et pas clé par clé ; identifiants

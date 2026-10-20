@@ -296,4 +296,18 @@ export class BillingViewModel {
     if (this.t.deja > 0) return { label: "Valider sans rien ajouter", disabled: false, geste: "validate-empty" };
     return { label: "rien à valider", disabled: true, geste: "" };
   }
+
+  /**
+   * Clore la journée SANS rien écrire — la sortie qui manquait.
+   *
+   * Le bouton principal n'offrait « valider sans rien ajouter » que lorsque la
+   * proposition était déjà vide : pour clore une journée dont on ne veut écrire
+   * aucune ligne, il fallait les retirer une à une d'abord. Ce geste-ci existe
+   * tant que la journée n'est pas validée, quoi qu'elle propose.
+   */
+  get clore() {
+    if (this.validee || this.busy) return null;
+    return { label: "clore sans écrire", reste: this.t.propose,
+             resteLabel: this.t.propose > 0 ? fmtMin(this.t.propose) : "" };
+  }
 }

@@ -375,6 +375,10 @@ reprend le détail. Après l'écriture, la journée est **relue** depuis Redmine
 s'affiche ensuite est ce qui s'y trouve, pas ce qu'on espérait y avoir mis.
 
 - **simuler** montre le résultat sans rien écrire.
+- **clore sans écrire** ferme la journée **sans créer aucune saisie**, quoi qu'elle
+  propose encore. C'est la sortie pour une journée qu'on ne veut pas facturer, ou déjà
+  notée ailleurs : inutile de retirer les lignes une à une. La confirmation dit ce qui
+  ne sera pas écrit, et **reprendre** rouvre la journée.
 - Une journée dont tout est déjà noté à la main se valide **sans rien ajouter**.
 - Une journée validée ne se revalide pas : le bouton s'éteint.
 

@@ -48,6 +48,7 @@ export const ROUTES = {
   "git.show": { current: "/git/show", target: "/api/git/show", lot: "L4", callers: 1 },
   "glossary.help": { current: "/help", target: "/api/glossary/help", lot: "L5", callers: 1 },
   "glossary.project": { current: "/project", target: "/api/glossary/project", lot: "L5", callers: 2 },
+  "invoice.pending": { current: "/invoice/pending", target: "/api/invoice/pending", lot: "RM3488", callers: 1 },
   "layout.outline": { current: "/outline", target: "/api/layout/outline", lot: "L5", callers: 1 },
   "log.historical": { current: "/log/historical", target: "/api/log/historical", lot: "L8", callers: 0 },
   "log.tail": { current: "/log/tail", target: "/api/log/tail", lot: "RM3010", callers: 1 },

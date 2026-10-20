@@ -5,12 +5,13 @@ import { fmtMin, fmtTokens, longDate, shiftDay, timeline, totaux, parClient, eta
          libelleLieu, pause, nonFacturable, bandes, legende, bandePause,
          transversalParClient, fil, totauxIA, liens, correspondances,
          bilanCorrespondance, blocsRedmine, iaHorsPlage, bilanBlocs, note, legendeIA, grilleSemaine, grilleMois, avancement,
-         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda } from "./billing.js";
+         cumulClients, nomMois, moisDe, decalerMois, weekOf, suggestion, agenda, enAttente } from "./billing.js";
 
 export class BillingViewModel {
   constructor({ day, jour, form, loading, error, busy, dirty, projets, vue, resumes, moisCharge,
-                ligne, ligneEdit, ajout }) {
+                ligne, ligneEdit, ajout, enAttente: att }) {
     this.ligne = ligne || null; this.le = ligneEdit || null; this.aj = ajout || null;
+    this.att = att || null;
     this.day = day; this.j = jour || null; this.f = form || {};
     this.loading = !!loading; this.error = error || null; this.busy = busy || null; this.dirty = !!dirty;
     this.p = clientsEtProjets(projets || []);
@@ -234,6 +235,9 @@ export class BillingViewModel {
 
   /** Les rendez-vous de la journée — ce qui justifie la proposition. */
   get agenda() { return agenda(this.j); }
+
+  /** Le rappel des mois clos sans facture, s'il y en a. */
+  get enAttente() { return enAttente(this.att); }
 
   get dejaSaisi() {
     return ((this.j && this.j.deja_saisi) || []).map(s => ({

@@ -446,6 +446,7 @@ def calculer(args, cfg, conf):
             "notes": notes_du_compte(conf, cfg),
             "activites": activites,
             "conf": conf,
+            "agenda": _agenda_periode(conf, cfg, debut, fin),
             "saisies": toutes, "surcharges": surcharges,
             # Ce que l'écran et la proposition VOIENT : les surcharges, complétées des
             # pauses habituelles. L'état sur disque, lui, ne contient que le saisi.
@@ -500,6 +501,29 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
                           encoding="utf-8")
     return chemin_md, chemin_yml, prop
+
+
+def _agenda_periode(conf, cfg, debut, fin):
+    """Les rendez-vous de la période, par jour. Silencieux si l'agenda ne répond pas.
+
+    Une seule requête pour tout le mois : c'est l'agenda qui dit chez QUI on était,
+    ce qu'aucune trace de travail ne sait.
+    """
+    aconf = dict(conf.get("agenda") or {})
+    if aconf.get("actif") is False:
+        return {}
+    if not aconf.get("env_path"):
+        try:
+            import pm_paths
+            aconf["env_path"] = str(pm_paths.user_conf_dir(pm_dir=cfg.pm_dir) / ".env")
+        except Exception:
+            return {}
+    try:
+        import pm_agenda
+    except ImportError:
+        return {}
+    return pm_agenda.evenements_periode(debut.date().isoformat(),
+                                        fin.date().isoformat(), aconf)
 
 
 def ajouter_pauses(prop, res):
@@ -1217,6 +1241,28 @@ def _ou(saisie, table, slugs=None):
     return {"client": ent, "projet": proj or saisie.get("projet_nom") or ""}
 
 
+def _client_suggere(res, jour, surcharge):
+    """Ce que l'agenda dit du client de la journée — tant que rien n'est choisi.
+
+    « ok si pas déjà renseigné » : une suggestion ne discute pas un choix fait.
+    """
+    if (surcharge or {}).get("client"):
+        return None
+    evs = (res.get("agenda") or {}).get(jour) or []
+    if not evs:
+        return None
+    regles = res.get("regles")
+    clients = [e for e, t in ((regles.types if regles else {}) or {}).items() if t == "client"]
+    if not clients:
+        return None
+    try:
+        import pm_agenda
+    except ImportError:
+        return None
+    alias = ((res.get("conf") or {}).get("agenda") or {}).get("alias") or {}
+    return pm_agenda.client_du_jour(evs, clients, alias)
+
+
 def vue_json(res, prop, commits=True):
     """La matière de l'écran de validation (cockpit) : une entrée par journée.
 
@@ -1284,6 +1330,10 @@ def vue_json(res, prop, commits=True):
                 "cible": {k: v for k, v in (W.conf_pause(res.get("conf") or {})).items()
                           if k in ("client", "projet", "commentaire", "heures")},
             },
+            "agenda": (res.get("agenda") or {}).get(j) or [],
+            # Le client que l'agenda désigne. PROPOSÉ, jamais imposé : il pré-remplit
+            # le champ tant qu'on n'a rien choisi, et s'efface dès qu'on choisit.
+            "client_suggere": _client_suggere(res, j, surcharge),
             "surcharge": surcharge or None,
             "valide": any("[timesheet:" in (s.get("libelle") or "") for s in saisies)
                       or bool(surcharge.get("valide_sans_ajout")),

@@ -764,5 +764,38 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
     console.log("✓ pause : bornes habituelles de la présence, origine affichée");
   }
 
+  // — le client proposé par l'agenda (RM3229, 2026-10-20) —
+  {
+    const B = await import(path.join(DIR, "src/modules/billing/billing.js"));
+    const s1 = B.suggestion({ client_suggere: { client: "calyclay", source: "CalyClay CalyPrint CalyMix", journee: true } });
+    assert.strictEqual(s1.client, "calyclay", "la suggestion porte le client");
+    assert(s1.journee, "et dit si c'était une journée entière");
+    assert.strictEqual(B.suggestion({}), null, "sans suggestion du serveur, rien");
+    assert.strictEqual(B.suggestion({ client_suggere: { client: "" } }), null,
+                       "une suggestion vide ne s'affiche pas");
+    assert.deepStrictEqual(B.agenda({ agenda: [{ resume: "MatNat", journee: true }] }),
+                           [{ resume: "MatNat", journee: true, lieu: "" }],
+                           "les rendez-vous du jour sont exposés tels quels");
+
+    const vmS = new BillingViewModel({ day: "2026-10-12",
+      jour: { date: "2026-10-12", client_suggere: { client: "calyclay", source: "CalyClay" } },
+      form: {}, projets: [] });
+    assert.strictEqual(vmS.suggestion.client, "calyclay", "le ViewModel la relaie");
+
+    // Le geste applique le client ET l'enregistre : proposer n'est pas décider, mais
+    // accepter doit suffire en un clic.
+    const appels = [];
+    const svcS = new BillingService({
+      repo: { day: async () => ({ jour: { date: "2026-10-12" } }), month: async () => ({ jours: [] }),
+              projects: async () => ({ projects: [] }) },
+      day: "2026-10-12", run: async (n, a) => { appels.push([n, a]); return { ok: true }; } });
+    await svcS.load();
+    svcS.setField("client", "calyclay");
+    await svcS.adjust();
+    const adj = appels.find(([n]) => n === "timesheet-day-adjust");
+    assert(adj && adj[1].client === "calyclay", "retenir la suggestion pose le client de la journée");
+    console.log("✓ agenda : client proposé, relayé, applicable en un clic");
+  }
+
   console.log("\nTous les tests de l'écran de facturation passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

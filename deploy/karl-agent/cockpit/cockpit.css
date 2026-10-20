@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 4161e3af5c9e434e (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : beafd6d7aeb66482 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -6793,4 +6793,11 @@ button.mini.soft:hover {
   white-space: nowrap;
   color: var(--fg-dim);
   border: 1px dashed var(--border, rgba(127, 127, 127, 0.45));
+}
+
+.bl-sugg {
+  border-style: dashed;
+}
+.bl-sugg::before {
+  content: "📅 ";
 }

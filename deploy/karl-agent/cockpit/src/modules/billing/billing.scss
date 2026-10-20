@@ -225,3 +225,9 @@
   font-size: .78em; padding: 1px 5px; border-radius: 3px; white-space: nowrap;
   color: var(--fg-dim); border: 1px dashed var(--border, rgba(127, 127, 127, .45));
 }
+
+// Le client proposé par l'agenda : une offre, pas un fait accompli.
+.bl-sugg {
+  border-style: dashed;
+  &::before { content: "📅 "; }
+}

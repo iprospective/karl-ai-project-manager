@@ -59,6 +59,78 @@ utilise `{SHA512}` (PostfixAdmin en `php_crypt:SHA512`) rend les comptes
 inutilisables avec un `internal auth failure` peu parlant. Calquer sur une entrée
 existante, et retester juste après l'écriture.
 
+## Le séparateur de hiérarchie : relevez celui de la source
+
+Celui-ci a coûté trois jours d'usage dégradé à une cliente, et il est invisible
+à toutes les vérifications qu'on pense à faire.
+
+L'ancien serveur exposait `/` comme séparateur de hiérarchie. Le nouveau, sans
+réglage explicite, a pris le défaut du format Maildir : `.`. Les messages
+étaient tous là, les dossiers aussi, les mots de passe bons — mais les clients
+déjà configurés continuaient d'envoyer les chemins avec l'ancien séparateur :
+
+```
+UID COPY 205 "COMPTA - ADMINITRATIF/AUDREY":
+   NO [CANNOT] Invalid mailbox name: Name must not have '/' characters
+```
+
+Plus aucun déplacement vers un **sous-dossier** n'aboutissait, sur tous les
+postes. Un dossier de premier niveau, lui, passait — son chemin ne contient pas
+de séparateur. D'où un symptôme déroutant : « certains dossiers seulement ».
+
+**Relevez le séparateur de la source avant la bascule**, et posez-le
+explicitement sur la cible :
+
+```sh
+# côté source, la réponse à LIST donne le séparateur entre guillemets
+#   * LIST (\HasNoChildren) "/" "INBOX/Archives"
+#                           ^^^
+# côté cible, dans le namespace :
+#   separator = /
+```
+
+Les noms sur disque ne changent pas : Dovecot traduit `/` ↔ `.` en interne. Il
+n'y a rien à reconfigurer sur les postes, et surtout rien à refaire — ni
+comptes, ni signatures, ni resynchronisation complète.
+
+**Un webmail qui fonctionne n'innocente pas le serveur.** C'est ce qui nous a
+égarés le plus longtemps : Roundcube marchait parfaitement, puisqu'il lit le
+séparateur annoncé à chaque session. Un client installé de longue date, lui,
+garde celui de l'ancien serveur. L'écart entre les deux est précisément le
+signal — pas une raison de conclure que le serveur va bien.
+
+## Quand le serveur ne dit rien, capturer plutôt que supposer
+
+Dovecot ne journalise pas les commandes refusées : un `MOVE` qui échoue ne
+laisse **aucune trace** au niveau par défaut. On peut donc chercher longtemps
+dans `mail.log` une erreur qui n'y sera jamais.
+
+```
+# /etc/dovecot/conf.d/99-debug-<boîte>.conf — temporaire, à retirer après
+log_debug = user="sandrine@exemple.fr"
+debug_log_path = /var/log/dovecot-debug-sandrine.log
+```
+
+Filtré sur une seule boîte, cela ne journalise personne d'autre et n'écrit
+aucun contenu de message. Chaque commande apparaît avec sa réponse :
+
+```
+Debug: Command finished: UID FETCH 201 (BODY.PEEK[]): OK Fetch completed.
+Debug: Command finished: UID COPY 205 "A/B": NO [CANNOT] Invalid mailbox name…
+```
+
+Vingt minutes de capture ont tranché ce que deux heures d'hypothèses n'avaient
+pas résolu. Le réflexe à prendre : dès qu'un symptôme client n'a pas d'écho
+dans les logs, c'est la capture qu'il faut mettre en place, pas une hypothèse
+de plus. Guillemets obligatoires autour de l'adresse, sinon le filtre est
+refusé — et tant qu'il l'est, la configuration ne passe plus un `reload`.
+
+**Et une anomalie trouvée en chemin n'est pas une explication.** Nous avions
+trouvé 19 dossiers au nom en NFD, réellement cassés et prouvés tels, dont nous
+avons fait la cause de l'incident — avant que la cliente ne précise que les
+dossiers en cause n'avaient aucun accent. Vérifier qu'une anomalie rend compte
+du symptôme observé coûte une question ; s'en passer coûte une demi-journée.
+
 ## Les UIDVALIDITY ne survivent pas
 
 `imapsync` recrée les messages : les UID et UIDVALIDITY de la destination n'ont
@@ -263,6 +335,7 @@ Et pour trancher un doute, la comparaison par **Message-ID** est la seule fiable
 
 ## Checklist
 
+- [ ] relever le **séparateur de hiérarchie** de la source et le poser sur la cible
 - [ ] tester `doveadm auth test` sur **chaque** boîte avec le mot de passe du coffre
 - [ ] vérifier les certificats servis par **dovecot ET postfix** (993, 143, 25, 587, 465)
 - [ ] poser le hook `letsencrypt/renewal-hooks/deploy/` qui recharge dovecot et postfix

@@ -379,8 +379,49 @@ def enumerer(elements):
     return ", ".join(elements[:-1]) + " et " + elements[-1]
 
 
-def note_publique(debut, fin, jours, meps=None, url_detail="https://tasks.iprospective.fr/"):
-    """Le modèle des factures existantes, à l'identique ; plus les mises en production."""
+def duree_hm(heures):
+    """2.25 → « 2h15 ». Les centièmes d'heure ne parlent pas à un client."""
+    total = int(round(heures * 60))
+    return f"{total // 60}h{total % 60:02d}"
+
+
+def bloc_detail_taches(saisies, titres=None, seuil_min=0.0):
+    """« Détail par tâche » : chaque ticket facturé et le temps passé dessus.
+
+    Norme posée par Mathieu le 25/10/2026 : une facture dit désormais sur QUOI le temps
+    est parti, ticket par ticket, et pas seulement les mises en production. C'est ce qui
+    permet au client de rapprocher le montant d'un travail identifiable.
+
+    Trié par temps décroissant — le client lit d'abord ce qui a coûté le plus. Le temps
+    sans ticket est regroupé en fin de liste plutôt que dissimulé : il existe, il est
+    facturé, il se nomme.
+    """
+    titres = titres or {}
+    par_ticket, sans = {}, 0.0
+    for s in saisies:
+        part = s.heures * (s.part if s.part is not None else 1.0)
+        if s.ticket:
+            par_ticket[s.ticket] = par_ticket.get(s.ticket, 0.0) + part
+        else:
+            sans += part
+    if not par_ticket and not sans:
+        return []
+    lignes = ["", "Détail par tâche :"]
+    for t, h in sorted(par_ticket.items(), key=lambda kv: (-kv[1], kv[0])):
+        if h < seuil_min:
+            continue
+        # `_sujet` nettoie les marqueurs internes et coupe à MAX_TITRE : le client lit
+        # la même forme de titre que dans les descriptions de lignes.
+        lignes.append(f"- {_sujet(t, titres.get(t) or titres.get(str(t)) or '')} : {duree_hm(h)}")
+    if sans:
+        lignes.append(f"- Divers, hors tâche identifiée : {duree_hm(sans)}")
+    return lignes
+
+
+def note_publique(debut, fin, jours, meps=None, url_detail="https://tasks.iprospective.fr/",
+                  saisies=None, titres=None):
+    """Le modèle des factures existantes, à l'identique ; plus les mises en production,
+    plus le détail par tâche quand les saisies sont fournies."""
     lignes = [f"Correspondant à mon Travail du {debut:%d/%m/%Y} au {fin:%d/%m/%Y}."]
     if jours:
         mois = MOIS[date.fromisoformat(jours[0]).month - 1]
@@ -391,6 +432,8 @@ def note_publique(debut, fin, jours, meps=None, url_detail="https://tasks.iprosp
         lignes.append("Mises en production :")
         lignes += [f"- RM{m['ticket']} — {m['titre']} ({m['jour'][8:10]}/{m['jour'][5:7]})"
                    for m in meps]
+    if saisies:
+        lignes += bloc_detail_taches(saisies, titres)
     return "\n".join(lignes)
 
 
@@ -520,8 +563,11 @@ def proposer(saisies, debut, fin, *, tiers_par_client, tarifs, services_par_acti
                         # Amendable à la main dans le `.yml` avant `--apply` : c'est le
                         # texte que le client lira, il doit pouvoir être corrigé.
                         "description": l.description} for l in lignes],
+            # `liste` = les saisies de CE client : le détail par tâche en découle, et
+            # devient la norme sur toute facture (RM3529).
             "note_publique": note_publique(debut, fin, jours_principaux(heures_jour),
-                                           (meps or {}).get(client)),
+                                           (meps or {}).get(client),
+                                           saisies=liste, titres=titres),
             "tva": (tva or {}).get(client),
             "reglement": (reglements or {}).get(client),
             "alertes": ([] if tiers else ["tiers ERP inconnu pour ce client"])

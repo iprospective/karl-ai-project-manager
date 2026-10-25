@@ -406,5 +406,70 @@ verifie(_e4.supprimer_brouillon(301, force=True) == "(PROV301)",
         "`force` passe outre, en connaissance de cause")
 
 
+print("\nDétail par tâche sur la facture (RM3529, 25/10/2026)")
+
+
+class _S:
+    """Une saisie, réduite à ce que le bloc lit."""
+    def __init__(self, heures, ticket, part=1.0):
+        self.heures, self.ticket, self.part = heures, ticket, part
+
+
+_bloc = I.bloc_detail_taches(
+    [_S(2.0, 2481), _S(0.75, 2481), _S(0.5, 2474), _S(1.0, None), _S(0.25, 2455)],
+    titres={2481: "bascule PHP 5.6 → 7.4", 2474: "env de dev"})
+_txt = "\n".join(_bloc)
+verifie(_bloc[1] == "Détail par tâche :", "le bloc s'annonce")
+verifie("- RM2481 bascule PHP 5.6 → 7.4 : 2h45" in _txt,
+        "le temps d'un même ticket se cumule sur toutes ses saisies")
+verifie(_txt.index("RM2481") < _txt.index("RM2474") < _txt.index("RM2455"),
+        "trié par temps décroissant : le client lit d'abord ce qui a coûté")
+verifie("- RM2455 : 0h15" in _txt, "un ticket sans titre connu reste listé")
+verifie("- Divers, hors tâche identifiée : 1h00" in _txt,
+        "le temps sans ticket est nommé, pas dissimulé")
+verifie(I.bloc_detail_taches([]) == [], "aucune saisie, aucun bloc")
+verifie(I.duree_hm(0.08) == "0h05" and I.duree_hm(37.75) == "37h45",
+        "les durées se lisent en heures et minutes, pas en centièmes")
+
+# La part d'un projet mutualisé réduit le temps imputé au client.
+_part = I.bloc_detail_taches([_S(4.0, 900, part=0.25)])
+verifie("- RM900 : 1h00" in "\n".join(_part),
+        "sur un projet partagé, seule la part du client est comptée")
+
+_note = I.note_publique(date(2026, 8, 1), date(2026, 8, 31), ["2026-08-11"],
+                        saisies=[_S(1.5, 2481)], titres={2481: "bascule"})
+verifie("Détail par tâche :" in _note and "- RM2481 bascule : 1h30" in _note,
+        "la note publique porte le bloc — c'est désormais la norme")
+verifie("Détail par tâche" not in I.note_publique(
+            date(2026, 8, 1), date(2026, 8, 31), ["2026-08-11"]),
+        "sans saisies fournies, la note reste celle d'avant (compatibilité)")
+
+
+print("\nModifier une facture au lieu de la recréer (RM3529)")
+_a5 = []
+
+
+def _h5(methode, url, cle, charge=None):
+    _a5.append((methode, url.split("index.php/")[-1], charge))
+    return {}
+
+
+_e5 = E.DolibarrErpProvider(inst, http=_h5)
+verifie(_e5.maj_note_publique(215, "nouveau texte") is True, "la mise à jour aboutit")
+verifie(_a5 == [("PUT", "invoices/215", {"note_public": "nouveau texte"})],
+        "un seul PUT, qui n'envoie QUE la note : rien d'autre n'est touché")
+verifie(not any(m == "DELETE" for m, _u, _c in _a5),
+        "aucune suppression : le numéro et les retouches de la facture survivent")
+
+_e6 = E.DolibarrErpProvider(inst, http=lambda m, u, k, c=None: [
+    {"id": 215, "ref": "FA2610-0190", "statut": "1",
+     "note_private": "[invoice:calicote#2026-07]", "note_public": "ancienne note"}])
+_f6 = _e6.factures_du_tiers(12)
+verifie(_f6[0].get("note_publique") == "ancienne note",
+        "la note publique est lue : on ne réécrit que ce qui change")
+verifie(I.deja_facture("[invoice:calicote#2026-07]", _f6)["id"] == 215,
+        "la facture à corriger se retrouve par sa marque, validée comprise")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

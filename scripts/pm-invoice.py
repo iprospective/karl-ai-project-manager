@@ -173,6 +173,51 @@ def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref
     return "\n".join(L)
 
 
+def maj_auteur(prop, erp, args):
+    """Pose l'auteur des factures déjà posées pour ce mois, par login Dolibarr.
+
+    Les factures créées par l'outil n'avaient pas d'auteur : la clé API servait sous
+    l'identité d'un humain, et le champ restait vide. Avec un compte dédié (`karl`), une
+    facture dit enfin qui l'a produite (RM3529).
+
+    Dolibarr accepte le PUT sur une validée puis l'ignore ; `maj_auteur` relit et rend
+    False dans ce cas, pour ne pas annoncer un succès qui n'a pas eu lieu.
+    """
+    uid = erp.utilisateur_par_login(args.maj_auteur)
+    if uid is None:
+        print(f"✗ aucun utilisateur Dolibarr « {args.maj_auteur} » : rien fait")
+        return
+    print(f"auteur visé : {args.maj_auteur} (id {uid})")
+    faits, refuses, absentes = [], [], []
+    for f in prop.get("factures", []):
+        client = f.get("client")
+        if args.client and client != args.client:
+            continue
+        if not f.get("tiers"):
+            continue
+        m = I.marque(client, prop.get("periode", args.month))
+        existante = I.deja_facture(m, erp.factures_du_tiers(f["tiers"]))
+        if not existante:
+            absentes.append(client)
+            continue
+        ref = existante["ref"] or f"#{existante['id']}"
+        statut = existante.get("statut") or "?"
+        if args.dry_run:
+            print(f"  [dry-run] {client:12} {ref:16} {statut:10} auteur → {args.maj_auteur}")
+            continue
+        if erp.maj_auteur(existante["id"], uid):
+            print(f"  ✓ {client:12} {ref:16} {statut:10} auteur posé")
+            faits.append(ref)
+        else:
+            print(f"  ⊘ {client:12} {ref:16} {statut:10} refusé par Dolibarr "
+                  f"(champ figé après validation)")
+            refuses.append(ref)
+    if not args.dry_run:
+        print(f"✓ auteur {prop.get('periode')} : {len(faits)} posé(s)"
+              + (f", {len(refuses)} refusé(s) (factures validées)" if refuses else "")
+              + (f", {len(absentes)} sans facture" if absentes else ""))
+
+
 def maj_notes(prop, erp, args):
     """Réécrit la note publique des factures DÉJÀ posées pour ce mois.
 
@@ -419,6 +464,10 @@ def main():
                     help="réécrit la note publique des factures DÉJÀ posées pour ce mois, "
                          "sans les recréer (brouillon comme validée). Combinable avec "
                          "--dry-run et --client")
+    ap.add_argument("--maj-auteur", metavar="LOGIN",
+                    help="pose l'auteur (« créé par ») des factures de ce mois, par login "
+                         "Dolibarr. Dolibarr l'ignore sur une facture validée : seuls les "
+                         "brouillons changent, et le refus est signalé")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
     if args.pending:
@@ -457,7 +506,7 @@ def main():
 
     erp = pm_erp.get_erp_provider(registry=Registry.from_config(cfg.providers))
     tiers, factures, catalogue = erp.tiers(), erp.factures(), erp.services()
-    if args.apply or args.maj_notes:
+    if args.apply or args.maj_notes or args.maj_auteur:
         chemin = (Path(args.out).expanduser() if args.out
                   else dossier_etat(cfg)) / f"{args.month}.yml"
         if not chemin.is_file():
@@ -467,6 +516,8 @@ def main():
         # note, c'est encore envoyer un texte au client.
         if args.maj_notes:
             return maj_notes(prop, erp, args)
+        if args.maj_auteur:
+            return maj_auteur(prop, erp, args)
         return appliquer(prop, erp, catalogue, factures, conf, args)
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)

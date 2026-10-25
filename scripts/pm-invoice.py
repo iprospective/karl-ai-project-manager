@@ -180,8 +180,8 @@ def maj_auteur(prop, erp, args):
     l'identité d'un humain, et le champ restait vide. Avec un compte dédié (`karl`), une
     facture dit enfin qui l'a produite (RM3529).
 
-    Dolibarr accepte le PUT sur une validée puis l'ignore ; `maj_auteur` relit et rend
-    False dans ce cas, pour ne pas annoncer un succès qui n'a pas eu lieu.
+    `maj_auteur` relit la facture après le PUT et rend False si le champ n'a pas été
+    pris : un appel qui ne signale rien ne prouve pas que l'écriture a eu lieu.
     """
     uid = erp.utilisateur_par_login(args.maj_auteur)
     if uid is None:
@@ -466,8 +466,8 @@ def main():
                          "--dry-run et --client")
     ap.add_argument("--maj-auteur", metavar="LOGIN",
                     help="pose l'auteur (« créé par ») des factures de ce mois, par login "
-                         "Dolibarr. Dolibarr l'ignore sur une facture validée : seuls les "
-                         "brouillons changent, et le refus est signalé")
+                         "Dolibarr. Fonctionne sur un brouillon comme sur une validée ; "
+                         "un champ non pris est signalé plutôt que supposé écrit")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
     if args.pending:

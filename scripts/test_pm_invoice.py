@@ -480,7 +480,8 @@ def _h7(methode, url, cle, charge=None):
     _a7.append((methode, chemin, charge))
     if methode == "GET" and chemin.startswith("users?"):
         return [{"id": 2, "login": "mathieu"}, {"id": 3, "login": "karl"}]
-    # 500 = brouillon, le champ est pris ; 501 = validée, Dolibarr l'ignore en silence
+    # 500 : le champ est pris. 501 : l'API répond sans erreur mais n'écrit pas — cas
+    # réellement rencontré lors d'un essai manuel, et que la relecture seule révèle.
     if methode == "GET" and chemin == "invoices/500":
         return {"id": 500, "statut": "0", "user_author": "3"}
     if methode == "GET" and chemin == "invoices/501":
@@ -493,7 +494,7 @@ verifie(_e7.utilisateur_par_login("karl") == 3, "l'utilisateur se résout par so
 verifie(_e7.utilisateur_par_login("absent") is None, "un login inconnu rend None, sans lever")
 verifie(_e7.maj_auteur(500, 3) is True, "sur un brouillon, l'auteur est posé")
 verifie(_e7.maj_auteur(501, 3) is False,
-        "sur une VALIDÉE, Dolibarr accepte le PUT mais l'ignore : rendu False")
+        "un PUT accepté mais sans effet est rendu False, pas pris pour un succès")
 verifie(any(m == "PUT" and c == {"user_author": 3} for m, _u, c in _a7),
         "le PUT n'envoie que l'auteur")
 verifie(sum(1 for m, u, _c in _a7 if m == "GET" and u == "invoices/501") >= 1,

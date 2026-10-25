@@ -218,7 +218,9 @@ def maj_notes(prop, erp, args):
           + (f", {len(absentes)} sans facture" if absentes else ""))
     for client, motif in absentes:
         print(f"  ⚠ {client} : {motif}")
-    return faites
+    # Rien en retour : `main()` part dans `sys.exit()`, et une valeur non entière y
+    # serait imprimée sur stderr AVEC un code de sortie 1 — un succès passerait pour
+    # un échec dans un enchaînement de commandes.
 
 
 def appliquer(prop, erp, catalogue, factures, conf, args):

@@ -71,6 +71,10 @@ class Facture:
     #: Conditions de règlement (délai de paiement). 0 ou None = aucune posée, et
     #: Dolibarr n'en met pas de lui-même : la facture part sans échéance.
     reglement_id: int = None
+    #: Identifiant ERP. Sans lui, une facture lue ne peut pas être modifiée : on ne
+    #: savait que créer et supprimer, donc « corriger » voulait dire recréer — ce qui
+    #: perd le numéro et les retouches faites à la main (RM3529).
+    id: int = None
 
 
 class ErpProvider:
@@ -97,6 +101,14 @@ class ErpProvider:
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
                         quand=None, projet_id=None, reglement_id=None):
         """Crée une facture BROUILLON. Ne valide jamais : la validation reste humaine."""
+        raise NotImplementedError
+
+    def maj_note_publique(self, facture_id, texte):
+        """Réécrit la note publique d'une facture existante, sans rien toucher d'autre.
+
+        Corriger une facture ne doit pas passer par une recréation : cela perdrait son
+        numéro et les retouches faites à la main (RM3529).
+        """
         raise NotImplementedError
 
     def dernier_taux_tva(self, tiers_id, factures=None):
@@ -220,8 +232,23 @@ class DolibarrErpProvider(ErpProvider):
                 statut=_STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
                 lignes=lignes, note_publique=(f.get("note_public") or "").strip(),
                 projet_id=int(f["fk_project"]) if f.get("fk_project") else None,
-                reglement_id=int(f["cond_reglement_id"]) if f.get("cond_reglement_id") else None))
+                reglement_id=int(f["cond_reglement_id"]) if f.get("cond_reglement_id") else None,
+                id=int(f["id"]) if f.get("id") else None))
         return sortie
+
+    def maj_note_publique(self, facture_id, texte):
+        """Réécrit la note publique d'une facture, sans rien toucher d'autre.
+
+        Modifier, pas recréer : une facture validée porte un numéro définitif et des
+        retouches faites à la main dans Dolibarr. `supprimer_brouillon` + recréation
+        perdait les deux — d'où cette voie, qui n'envoie que `note_public` (RM3529).
+
+        Fonctionne aussi sur une facture validée : la note publique n'est pas un
+        élément comptable. Attention cependant, le PDF déjà envoyé au client n'en est
+        pas changé ; seule une regénération le reflète.
+        """
+        self.api("PUT", f"invoices/{int(facture_id)}", {"note_public": texte})
+        return True
 
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
@@ -271,7 +298,9 @@ class DolibarrErpProvider(ErpProvider):
                                f"&sortfield=t.rowid&sortorder=DESC") or []
         return [{"id": int(f["id"]), "ref": f.get("ref") or "",
                  "statut": _STATUTS.get(str(f.get("statut", f.get("status"))), "?"),
-                 "note_privee": (f.get("note_private") or "")} for f in brut]
+                 "note_privee": (f.get("note_private") or ""),
+                 # Nécessaire pour ne réécrire que ce qui change (RM3529).
+                 "note_publique": (f.get("note_public") or "")} for f in brut]
 
     def _jours_reglement(self, reglement_id):
         """Nombre de jours d'une condition de règlement, depuis le dictionnaire."""

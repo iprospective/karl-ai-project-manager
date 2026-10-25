@@ -173,6 +173,54 @@ def rapport(props, debut, fin, orphelins, internes, deduits, tiers, services_ref
     return "\n".join(L)
 
 
+def maj_notes(prop, erp, args):
+    """Réécrit la note publique des factures DÉJÀ posées pour ce mois.
+
+    Modifier, pas recréer (RM3529) : une facture validée porte un numéro définitif, et
+    un brouillon peut avoir été retouché à la main. On n'envoie donc que `note_public`,
+    en s'appuyant sur la même marque que `--apply` pour retrouver la bonne facture.
+
+    Fonctionne sur un brouillon comme sur une facture validée. Sur une validée, le PDF
+    déjà transmis au client n'en est pas changé : seule une regénération le reflète.
+    """
+    faites, absentes, inchangees = [], [], []
+    for f in prop.get("factures", []):
+        client = f.get("client")
+        if args.client and client != args.client:
+            continue
+        if not f.get("tiers"):
+            absentes.append((client, "tiers ERP inconnu"))
+            continue
+        m = I.marque(client, prop.get("periode", args.month))
+        existante = I.deja_facture(m, erp.factures_du_tiers(f["tiers"]))
+        if not existante:
+            absentes.append((client, "aucune facture posée pour ce mois"))
+            continue
+        nouvelle = f.get("note_publique", "")
+        ancienne = (existante.get("note_publique") or "").strip()
+        ref = existante["ref"] or f"#{existante['id']}"
+        statut = existante.get("statut") or "?"
+        if ancienne == nouvelle.strip():
+            inchangees.append((client, ref))
+            continue
+        if args.dry_run:
+            ajout = len(nouvelle.splitlines()) - len(ancienne.splitlines())
+            print(f"  [dry-run] {client:12} {ref:16} {statut:10} "
+                  f"note réécrite ({ajout:+d} ligne(s))")
+            faites.append((client, ref))
+            continue
+        erp.maj_note_publique(existante["id"], nouvelle)
+        print(f"  ✓ {client:12} {ref:16} {statut:10} note mise à jour")
+        faites.append((client, ref))
+    verbe = "à réécrire" if args.dry_run else "réécrite(s)"
+    print(f"✓ notes {prop.get('periode')} : {len(faites)} {verbe}"
+          + (f", {len(inchangees)} déjà à jour" if inchangees else "")
+          + (f", {len(absentes)} sans facture" if absentes else ""))
+    for client, motif in absentes:
+        print(f"  ⚠ {client} : {motif}")
+    return faites
+
+
 def appliquer(prop, erp, catalogue, factures, conf, args):
     """Crée les brouillons depuis la proposition AMENDÉE. Ne valide jamais, ne double jamais.
 
@@ -365,6 +413,10 @@ def main():
     ap.add_argument("--replace", action="store_true",
                     help="avec --apply : remplace le BROUILLON déjà créé pour ce mois "
                          "(supprimé puis recréé ; une facture validée est refusée)")
+    ap.add_argument("--maj-notes", action="store_true",
+                    help="réécrit la note publique des factures DÉJÀ posées pour ce mois, "
+                         "sans les recréer (brouillon comme validée). Combinable avec "
+                         "--dry-run et --client")
     ap.add_argument("--date", help="date des factures (AAAA-MM-JJ, défaut : aujourd'hui)")
     args = ap.parse_args()
     if args.pending:
@@ -403,12 +455,16 @@ def main():
 
     erp = pm_erp.get_erp_provider(registry=Registry.from_config(cfg.providers))
     tiers, factures, catalogue = erp.tiers(), erp.factures(), erp.services()
-    if args.apply:
+    if args.apply or args.maj_notes:
         chemin = (Path(args.out).expanduser() if args.out
                   else dossier_etat(cfg)) / f"{args.month}.yml"
         if not chemin.is_file():
             sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm invoice --month {args.month}`.")
         prop = yaml.safe_load(chemin.read_text(encoding="utf-8")) or {}
+        # La note part du fichier relu par l'humain, comme pour --apply : réécrire une
+        # note, c'est encore envoyer un texte au client.
+        if args.maj_notes:
+            return maj_notes(prop, erp, args)
         return appliquer(prop, erp, catalogue, factures, conf, args)
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)

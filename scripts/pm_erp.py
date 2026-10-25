@@ -264,10 +264,11 @@ class DolibarrErpProvider(ErpProvider):
     def maj_auteur(self, facture_id, user_id):
         """Pose l'auteur (« créé par ») d'une facture. Rend True seulement si c'est pris.
 
-        Dolibarr **accepte** ce PUT sur une facture validée mais l'ignore : le champ
-        reste vide, sans la moindre erreur. On relit donc la facture pour savoir ce
-        qui s'est réellement passé — un PUT qui répond sans broncher ne prouve rien
-        (RM3529).
+        Vérifié le 25/10/2026 : Dolibarr accepte ce champ sur un brouillon **comme** sur
+        une facture validée — 15 factures reprises, 15 posées. Mais un PUT qui répond
+        sans broncher ne prouve rien : lors d'un premier essai manuel, le champ n'avait
+        pas été pris alors que l'appel n'avait rien signalé. D'où la relecture, qui seule
+        tranche (RM3529).
         """
         fid = int(facture_id)
         self.api("PUT", f"invoices/{fid}", {"user_author": int(user_id)})

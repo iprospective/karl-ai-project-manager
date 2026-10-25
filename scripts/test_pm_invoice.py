@@ -471,5 +471,34 @@ verifie(I.deja_facture("[invoice:calicote#2026-07]", _f6)["id"] == 215,
         "la facture à corriger se retrouve par sa marque, validée comprise")
 
 
+print("\nAuteur de la facture (RM3529) : un PUT muet ne vaut pas succès")
+_a7 = []
+
+
+def _h7(methode, url, cle, charge=None):
+    chemin = url.split("index.php/")[-1]
+    _a7.append((methode, chemin, charge))
+    if methode == "GET" and chemin.startswith("users?"):
+        return [{"id": 2, "login": "mathieu"}, {"id": 3, "login": "karl"}]
+    # 500 = brouillon, le champ est pris ; 501 = validée, Dolibarr l'ignore en silence
+    if methode == "GET" and chemin == "invoices/500":
+        return {"id": 500, "statut": "0", "user_author": "3"}
+    if methode == "GET" and chemin == "invoices/501":
+        return {"id": 501, "statut": "1", "user_author": None}
+    return {}
+
+
+_e7 = E.DolibarrErpProvider(inst, http=_h7)
+verifie(_e7.utilisateur_par_login("karl") == 3, "l'utilisateur se résout par son login")
+verifie(_e7.utilisateur_par_login("absent") is None, "un login inconnu rend None, sans lever")
+verifie(_e7.maj_auteur(500, 3) is True, "sur un brouillon, l'auteur est posé")
+verifie(_e7.maj_auteur(501, 3) is False,
+        "sur une VALIDÉE, Dolibarr accepte le PUT mais l'ignore : rendu False")
+verifie(any(m == "PUT" and c == {"user_author": 3} for m, _u, c in _a7),
+        "le PUT n'envoie que l'auteur")
+verifie(sum(1 for m, u, _c in _a7 if m == "GET" and u == "invoices/501") >= 1,
+        "la facture est RELUE après le PUT : c'est la relecture qui tranche")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

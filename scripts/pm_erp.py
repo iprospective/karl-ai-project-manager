@@ -250,6 +250,31 @@ class DolibarrErpProvider(ErpProvider):
         self.api("PUT", f"invoices/{int(facture_id)}", {"note_public": texte})
         return True
 
+    def utilisateur_par_login(self, login, limite=100):
+        """L'id Dolibarr d'un utilisateur, par son login. None s'il n'existe pas.
+
+        Résoudre par login plutôt que coder un id : `karl` vaut 3 sur cette instance,
+        et rien ne garantit la même valeur ailleurs.
+        """
+        for u in (self.api("GET", f"users?limit={int(limite)}") or []):
+            if (u.get("login") or "") == login:
+                return int(u["id"])
+        return None
+
+    def maj_auteur(self, facture_id, user_id):
+        """Pose l'auteur (« créé par ») d'une facture. Rend True seulement si c'est pris.
+
+        Dolibarr **accepte** ce PUT sur une facture validée mais l'ignore : le champ
+        reste vide, sans la moindre erreur. On relit donc la facture pour savoir ce
+        qui s'est réellement passé — un PUT qui répond sans broncher ne prouve rien
+        (RM3529).
+        """
+        fid = int(facture_id)
+        self.api("PUT", f"invoices/{fid}", {"user_author": int(user_id)})
+        relu = self.api("GET", f"invoices/{fid}") or {}
+        pose = relu.get("user_author") or relu.get("fk_user_author")
+        return str(pose) == str(int(user_id))
+
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
                         quand=None, projet_id=None, reglement_id=None):

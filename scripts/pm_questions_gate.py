@@ -99,8 +99,17 @@ def is_data_repo(project_path: str = None, local_repo=None) -> bool:
     return bool(project_path) and str(project_path).rstrip("/").endswith("-core")
 
 
+class QId(str):
+    """L'id d'une question (`Q002`) qui porte sa SOURCE (`agent`|`llm`|`auto`, RM3544) : les appelants
+    qui dépaquettent des couples `(id, texte)` continuent de marcher, le message de refus la lit."""
+    source = "agent"
+
+
 def open_questions_of_sheet(sheet) -> list:
-    """[(Qnnn, texte)] des questions ouvertes d'une fiche — vide si pas de think."""
+    """[(Qnnn, texte)] des questions ouvertes d'une fiche — vide si pas de think.
+
+    RM3544 : une question de source `auto` (moisson par heuristique) n'est JAMAIS un arbitrage en
+    attente — seuls l'agent et le tri LLM décident ce qui vaut d'être tranché. Elle ne bloque pas."""
     import pm_think
     tp = pm_think.think_path(Path(sheet))
     if not tp.is_file():
@@ -108,11 +117,12 @@ def open_questions_of_sheet(sheet) -> list:
     sec = ((pm_think.load(tp) or {}).get("question", {}) or {})
     out = []
     for r in sec.get("rows", []):
-        if r.get("closed") or r.get("state") in _NON_BLOQUANTS:
+        if r.get("closed") or r.get("state") in _NON_BLOQUANTS or pm_think.est_auto(r):
             continue
         # RM3262 : le libellé par NOM de colonne — un carnet migré porte « Date · auteur » en 2ᵉ
         # position, et la garde aurait affiché la date à la place de la question.
-        out.append((r["id"], " ".join(str(pm_think.texte(sec, r, "question")).split())))
+        qid = QId(r["id"]); qid.source = pm_think.row_source(r)
+        out.append((qid, " ".join(str(pm_think.texte(sec, r, "question")).split())))
     return out
 
 
@@ -152,7 +162,7 @@ def describe(blocked_map: dict, limit: int = 3) -> str:
     """Les tickets bloquants et leurs questions, une ligne par ticket."""
     lines = []
     for rm, qs in blocked_map.items():
-        shown = " · ".join(f"{q} « {t[:80]} »" for q, t in qs[:limit])
+        shown = " · ".join(f"{q} [source {getattr(q, 'source', 'agent')}] « {t[:80]} »" for q, t in qs[:limit])
         more = f" (+{len(qs) - limit})" if len(qs) > limit else ""
         lines.append(f"  RM{rm} : {shown}{more}")
     return "\n".join(lines)

@@ -212,6 +212,39 @@ jobs:
 
   # ── Déclarés mais NON exécutés ──────────────────────────────────────────────
 
+  # ── Tri LLM des tours (RM3544) ──────────────────────────────────────────────
+  think-classify:
+    schedule: "30 3 * * *"
+    enabled: false      # motif : fournisseur à choisir par Mathieu — claude -p (coût ~40x, prompt
+                        # système refacturé à chaque appel), API Anthropic (~1 $/M jetons), ou
+                        # Ollama / serveur OpenAI local (coût nul, transcripts qui ne sortent pas).
+                        # Tant qu'aucun n'est configuré (OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY
+                        # ou axe `llm` du registre), la commande sort en 0 sans rien faire.
+    command: ["python3", "scripts/pm-think-classify.py", "--all", "--since", "{yesterday}", "--apply"]
+    description: >
+      Trie par un LLM les tours de conversation des dernières 24 h vers les `.think.md`
+      (notes, questions, décisions, fonctionnalités). C'est le SEUL chemin, avec l'agent
+      (`pm-task-think --question`), qui crée une Q « à trancher » : la moisson du hook ne fait
+      plus que des notes `auto` (RM3544). Sans lui, les notes `auto` restent à trier par
+      l'agent en session — rien ne bloque pour autant.
+
+  # ── Tri LLM des tours (RM3544) ──────────────────────────────────────────────
+  think-classify:
+    schedule: "30 3 * * *"
+    enabled: false      # motif : fournisseur à choisir par Mathieu — claude -p (coût ~40x, prompt
+                        # système refacturé à chaque appel), API Anthropic (~1 $/M jetons), ou
+                        # Ollama / serveur OpenAI local (coût nul, transcripts qui ne sortent pas).
+                        # Tant qu'aucun n'est configuré (OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY
+                        # ou axe `llm` du registre), la commande sort en 0 sans rien faire.
+    shell: >
+      scripts/pm-think-classify.py --all --since "$(date -d yesterday +%F)" --apply
+    description: >
+      Trie par un LLM les tours de conversation des dernières 24 h vers les `.think.md`
+      (notes, questions, décisions, fonctionnalités). C'est le SEUL chemin, avec l'agent
+      (`pm-task-think --question`), qui crée une Q « à trancher » : la moisson du hook ne fait
+      plus que des notes `auto` (RM3544). Sans lui, les notes `auto` restent à trier par
+      l'agent en session — rien ne bloque pour autant.
+
   bench-overhead:
     schedule: "0 7 1 * *"
     enabled: false      # motif : était déjà commenté dans cron.example.sh — le

@@ -15,7 +15,7 @@ de texte ne décide pas de ça ; un modèle léger, si — pour ~1 $ par million
   pm-think-classify --all [--since AAAA-MM-JJ] [--limit N] reprise de l'historique
   --apply            écrit dans les `.think.md` (défaut : rapport seul, rien n'est écrit)
   --model <id>       défaut : claude-haiku-4-5-20251001 ; --batch <n> tours par appel (défaut 25)
-  --engine claude|api|ollama|openai
+  --engine claude|api|ollama|openai   (RM3544 : sans fournisseur configuré ni --engine, la passe sort en 0 sans rien faire)
                      `claude -p` (pas de clé à gérer) · l'API Anthropic · **Ollama** (local ou hébergé),
                      choisi d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` est posé, puis l'API si sa clé existe.
                      Ollama : `OLLAMA_HOST` (défaut `http://localhost:11434`), `OLLAMA_API_KEY` pour un service
@@ -426,7 +426,8 @@ def ecrit(rm_id, retenus, sid=None, cfg=None) -> int:
         if pm_think.has_text(pm_think.load(think), kind, x):
             continue
         pm_think.append(think, kind, x, rm_id=int(rm_id), by=("M" if role == "M" else "A"),
-                        state=("valide" if t == "decision" else "attente"), sid=sid)
+                        state=("valide" if t == "decision" else "attente"), sid=sid,
+                        source="llm")      # RM3544 : une Q née du tri LLM est un arbitrage voulu — elle bloque
         n += 1
     if n:
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
@@ -515,7 +516,7 @@ def main():
     ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api", "ollama", "openai"),
                     default=("openai" if os.environ.get("LLM_BASE_URL")
                              else "ollama" if (os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY"))
-                             else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
+                             else "api" if os.environ.get("ANTHROPIC_API_KEY") else None))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -540,6 +541,15 @@ def main():
             a.engine = eng
             if mod and a.model == MODEL:
                 a.model = mod
+    if not a.engine and os.environ.get("PM_CLASSIFY_CMD"):
+        a.engine = "claude"        # moteur injecté (tests) : c'est un fournisseur
+    if not a.engine:
+        # RM3544 : aucun fournisseur choisi (ni OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY, ni axe `llm`
+        # du registre, ni --engine). On ne retombe PLUS sur `claude -p` (coût ~40× — décision de Mathieu
+        # à prendre) : la passe est désactivée proprement, les N `auto` restent à trier par l'agent.
+        print("pm-think-classify : aucun fournisseur LLM configuré (OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY, "
+              "axe `llm` du registre, ou --engine) — passe désactivée, rien à faire.")
+        return 0
 
     cibles = []
     if a.transcript:

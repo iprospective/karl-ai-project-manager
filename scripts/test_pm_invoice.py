@@ -547,35 +547,65 @@ verifie(E.DolibarrErpProvider._charge_ligne(_l) == _posts[0],
         "création et ajout partagent le même format de ligne")
 
 
-print("\nModifier une ligne existante (RM3529)")
-_a10, _q10 = [], {"7": 18.0}
+print("\nModifier une ligne existante (RM3529) : le PUT REMPLACE la ligne")
+_a10 = []
+# L'état serveur : une ligne complète, comme Dolibarr la rend.
+_ligne10 = {"id": 7, "qty": 18.0, "subprice": 43.0, "tva_tx": 20.0,
+            "desc": "RM2562 Les coordonnées des clients", "fk_product": 25,
+            "product_type": 1}
 
 
 def _h10(methode, url, cle, charge=None):
     chemin = url.split("index.php/")[-1]
     _a10.append((methode, chemin, charge))
     if methode == "PUT" and "/lines/7" in chemin:
-        _q10["7"] = charge.get("qty", _q10["7"])     # applique
+        # Dolibarr REMPLACE : ce qui n'est pas envoyé est perdu. C'est ce comportement
+        # qui a vidé subprice et tva de deux lignes et fait chuter une facture de
+        # 1 763 € à 839 € le 26/10/2026.
+        _ligne10.clear()
+        _ligne10.update({"id": 7})
+        _ligne10.update(charge or {})
         return {}
-    if methode == "PUT" and "/lines/8" in chemin:
-        return {}                                     # accepte sans appliquer
     if methode == "GET":
-        return {"id": 228, "lines": [{"id": 7, "qty": _q10["7"]}, {"id": 8, "qty": 0.25}]}
+        return {"id": 228, "lines": [dict(_ligne10)]}
     return {}
 
 
 _e10 = E.DolibarrErpProvider(inst, http=_h10)
 verifie(_e10.maj_ligne(228, 7, quantite=18.25) is True, "la quantité est modifiée")
-verifie(any(m == "PUT" and c == {"qty": 18.25} for m, _u, c in _a10),
-        "un seul champ envoyé : la quantité, rien d'autre")
-verifie(not any(m == "DELETE" for m, _u, _c in _a10),
-        "aucune suppression : la facture garde son numéro et ses autres lignes")
+_puts = [c for m, u, c in _a10 if m == "PUT"]
+verifie(len(_puts) == 1, "un seul PUT")
+verifie(_puts[0]["qty"] == 18.25, "la quantité demandée est celle envoyée")
+verifie(_puts[0]["subprice"] == 43.0 and _puts[0]["tva_tx"] == 20.0,
+        "le PRIX et la TVA sont renvoyés : sans eux, Dolibarr les met à zéro")
+verifie(_puts[0]["desc"] == "RM2562 Les coordonnées des clients"
+        and _puts[0]["fk_product"] == 25,
+        "le libellé et le service sont préservés")
+verifie(_ligne10["subprice"] == 43.0,
+        "après coup, la ligne a toujours son prix : la facture n'est pas abîmée")
+verifie(not any(m == "DELETE" for m, _u, _c in _a10), "aucune suppression")
+
+# Une relecture qui ne regarde que la quantité validerait une ligne détruite.
+_a11 = []
+
+
+def _h11(methode, url, cle, charge=None):
+    _a11.append((methode, url.split("index.php/")[-1], charge))
+    if methode == "GET":
+        # le serveur rend une ligne dont le PRIX a été perdu
+        return {"id": 228, "lines": [{"id": 9, "qty": 3.25, "subprice": 0.0,
+                                      "tva_tx": 20.0, "desc": "x", "product_type": 1}]}
+    return {}
+
+
+_e11 = E.DolibarrErpProvider(inst, http=_h11)
 try:
-    _e10.maj_ligne(228, 8, quantite=3.25)
-    _mute10 = False
+    _e11.maj_ligne(228, 9, quantite=3.25, prix_unitaire=43.0)
+    _vu = False
 except E.ErpProviderError as e:
-    _mute10 = "non appliquée" in str(e)
-verifie(_mute10, "un PUT accepté mais non appliqué lève, au lieu de mentir")
+    _vu = "subprice" in str(e) and "abîmée" in str(e)
+verifie(_vu, "un prix perdu est DÉTECTÉ : la relecture ne regarde pas que la quantité")
+
 try:
     _e10.maj_ligne(228, 7)
     _vide = False

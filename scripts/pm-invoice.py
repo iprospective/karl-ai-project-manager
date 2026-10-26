@@ -522,6 +522,14 @@ def main():
     clients = sorted({s.client for s in facturables})
     tiers_c, deduits = tiers_des_clients(clients, tiers, conf)
     tarifs = {c: erp.dernier_tarif(tiers_c[c], factures) for c in clients if c in tiers_c}
+    # La dernière facture fait foi — mais un client NOUVEAU n'en a aucune, et son temps
+    # restait alors en attente indéfiniment. `tarif_initial` ne sert qu'à l'amorçage :
+    # dès la première facture émise, c'est elle qui reprend la main, et la règle « pas
+    # de table de tarifs à tenir en double » (RM2891) continue de valoir (RM3529).
+    initiaux = conf.get("tarif_initial") or {}
+    for c in clients:
+        if c in tiers_c and not tarifs.get(c) and initiaux.get(c):
+            tarifs[c] = float(initiaux[c])
     # Le taux de TVA suit la même règle que le tarif : la dernière facture fait foi.
     tva = {c: erp.dernier_taux_tva(tiers_c[c], factures) for c in clients if c in tiers_c}
     # Délai de paiement : la dernière facture du client fait foi ; à défaut, celui

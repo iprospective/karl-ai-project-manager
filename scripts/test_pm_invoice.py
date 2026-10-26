@@ -501,5 +501,50 @@ verifie(sum(1 for m, u, _c in _a7 if m == "GET" and u == "invoices/501") >= 1,
         "la facture est RELUE après le PUT : c'est la relecture qui tranche")
 
 
+print("\nAjouter une ligne sans recréer la facture (RM3529)")
+_a8 = []
+_lignes8 = [{"id": 1}, {"id": 2}]
+
+
+def _h8(methode, url, cle, charge=None):
+    chemin = url.split("index.php/")[-1]
+    _a8.append((methode, chemin, charge))
+    if methode == "POST" and chemin.endswith("/lines"):
+        _lignes8.append({"id": 3})          # Dolibarr écrit
+        return 3
+    if methode == "GET" and chemin == "invoices/228":
+        return {"id": 228, "lines": list(_lignes8)}
+    if methode == "GET" and chemin == "invoices/999":
+        return {"id": 999, "lines": [{"id": 1}]}   # n'écrit jamais
+    return {}
+
+
+_e8 = E.DolibarrErpProvider(inst, http=_h8)
+_l = E.Ligne(quantite=3.25, prix_unitaire=43.0, service_id=7,
+             libelle="villa-cactus", tva=20.0)
+verifie(_e8.ajouter_ligne(228, _l) is True, "la ligne est ajoutée")
+_posts = [c for m, u, c in _a8 if m == "POST" and u.endswith("/lines")]
+verifie(len(_posts) == 1 and _posts[0]["qty"] == 3.25 and _posts[0]["subprice"] == 43.0,
+        "un seul POST, avec la quantité et le prix voulus")
+verifie(_posts[0]["tva_tx"] == 20.0 and _posts[0]["fk_product"] == 7
+        and _posts[0]["product_type"] == 1,
+        "TVA, service et type de produit sont posés comme à la création")
+verifie(not any(m == "DELETE" for m, _u, _c in _a8),
+        "aucune suppression : la facture et son numéro sont intacts")
+
+_e9 = E.DolibarrErpProvider(inst, http=_h8)
+try:
+    _e9.ajouter_ligne(999, _l)
+    _mute = False
+except E.ErpProviderError as e:
+    _mute = "n'a rien écrit" in str(e)
+verifie(_mute, "un POST qui ne change pas le nombre de lignes lève, au lieu de mentir")
+
+# La même fabrique sert la création et l'ajout : une ligne ajoutée après coup a
+# exactement la forme de ses voisines.
+verifie(E.DolibarrErpProvider._charge_ligne(_l) == _posts[0],
+        "création et ajout partagent le même format de ligne")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

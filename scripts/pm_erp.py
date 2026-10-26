@@ -111,6 +111,10 @@ class ErpProvider:
         """
         raise NotImplementedError
 
+    def ajouter_ligne(self, facture_id, ligne):
+        """Ajoute une ligne à une facture existante, sans rien supprimer (RM3529)."""
+        raise NotImplementedError
+
     def dernier_taux_tva(self, tiers_id, factures=None):
         """Taux de TVA de la DERNIÈRE facture de ce tiers, ou None.
 
@@ -250,6 +254,28 @@ class DolibarrErpProvider(ErpProvider):
         self.api("PUT", f"invoices/{int(facture_id)}", {"note_public": texte})
         return True
 
+    def ajouter_ligne(self, facture_id, ligne):
+        """Ajoute une ligne à une facture existante, sans rien supprimer.
+
+        Corriger une facture ne doit pas passer par une recréation : `--replace`
+        supprimait le brouillon et le refaisait, ce qui perd les retouches faites à la
+        main et, sur une validée, serait impossible. Quand une facture est juste
+        incomplète — un projet rattaché après coup, des heures oubliées — il suffit
+        d'ajouter ce qui manque (RM3529).
+
+        Relit le nombre de lignes avant et après : Dolibarr peut répondre sans écrire,
+        et un POST silencieux ne prouve rien.
+        """
+        fid = int(facture_id)
+        avant = len((self.api("GET", f"invoices/{fid}") or {}).get("lines") or [])
+        self.api("POST", f"invoices/{fid}/lines", self._charge_ligne(ligne))
+        apres = len((self.api("GET", f"invoices/{fid}") or {}).get("lines") or [])
+        if apres != avant + 1:
+            raise ErpProviderError(
+                f"ligne non ajoutée à la facture {fid} : {avant} ligne(s) avant, "
+                f"{apres} après — Dolibarr n'a rien écrit")
+        return True
+
     def utilisateur_par_login(self, login, limite=100):
         """L'id Dolibarr d'un utilisateur, par son login. None s'il n'existe pas.
 
@@ -276,6 +302,22 @@ class DolibarrErpProvider(ErpProvider):
         pose = relu.get("user_author") or relu.get("fk_user_author")
         return str(pose) == str(int(user_id))
 
+
+    @staticmethod
+    def _charge_ligne(l):
+        """Une `Ligne` au format attendu par Dolibarr.
+
+        Partagée par la création et l'ajout : une ligne ajoutée après coup doit avoir
+        exactement la même forme que ses voisines, TVA et service compris (RM3529).
+        """
+        ligne = {"qty": round(float(l.quantite), 2), "subprice": float(l.prix_unitaire),
+                 "product_type": 1, "desc": l.libelle or ""}
+        # Sans `tva_tx`, Dolibarr pose 0 % : la facture part sans TVA.
+        if l.tva is not None:
+            ligne["tva_tx"] = float(l.tva)
+        if l.service_id:
+            ligne["fk_product"] = int(l.service_id)
+        return ligne
 
     def creer_brouillon(self, tiers_id, lignes, note_publique="", note_privee="",
                         quand=None, projet_id=None, reglement_id=None):
@@ -309,13 +351,7 @@ class DolibarrErpProvider(ErpProvider):
         if not fid:
             raise ErpProviderError(f"Dolibarr n'a pas rendu d'identifiant de facture (tiers {tiers_id})")
         for l in lignes:
-            ligne = {"qty": round(float(l.quantite), 2), "subprice": float(l.prix_unitaire),
-                     "product_type": 1, "desc": l.libelle or ""}
-            # Sans `tva_tx`, Dolibarr pose 0 % : la facture part sans TVA.
-            if l.tva is not None:
-                ligne["tva_tx"] = float(l.tva)
-            if l.service_id:
-                ligne["fk_product"] = int(l.service_id)
+            ligne = self._charge_ligne(l)
             self.api("POST", f"invoices/{fid}/lines", ligne)
         return int(fid)
 

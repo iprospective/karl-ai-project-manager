@@ -782,8 +782,21 @@ reformule **dans le même tour** en **question** (ce qu'elle bloque) ou en **fon
 reste à faire), sur le ticket qui la porte — c'est là qu'elle devient actionnable et lisible. Une
 note sans destination au bout de quelques jours n'en aura jamais.
 
-**Le tri final revient à un modèle, pas à un motif de texte** (RM3067). Le hook garde une heuristique —
-rapide et gratuite, elle n'est qu'un filet ; c'est **`pm-think-classify`** (modèle léger, ~1 $ par million
+**Qui crée une Q — la règle (RM3544).** Une Q « à trancher » bloque la clôture et la mise en production :
+c'est un arbitrage, et **seul un jugement le décide, jamais la forme interrogative d'une phrase**. Trois
+chemins, pas un de plus : (1) **l'agent**, par `pm-task-think --question` (source `agent`) ; (2) une
+**question outillée** (`AskUserQuestion`, `ExitPlanMode`) **restée sans réponse** (source `agent`) ;
+(3) **le tri LLM** `pm-think-classify` (source `llm`). **Le hook de moisson n'en crée JAMAIS** : un
+message interrogatif du demandeur devient, au mieux, une **note N signée de lui, source `auto`** — à
+trier par l'agent en session (la promouvoir en Q avec `--requalify Nnnn --as question`, ou l'écarter).
+Cette heuristique (RM3090) faisait de chaque « tu peux enchaîner ? » une Q ouverte et bloquait les merges
+pendant des semaines. La **source** (`agent` par défaut, `llm`, `auto`) se lit dans la cellule
+« Date · auteur » (`… · src:auto`) ; la garde de merge/MEP (RM3238) et la clôture **ne comptent ni les Q
+ni les N `auto`**, et leur message nomme la source de chaque Q bloquante. Nettoyage de l'existant :
+`pm-think-harvest --prune-auto [--all] [--apply]` (dry-run par défaut).
+
+**Le tri final revient à un modèle, pas à un motif de texte** (RM3067). Le hook n'a plus de rôle de
+classement des questions (RM3544) ; c'est **`pm-think-classify`** (modèle léger, ~1 $ par million
 de jetons) qui décide vraiment : il relit les tours de **conversation** d'un transcript — ce que
 le demandeur écrit et ce que l'agent lui **répond à l'écran**, jamais le raisonnement interne, jamais le
 tooling (appels d'outils, résultats, diffs, sorties de commandes) — et rend, pour chacun, `rien` · dette · question · décision ·
@@ -793,7 +806,9 @@ sans `--apply`, et le coût est rapporté à chaque passe. Le modèle de travail
 providers, axe `llm`** (`pm-providers resolve llm`), avec la même cascade que les autres axes — défaut,
 puis client, puis projet. Types : `lemonade` (Ryzen AI), `ollama`, `openai` (vLLM, LM Studio,
 llama.cpp), `anthropic`, `claude-cli`. **Local d'abord** ; une variable d'environnement
-(`LLM_BASE_URL`, `OLLAMA_HOST`…) prime, pour essayer un modèle sans toucher la conf. En local, les transcripts — qui portent le travail des clients — ne quittent
+(`LLM_BASE_URL`, `OLLAMA_HOST`…) prime, pour essayer un modèle sans toucher la conf. Sans aucun
+fournisseur configuré, la passe sort en 0 sans rien faire (jamais de repli silencieux sur `claude -p`, ~40×
+plus cher) ; le job planifié `think-classify` (`jobs.reference.yml`) est **désactivé** tant que Mathieu n'a pas choisi le fournisseur. En local, les transcripts — qui portent le travail des clients — ne quittent
 pas la machine, et la passe ne coûte rien : c'est le mode à préférer pour une reprise d'historique.
 
 **Chaque note appartient au ticket du projet où l'on travaille.** La moisson refuse de consigner
@@ -810,16 +825,17 @@ Règles :
 chose, souvent ouvrir un ticket) ; une **question ouverte** appelle un ARBITRAGE. La question n'est
 pas définie par son auteur : c'est **tout ce qui n'est pas tranché** — ce que l'agent demande, ce que
 le demandeur se demande, ce qui naît de la réflexion commune. Un même message peut porter les deux.
+Mais **qui la consigne** est réglé plus haut : l'agent ou le tri LLM, jamais le hook (RM3544).
 En cas de doute, note : une note mal classée se trie, une question perdue ne se retrouve pas.
 
 1. **Les scripts d'abord, l'agent ensuite** : le hook `pm-think-harvest` consigne à chaque tour
-   les questions posées, les réponses retenues et, **sous le critère de la note** (marqueur de
+   les questions outillées restées sans réponse (Q `agent`), les réponses retenues et, **sous le critère de la note** (marqueur de
    réflexion, ou prompt qui a produit une Q/D), les remarques verbatim du demandeur — jamais
    ses demandes immédiates ; `request`/`notify` rattachés à un ticket y descendent. L'agent n'écrit à la main que le conseil et l'arbitrage :
    `pm-task-think <id> --advise|--decide|--question|--feature "…"`, **dans le même tour** que la
    discussion qui les a fait naître — un arbitrage non consigné est un arbitrage qu'on croira consigné.
-2. **Un ticket ne se ferme pas avec une Q ouverte ou une N à trier** (garde de `pm-task-status-update`) :
-   tranche (`--set Qnnn --state valide|invalide`) avant de livrer.
+2. **Un ticket ne se ferme pas avec une Q ouverte ou une N à trier** (garde de `pm-task-status-update`,
+   hors Q/N de source `auto`, RM3544) : tranche (`--set Qnnn --state valide|invalide`) avant de livrer.
 3. **Le projet agrège, jamais à la main** : `pm-think-merge` régénère `docs/cdc-questions.md`,
    `cdc-decisions.md`, `cdc-features.md`, `cdc-notes.md` (ids `RM<id>-Xnnn`) ; `cdc.md`,
    `cdc-roadmap.md` (un rôle par version, sur demande) et `cdc-help.md` (complétée par le LLM)

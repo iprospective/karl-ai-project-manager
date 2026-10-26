@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.64.0] - 2026-10-26
+
+### Modifié
+- `session-tooling` § « Consignation par ticket » : **qui crée une Q** (RM3544). Une question « à
+  trancher » ne naît que de l'agent (`--question`, question outillée sans réponse) ou du tri LLM
+  (`pm-think-classify`) — **jamais de l'heuristique du hook**, qui faisait de tout message interrogatif
+  du demandeur une Q bloquante (RM3090, merges RM3238 refusés pendant des semaines). Le hook crée
+  désormais une note N signée du demandeur, source `auto`. Nouvelle **source** d'entrée
+  (`agent` | `llm` | `auto`, cellule « Date · auteur » : `src:auto`) ; la garde de merge/MEP et la
+  clôture ignorent les entrées `auto` et nomment la source des Q bloquantes. Nettoyage de l'existant :
+  `pm-think-harvest --prune-auto`. Job `think-classify` déclaré, désactivé.
+
 ## [2.63.1] - 2026-10-14
 
 ### Modifié

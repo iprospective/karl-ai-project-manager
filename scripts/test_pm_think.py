@@ -509,8 +509,9 @@ check("question approuvée par le demandeur (« ok ») → PAS de question ouver
 lignes = [json.dumps({"type": "user", "message": {"content": Q_OUVERTE}}),
           json.dumps({"type": "assistant", "message": {"content": "Voici ce que je vois : les deux vues lisent le même carnet."}})]
 items = harv.harvest_items(lignes)
-check("la moisson en fait une QUESTION, signée du demandeur",
-      [(k, e.get("by")) for k, _t, e in items if k == "question"] == [("question", "M")], str(items))
+# RM3544 : plus de Q par heuristique — une N `auto` signée du demandeur, jamais bloquante
+check("la moisson en fait une NOTE `auto` signée du demandeur, jamais une Q (RM3544)",
+      [(k, e.get("by"), e.get("source")) for k, _t, e in items] == [("note", "M", "auto")], str(items))
 
 # elle ne passe PAS par le critère de la note : une question ne porte pas de dette
 check("le critère de la note l'aurait écartée — c'est bien pour ça qu'on la teste avant",

@@ -203,6 +203,31 @@ def load(path) -> dict:
     return parse(p.read_text(encoding="utf-8")) if p.is_file() else {}
 
 
+#: RM3544 — d'où vient une entrée : `agent` (posée par l'agent : `--question`, question outillée restée
+#: sans réponse — c'est aussi le défaut de tout l'existant), `llm` (tri par modèle, `pm-think-classify`),
+#: `auto` (moisson par heuristique, JAMAIS arbitre). Porté par la cellule « Date · auteur »
+#: (`… · s:abcd1234 · src:auto`) : aucune colonne à migrer, un ancien carnet se lit comme avant.
+SOURCES = ("agent", "llm", "auto")
+_SRC_RE = re.compile(r"\bsrc:(agent|llm|auto)\b")
+
+
+def row_source(r) -> str:
+    """La source d'une ligne (`agent` par défaut — rétro-compatible). Pure."""
+    cells = (r or {}).get("cells") or []
+    m = _SRC_RE.search(cells[1]) if len(cells) > 1 else None
+    return m.group(1) if m else "agent"
+
+
+def est_auto(r) -> bool:
+    return row_source(r) == "auto"
+
+
+def notes_auto(parsed: dict) -> int:
+    """Notes `auto` encore à trier — visibles, jamais bloquantes (RM3544)."""
+    return sum(1 for r in parsed.get("note", {}).get("rows", [])
+               if est_auto(r) and not r["closed"] and r["state"] not in ("valide", "invalide"))
+
+
 def counters(parsed: dict) -> dict:
     """Ce que le frontmatter de la fiche porte (D007) : l'état, jamais la pensée."""
     q = parsed.get("question", {}).get("rows", [])
@@ -213,7 +238,8 @@ def counters(parsed: dict) -> dict:
         "questions_open": sum(1 for r in q if question_ouverte(r)),
         # RM3357 : celles qui attendent un tiers, comptées à part — visibles, jamais bloquantes
         "questions_reserve": sum(1 for r in q if question_en_reserve(r)),
-        "notes_pending": sum(1 for r in n if not r["closed"] and r["state"] not in ("valide", "invalide")),
+        "notes_pending": sum(1 for r in n if not r["closed"] and r["state"] not in ("valide", "invalide")
+                             and not est_auto(r)),    # RM3544 : une N `auto` ne bloque rien
         "decisions": sum(1 for r in d if r["prefix"] == "D" and r["state"] == "valide"),
         "features": sum(1 for r in f if not r["closed"]),
     }
@@ -501,12 +527,12 @@ def next_id(parsed: dict, kind: str, prefix: str) -> str:
 
 
 def row_cells(kind: str, rid: str, text: str, *, by="A", state=None, when=None, sid=None,
-              bloque="", urgence="", domaine="", version="", origine="", lot="", dest="") -> list:
+              bloque="", urgence="", domaine="", version="", origine="", lot="", dest="", source="") -> list:
     """Les cellules d'une ligne selon la grammaire de sa section."""
     when = when or datetime.now().strftime("%Y-%m-%d")
     icon = STATE_ICON.get(state, state) if state else ("🕐" if kind != "decision" else "🟡")
     by = signature(by, sid)                       # RM3062 : auteur nommé, jamais un code
-    who = f"{when} · {by}" + (f" · s:{str(sid)[:8]}" if sid else "")
+    who = f"{when} · {by}" + (f" · s:{str(sid)[:8]}" if sid else "") + (f" · src:{source}" if source else "")
     if kind == "note":
         return [rid, who, _clean(text), icon, _clean(dest), _clean(origine)]
     if kind == "question":
@@ -742,6 +768,25 @@ def requalify_row(path, rid: str, new_kind: str, *, prefix=None, rm_id=None, tit
     return kind, row["id"], new_kind, neuf
 
 
+def set_source(path, rid: str, source: str) -> bool:
+    """RM3544 — pose (ou remplace) la source d'une ligne dans sa cellule « Date · auteur »."""
+    if source not in SOURCES:
+        raise ValueError(f"source inconnue : {source} (attendu : {', '.join(SOURCES)})")
+    p = Path(path)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    for sec in load(p).values():
+        for r in sec["rows"]:
+            if r["id"] != rid or len(r["cells"]) < 2:
+                continue
+            cells = list(r["cells"])
+            base = _SRC_RE.sub("", cells[1]).rstrip(" ·").rstrip()
+            cells[1] = f"{base} · src:{source}"
+            lines[r["line"]] = "| " + " | ".join(cells) + " |"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return True
+    return False
+
+
 def remove_rows(path, ids) -> int:
     """Supprime des lignes pour de bon (RM3062 : « les notes pourries, tu peux les supprimer vraiment »). Retourne le nombre retiré."""
     p = Path(path)
@@ -828,7 +873,8 @@ def summary(parsed: dict, limit: int = 5) -> list:
     """Le résumé lu par le brief, la fiche et `pm-task-think --show` : compteurs, Q ouvertes, D récentes."""
     c = counters(parsed)
     L = [f"réflexion : {c['questions_open']} question(s) ouverte(s) · {c['decisions']} décision(s) validée(s) · "
-         f"{c['features']} fonctionnalité(s) · {c['notes_pending']} note(s) à trier"]
+         f"{c['features']} fonctionnalité(s) · {c['notes_pending']} note(s) à trier"
+         + (f" · {notes_auto(parsed)} note(s) auto" if notes_auto(parsed) else "")]
     qs = [r for r in parsed.get("question", {}).get("rows", []) if not r["closed"] and r["state"] not in ("valide", "invalide")]
     for r in qs[:limit]:
         L.append(f"  ? {r['id']} {r['cells'][1][:110] if len(r['cells']) > 1 else ''}")
@@ -905,7 +951,8 @@ _Q_TIERS = ("reserve",)
 
 def question_ouverte(r) -> bool:
     """Cette question attend-elle NOTRE arbitrage ? (ni tranchée, ni écartée, ni en réserve)"""
-    return not r["closed"] and r["state"] not in _Q_CLOSES and r["state"] not in _Q_TIERS
+    return not r["closed"] and r["state"] not in _Q_CLOSES and r["state"] not in _Q_TIERS \
+        and not est_auto(r)     # RM3544 : seule une Q d'agent / de LLM est un arbitrage
 
 
 def question_en_reserve(r) -> bool:

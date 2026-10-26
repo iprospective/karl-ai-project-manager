@@ -215,6 +215,7 @@
 - `pm_acceptance` — les critères d'acceptation, source unique de lecture
 - `pm_accounts` — le registre des comptes PM de l'instance
 - `pm_actor` — QUI agit, quand karl agit pour quelqu'un
+- `pm_agenda` — l'agenda pro de Mathieu, lu sur le Nextcloud
 - `pm_batch` — composer un lot de tickets pour un agent : plan et consigne
 - `pm_bus` — le journal des événements MÉTIER de PM
 - `pm_cf_mirror` — miroir « champ frontmatter ↔ custom field Redmine »

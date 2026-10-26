@@ -13,6 +13,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Moisson : plus aucune Q « à trancher » par heuristique (RM3544).** RM3090 faisait de tout message
+  interrogatif du demandeur une Q 🕐 ; la passe LLM censée la corriger n'a jamais été planifiée, et la garde
+  de merge RM3238 bloquait sur ces fausses questions depuis des semaines (12 en une journée le 26/10).
+  Décision de Mathieu : c'est l'agent ou le LLM qui décide, jamais la forme interrogative. Le hook crée
+  désormais une note N signée du demandeur, source `auto` (cellule « Date · auteur » : `src:auto`, aucune
+  migration) ; seules l'agent (`--question`, question outillée sans réponse) et `pm-think-classify`
+  (source `llm`) créent une Q. Garde de merge/MEP et clôture ignorent les entrées `auto` et nomment la
+  source des Q bloquantes. `pm-think-harvest --prune-auto [--all] [--apply] [--en-note]` nettoie l'existant
+  (dry-run par défaut). `pm-think-classify` sort en 0 sans fournisseur au lieu de retomber sur `claude -p` ;
+  job `think-classify` déclaré dans `jobs.reference.yml`, désactivé (fournisseur à choisir). Normes 2.64.0.
 - **Wiki : le titre d'un aspect n'apparaît plus deux fois (RM3474).** Le gabarit de `pm-task-doc`
   écrit le titre à la fois en `title:` (frontmatter) et en `# <même titre>` en tête du corps, et
   `pm-wiki-sync` réinjectait le H1 par-dessus : la page publiée portait deux titres de niveau 1

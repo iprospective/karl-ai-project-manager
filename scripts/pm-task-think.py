@@ -233,6 +233,9 @@ def main():
     ap.add_argument("--when"); ap.add_argument("--bloque", default=""); ap.add_argument("--urgence", default="")
     ap.add_argument("--domaine", default=""); ap.add_argument("--version", default=""); ap.add_argument("--origine", default="")
     ap.add_argument("--lot", default="")
+    ap.add_argument("--source", choices=pm_think.SOURCES, default="",
+                    help="RM3544 : provenance de l'entrée — agent (défaut implicite), llm (tri par modèle) ou "
+                         "auto (moisson par heuristique : jamais bloquante)")
     ap.add_argument("--dedupe", action="store_true"); ap.add_argument("--no-commit", action="store_true")
     ap.add_argument("--no-merge", action="store_true",
                     help="RM3380 : ne pas régénérer les registres du projet (rafale scriptée ; relancer `mmi-pm think-merge` ensuite)")
@@ -451,7 +454,7 @@ def main():
     title = _titre(sheet)
     rid = pm_think.append(think, kind, text, prefix=prefix, rm_id=a.rm_id, title=title, by=a.by, state=a.state,
                           when=a.when, sid=a.sid, bloque=a.bloque, urgence=a.urgence, domaine=a.domaine,
-                          version=a.version, origine=a.origine, lot=a.lot, dest=a.dest)
+                          version=a.version, origine=a.origine, lot=a.lot, dest=a.dest, source=a.source)
     pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
     if kind == "question" or (kind == "decision" and pm_think.cite_question(text)):
         _resync_questions(a.rm_id, sheet, kind)      # une question posée, ou sa réponse, se voit tout de suite

@@ -65,6 +65,11 @@ def _sources(conf):
 
 def collecter(conf, debut, fin, verbose=False, cache_dir=None, cfg=None):
     events, detail, absentes = [], [], []
+    # Prompts automatiques propres à CETTE installation : un CRON qui ouvre une session
+    # chaque matin laisse un texte parfaitement régulier, qui ressemble à une demande
+    # mais n'en est pas une. Sans cette liste, un prompt isolé à 6h30 un samedi fabrique
+    # une journée de travail entière (RM3530).
+    exclusions = conf.get("exclure_prompts") or []
     for s in _sources(conf):
         kind, chemin = s.get("kind"), str(Path(s.get("path", "")).expanduser())
         avant = len(events)
@@ -76,11 +81,11 @@ def collecter(conf, debut, fin, verbose=False, cache_dir=None, cfg=None):
                 continue
             chemin = local
         if kind == "claude-transcripts":
-            events += W.collect_claude_transcripts(chemin, debut, fin)
+            events += W.collect_claude_transcripts(chemin, debut, fin, exclusions)
         elif kind == "claude-history":
-            events += W.collect_claude_history(chemin, debut, fin)
+            events += W.collect_claude_history(chemin, debut, fin, exclusions)
         elif kind == "opencode-db":
-            events += W.collect_opencode(chemin, debut, fin)
+            events += W.collect_opencode(chemin, debut, fin, exclusions=exclusions)
         elif kind == "redmine-actions":
             # Créer, commenter, modifier un ticket : des gestes humains horodatés,
             # rattachés à un ticket certain. Seule source qui voit une journée de

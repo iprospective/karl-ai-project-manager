@@ -115,6 +115,11 @@ class ErpProvider:
         """Ajoute une ligne à une facture existante, sans rien supprimer (RM3529)."""
         raise NotImplementedError
 
+    def maj_ligne(self, facture_id, ligne_id, quantite=None, prix_unitaire=None,
+                  libelle=None):
+        """Modifie une ligne existante, sans rien supprimer (RM3529)."""
+        raise NotImplementedError
+
     def dernier_taux_tva(self, tiers_id, factures=None):
         """Taux de TVA de la DERNIÈRE facture de ce tiers, ou None.
 
@@ -274,6 +279,38 @@ class DolibarrErpProvider(ErpProvider):
             raise ErpProviderError(
                 f"ligne non ajoutée à la facture {fid} : {avant} ligne(s) avant, "
                 f"{apres} après — Dolibarr n'a rien écrit")
+        return True
+
+    def maj_ligne(self, facture_id, ligne_id, quantite=None, prix_unitaire=None,
+                  libelle=None):
+        """Modifie une ligne existante : quantité, prix ou libellé. Sans rien supprimer.
+
+        Une facture incomplète ne gagne pas toujours une ligne : quand les heures sont
+        regroupées par service, rattacher un projet après coup fait simplement GROSSIR
+        des lignes déjà là. C'est le cas rencontré sur la facture d'août de pisceen,
+        où deux quantités changeaient au lieu qu'une ligne s'ajoute (RM3529).
+
+        Relit la ligne après coup : un PUT accepté n'est pas un PUT appliqué.
+        """
+        fid, lid = int(facture_id), int(ligne_id)
+        charge = {}
+        if quantite is not None:
+            charge["qty"] = round(float(quantite), 2)
+        if prix_unitaire is not None:
+            charge["subprice"] = float(prix_unitaire)
+        if libelle is not None:
+            charge["desc"] = libelle
+        if not charge:
+            raise ErpProviderError("maj_ligne : rien à modifier")
+        self.api("PUT", f"invoices/{fid}/lines/{lid}", charge)
+        relu = next((l for l in ((self.api("GET", f"invoices/{fid}") or {}).get("lines") or [])
+                     if str(l.get("id")) == str(lid)), None)
+        if relu is None:
+            raise ErpProviderError(f"ligne {lid} introuvable après modification")
+        if quantite is not None and round(float(relu.get("qty") or 0), 2) != charge["qty"]:
+            raise ErpProviderError(
+                f"quantité non appliquée sur la ligne {lid} : "
+                f"{relu.get('qty')} au lieu de {charge['qty']}")
         return True
 
     def utilisateur_par_login(self, login, limite=100):

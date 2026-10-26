@@ -547,5 +547,42 @@ verifie(E.DolibarrErpProvider._charge_ligne(_l) == _posts[0],
         "création et ajout partagent le même format de ligne")
 
 
+print("\nModifier une ligne existante (RM3529)")
+_a10, _q10 = [], {"7": 18.0}
+
+
+def _h10(methode, url, cle, charge=None):
+    chemin = url.split("index.php/")[-1]
+    _a10.append((methode, chemin, charge))
+    if methode == "PUT" and "/lines/7" in chemin:
+        _q10["7"] = charge.get("qty", _q10["7"])     # applique
+        return {}
+    if methode == "PUT" and "/lines/8" in chemin:
+        return {}                                     # accepte sans appliquer
+    if methode == "GET":
+        return {"id": 228, "lines": [{"id": 7, "qty": _q10["7"]}, {"id": 8, "qty": 0.25}]}
+    return {}
+
+
+_e10 = E.DolibarrErpProvider(inst, http=_h10)
+verifie(_e10.maj_ligne(228, 7, quantite=18.25) is True, "la quantité est modifiée")
+verifie(any(m == "PUT" and c == {"qty": 18.25} for m, _u, c in _a10),
+        "un seul champ envoyé : la quantité, rien d'autre")
+verifie(not any(m == "DELETE" for m, _u, _c in _a10),
+        "aucune suppression : la facture garde son numéro et ses autres lignes")
+try:
+    _e10.maj_ligne(228, 8, quantite=3.25)
+    _mute10 = False
+except E.ErpProviderError as e:
+    _mute10 = "non appliquée" in str(e)
+verifie(_mute10, "un PUT accepté mais non appliqué lève, au lieu de mentir")
+try:
+    _e10.maj_ligne(228, 7)
+    _vide = False
+except E.ErpProviderError:
+    _vide = True
+verifie(_vide, "appeler sans rien à modifier est refusé")
+
+
 print("\n" + ("ÉCHECS : " + " | ".join(ECHECS) if ECHECS else "Tous les tests passent."))
 sys.exit(1 if ECHECS else 0)

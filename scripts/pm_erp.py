@@ -297,9 +297,14 @@ class DolibarrErpProvider(ErpProvider):
         tranche (RM3529).
         """
         fid = int(facture_id)
+        # Dolibarr ACCEPTE `user_author` en écriture mais ne le rend jamais en lecture :
+        # il le range dans `fk_user_author` (et le recopie dans `user_creation_id`).
+        # Relire le même nom qu'on a écrit donne donc toujours None, et ferait croire à
+        # un échec — vérifié sur la facture #233 le 26/10/2026.
         self.api("PUT", f"invoices/{fid}", {"user_author": int(user_id)})
         relu = self.api("GET", f"invoices/{fid}") or {}
-        pose = relu.get("user_author") or relu.get("fk_user_author")
+        pose = (relu.get("fk_user_author") or relu.get("user_creation_id")
+                or relu.get("user_author"))
         return str(pose) == str(int(user_id))
 
 

@@ -483,7 +483,8 @@ def _h7(methode, url, cle, charge=None):
     # 500 : le champ est pris. 501 : l'API répond sans erreur mais n'écrit pas — cas
     # réellement rencontré lors d'un essai manuel, et que la relecture seule révèle.
     if methode == "GET" and chemin == "invoices/500":
-        return {"id": 500, "statut": "0", "user_author": "3"}
+        # Dolibarr rend l'auteur sous `fk_user_author`, jamais sous le nom écrit.
+        return {"id": 500, "statut": "0", "user_author": None, "fk_user_author": "3"}
     if methode == "GET" and chemin == "invoices/501":
         return {"id": 501, "statut": "1", "user_author": None}
     return {}

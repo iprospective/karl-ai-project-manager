@@ -350,6 +350,26 @@ for txt, exp in [
     ok, motif = pm_think.note_pertinente(txt)
     check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
 
+print("\n[RM3443] l'agent qui annonce son geste du tour n'écrit pas une dette")
+for txt, exp in [
+        # le cas fondateur (RM3413 N012) : « ce qui manque » le faisait passer pour une dette
+        ("Je vérifie maintenant, en lecture seule, ce qui manque au compte `erpsync` pour accéder à GitLab.", False),
+        ("Je regarde ce qui manque dans la config de dpsync avant de lancer la MEP RM3413.", False),
+        ("Je lance la suite de tests de pm_think pour voir ce qui manque encore.", False),
+        ("Bon, je prépare le script de rattrapage `rm3413-rattrapage-sync.php`, il reste à faire le lot des 18 produits.", False),
+        ("J'applique le recalcul des prix en prod, il manque encore le snapshot ZFS de calyclay.", False),
+        ("Je m'en occupe : il manque la clé de déploiement GitLab pour erpsync.", False),
+        # …mais une annonce qui REPORTE explicitement reste une dette
+        ("Je m'occupe de la clé de déploiement GitLab pour erpsync plus tard, il faudra la créer.", True),
+        ("Je note qu'il faudra revoir la précharge NORMS plus tard, worker-infra est à 98 % de son plafond", True),
+        # le futur / conditionnel n'est pas un geste du tour
+        ("Je vérifierai plus tard la config `erpsync` sur calyclay, il manque encore la clé GitLab.", True),
+        # une note qui ne commence pas par « je + geste » n'est pas touchée
+        ("Il faudra revoir la stratégie de cache des tickets : regarde comme les repos core la démultiplient, des conflits sont probables.", True),
+]:
+    ok, motif = pm_think.note_pertinente(txt)
+    check(f"{'garde' if exp else 'écarte'} « {txt[:50]}… » ({motif})", ok == exp)
+
 print("\n[RM3062] signatures, moisson, élagage")
 for txt, exp in [("étudie et chiffre la tâche RM3058 du client matnat projet infra", False), ("ok pour /opt. J'ai fait un ssh-add", False),
                  ("core update fait, ferme ce qui est livré", False), ("merge en main je core update pour tester", False), ("c'est à dire ? quelle désinscription ?", False),

@@ -103,6 +103,43 @@ for bruit in ("Base directory for this skill: /tmp/x",
               "Caveat: The messages below were generated"):
     verifie(not W.est_prompt_humain(bruit), f"écarté : {bruit[:38]!r}")
 
+# Prompts automatiques mesurés le 26/10/2026 : 176 des 3 120 traces tenues pour
+# humaines, soit 5 %. Les isolées fabriquaient des journées entières (RM3530).
+print("\n4bis. Prompts automatiques (RM3530)")
+for bruit in ("Another Claude session sent a message: <cross-session-message from=\"x\">",
+              "Tu travailles dans le worktree `/zfs/workspaces/calyclay/calymix/envs/x`",
+              "Approach this as the design lead at a small studio"):
+    verifie(not W.est_prompt_humain(bruit), f"écarté : {bruit[:40]!r}")
+
+# Le piège : les seuls autres textes commençant par « / » sont des CHEMINS tapés par
+# Mathieu. Un motif générique `/\w+` les aurait supprimés — ce sont de vraies demandes.
+for chemin in ("/zfs/workspaces/.mmi-pm-core",
+               "/home/dolibarr/documents",
+               "/etc/atombox/boxes"):
+    verifie(W.est_prompt_humain(chemin), f"conservé, c'est un chemin : {chemin!r}")
+
+# Les commandes de session sont GARDÉES : Mathieu les tape en travaillant, elles
+# attestent sa présence au clavier. Les exclure retirerait du temps réel.
+for cmd in ("/compact", "/clear", "/loop", "/code-review"):
+    verifie(W.est_prompt_humain(cmd), f"conservé, un humain l'a tapée : {cmd!r}")
+
+# Les vraies demandes courtes de Mathieu ne doivent pas tomber dans le filet.
+for vrai in ("go", "enchaine", "reprends", "continue", "c'est fait", "on va compacter"):
+    verifie(W.est_prompt_humain(vrai), f"conservé : {vrai!r}")
+
+# Liste d'exclusion propre à l'installation, lue dans timesheet.yml.
+_excl = ["Tu compares la grille tarifaire interne"]
+verifie(not W.est_prompt_humain(
+            "Tu compares la grille tarifaire interne (YAML ci-dessous) avec la doc", _excl),
+        "le CRON de grille tarifaire est écarté par la liste d'exclusion")
+verifie(W.est_prompt_humain(
+            "Tu compares la grille tarifaire interne (YAML ci-dessous) avec la doc"),
+        "sans la liste, il passerait : c'est bien la conf qui l'écarte")
+verifie(W.est_prompt_humain("Qu'est-ce qui consomme autant de ram ?", _excl),
+        "une exclusion ne mange pas les autres prompts")
+verifie(not W.est_prompt_humain("TU COMPARES LA GRILLE TARIFAIRE INTERNE", _excl),
+        "la comparaison ignore la casse")
+
 # ── 5. Refacturation : conservation et trois destins ─────────────────────────
 print("\n5. Refacturation du transversal")
 regles = W.Regles(types={"cli1": "client", "cli2": "client", "iprospective": "self",

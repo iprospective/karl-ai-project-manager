@@ -81,6 +81,13 @@ DEFAULTS = {
 #: Messages de rôle `user` qui ne sont PAS un humain qui tape (CDC § 3quater).
 #: Sans ce filtre, août serait surévalué de 39,3 h au lieu de 19,8 — les trois
 #: quarts du gain seraient du bruit système.
+#: Mesuré le 26/10/2026 (RM3530) : 176 des 3 120 traces tenues pour humaines étaient
+#: automatiques, soit 5 %. Retirées, le temps de septembre ne bouge pas d'une minute —
+#: le CRON qui en produit la moitié tourne à 6h30, hors de la plage ouvrée 8h–19h, donc
+#: son temps n'entrait déjà pas dans le résultat. Ce filtre est donc une PRÉCAUTION :
+#: le jour où un déclenchement automatique tombe dans la plage ouvrée, il fabriquerait
+#: du temps facturable sans que personne n'ait rien demandé. Ce qui suit vaut pour toute
+#: installation ; un déclenchement propre à une machine va dans `exclure_prompts`.
 BRUIT_RE = re.compile(
     r"^\s*(?:"
     r"Base directory for this skill"
@@ -90,16 +97,39 @@ BRUIT_RE = re.compile(
     r"|\[Request interrupted"
     r"|The user sent a new message"
     r"|<(?:command|local-command|user-prompt|bash|system-reminder)"
+    # Les commandes de session (`/compact`, `/clear`…) sont VOLONTAIREMENT gardées :
+    # Mathieu les tape pendant qu'il travaille, elles attestent sa présence au clavier
+    # même si la commande en elle-même n'est pas un travail métier. Ce filtre ne vise
+    # que ce qu'AUCUN humain n'a tapé.
+    # Un message venu d'une autre session de l'agent n'est pas un humain qui tape.
+    r"|Another Claude session sent a message"
+    # Prompt d'amorçage d'un agent lancé par l'orchestrateur.
+    r"|Tu travailles dans le worktree"
+    # Prompt porté par un skill, pas saisi par quiconque.
+    r"|Approach this as the design lead"
     r")",
     re.I,
 )
 
 
-def est_prompt_humain(texte):
-    """Un texte soumis par un humain, par opposition au bruit système."""
+def est_prompt_humain(texte, exclusions=None):
+    """Un texte soumis par un humain, par opposition au bruit système.
+
+    `exclusions` : préfixes supplémentaires, propres à l'installation, lus dans
+    `timesheet.yml` sous `exclure_prompts`. C'est là que vont les déclenchements
+    automatiques d'une machine donnée — un CRON qui ouvre une session chaque matin
+    produit un prompt parfaitement régulier, qui ressemble à une demande mais n'en est
+    pas une (RM3530). La liste s'étend sans toucher au code.
+    """
     t = (texte or "").strip()
     if not t or BRUIT_RE.match(t):
         return False
+    if exclusions:
+        tl = t.lower()
+        for prefixe in exclusions:
+            p = (prefixe or "").strip().lower()
+            if p and tl.startswith(p):
+                return False
     return "system-reminder" not in t[:300]
 
 
@@ -168,7 +198,8 @@ def _texte_utilisateur(evt):
     return " ".join(b.get("text", "") for b in blocks if isinstance(b, dict))
 
 
-def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
+def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None,
+                               exclusions=None):
     """Prompts humains des transcripts Claude Code — la source PRIMAIRE.
 
     `~/.claude/projects` est partagé entre l'hôte et le conteneur (bind mount
@@ -183,7 +214,7 @@ def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
             if not ts:
                 continue
             txt = _texte_utilisateur(evt)
-            if txt is None or not est_prompt_humain(txt):
+            if txt is None or not est_prompt_humain(txt, exclusions):
                 continue
             try:
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
@@ -198,7 +229,7 @@ def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
     return out
 
 
-def collect_claude_history(path, depuis=None, jusqu_a=None):
+def collect_claude_history(path, depuis=None, jusqu_a=None, exclusions=None):
     """Prompts de `~/.claude/history.jsonl` — complément DURABLE.
 
     Limité aux sessions de cette machine (le fichier n'est pas partagé), mais il
@@ -214,7 +245,7 @@ def collect_claude_history(path, depuis=None, jusqu_a=None):
         if not _dans_periode(dt, depuis, jusqu_a):
             continue
         txt = d.get("display") or ""
-        if not est_prompt_humain(txt):
+        if not est_prompt_humain(txt, exclusions):
             continue
         colle = sum(len(str(v)) for v in (d.get("pastedContents") or {}).values())
         out.append(Event(ts=dt, chars=len(txt) + min(colle, 2000),
@@ -223,7 +254,8 @@ def collect_claude_history(path, depuis=None, jusqu_a=None):
     return out
 
 
-def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None):
+def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None,
+                     exclusions=None):
     """Messages humains d'une base opencode (SQLite).
 
     Table `session` (dont `directory` et le `title`, souvent porteur du nom du
@@ -265,7 +297,7 @@ def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None):
             if not _dans_periode(dt, depuis, jusqu_a):
                 continue
             txt = textes.get(mid, "")
-            if txt and not est_prompt_humain(txt):
+            if txt and not est_prompt_humain(txt, exclusions):
                 continue
             directory, title = sessions.get(sid, (None, None))
             out.append(Event(ts=dt, chars=len(txt) or defaut_chars, source="opencode",

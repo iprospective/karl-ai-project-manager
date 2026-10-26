@@ -287,30 +287,46 @@ class DolibarrErpProvider(ErpProvider):
 
         Une facture incomplète ne gagne pas toujours une ligne : quand les heures sont
         regroupées par service, rattacher un projet après coup fait simplement GROSSIR
-        des lignes déjà là. C'est le cas rencontré sur la facture d'août de pisceen,
-        où deux quantités changeaient au lieu qu'une ligne s'ajoute (RM3529).
+        des lignes déjà là. C'est le cas rencontré sur la facture d'août de pisceen.
 
-        Relit la ligne après coup : un PUT accepté n'est pas un PUT appliqué.
+        ⚠ Le PUT de Dolibarr sur une ligne la REMPLACE : tout champ absent de la charge
+        est remis à zéro. Envoyer `{"qty": 18.25}` seul a vidé `subprice`, `tva_tx` et
+        `desc` de deux lignes, faisant chuter la facture de 1 763 € à 839 € — constaté
+        et réparé le 26/10/2026. La ligne est donc RELUE d'abord, et renvoyée COMPLÈTE
+        avec les seules valeurs demandées changées.
+
+        Relit ensuite pour vérifier, et contrôle le prix autant que la quantité : une
+        relecture qui ne regarde qu'un champ avait validé une ligne détruite (RM3529).
         """
         fid, lid = int(facture_id), int(ligne_id)
-        charge = {}
-        if quantite is not None:
-            charge["qty"] = round(float(quantite), 2)
-        if prix_unitaire is not None:
-            charge["subprice"] = float(prix_unitaire)
-        if libelle is not None:
-            charge["desc"] = libelle
-        if not charge:
+        if quantite is None and prix_unitaire is None and libelle is None:
             raise ErpProviderError("maj_ligne : rien à modifier")
+        avant = next((l for l in ((self.api("GET", f"invoices/{fid}") or {}).get("lines") or [])
+                      if str(l.get("id")) == str(lid)), None)
+        if avant is None:
+            raise ErpProviderError(f"ligne {lid} introuvable sur la facture {fid}")
+        charge = {
+            "qty": round(float(quantite if quantite is not None else avant.get("qty") or 0), 2),
+            "subprice": float(prix_unitaire if prix_unitaire is not None
+                              else avant.get("subprice") or 0),
+            "desc": libelle if libelle is not None else (avant.get("desc") or ""),
+            "product_type": avant.get("product_type", 1),
+        }
+        if avant.get("tva_tx") is not None:
+            charge["tva_tx"] = float(avant["tva_tx"])
+        if avant.get("fk_product"):
+            charge["fk_product"] = int(avant["fk_product"])
         self.api("PUT", f"invoices/{fid}/lines/{lid}", charge)
         relu = next((l for l in ((self.api("GET", f"invoices/{fid}") or {}).get("lines") or [])
                      if str(l.get("id")) == str(lid)), None)
         if relu is None:
             raise ErpProviderError(f"ligne {lid} introuvable après modification")
-        if quantite is not None and round(float(relu.get("qty") or 0), 2) != charge["qty"]:
-            raise ErpProviderError(
-                f"quantité non appliquée sur la ligne {lid} : "
-                f"{relu.get('qty')} au lieu de {charge['qty']}")
+        for champ in ("qty", "subprice"):
+            attendu, obtenu = round(float(charge[champ]), 2), round(float(relu.get(champ) or 0), 2)
+            if attendu != obtenu:
+                raise ErpProviderError(
+                    f"ligne {lid} : {champ} vaut {obtenu} au lieu de {attendu} — "
+                    f"la facture est peut-être abîmée, vérifier son total")
         return True
 
     def utilisateur_par_login(self, login, limite=100):

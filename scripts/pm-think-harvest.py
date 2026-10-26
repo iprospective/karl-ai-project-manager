@@ -477,7 +477,8 @@ def main_prune_auto(a) -> int:
         total += len(faux)
         par_projet.setdefault(proj, []).append((th, faux))
         if a.apply and not a.no_commit:
-            pm_git.autocommit([th], f"pm(think): RM{pm_think.rm_id_of(th)} {len(faux)} fausse(s) Q de moisson (RM3544)", cwd=th.parent)
+            # `autocommit` retrouve lui-même le dépôt depuis le chemin du fichier (pas de `cwd`).
+            pm_git.autocommit([th], f"pm(think): RM{pm_think.rm_id_of(th)} {len(faux)} fausse(s) Q de moisson (RM3544)")
     tag = "" if a.apply else "(dry) "
     for proj, lst in par_projet.items():
         n = sum(len(f) for _t, f in lst)

@@ -373,6 +373,23 @@ _ORDRE = re.compile(r"^\W*(?:ok[,. ]|oui[,. ]|non[,. ]|go\b|vas-y|nickel|parfait
 #: peut appartenir à l'explication.
 _ORDRE_FINAL = re.compile(rf"(?:^|[.!?;]\s+)(?:et\s+)?(?:{_VERBES_ORDRE})\b[^.!?]*"
                           r"(?:maintenant|tout (?:ç|c)a|tout cela|d'abord|stp|s'il te pla[îi]t)[^.!?]*[.!?]?\s*$", re.I)
+#: RM3443 — l'agent qui ANNONCE ce qu'il fait, à la première personne du présent : « Je vérifie
+#: maintenant ce qui manque au compte `erpsync`… ». C'est le geste du tour en cours, fait dans la
+#: minute et dont le résultat se consigne ailleurs ; le marqueur « ce qui manque » la faisait passer
+#: pour une dette (RM3413 N012). Le futur et le conditionnel (« je vérifierai », « je proposerais »)
+#: ne sont pas visés : ce sont des intentions différées.
+_VERBES_GESTE = (r"vérifie|verifie|regarde|lance|relance|prépare|prepare|applique|cherche|recherche|lis|relis|"
+                 r"récupère|recupere|crée|cree|ouvre|fais|refais|passe|consigne|corrige|mets|teste|rejoue|inspecte|"
+                 r"analyse|commence|reprends|génère|genere|écris|ecris|merge|pousse|commite|envoie|supprime|"
+                 r"contrôle|controle|mesure|compare|examine|construis|ajoute|charge|installe|déploie|deploie|livre|"
+                 r"prends|termine|finis|enchaîne|enchaine|attaque|traite|calcule|liste|parcours|nettoie|signale|"
+                 r"note|branche|exécute|execute|interroge|sonde|scanne|occupe|isole|reproduis|trace|relève|releve")
+_NARRATION = re.compile(r"^\W*(?:(?:bon|ok|bien|alors|donc|d'accord|d’accord)[,.\s]+)?(?:je|j['’])\s*"
+                        r"(?:(?:le|la|les|lui|leur|y|en|m['’]|me|m['’]en)\s*)?"
+                        rf"(?:{_VERBES_GESTE})\b", re.I)
+#: …sauf si l'annonce porte un REPORT explicite : « je m'occupe de la clé API plus tard » est une dette
+_REPORT = re.compile(r"\b(plus tard|un jour|à terme|a terme|en attendant|pour (?:l'|l’)instant|"
+                     r"dans un (?:second|deuxième|deuxieme) temps|ultérieurement|ulterieurement)\b", re.I)
 #: le RESTE À FAIRE — report, manque, intention différée. PAS les contraintes (« doit », « devra ») : ce sont des décisions.
 _DETTE = re.compile(r"\b(pour (?:l'|l’)instant|on verra|plus tard|à terme|a terme|en attendant|provisoire|temporaire|"
                     r"(?:un|second|deuxième|deuxieme) (?:premier )?temps|dans un premier temps|il faudra(?:it)?|"
@@ -418,6 +435,8 @@ def note_pertinente(text: str):
         return False, "ordre à l'agent"
     if _ORDRE_FINAL.search(s):
         return False, "ordre à l'agent (en fin de note) — pilote le tour, ne se relira pas"
+    if _NARRATION.search(s) and not _REPORT.search(s):
+        return False, "annonce d'action en cours (l'agent décrit son geste du tour) — RM3443"
     if not _DETTE.search(s):
         return False, "rien à faire plus tard (constat, contrainte, opinion)"
     if len(s) < 45 or len(_MOT.findall(s)) < 7:

@@ -1853,6 +1853,18 @@ def _valid_session_id(session_id: str | None, engine: str | None = None) -> bool
     return any(r.match(session_id) for r in _ENGINE_SID_RES.values())
 
 
+def _engine_of_sid_form(session_id: str | None) -> str | None:
+    """RM3564 — moteur que désigne la SEULE forme de l'id, ou None si elle est
+    ambiguë (claude et vibe émettent tous deux des UUID) ou d'aucun moteur.
+    Dernier recours de `op_resume` quand ni le client ni l'index ne nomment le
+    moteur : une conversation opencode ouverte hors karl n'est pas indexée, et
+    retomber sur claude refusait un `ses_…` pourtant sans équivoque."""
+    if not session_id:
+        return None
+    hits = [n for n, rx in _ENGINE_SID_RES.items() if rx.match(session_id)]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _resume_support(engine: str | None) -> dict | None:
     """Contrat de reprise du moteur, ou None s'il n'en déclare pas (vibe, shell).
     Un moteur sans contrat n'est pas une anomalie : c'est un refus à formuler
@@ -4446,7 +4458,8 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     if engine_in and known and engine_in != known:
         raise ApiError(409, f"moteur incohérent pour {session_id} : "
                             f"reçu {engine_in!r}, mémorisé {known!r}")
-    engine = engine_in or known or "claude"
+    # RM3564 : à défaut, la forme de l'id quand elle est sans équivoque (`ses_…`).
+    engine = engine_in or known or _engine_of_sid_form(session_id) or "claude"
 
     if not session_id:
         if not rm_id or not _is_ticket_sid(rm_id):

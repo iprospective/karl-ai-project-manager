@@ -10,6 +10,7 @@ export class ResumeService {
     const rm = normalizeAnchor(anchorRaw);
     if (rm === null) return { ok: false, message: "Ancrage invalide : RM id ou slug [a-z0-9_-]" };
     const body = { session_id: s.session_id }; if (rm) body.rm_id = rm;
+    if (s.engine) body.engine = s.engine;      // RM3564 : le moteur de la ligne, sinon le serveur suppose claude
     const r = await this.repo.resume(body);
     return { ok: true, message: "Session reprise dans " + r.tmux, r };
   }

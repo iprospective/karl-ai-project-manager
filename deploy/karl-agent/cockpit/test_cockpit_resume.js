@@ -43,6 +43,8 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   const svc = new ResumeService({ repo });
   await svc.search({ client: "acme", q: "x", deep: true }); assert.deepStrictEqual(calls[0], ["search", "?client=acme&q=x&deep=1"]); assert.strictEqual(svc.last.resumable.length, 2);
   let r = await svc.resume(RS[1], "RM42"); assert(r.ok && /karl-RM42/.test(r.message)); assert.deepStrictEqual(calls[calls.length - 1], ["resume", { session_id: "beef0000-1111", rm_id: "42" }]); r = await svc.resume(RS[1], ""); assert.deepStrictEqual(calls[calls.length - 1][1], { session_id: "beef0000-1111" }, "vide = slug auto côté serveur");
+  // RM3564 : le moteur de la ligne part avec la reprise (sinon le serveur supposait claude et refusait un `ses_…` opencode).
+  r = await svc.resume({ session_id: "ses_abc123XYZ", engine: "opencode" }, ""); assert.deepStrictEqual(calls[calls.length - 1][1], { session_id: "ses_abc123XYZ", engine: "opencode" }, "RM3564 : engine transmis");
   const n = calls.length; r = await svc.resume(RS[1], "pas valide!"); assert(!r.ok && /Ancrage invalide/.test(r.message) && calls.length === n, "ancrage invalide : refusé sans appel");
   r = await svc.move(RS[0], "acme/bo", ["acme/bo"]); assert(!r.ok && /tmux vivant/.test(r.message)); r = await svc.move(RS[1], "acme/bo", []); assert(!r.ok && /non chargée/.test(r.message)); r = await svc.move(RS[1], "zz/zz", ["acme/bo"]); assert(!r.ok && /Projet inconnu : zz\/zz/.test(r.message));
   r = await svc.move(RS[1], " acme/bo ", ["acme/bo"]); assert(r.ok && /→ acme\/bo/.test(r.message)); assert.deepStrictEqual(calls[calls.length - 1], ["move", "beef0000-1111", "acme", "bo"]);

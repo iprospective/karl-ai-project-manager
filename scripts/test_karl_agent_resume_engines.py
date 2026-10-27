@@ -116,6 +116,33 @@ check("RM2539 : la commande est celle du moteur, pas `claude --resume`",
 check("RM2539 : le dossier de reprise vient de la base du moteur",
       STARTED[-1][2] == "/zfs/workspaces/matnat/infra")
 
+# — RM3564 : session opencode ouverte HORS karl (absente de l'index), reprise
+# depuis la carte « Reprendre une session » sans moteur explicite. Le serveur
+# retombait sur claude et refusait le `ses_…` (« forme attendue par claude »).
+SID_HORS_KARL = "ses_horsKarlPisceenDoli23"
+con = sqlite3.connect(DB)
+con.execute("INSERT INTO session (id, directory, title, time_created, time_updated)"
+            " VALUES (?,?,?,?,?)",
+            (SID_HORS_KARL, "/zfs/workspaces/pisceen/erp", "Migration Dolibarr v19->v23",
+             1781287246883, 1781287247166))
+con.commit(); con.close()
+check("RM3564 : la forme `ses_…` désigne opencode sans équivoque",
+      ka._engine_of_sid_form(SID_HORS_KARL) == "opencode")
+check("RM3564 : un UUID reste ambigu (claude ou vibe) → pas de déduction",
+      ka._engine_of_sid_form(UUID_CLAUDE) is None
+      and ka._engine_of_sid_form("../etc/passwd") is None
+      and ka._engine_of_sid_form(None) is None)
+check("RM3564 : la session hors karl est bien inconnue de l'index",
+      ka._engine_of_session(SID_HORS_KARL) is None)
+try:
+    r = ka.op_resume({"session_id": SID_HORS_KARL, "rm_id": "3564"}, {"user": None})
+    check("RM3564 : session opencode hors index, sans moteur → reprise opencode",
+          r["resumed"] is True and r["engine"] == "opencode"
+          and "--session" in STARTED[-1][1] and SID_HORS_KARL in STARTED[-1][1]
+          and STARTED[-1][2] == "/zfs/workspaces/pisceen/erp")
+except ka.ApiError as e:
+    check(f"RM3564 : session opencode hors index → reprise (refus {e.code} {e.msg})", False)
+
 # — refus explicites —
 try:
     # session non mémorisée : sans quoi le recoupement RM2536 refuserait d'abord

@@ -13,6 +13,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Reprendre une session opencode depuis le cockpit (RM3564).** La carte « Reprendre une session »
+  n'envoyait que l'id de la conversation ; pour une session opencode ouverte hors karl (donc absente de
+  l'index), le serveur retombait sur claude et refusait le `ses_…` (« n'a pas la forme attendue par le
+  moteur claude »). Le cockpit transmet désormais le moteur de la ligne, et `op_resume` déduit le moteur
+  de la forme de l'id quand elle est sans équivoque (`ses_…` → opencode ; un UUID reste ambigu
+  claude/vibe et n'est pas deviné).
 - **Moisson : plus aucune Q « à trancher » par heuristique (RM3544).** RM3090 faisait de tout message
   interrogatif du demandeur une Q 🕐 ; la passe LLM censée la corriger n'a jamais été planifiée, et la garde
   de merge RM3238 bloquait sur ces fausses questions depuis des semaines (12 en une journée le 26/10).

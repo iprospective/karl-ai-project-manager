@@ -33,7 +33,12 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   `iprospective/prestashop/…` **redirige** — un dépôt récent y semble donc « inexistant »
 - [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
   (`agent refused operation`), bascule vers un vrai ssh-agent
-- [dolibarr](./dolibarr/) — procédure de **MEP commune au parc** : checkout git par
+- [dolibarr](./dolibarr/) — **[développer un module](./dolibarr/developpement.md)** :
+  ModuleBuilder et le `AGENTS.md` du gabarit, structure, points d'extension, cycle de vie
+  (désactiver/réactiver en CLI : `$conf->setValues`, droits retirés à tous), débogage (Syslog,
+  DebugBar), tests, **table de compatibilité 19 → 24** (`PATCH` par `getURLContent` seulement en 24,
+  `getMultidirOutput(…, 1)` et `loadRights()` absents en 19) ;
+  procédure de **MEP commune au parc** : checkout git par
   instance (une branche `<version>-mmi` chacune, donc un correctif ne se propage pas
   tout seul), les trois signaux d'arrêt avant d'écrire en prod, le déploiement ciblé
   par cherry-pick, et surtout la **réactivation des modules dont le gitlink change**
@@ -73,6 +78,11 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 ## Conventions
 
 - Un dossier par produit (`redmine/`, `dolibarr/`, `prestashop/`…)
+- **Développer une extension** d'un produit : toujours `<produit>/developpement.md`, sur le
+  gabarit [_modeles/developpement-extension.md](./_modeles/developpement-extension.md) — mêmes
+  rubriques, et **chaque fait dit dans quelle version et quel fichier il a été vérifié** (une API
+  change d'une version à l'autre ; un fait sans version est faux une fois sur deux). À écrire :
+  PrestaShop, Redmine, Nextcloud, Roundcube.
 - À l'intérieur : `overview.md`, `api.md`, `gotchas.md`, et des fichiers thématiques pour
   procédures complexes (ex: `redmine/textile-to-markdown-migration.md`)
 - Pas de duplication avec `security/knowledge/` — si un finding sécurité est lié à un

@@ -59,6 +59,43 @@ Les **modules métier sont des submodules git** sous `htdocs/custom/` : `mmicrm`
 `ylvfournisseurpricepisceen`… Un « bump de module » est un changement de gitlink dans
 le dépôt principal.
 
+### La branche d'un submodule se lit dans `.gitmodules` — ne jamais la déduire
+
+Deux conventions coexistent, et ce fichier est la seule source :
+
+- **modules maison** (`mmi*`, `sfycustom`) → branche `<version>` : `19.0`, parfois `16.0` ;
+- **modules tiers** (`dropdownmenu`, `propalehistory`, `abricot`, `stocktransfers`,
+  `mbietransactions`, `relatedproducts`, `custom_community`, `custom_dolicloud`…) →
+  **`<version>-mmi`**, car ils portent nos correctifs par-dessus l'amont.
+
+La branche se lit ainsi, sans la supposer :
+
+```bash
+git config -f .gitmodules --get submodule.htdocs/custom/<module>.branch
+```
+
+**Le piège :** un `git fetch origin 19.0` dans un submodule **tiers** ne ramène pas le commit
+que le gitlink désigne, et `git submodule update` échoue alors sur un commit « introuvable ».
+Ce n'est ni une branche supprimée, ni un commit perdu, ni une refspec trop étroite — c'est la
+mauvaise branche interrogée.
+
+Vécu le 2026-10-27 sur `erp.calicote.com` : `gitpull.sh` butait sur `dropdownmenu` (gitlink
+`7419702`, le correctif RM3411 des sous-menus) et `propalehistory` (gitlink `cd6ba1a`,
+« Release 2.6 » d'ATM-Consulting). Les deux commits existaient côté remote **et** dans les
+environnements locaux, sur `19.0-mmi`. Le diagnostic a d'abord conclu à des commits perdus, ce
+qui a coûté une analyse complète pour rien.
+
+> **Réflexe : devant un gitlink « introuvable », soupçonner la branche avant le dépôt.**
+
+Pour retrouver un commit qu'un fetch ne ramène pas, le chercher dans les environnements locaux
+avant de conclure qu'il a disparu :
+
+```bash
+for d in envs/*/htdocs/custom/<module>; do
+  git -C "$d" cat-file -e <sha> 2>/dev/null && echo "présent dans $d"
+done
+```
+
 ## 2. Avant de déployer — inspecter, en lecture seule
 
 L'arbre de production **n'est pas propre par défaut** et ce n'est pas une anomalie à

@@ -737,7 +737,7 @@ def _tmux(*args, timeout=10):
     """Exécute tmux et renvoie (rc, stdout, stderr). RM3010 : un échec est journalisé (`tmux`, warn) — sauf les sondes
     d'existence (has-session) dont le rc ≠ 0 est une réponse, pas une erreur."""
     p = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
-    if p.returncode != 0 and args and args[0] not in ("has-session", "-V", "display-message", "list-sessions", "list-windows", "list-panes", "show-options"):
+    if p.returncode != 0 and args and args[0] not in ("has-session", "-V", "display-message", "list-sessions", "list-windows", "list-panes", "show-options", "show-environment"):
         _jlog("tmux", "warn", f"tmux {args[0]} rc={p.returncode}", args=[str(a) for a in args[:8]], stderr=(p.stderr or "")[:300])
     return p.returncode, p.stdout, p.stderr
 
@@ -1430,10 +1430,40 @@ def op_engine_options_set(payload: dict, auth_ctx: dict | None = None) -> dict:
     return {"ok": True, **engine_preview(engine, futur)}
 
 
+def _sessions_path() -> str:
+    """PATH que verront les sessions tmux : celui du serveur tmux s'il tourne déjà
+    (il le garde depuis son démarrage), sinon celui du démon, qu'il héritera."""
+    rc, out, _ = _tmux("show-environment", "-g", "PATH")
+    if rc == 0 and out.startswith("PATH="):
+        return out.strip()[len("PATH="):]
+    return os.environ.get("PATH", "")
+
+
+def _missing_binary(cmd: str, path: str) -> str | None:
+    """RM3564 — le programme de `cmd` s'il est introuvable dans `path`, sinon None.
+    Un moteur installé hors du PATH du service (opencode dans ~/.opencode/bin, que
+    seul ~/.bashrc ajoute) faisait mourir la session dans la seconde, et l'appelant
+    ne lisait qu'un « s'est arrêtée aussitôt » sans cause."""
+    import shutil
+    try:
+        prog = shlex.split(cmd)[0]
+    except (ValueError, IndexError):
+        return None
+    if "/" in prog:
+        return None if os.access(prog, os.X_OK) else prog
+    return None if shutil.which(prog, path=path) else prog
+
+
 def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
                         env_extra: list) -> None:
     """Démarre la session tmux karl-RM<id> + plomberie commune (spawn ET resume)."""
     name = _session_name(rm_id)
+    path = _sessions_path()
+    prog = _missing_binary(cmd, path)
+    if prog:
+        raise ApiError(503, f"« {prog} » introuvable dans le PATH des sessions karl ({path}) "
+                            "— le lier dans ~/.local/bin, ou ajouter son dossier à "
+                            "Environment=PATH de karl-agent.service")
     rc, _, err = _tmux(
         "new-session", "-d", "-s", name,
         "-x", str(width), "-y", str(height),

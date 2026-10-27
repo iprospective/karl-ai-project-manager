@@ -9,7 +9,9 @@ WorkingDirectory=@PM_ROOT@
 # Le PATH des services systemd USER n'inclut pas ~/.local/bin par défaut, or les
 # moteurs (claude, opencode) y sont souvent installés. Sans ça, le tmux spawné
 # lance une commande introuvable et la session meurt aussitôt. %h = home user.
-Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# RM3564 : ~/.opencode/bin = dossier de l'installeur officiel d'opencode (que seul
+# ~/.bashrc ajoute au PATH — invisible pour un service).
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Le daemon charge le .env du repo (KARL_AGENT_TOKEN, KARL_AGENT_PORT, …).
 # Ne JAMAIS mettre de secret en clair dans cette unit (versionnée) :
 # les variables sensibles vont dans @PM_ROOT@/.env (gitignored).

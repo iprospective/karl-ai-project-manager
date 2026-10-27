@@ -87,6 +87,30 @@ check("RM2539 : le marqueur [WIP] est lu comme chez claude",
 check("RM2539 : l'âge de la session opencode remonte (tuile datée, pas muette)",
       info.get("mtime") == 1781287247)
 
+# — RM3564 : binaire du moteur hors du PATH des sessions → refus explicite —
+BIN = TMP / "bin"; BIN.mkdir()
+(BIN / "opencode").write_text("#!/bin/sh\n"); (BIN / "opencode").chmod(0o755)
+check("RM3564 : binaire présent dans le PATH → rien à signaler",
+      ka._missing_binary("opencode --session ses_x", str(BIN)) is None)
+check("RM3564 : binaire absent du PATH → son nom (pas la ligne entière)",
+      ka._missing_binary("opencode --session ses_x", "/nulle/part") == "opencode")
+check("RM3564 : chemin absolu non exécutable → signalé",
+      ka._missing_binary("/nulle/part/vibe --trust", str(BIN)) == "/nulle/part/vibe")
+_real_tmux, TMUX_CALLS = ka._tmux, []
+ka._tmux = lambda *a, **k: (TMUX_CALLS.append(a) or
+                            ((0, "PATH=/nulle/part\n", "") if a[0] == "show-environment"
+                             else (0, "", "")))
+try:
+    ka._start_session_tmux("3564", "opencode --session ses_x", "/", 80, 24, [])
+    check("RM3564 : moteur introuvable → refus avant tmux", False)
+except ka.ApiError as e:
+    check("RM3564 : moteur introuvable → 503 qui nomme le binaire, le PATH et le remède",
+          e.code == 503 and "opencode" in e.msg and "/nulle/part" in e.msg
+          and "~/.local/bin" in e.msg)
+check("RM3564 : …et aucune session tmux créée",
+      not any(c[0] == "new-session" for c in TMUX_CALLS))
+ka._tmux = _real_tmux
+
 # — reprise réelle : commande du moteur, cwd de sa base —
 STARTED = []
 ka._has_session = lambda sid: False

@@ -979,6 +979,17 @@ def question_en_reserve(r) -> bool:
     return not r["closed"] and r["state"] in _Q_TIERS
 
 
+def question_ecartee(r) -> bool:
+    """Écartée : ce n'était pas une question (capture de moisson, consigne de séance, contrôle
+    d'avancement). RM3558 — elle sort des VUES ; le `.think.md` en garde la trace et son motif.
+
+    Écarter n'est pas trancher (RM3269) : l'afficher cochée, suivie de « la décision n'est pas
+    reliée » faute de décision à relier, donne à lire une question réglée par rien. Vécu sur
+    RM2827, dont le CF montrait 19 questions — « tu as reboot mysql pour activer la conf ? »
+    parmi elles — alors que le tri les avait déjà écartées."""
+    return r["state"] == "invalide"
+
+
 def _decision_liee(parsed: dict, qid: str) -> str:
     """La décision qui a tranché cette question, s'il y en a une qui la nomme.
 
@@ -1036,9 +1047,16 @@ def questions_orphelines(parsed: dict) -> list:
 
 def questions_text(parsed: dict) -> str:
     """Le contenu du CF 36 : une case par question, cochée si elle est tranchée. Jamais vide — un PUT
-    de CF à vide EFFACE le champ, et « aucune question » est une information."""
-    rows = (parsed.get("question", {}) or {}).get("rows", [])
+    de CF à vide EFFACE le champ, et « aucune question » est une information.
+
+    Les entrées ÉCARTÉES n'y figurent pas (RM3558) : elles ne sont pas des questions. Le carnet les
+    garde, la vue du ticket ne les montre plus — sans quoi le tri fait en séance ne se voit nulle part."""
+    toutes = (parsed.get("question", {}) or {}).get("rows", [])
+    rows = [r for r in toutes if not question_ecartee(r)]       # RM3558
     if not rows:
+        if toutes:
+            return (f"*Aucune question à trancher sur ce ticket* — {len(toutes)} entrée(s) "
+                    f"écartée(s), conservée(s) au `.think.md` avec leur motif.")
         return "*Aucune question consignée sur ce ticket.*"
     ouvertes = [r for r in rows if question_ouverte(r)]
     reserve = [r for r in rows if question_en_reserve(r)]

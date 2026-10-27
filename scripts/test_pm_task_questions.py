@@ -57,6 +57,36 @@ ecartee = T.questions_text({"question": {"rows": [q("Q001", "x", state="valide")
 check("une décision invalidée ne sert pas de réponse", "Q001 : oui" in ecartee and "Q001 : non" not in ecartee)
 check("cite_question reconnaît une réponse outillée", T.cite_question("Q004 : on garde") and not T.cite_question("rien"))
 
+print("\n[RM3558] une entrée écartée sort de la vue")
+avec_ecartee = {"question": {"rows": [q("Q001", "Faut-il trancher ceci ?"),
+                                      q("Q002", "tu as reboot mysql ?", state="invalide"),
+                                      q("Q003", "Et cela ?", state="valide")]},
+                "decision": {"rows": [d("D001", "Q003 : on fait comme ça.")]}}
+v = T.questions_text(avec_ecartee)
+check("elle n'est plus listée", "Q002" not in v)
+check("elle ne compte plus dans le total", "**1 ouverte(s) sur 2**" in v)
+check("elle n'est plus donnée pour tranchée par rien",
+      "la décision n'est pas reliée" not in v)
+check("les autres questions restent intactes", "- [ ] **Q001**" in v and "- [x] **Q003**" in v)
+check("question_ecartee ne retient QUE l'état invalide",
+      T.question_ecartee(q("Q001", "x", state="invalide"))
+      and not T.question_ecartee(q("Q001", "x"))
+      and not T.question_ecartee(q("Q001", "x", state="valide"))
+      and not T.question_ecartee(q("Q001", "x", state="reserve")))
+check("une ligne écartée ET barrée sort aussi",
+      "Q009" not in T.questions_text({"question": {"rows": [q("Q001", "a"),
+                                                            q("Q009", "b", state="invalide", closed=True)]}}))
+tout_ecarte = T.questions_text({"question": {"rows": [q("Q001", "a", state="invalide"),
+                                                      q("Q002", "b", state="invalide")]}})
+check("un carnet dont TOUT est écarté ne rend jamais un champ vide (un PUT vide efface le CF)",
+      tout_ecarte.strip() != "")
+check("et il le dit sans mentir : des entrées existent, mais aucune à trancher",
+      "Aucune question à trancher" in tout_ecarte and "2 entrée(s) écartée(s)" in tout_ecarte)
+check("un ticket vraiment sans question garde son propre message",
+      "Aucune question consignée" in T.questions_text({}))
+check("une écartée n'est pas signalée comme cochée à la main",
+      T.cochees_a_la_main(v, avec_ecartee) == [])
+
 print("\n[RM3226] l'ancienne section sort de la description")
 section = ("\n\n" + T.QUESTIONS_BEGIN + "\n\n## ❓ Questions ouvertes\n\n- [ ] **Q001** — x\n\n" + T.QUESTIONS_END + "\n")
 desc = "## Contexte\n\nDu texte qui doit survivre.\n"

@@ -196,5 +196,40 @@ seed ws_seed_core_git "$WS3" >/dev/null
 verdict "un dépôt existant n'est pas touché" '[ "$(git -C "$WS3" config pm.marqueur)" = code ]'
 
 echo
+echo "=== ws-bare (RM3587) : créer le bare sous une racine verrouillée ==="
+# Sous la racine 2750, seul le helper peut créer l'entrée : on teste la primitive
+# avec `chown` neutralisé et un WS_ROOT temporaire (aucun privilège requis).
+LIB_BARE="$TMP/lib-bare.sh"
+{ cat "$LIB"; echo 'chown() { :; }'; printf 'WS_ROOT=%q\n' "$TMP/root"; } > "$LIB_BARE"
+call_bare() { bash -c 'set -uo pipefail; . "$1"; shift; "$@"' _ "$LIB_BARE" "$@" 2>&1; }
+WSB="$TMP/root/client/proj"; mkdir -p "$WSB"
+out=$(call_bare cmd_ws_bare "$WSB" demo)
+verdict "bare créé" '[ -d "$WSB/repos/demo.git" ]'
+verdict "…et annoncé" '[ -n "$out" ]'
+verdict "c'est bien un bare" '[ "$(git -C "$WSB/repos/demo.git" rev-parse --is-bare-repository)" = true ]'
+verdict "partagé avec le groupe" '[ "$(git -C "$WSB/repos/demo.git" config core.sharedRepository)" = group ]'
+verdict "gc.auto désactivé" '[ "$(git -C "$WSB/repos/demo.git" config gc.auto)" = 0 ]'
+verdict "repos/ a été créé" '[ -d "$WSB/repos" ]'
+git -C "$WSB/repos/demo.git" config pm.marqueur temoin
+call_bare cmd_ws_bare "$WSB" demo >/dev/null
+verdict "rejoué : invariants conservés" '[ "$(git -C "$WSB/repos/demo.git" config pm.marqueur)" = temoin ]'
+if out=$(call_bare cmd_ws_bare "$WSB" ../evasion); then
+    echo "✗ nom avec .. ACCEPTÉ"; ko=$((ko + 1))
+else
+    echo "✓ nom avec .. refusé"; ok=$((ok + 1))
+fi
+if out=$(call_bare cmd_ws_bare "$WSB" 'Demo'); then
+    echo "✗ nom majuscule ACCEPTÉ"; ko=$((ko + 1))
+else
+    echo "✓ nom majuscule refusé"; ok=$((ok + 1))
+fi
+ln -s "$WSB/repos/demo.git" "$WSB/repos/lien.git"
+if out=$(call_bare cmd_ws_bare "$WSB" lien); then
+    echo "✗ bare symlink ACCEPTÉ"; ko=$((ko + 1))
+else
+    echo "✓ bare symlink refusé (chown/chmod suivraient le lien)"; ok=$((ok + 1))
+fi
+
+echo
 echo "── $ok test(s) OK, $ko échec(s)"
 [ "$ko" -eq 0 ]

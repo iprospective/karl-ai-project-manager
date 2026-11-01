@@ -11,6 +11,9 @@
 - **Données communes** : dossiers de churn en **setgid `2770`/`2775` groupe `pm`**,
   bares en **`core.sharedRepository=group`** → écriture directe multi-`<dev>-pm`, **sans
   sudo**, git multi-user natif. Squelette (racine, `repos/`) en `2750` (non group-writable).
+- **Création d'un bare** : `pm-env-init` délègue `pm-env-helper ws-bare` quand `repos/` est
+  verrouillé ; le bare est `core.sharedRepository=group`, les remotes et le fetch restent
+  dans `pm-env-init` (RM3587).
 - **Secrets 3 niveaux** :
   - **perso** `<core>/var/users/<dev>/.env` — **`600`**, dossier **`700`**, hors git — clés
     API/git personnelles (attribution Redmine/GitLab par dev) et préférences (`PM_REPOS_DIR`,

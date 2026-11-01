@@ -44,6 +44,11 @@
 #                                       (RM2947), puis applique le modèle de perms (RM2909).
 #                                       Comble le trou entre pm-project-new/pm-env-init et
 #                                       pm-perms. Idempotent : n'écrase jamais l'existant.
+#   ws-bare <workspace> <repo>          crée/réconcilie le bare `repos/<repo>.git` sous une
+#                                       racine verrouillée (RM3587) : `git init --bare
+#                                       --shared=group`, `core.sharedRepository=group`,
+#                                       `gc.auto=0`, chown pm:pm. Idempotent ; ne fetch pas
+#                                       (les remotes sont posés par pm-env-init).
 #   ws-perms <workspace>                (ré)applique le modèle de perms — verbe symétrique,
 #                                       à passer en fin de création. Idempotent.
 #
@@ -505,6 +510,8 @@ PM_ENV_INIT="$PM_CORE/scripts/pm-env-init.py"
 
 # Même slug que pm-project-new (refuse ".." : le premier caractère doit être alphanum).
 ws_slug_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; }
+# Nom de dépôt : slug + jamais de composant `..` (le nom devient un chemin).
+ws_bare_name_ok() { ws_slug_ok "$1" && [[ "$1" != *..* ]]; }
 
 ws_resolve() {
     # Chemin canonique d'un workspace, ou mort. Mêmes exigences fail-closed que les
@@ -679,6 +686,45 @@ ws_seed_docs_link() {
     echo "· créé docs → .mmi-pm/docs"
 }
 
+cmd_ws_bare() {
+    # Le verbe manquant de RM3587 : `repos/` est en 2750 pm:pm, donc un dev du groupe
+    # `pm` ne peut pas y faire `git init --bare`. Le helper est le seul à pouvoir créer
+    # l'entrée sous la racine verrouillée ; il ne fait QUE le bare (pas de remote, pas
+    # de fetch, pas de worktree) pour rester une primitive simple à auditer.
+    local ws name repos bare
+    [ $# -eq 2 ] || die "usage: ws-bare <workspace> <repo>"
+    ws=$(ws_resolve "$1")
+    name="$2"
+    ws_bare_name_ok "$name" || die "nom de repo non conforme : $name"
+    ws_no_symlink "$ws"
+    [ -d "$ws" ] || die "workspace inexistant : $ws"
+
+    repos="$ws/repos"
+    ws_no_symlink "$repos"
+    if [ ! -d "$repos" ]; then
+        mkdir -p -- "$repos" || die "création impossible : $repos"
+        chown pm:pm -- "$repos"
+        chmod 2770 -- "$repos"
+    fi
+
+    bare="$repos/$name.git"
+    ws_no_symlink "$bare"
+    if [ -e "$bare" ]; then
+        [ -d "$bare" ] || die "chemin existant mais pas un dossier : $bare"
+        [ "$(git -C "$bare" rev-parse --is-bare-repository 2>/dev/null)" = true ] \
+            || die "dépôt existant mais pas bare : $bare"
+    else
+        git init --bare -q --shared=group -- "$bare" || die "git init --bare a échoué : $bare"
+    fi
+    # Idempotent : on réapplique les invariants même sur un bare existant.
+    git -C "$bare" config core.sharedRepository group
+    git -C "$bare" config gc.auto 0
+    chown -R pm:pm -- "$bare"
+    chmod 2770 -- "$bare"
+    audit "ws-bare $name"
+    echo "✓ bare repos/$name.git prêt"
+}
+
 cmd_ws_perms() {
     local ws
     ws=$(ws_resolve "$1")
@@ -700,6 +746,7 @@ case "$verb" in
     daemon-add)   [ $# -ge 5 ] || die "usage: daemon-add <name> <port> <user> <workdir> <argv...>"; cmd_daemon_add "$@";;
     daemon-remove) [ $# -eq 1 ] || die "usage: daemon-remove <name>"; cmd_daemon_remove "$@";;
     ws-init)      [ $# -eq 1 ] || die "usage: ws-init <workspace>"; cmd_ws_init "$@";;
+    ws-bare)      [ $# -eq 2 ] || die "usage: ws-bare <workspace> <repo>"; cmd_ws_bare "$@";;
     ws-perms)     [ $# -eq 1 ] || die "usage: ws-perms <workspace>"; cmd_ws_perms "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove|ws-init|ws-perms)";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove|ws-init|ws-bare|ws-perms)";;
 esac

@@ -42,7 +42,8 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 - [prestashop](./prestashop/) — procédure de **MEP commune aux 4 boutiques** du parc :
   maintenance (`PS_SHOP_ENABLE` + garde-fou `PS_MAINTENANCE_IP`), `php7.4` obligatoire,
   `--ff-only` sur arbre sale, le faux « rien à faire » de l'upgrade de module en CLI,
-  vérification par présentation de panier
+  vérification par présentation de panier ; **copies non-prod** (`env-dev.md`) : ce qu'on neutralise — identités cloud,
+  compte marchand, modules de suivi publicitaire (RM3619)
 - [karl-agent](./karl-agent/) — sessions Claude Code du cockpit : stockage
   (transcript partagé hôte↔conteneur, store per-session NON partagé), les 3 ancrages
   d'une session à un projet, déplacer une session (`/move-session`, `karl-move-session`)

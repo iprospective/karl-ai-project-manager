@@ -13,7 +13,8 @@
 # CE QUE FAIT LE SQL
 #   1. aligne le domaine (`shop_url`, PS_SHOP_DOMAIN/_SSL) si --domain est fourni ;
 #   2. PURGE les identités cloud héritées de la production ;
-#   3. désactive les modules qui dialoguent avec ces services.
+#   3. désactive les modules qui dialoguent avec ces services ;
+#   4. désactive les modules de SUIVI publicitaire et d'audience (RM3619).
 #
 # POURQUOI PURGER L'IDENTITÉ PLUTÔT QUE « CONFIRMER »
 #   Le bandeau « Action requise : confirmez l'URL de votre boutique » vient de
@@ -32,6 +33,15 @@
 #   (compte PayPal), PS_PSX_FIREBASE_* et les tokens ps_accounts. Un env de test qui
 #   les garde peut émettre vers les services de la production.
 #
+# POURQUOI LE SUIVI PUBLICITAIRE (RM3619)
+#   Les pixels et balises (Meta, Google Ads, Analytics, Tag Manager) d'un clone
+#   gardent les identifiants de la prod : chaque visite d'une copie — recette,
+#   robots, vrais visiteurs d'un site de test indexé — compte dans les statistiques
+#   publicitaires et d'audience du client. Incident fondateur : RM3616 (calicote,
+#   2026-11-02), recette indexée par Google, pixels déclenchés à chaque page.
+#   On désactive le module, on ne touche pas à sa configuration : le réactiver
+#   pour une recette du suivi lui-même reste un geste simple et délibéré.
+#
 # APRÈS EXÉCUTION : purger `var/cache/` du site — PrestaShop met ps_configuration
 # en cache et continuerait à servir les anciennes valeurs.
 #
@@ -43,6 +53,8 @@ DOMAIN=""
 FORCE=0
 DISABLE=1
 MODULES="ps_accounts ps_eventbus ps_metrics ps_checkout psaddonsconnect"
+TRACKING=1
+TRACKING_MODULES="facebookproductad gadwordstracking ps_googleanalytics cdc_googletagmanager ps_facebook psxmarketingwithgoogle"
 
 usage() {
   awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"
@@ -53,7 +65,11 @@ Options :
   --domain <host>         domaine servi par l'env ; aligne shop_url + PS_SHOP_DOMAIN(_SSL)
   --modules "<a b c>"     modules à désactiver (défaut : ps_accounts ps_eventbus
                           ps_metrics ps_checkout psaddonsconnect)
-  --no-disable-modules    purge les identités sans désactiver aucun module
+  --tracking-modules "<a b>"  modules de suivi publicitaire/audience à désactiver (défaut :
+                          facebookproductad gadwordstracking ps_googleanalytics
+                          cdc_googletagmanager ps_facebook psxmarketingwithgoogle)
+  --keep-tracking         laisse les modules de suivi en l'état (recette du suivi lui-même)
+  --no-disable-modules    purge les identités sans désactiver aucun module (ni cloud, ni suivi)
   --force                 accepte un --domain qui ne ressemble pas à un domaine non-prod
   -h, --help              cette aide
 USAGE
@@ -64,6 +80,8 @@ while [ "$#" -gt 0 ]; do
     --prefix) PREFIX="${2:?--prefix attend une valeur}"; shift 2 ;;
     --domain) DOMAIN="${2:?--domain attend une valeur}"; shift 2 ;;
     --modules) MODULES="${2:?--modules attend une valeur}"; shift 2 ;;
+    --tracking-modules) TRACKING_MODULES="${2?--tracking-modules attend une valeur}"; shift 2 ;;
+    --keep-tracking) TRACKING=0; shift ;;
     --no-disable-modules) DISABLE=0; shift ;;
     --force) FORCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -127,20 +145,42 @@ DELETE FROM \`${p}configuration\` WHERE name LIKE 'PS_EVENTBUS%';
 DELETE FROM \`${p}configuration\` WHERE name LIKE 'PS_METRICS%';
 SQL
 
-if [ "$DISABLE" = "1" ] && [ -n "${MODULES// /}" ]; then
-  list=""
-  for m in $MODULES; do
+# Liste SQL quotée d'une liste de noms de modules ; refuse un nom qui n'en est pas un
+# (il finit dans du SQL).
+sql_list() {
+  local out="" m
+  for m in $1; do
     case "$m" in
-      *[!a-zA-Z0-9_-]*) echo "presta-nonprod-sql: nom de module invalide : $m" >&2; exit 2 ;;
+      *[!a-zA-Z0-9_-]*) echo "presta-nonprod-sql: nom de module invalide : $m" >&2; return 2 ;;
     esac
-    list="${list}${list:+, }'${m}'"
+    out="${out}${out:+, }'${m}'"
   done
+  printf '%s' "$out"
+}
+
+# Valider AVANT d'émettre quoi que ce soit : une liste invalide ne doit pas produire
+# un SQL à moitié écrit.
+cloud_list=$(sql_list "$MODULES") || exit 2
+tracking_list=$(sql_list "$TRACKING_MODULES") || exit 2
+
+if [ "$DISABLE" = "1" ] && [ -n "$cloud_list" ]; then
   cat <<SQL
 
 -- 3. Modules qui dialoguent avec les services cloud / marchand
-UPDATE \`${p}module\` SET active = 0 WHERE name IN (${list});
+UPDATE \`${p}module\` SET active = 0 WHERE name IN (${cloud_list});
 SQL
 else
   echo
   echo "-- 3. Modules : laissés en l'état (--no-disable-modules)"
+fi
+
+if [ "$DISABLE" = "1" ] && [ "$TRACKING" = "1" ] && [ -n "$tracking_list" ]; then
+  cat <<SQL
+
+-- 4. Modules de suivi publicitaire et d'audience (pixels de la prod) — RM3619
+UPDATE \`${p}module\` SET active = 0 WHERE name IN (${tracking_list});
+SQL
+else
+  echo
+  echo "-- 4. Modules de suivi : laissés en l'état (--keep-tracking ou --no-disable-modules)"
 fi

@@ -87,16 +87,18 @@ check("la marge entamée a un capteur qui NOTIFIE (pm-context-budget --notify)",
 check("et ce capteur est un travail déclaré",
       "norms-budget-watch:" in (ROOT / "jobs.reference.yml").read_text(encoding="utf-8"))
 
-# — garde-fou de fond : aucun module préchargé ne doit dépasser 5 000 tokens.
-#   Au-delà, c'est qu'on y a remis du mode d'emploi. —
+# — garde-fou de NOTIFICATION (depuis RM3163, 2026-11-02, décision Mathieu) : un module préchargé
+#   au-dessus de 5 000 tokens se signale, il ne fait plus échouer la suite. Au-delà, c'est qu'on
+#   y a remis du mode d'emploi : à alléger. —
 gros = []
 for p in sorted(MODULES.glob("*.md")):
     if preloaded(p):
         tok = round(p.stat().st_size / 3.6)
         if tok > 5000:
             gros.append(f"{p.name} ({tok})")
-check("aucun module préchargé ne dépasse 5 000 tokens" + (" — " + ", ".join(gros) if gros else ""),
-      not gros)
+if gros:
+    print("  ⚠ module(s) au-dessus de 5 000 tokens — " + ", ".join(gros)
+          + " : à alléger (notification, non bloquant)")
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

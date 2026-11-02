@@ -29,10 +29,55 @@ guard_local_target() {
     *_test|*_dev|*_presta|*_sync|*_preprod|*_local|*_dolibarr) : ;;
     *) die "DB_TO='$DB_TO' ne ressemble pas à une base locale (suffixe _test/_dev/...). Sécurité : abandon." ;;
   esac
-  case "$DOMAIN" in
-    *.local|*.test.*|*.dev.*) : ;;
-    *) warn "DOMAIN='$DOMAIN' n'a pas l'air d'un domaine local/test — vérifie la conf." ;;
-  esac
+  # Le domaine de test de l'instance (pm.env, RM3221) fait foi quand il est
+  # déclaré ; les motifs génériques ne servent plus que de filet sans lui.
+  if [ -n "${TEST_DOMAIN:-}" ] && [[ "$DOMAIN" == *."$TEST_DOMAIN" ]]; then :
+  elif [ -n "${DEV_DOMAIN:-}" ] && [[ "$DOMAIN" == *."$DEV_DOMAIN" ]]; then :
+  else
+    case "$DOMAIN" in
+      *.local|*.test.*|*.dev.*) : ;;
+      *) warn "DOMAIN='$DOMAIN' n'a pas l'air d'un domaine local/test. Convention : une recette vit sous <site>.${TEST_DOMAIN:-<TEST_DOMAIN>}, servie par ${TEST_HOST:-<TEST_HOST>} (pm.env de l'instance)." ;;
+    esac
+  fi
+}
+
+# --- Données déclarées : rapatriement depuis la prod (RM3419) -----------------
+# env_sync_data <type> → rsync des seuls dossiers de DONNÉES déclarés au manifeste
+# `<type>-data.map` (+ la surcharge du site), la même déclaration que `env-link-data.sh` et
+# `presta-data-index.sh`. UNE liste, trois outils.
+#
+# Pourquoi un mode à part de `<type>_sync_files` : celui-ci fait un `rsync --delete` de TOUT le
+# site. C'est bon pour une recette qui n'est pas sous git ; sur un worktree, ça écrase les fichiers
+# du dépôt, supprime les overrides dev-only et remplace les liens de données partagées par des
+# dossiers réels. Ici on ne touche QUE les chemins déclarés.
+#
+# Par défaut `--ignore-existing` : un fichier déjà présent n'est jamais écrasé (il peut venir du
+# dépôt). `DATA_OVERWRITE=1` donne la priorité à la prod (`--delete` compris) — à réserver aux
+# envs qui ne sont pas sous git.
+env_sync_data() {
+  local type="${1:?env_sync_data <type>}"
+  local dest="$WORKSPACE_ROOT/$WEBSITE_PATH"
+  [ -d "$dest" ] || die "Cible inexistante : $dest"
+  local lib="$SELF_DIR/../env-runtime/env-data-manifest.sh"
+  [ -f "$lib" ] || die "Bibliothèque de manifeste introuvable : $lib"
+  # shellcheck source=/dev/null
+  . "$lib"
+  local chemins
+  chemins="$(manifeste_type "$type" "$dest" | awk -F'|' '{print $2}')"
+  [ -n "$chemins" ] || die "Manifeste $type vide pour $dest — rien à rapatrier."
+  local mode=(--ignore-existing)
+  [ "${DATA_OVERWRITE:-0}" = "1" ] && mode=(--delete)
+  log "Données prod → $dest : $(printf '%s\n' "$chemins" | grep -c . ) dossier(s) déclaré(s), mode ${mode[*]}"
+  confirm "rsync des dossiers de données depuis $SSH_AUTH:$REMOTE_FILES_PATH — continuer ?"
+  local n=0 c
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    mkdir -p "$dest/$c"
+    rsync -az "${mode[@]}" $RSYNC_OPTS "$SSH_AUTH:$REMOTE_FILES_PATH/$c/" "$dest/$c/" \
+      || warn "rsync a échoué sur $c (les autres continuent)"
+    n=$((n+1))
+  done <<< "$chemins"
+  ok "$n dossier(s) de données rapatrié(s)."
 }
 
 # --- Résolution de secret --------------------------------------------------

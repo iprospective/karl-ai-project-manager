@@ -25,6 +25,8 @@ Deux invariants, tenus par des tests :
 import bisect
 import collections
 import json
+import shutil
+import subprocess
 import re
 import sqlite3
 import sys
@@ -68,11 +70,24 @@ DEFAULTS = {
     "quantum_min": 15,
     # forfait de longueur quand la source ne donne pas le texte (opencode : table `part`)
     "default_prompt_chars": 120,
+    # Relecture d'un tour d'agent : le temps humain qu'on retient APRÈS lui. Un tour
+    # long produit plus à relire, mais l'humain ne reste pas devant l'écran pendant
+    # que l'agent travaille seul — surtout la nuit. clamp(durée × part, min, max).
+    "relecture_part": 0.25,
+    "relecture_min": 5.0,
+    "relecture_max": 30.0,
 }
 
 #: Messages de rôle `user` qui ne sont PAS un humain qui tape (CDC § 3quater).
 #: Sans ce filtre, août serait surévalué de 39,3 h au lieu de 19,8 — les trois
 #: quarts du gain seraient du bruit système.
+#: Mesuré le 26/10/2026 (RM3530) : 176 des 3 120 traces tenues pour humaines étaient
+#: automatiques, soit 5 %. Retirées, le temps de septembre ne bouge pas d'une minute —
+#: le CRON qui en produit la moitié tourne à 6h30, hors de la plage ouvrée 8h–19h, donc
+#: son temps n'entrait déjà pas dans le résultat. Ce filtre est donc une PRÉCAUTION :
+#: le jour où un déclenchement automatique tombe dans la plage ouvrée, il fabriquerait
+#: du temps facturable sans que personne n'ait rien demandé. Ce qui suit vaut pour toute
+#: installation ; un déclenchement propre à une machine va dans `exclure_prompts`.
 BRUIT_RE = re.compile(
     r"^\s*(?:"
     r"Base directory for this skill"
@@ -82,16 +97,39 @@ BRUIT_RE = re.compile(
     r"|\[Request interrupted"
     r"|The user sent a new message"
     r"|<(?:command|local-command|user-prompt|bash|system-reminder)"
+    # Les commandes de session (`/compact`, `/clear`…) sont VOLONTAIREMENT gardées :
+    # Mathieu les tape pendant qu'il travaille, elles attestent sa présence au clavier
+    # même si la commande en elle-même n'est pas un travail métier. Ce filtre ne vise
+    # que ce qu'AUCUN humain n'a tapé.
+    # Un message venu d'une autre session de l'agent n'est pas un humain qui tape.
+    r"|Another Claude session sent a message"
+    # Prompt d'amorçage d'un agent lancé par l'orchestrateur.
+    r"|Tu travailles dans le worktree"
+    # Prompt porté par un skill, pas saisi par quiconque.
+    r"|Approach this as the design lead"
     r")",
     re.I,
 )
 
 
-def est_prompt_humain(texte):
-    """Un texte soumis par un humain, par opposition au bruit système."""
+def est_prompt_humain(texte, exclusions=None):
+    """Un texte soumis par un humain, par opposition au bruit système.
+
+    `exclusions` : préfixes supplémentaires, propres à l'installation, lus dans
+    `timesheet.yml` sous `exclure_prompts`. C'est là que vont les déclenchements
+    automatiques d'une machine donnée — un CRON qui ouvre une session chaque matin
+    produit un prompt parfaitement régulier, qui ressemble à une demande mais n'en est
+    pas une (RM3530). La liste s'étend sans toucher au code.
+    """
     t = (texte or "").strip()
     if not t or BRUIT_RE.match(t):
         return False
+    if exclusions:
+        tl = t.lower()
+        for prefixe in exclusions:
+            p = (prefixe or "").strip().lower()
+            if p and tl.startswith(p):
+                return False
     return "system-reminder" not in t[:300]
 
 
@@ -113,6 +151,7 @@ class Event:
     session: str = None
     text: str = ""
     extends: bool = True
+    duree: float = 0.0        # durée PROPRE de l'événement (tour d'agent) ; 0 = ponctuel
     scores: dict = field(default_factory=dict)   # {(entity, project, rm_id): poids}
     cible: tuple = None      # cible connue d'avance (action Redmine) : pas d'heuristique
 
@@ -159,7 +198,8 @@ def _texte_utilisateur(evt):
     return " ".join(b.get("text", "") for b in blocks if isinstance(b, dict))
 
 
-def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
+def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None,
+                               exclusions=None):
     """Prompts humains des transcripts Claude Code — la source PRIMAIRE.
 
     `~/.claude/projects` est partagé entre l'hôte et le conteneur (bind mount
@@ -174,7 +214,7 @@ def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
             if not ts:
                 continue
             txt = _texte_utilisateur(evt)
-            if txt is None or not est_prompt_humain(txt):
+            if txt is None or not est_prompt_humain(txt, exclusions):
                 continue
             try:
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
@@ -189,7 +229,7 @@ def collect_claude_transcripts(projects_dir, depuis=None, jusqu_a=None):
     return out
 
 
-def collect_claude_history(path, depuis=None, jusqu_a=None):
+def collect_claude_history(path, depuis=None, jusqu_a=None, exclusions=None):
     """Prompts de `~/.claude/history.jsonl` — complément DURABLE.
 
     Limité aux sessions de cette machine (le fichier n'est pas partagé), mais il
@@ -205,7 +245,7 @@ def collect_claude_history(path, depuis=None, jusqu_a=None):
         if not _dans_periode(dt, depuis, jusqu_a):
             continue
         txt = d.get("display") or ""
-        if not est_prompt_humain(txt):
+        if not est_prompt_humain(txt, exclusions):
             continue
         colle = sum(len(str(v)) for v in (d.get("pastedContents") or {}).values())
         out.append(Event(ts=dt, chars=len(txt) + min(colle, 2000),
@@ -214,7 +254,8 @@ def collect_claude_history(path, depuis=None, jusqu_a=None):
     return out
 
 
-def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None):
+def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None,
+                     exclusions=None):
     """Messages humains d'une base opencode (SQLite).
 
     Table `session` (dont `directory` et le `title`, souvent porteur du nom du
@@ -256,7 +297,7 @@ def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None):
             if not _dans_periode(dt, depuis, jusqu_a):
                 continue
             txt = textes.get(mid, "")
-            if txt and not est_prompt_humain(txt):
+            if txt and not est_prompt_humain(txt, exclusions):
                 continue
             directory, title = sessions.get(sid, (None, None))
             out.append(Event(ts=dt, chars=len(txt) or defaut_chars, source="opencode",
@@ -419,6 +460,12 @@ def rapatrier(host, chemin, cache_dir, kind, verbose=False):
 
 _RM_TEXTE_RE = re.compile(r"(?:\bRM[\s#-]?|\B#)(\d{3,5})\b|^\s*(\d{4})\b", re.I)
 _LOG_ENTREE_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) —", re.M)
+#: L'en-tête d'un tour d'agent et sa ligne de compteurs :
+#:   ## 2026-06-04T14:32 — Tick IA (claude-opus-4-8)
+#:   Tokens : 242329 | Coût : $0.5087 | IA : 17.64 min
+_TICK_RE = re.compile(
+    r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) — Tick IA \(([^)]+)\)\s*\n"
+    r"\s*Tokens\s*:\s*([\d ]+)(?:[^\n]*?IA\s*:\s*([\d.]+)\s*min)?", re.M)
 
 #: Poids relatifs des indices d'attribution (CDC § 5.3). Un prompt ne « choisit »
 #: pas un ticket : il répartit son poids entre les candidats. Sur 2 328 tours
@@ -485,6 +532,7 @@ class TargetResolver:
         self._timeline = None
         self._timeline_ts = None
         self._index_tickets = None
+        self._ticks = None
 
     # -- projet --------------------------------------------------------------
     def projet(self, cwd):
@@ -643,7 +691,7 @@ class TargetResolver:
         """
         if self._timeline is not None:
             return self._timeline
-        tl = []
+        tl, ticks = [], []
         for ent, proj, _ in self.cfg.iter_projects():
             try:
                 tasks_dir = self.cfg.path("tasks_dir", entity=ent, project=proj)
@@ -665,10 +713,31 @@ class TargetResolver:
                     except ValueError:
                         continue
                     tl.append((ts, rm, ent, proj))
+                for m in _TICK_RE.finditer(txt):
+                    ticks.append({
+                        "jour": m.group(1), "heure": m.group(2), "ticket": rm,
+                        "client": ent, "projet": proj, "modele": m.group(3),
+                        "tokens": int((m.group(4) or "0").replace(" ", "") or 0),
+                        "minutes": round(float(m.group(5) or 0), 1)})
         tl.sort()
+        self._ticks = sorted(ticks, key=lambda x: (x["jour"], x["heure"]))
         self._timeline = tl
         self._timeline_ts = [x[0] for x in tl]
         return tl
+
+    def ticks(self, jour=None):
+        """Les tours d'agent : quand, sur quel ticket, quel modèle, combien de tokens.
+
+        C'est le temps IA à mettre en face du temps humain : chaque tour est déclenché
+        par une demande, et c'est ce qui JUSTIFIE la plage humaine qui le précède.
+        Lus dans la même passe que les journaux — les relire coûterait une seconde
+        traversée de 1 200 tickets.
+        """
+        if self._ticks is None:
+            self.timeline()
+        if jour is None:
+            return self._ticks
+        return [t for t in self._ticks if t["jour"] == jour]
 
     def logs_proches(self, ts, projet):
         """Entrées de journal du MÊME projet dans la fenêtre autour de `ts`."""
@@ -803,10 +872,64 @@ def build_intervals(events, params=None):
         suivi = min(max(ecart, 0.0), p["follow_cap"])
         if not e.extends:
             redaction = suivi = 0.0
+        # Un tour d'agent dure ce qu'il dure : son intervalle ne se laisse pas
+        # raboter par le plafond de supervision, qui vise l'humain qui attend.
+        apres = max(suivi, e.duree if e.extends else 0.0)
         out.append(Interval(e.ts - timedelta(minutes=redaction),
-                            e.ts + timedelta(minutes=suivi),
+                            e.ts + timedelta(minutes=apres),
                             e.scores or {(None, None, None): 1.0}, e.extends))
     return out
+
+
+def evenements_des_tours(ticks, regles=None, resolver=None, params=None):
+    """Les tours d'agent comme traces à part entière : si l'IA a travaillé,
+    c'est qu'un humain a prompté.
+
+    Longtemps la proposition ne s'est construite qu'autour des traces humaines,
+    les tours servant seulement à les justifier. Deux raisons de changer :
+
+    - les transcripts Claude sont purgés au bout de quelques semaines, les ticks
+      inscrits dans les `.log.md` restent. Sur une journée ancienne, un client
+      pouvait n'avoir plus AUCUNE trace alors que les agents avaient travaillé
+      pour lui toute la journée — rien ne lui était facturé (07/06/2026 :
+      calicote, 8 tours sur 4 tickets, zéro proposé) ;
+    - un tour n'arrive pas tout seul : quelqu'un l'a demandé, l'a lu, l'a repris.
+
+    L'intervalle d'un tour couvre sa durée réelle — des tours resserrés se
+    rejoignent donc en une période continue — et l'union avec les intervalles
+    humains empêche de compter deux fois le même moment.
+
+    Réserve à garder en tête : un tour lancé par un automatisme, sans personne
+    derrière, crée ici du temps comme un autre. C'est assumé (RM3229, 2026-10-13).
+    """
+    p = {**DEFAULTS, **(params or {})}
+    out = []
+    par_jour = collections.defaultdict(list)
+    for t in ticks or []:
+        par_jour[t.get("jour")].append(t)
+    for jour, lot in par_jour.items():
+        for t in ticks_sans_chevauchement(sorted(lot, key=lambda x: x["heure"])):
+            ent, proj = t.get("client"), t.get("projet")
+            try:
+                ts = datetime.strptime(f"{jour} {t['heure']}", "%Y-%m-%d %H:%M")
+            except (ValueError, KeyError, TypeError):
+                continue
+            cible = None
+            if resolver is not None and ent:
+                cible = resolver.cible_ticket(t.get("ticket"), (ent, proj))
+            # La durée retenue d'un tour ne dépasse jamais le temps de RELIRE ce
+            # qu'il a produit. Un tour travaille seul : sa durée n'atteste d'une
+            # présence humaine ni pendant, ni après. Le 13/06/2026 à 02:18, un tour
+            # de 113 min que rien ne suivait étirait la journée jusqu'à 04:11.
+            # Le plafond vaut pour TOUS les tours, y compris ceux qu'un autre suit
+            # (choix du 14/10/2026) : un enchaînement de tours n'est pas en soi la
+            # preuve que quelqu'un est resté devant l'écran entre les deux.
+            relecture = min(max(float(t.get("minutes") or 0.0) * p["relecture_part"],
+                                p["relecture_min"]), p["relecture_max"])
+            out.append(Event(ts=ts, chars=p["default_prompt_chars"], source="tick-ia",
+                             duree=min(float(t.get("minutes_reelles") or 0.0), relecture),
+                             scores={cible or (ent, proj, None): 1.0}))
+    return sorted(out, key=lambda e: e.ts)
 
 
 def _bornes(intervals, params):
@@ -853,8 +976,12 @@ def allocate(intervals, params=None):
     par_heure = collections.Counter()      # (jour, heure) → minutes mesurées
     par_heure_cible = collections.Counter()  # (jour, heure, cible) → minutes
     periodes = collections.defaultdict(list)
+    segments = collections.defaultdict(list)   # jour → [(debut, fin, {client: minutes})]
     if not intervals:
-        return dict(alloc), dict(periodes), dict(totaux), dict(par_heure)
+        # Cinq valeurs, comme le cas nominal : rendre un tuple plus court ici faisait
+        # planter les appelants sur une période sans la moindre trace.
+        return (dict(alloc), dict(periodes), dict(totaux), dict(par_heure),
+                dict(par_heure_cible), dict(segments))
 
     ivs = sorted(intervals, key=lambda x: x.debut)
     debuts = [iv.debut for iv in ivs]
@@ -877,13 +1004,84 @@ def allocate(intervals, params=None):
         poids_total = sum(sum(iv.scores.values()) for iv in actifs)
         if poids_total <= 0:
             continue
+        parts = collections.Counter()
         for iv in actifs:
             for cible, poids in iv.scores.items():
                 part = duree * poids / poids_total
                 alloc[(jour, ouvre, cible)] += part
                 par_heure_cible[(jour, a.hour, cible)] += part
+                parts[cible[0]] += part
+        # La tranche élémentaire et ses parts de client : c'est ce qui permet de
+        # COLORER la frise. Par heure, on ne saurait pas où commence un client.
+        segments[jour].append((a, b, dict(parts)))
     return (dict(alloc), dict(periodes), dict(totaux), dict(par_heure),
-            dict(par_heure_cible))
+            dict(par_heure_cible), dict(segments))
+
+
+def bandes_par_client(segments_du_jour, minimum_min=2.0):
+    """Les tranches élémentaires fusionnées en bandes d'un même client dominant.
+
+    Une bande porte SA répartition complète (`parts`) : le survol peut dire « pisceen
+    12 min, calicote 4 min » là où la couleur ne montre que le dominant. Les miettes
+    sous `minimum_min` sont absorbées par la bande précédente : sans cela, la frise
+    devient un peigne illisible de traits d'une minute.
+    """
+    bandes = []
+    for debut, fin, parts in sorted(segments_du_jour or []):
+        if not parts:
+            continue
+        dominant = max(parts.items(), key=lambda kv: kv[1])[0]
+        duree = (fin - debut).total_seconds() / 60
+        if bandes and bandes[-1]["fin"] == debut and (
+                bandes[-1]["client"] == dominant or duree < minimum_min):
+            prec = bandes[-1]
+            prec["fin"] = fin
+            prec["minutes"] += duree
+            for c, m in parts.items():
+                prec["parts"][c] = prec["parts"].get(c, 0) + m
+            prec["client"] = max(prec["parts"].items(), key=lambda kv: kv[1])[0]
+        else:
+            bandes.append({"debut": debut, "fin": fin, "minutes": duree,
+                           "client": dominant, "parts": dict(parts)})
+    return bandes
+
+
+def ticks_sans_chevauchement(ticks):
+    """Borne chaque tour d'agent au début du suivant (arbitrage Mathieu, 2026-09-22).
+
+    « une durée s'arrête au pire lorsqu'une nouvelle commence. » Les durées déclarées
+    par les ticks se chevauchent quand plusieurs agents tournent en parallèle : les
+    additionner compte deux fois la même minute d'horloge. On garde les deux nombres —
+    `minutes` (déclarée, le travail réellement produit) et `minutes_reelles` (l'union,
+    le temps écoulé) — parce qu'ils ne répondent pas à la même question.
+    """
+    ordonnes = sorted(ticks or [], key=lambda k: k.get("heure") or "")
+
+    def en_min(hhmm):
+        try:
+            h, m = str(hhmm).split(":")
+            return int(h) * 60 + int(m)
+        except (ValueError, AttributeError):
+            return None
+
+    sortie = []
+    for i, k in enumerate(ordonnes):
+        debut = en_min(k.get("heure"))
+        declaree = float(k.get("minutes") or 0)
+        if debut is None:
+            sortie.append({**k, "minutes_reelles": declaree, "borne": False})
+            continue
+        suivant = None
+        for j in range(i + 1, len(ordonnes)):
+            suivant = en_min(ordonnes[j].get("heure"))
+            if suivant is not None:
+                break
+        fin = debut + declaree
+        borne = suivant is not None and fin > suivant
+        if borne:
+            fin = suivant
+        sortie.append({**k, "minutes_reelles": max(0.0, fin - debut), "borne": borne})
+    return sortie
 
 
 # ── Règles métier ────────────────────────────────────────────────────────────
@@ -896,13 +1094,58 @@ class Regles:
     absences: list = field(default_factory=list)     # [(date_debut, date_fin, motif)]
     cles_multi: dict = field(default_factory=dict)   # entité/projet → [(client, poids)]
     seuil_client_min: float = DEFAULTS["client_threshold_min"]
+    #: entité du pot → clients qui l'utilisent. Vide = tout le monde (PM, infra, redmine).
+    #: Déclaré dans les manifestes PM (`used_by_clients`), jamais en conf : une liste
+    #: recopiée finit par diverger de la réalité (leçon `type: self`).
+    usagers: dict = field(default_factory=dict)
+    #: client → part de SA quote-part de pot interne qu'iProspective garde à sa charge.
+    #: Arrangement commercial, donc déclaré en conf : rien dans le modèle PM ne le dit.
+    abattement: dict = field(default_factory=dict)
+    #: (entité, projet, ticket) où atterrit la part retenue. Sans cela elle retournait
+    #: à SA source — donc sur « non attribué » quand le pot venait d'un projet inconnu,
+    #: ce qui n'a aucun sens sur une facture (arbitrage Mathieu, 2026-10-12).
+    retenue_vers: tuple = None
+
+    def clients_eligibles(self, entity, candidats):
+        """Les clients du jour à qui le pot de `entity` peut être refacturé.
+
+        Un produit ne se refacture qu'à ceux qui s'en servent : le temps passé sur
+        PrestaShop n'a rien à faire chez un client qui n'en a pas. Sans usagers
+        déclarés (PM, infrastructure, Redmine), le pot va à tout le monde.
+        """
+        usagers = self.usagers.get(entity)
+        if not usagers:
+            return set(candidats)
+        return {c for c in candidats if c in usagers}
 
     def est_client(self, entity):
         return self.types.get(entity) == "client"
 
-    def dans_le_pot(self, entity):
-        """Transversal refacturable : ni client, ni perso (PM, infra, produits)."""
-        return entity not in self.perso and not self.est_client(entity)
+    def est_soi(self, entity):
+        """Entité de type `self` : Mathieu lui-même (iprospective, lemathou).
+
+        La liste ne se déclare pas en conf — elle est DÉJÀ dans les manifestes PM
+        (`type: self`). La redéclarer, c'est la voir diverger un jour.
+        """
+        return self.types.get(entity) == "self"
+
+    def facturable(self, entity):
+        """Seul le temps d'un CLIENT se facture. Le sien et les produits, non."""
+        return self.est_client(entity)
+
+    #: projets « <entité>/<projet> » exclus du pot : du travail interne qui n'est pas de
+    #: l'outillage partagé. Il reste à la charge d'iProspective.
+    hors_pot: set = field(default_factory=set)
+
+    def dans_le_pot(self, entity, projet=None):
+        """Transversal refacturable : ni client, ni perso, ni travail interne non partagé.
+
+        Un projet d'une entité interne n'est pas forcément de l'outillage mutualisé : le
+        webmail d'iProspective est son propre produit, pas un service rendu aux clients.
+        """
+        if entity in self.perso or self.est_client(entity):
+            return False
+        return f"{entity}/{projet}" not in self.hors_pot
 
     def absence(self, jour):
         d = date.fromisoformat(jour)
@@ -955,6 +1198,7 @@ def repartir_transversal(alloc, regles, params=None):
     """
     p = {**DEFAULTS, **(params or {})}
     par_jour = collections.defaultdict(lambda: {"pot_ouvre": 0.0, "pot_hors": 0.0,
+                                                "pot_par_source": collections.Counter(),
                                                 "clients": collections.Counter(),
                                                 "lignes": []})
     for (jour, ouvre, cible), minutes in alloc.items():
@@ -963,8 +1207,12 @@ def repartir_transversal(alloc, regles, params=None):
         d["lignes"].append((ouvre, cible, minutes))
         if regles.est_client(ent):
             d["clients"][ent] += minutes
-        elif regles.dans_le_pot(ent):
+        elif regles.dans_le_pot(ent, cible[1]):
             d["pot_ouvre" if ouvre else "pot_hors"] += minutes
+            if ouvre:
+                # Par SOURCE : un produit ne se refacture qu'à ses usagers, le pot
+                # ne peut donc plus être réparti d'un bloc.
+                d["pot_par_source"][ent] += minutes
 
     final = collections.defaultdict(float)
     ecarte = collections.defaultdict(float)
@@ -991,7 +1239,12 @@ def repartir_transversal(alloc, regles, params=None):
             }
             continue
         if not journee_cliente:
-            destin, cle = NON_COMPTE, {}
+            # Moins d'1 h de client sur la journée : le pot n'a personne à qui s'imputer,
+            # il reste à la charge d'iProspective — mais il est NOTÉ. Il était écarté
+            # jusqu'au 2026-10-13 : « si moins de 1h sur l'ensemble des clients le pot
+            # reste pour moi, sinon il est réparti ». Rien ne disparaît plus en silence ;
+            # seule une absence déclarée écarte encore du temps.
+            destin, cle = INTERNE, {}
         elif d["pot_ouvre"] > 0:
             destin = REFACTURE
             cle = {c: m / client_total for c, m in d["clients"].items()}
@@ -1004,27 +1257,49 @@ def repartir_transversal(alloc, regles, params=None):
         # pas dans Redmine — un ticket appartient à un seul projet).
         lignes_clientes = [(cible, m) for ouvre, cible, m in d["lignes"]
                            if regles.est_client(cible[0])]
-        pot_a_repartir = 0.0
+        pot_par_source = collections.Counter()
         for ouvre, cible, minutes in d["lignes"]:
             ent = cible[0]
-            if regles.est_client(ent) or not regles.dans_le_pot(ent):
-                final[(jour, cible)] += minutes          # client et perso : intouchés
+            if regles.est_client(ent) or not regles.dans_le_pot(ent, cible[1]):
+                final[(jour, cible)] += minutes          # client, perso, interne non partagé
                 continue
             if destin == NON_COMPTE:
                 ecarte[(jour, cible)] += minutes
             elif ouvre and destin == REFACTURE:
-                pot_a_repartir += minutes
+                pot_par_source[(ent, cible)] += minutes
             else:
                 final[(jour, cible)] += minutes          # soir/nuit/week-end : interne
-        if pot_a_repartir and client_total > 0:
+
+        for (ent_source, cible_source), minutes in pot_par_source.items():
+            eligibles = regles.clients_eligibles(ent_source, d["clients"])
+            base = sum(m for c, m in d["clients"].items() if c in eligibles)
+            if not base:
+                # Aucun client du jour ne se sert de ce produit : le temps reste
+                # interne plutôt que d'aller chez quelqu'un qui n'en profite pas.
+                final[(jour, cible_source)] += minutes
+                continue
+            garde = 0.0
             for cible, m in lignes_clientes:
-                part = pot_a_repartir * m / client_total
+                if cible[0] not in eligibles:
+                    continue
+                part = minutes * m / base
+                # Abattement : iProspective garde à sa charge une fraction de la
+                # quote-part de ce client — un arrangement, pas une règle de calcul.
+                retenue = part * float(regles.abattement.get(cible[0], 0) or 0)
+                if retenue:
+                    garde += retenue
+                    part -= retenue
                 final[(jour, cible)] += part
                 refacture[(jour, cible)] += part
+            if garde:
+                # La retenue atterrit à l'endroit DÉCLARÉ — pas chez la source : un pot
+                # venu d'un projet non identifié y laisserait une retenue « non attribuée ».
+                final[(jour, regles.retenue_vers or cible_source)] += garde
         journal[jour] = {
             "destin": destin, "cle": cle, "absence": motif_absence,
             "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
             "pot_hors_h": d["pot_hors"] / 60,
+            "pot_par_source_h": {e: m / 60 for e, m in d["pot_par_source"].items()},
             "alerte_absence": bool(motif_absence and client_total > 0),
         }
     return dict(final), dict(ecarte), journal, dict(refacture)
@@ -1040,7 +1315,7 @@ def _heure_de(cle_jour, alloc_horaire):
 
 
 def appliquer_presences(final, presences, debut, fin, par_heure=None,
-                        par_heure_cible=None):
+                        par_heure_cible=None, deja_par_jour=None):
     """Complète les journées de RÉGIE, que les traces d'agents ne peuvent pas voir.
 
     Une journée passée chez un client — 9 h 30 – 18 h 30, réunions comprises — ne
@@ -1057,6 +1332,7 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
     """
     ajouts = collections.defaultdict(float)
     transferts = collections.defaultdict(float)
+    projet_presence = {}          # (jour, client) → projet déclaré par la présence
     for p in presences or []:
         client = p.get("client")
         if not client:
@@ -1066,6 +1342,11 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
             continue
         projet = p.get("projet")
         reunion = float(p.get("reunion_h", 0) or 0)
+        # La réunion n'a pas lieu tous les jours de présence : chez MatNat, c'est le
+        # jeudi (19/10/2026). Sans cette liste, une présence jeudi+vendredi facturait
+        # deux réunions par semaine au lieu d'une.
+        reunion_jours = {JOURS_FR[j.lower()] for j in (p.get("reunion_jours") or [])
+                         if j.lower() in JOURS_FR}
         sauf = {str(x) for x in (p.get("sauf") or [])}
         # Une journée sort rarement du moule : réunion du matin seule, départ
         # anticipé, télétravail. `exceptions` surcharge la présence pour CE jour
@@ -1090,6 +1371,10 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
             surcharge = exceptions.get(cle, {})
             heures_jour = float(surcharge.get("heures", heures))
             reunion_jour = float(surcharge.get("reunion_h", reunion))
+            # Une exception de journée reste souveraine : elle dit explicitement ce
+            # qu'il en est ce jour-là, la liste des jours ne la contredit pas.
+            if reunion_jours and "reunion_h" not in surcharge and jour.weekday() not in reunion_jours:
+                reunion_jour = 0.0
             exclusif_jour = surcharge.get("exclusif", p.get("exclusif"))
             if concerne and cle not in sauf:
                 if exclusif_jour and par_heure_cible and h_debut is not None:
@@ -1105,6 +1390,10 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                         if cible[0] == client or _est_perso_ou_transversal(cible[0], p):
                             continue
                         a_rapatrier[cible] += v
+                    # Le projet est figé AVANT le rapatriement : celui-ci vide le
+                    # temps du client, et le projet dominant ne serait plus lisible.
+                    projet_presence.setdefault(
+                        (cle, client), projet or _projet_dominant(final, cle, client, par_heure_cible))
                     for cible, v in a_rapatrier.items():
                         restant = final.get((cle, cible), 0.0)
                         pris = min(restant, v)
@@ -1121,22 +1410,60 @@ def appliquer_presences(final, presences, debut, fin, par_heure=None,
                 else:
                     mesure = sum(v for (j, cible), v in final.items()
                                  if j == cle and cible[0] == client)
+                # Ce qui est DÉJÀ saisi ce jour-là remplit le plancher au même titre que le
+                # mesuré : sans cela, une journée validée (régie comprise) se verrait
+                # re-proposer son complément à chaque recalcul — un doublon de facturation.
+                mesure = max(mesure, (deja_par_jour or {}).get(cle, 0))
                 manque = heures_jour * 60 - mesure
                 if manque > 1:
+                    cible_reunion = (projet or projet_presence.get((cle, client))
+                                     or _projet_dominant(final, cle, client, par_heure_cible))
                     if reunion_jour > 0:
                         part_reunion = min(reunion_jour * 60, manque)
-                        ajouts[(cle, (client, projet, None), "réunion")] += part_reunion
+                        ajouts[(cle, (client, cible_reunion, None), "réunion")] += part_reunion
                         manque -= part_reunion
+                    cible_jour = (projet or projet_presence.get((cle, client))
+                                  or _projet_dominant(final, cle, client, par_heure_cible))
                     if manque > 1:
-                        ajouts[(cle, (client, projet, None), "présence sur site")] += manque
+                        ajouts[(cle, (client, cible_jour, None), "présence sur site")] += manque
             jour += timedelta(days=1)
     # Le temps rapatrié rejoint le client SANS son ticket d'origine : un ticket
     # d'un autre projet ne peut pas être crédité ici (il appartient à son projet).
+    # Il garde en revanche le PROJET de la présence : sans lui, la ligne est
+    # inécrivable dans Redmine (« 1 ligne sans projet résolu : matnat/None ») et son
+    # temps se perd en silence à la validation (constaté le 2026-10-13).
     for (cle, cible, client), v in transferts.items():
-        final[(cle, (client, None, None))] = final.get((cle, (client, None, None)), 0.0) + v
+        projet = projet_presence.get((cle, client)) or _projet_dominant(final, cle, client, par_heure_cible)
+        dest = (client, projet, None)
+        final[(cle, dest)] = final.get((cle, dest), 0.0) + v
     for k in [k for k, v in final.items() if v <= 0]:
         del final[k]
     return dict(ajouts), dict(transferts)
+
+
+def _projet_dominant(final, jour, client, par_heure_cible=None):
+    """Le projet de ce client qui pèse le plus ce jour-là, ou None.
+
+    Une journée peut déclarer son client sans dire sur quel projet — c'est un menu
+    séparé dans l'écran, et on l'oublie. Le temps rapatrié tombait alors sur
+    `<client>/None` : une ligne qu'aucune saisie Redmine ne peut recevoir, dont le
+    temps se perdait à la validation (22/07/2026, 165 min pour matnat).
+
+    Plutôt que de perdre ce temps, on le pose sur le projet que la journée a le plus
+    travaillé pour ce client — l'hypothèse la moins surprenante, et corrigeable
+    ligne par ligne.
+    """
+    poids = collections.Counter()
+    for (j, cible), v in (final or {}).items():
+        if j == jour and cible[0] == client and cible[1] and v > 0:
+            poids[cible[1]] += v
+    if not poids:
+        # `final` a pu être vidé de ce client par la déduction des saisies déjà
+        # posées : la mesure BRUTE, elle, garde la trace du projet travaillé.
+        for (j, _h, cible), v in (par_heure_cible or {}).items():
+            if j == jour and cible[0] == client and cible[1] and v > 0:
+                poids[cible[1]] += v
+    return poids.most_common(1)[0][0] if poids else None
 
 
 def _est_perso_ou_transversal(entity, presence):
@@ -1222,15 +1549,30 @@ def charger_config(chemin=None, cfg=None):
     """
     if yaml is None:
         return {}
-    if chemin is None and cfg is not None:
-        chemin = Path(cfg.pm_dir) / "timesheet.yml"
-    p = Path(chemin) if chemin else None
+    p = chemin_config(chemin, cfg)
     if not p or not p.is_file():
         return {}
     try:
         return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         return {}
+
+
+def _abattement(conf):
+    """Les taux d'abattement, que la conf les donne à plat ou sous `clients:`."""
+    brut = (conf or {}).get("abattement") or {}
+    taux = brut.get("clients") if isinstance(brut.get("clients"), dict) else brut
+    return {str(k): float(v) for k, v in (taux or {}).items()
+            if k != "vers" and isinstance(v, (int, float))}
+
+
+def _retenue_vers(conf):
+    """Où atterrit la part retenue : `abattement.vers` = `<client>/<projet>`."""
+    vers = ((conf or {}).get("abattement") or {}).get("vers")
+    if not vers:
+        return None
+    bout = str(vers).split("/")
+    return (bout[0], bout[1] if len(bout) > 1 else None, None)
 
 
 def regles_depuis_config(conf, cfg):
@@ -1258,8 +1600,32 @@ def regles_depuis_config(conf, cfg):
             else:
                 norm.append((item[0], float(item[1])))
         cles[cible] = [x for x in norm if x[0]]
+    # Qui se sert de quoi : lu dans les manifestes PM (`used_by_clients` du projet
+    # fournisseur), agrégé par entité. Jamais recopié en conf — une liste parallèle
+    # finit par mentir (leçon `type: self`).
+    usagers = collections.defaultdict(set)
+    for ent, _ in cfg.iter_entities():
+        try:
+            fm = cfg.client_meta(ent) or {}
+        except Exception:
+            fm = {}
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
+    for ent, proj, _chemin in cfg.iter_projects():
+        try:
+            fm = cfg.project_meta(ent, proj) or {}
+        except Exception:
+            continue
+        for c in (fm.get("used_by_clients") or []):
+            if c:
+                usagers[ent].add(str(c))
     return Regles(
         types=types,
+        usagers={e: s for e, s in usagers.items()},
+        abattement=_abattement(conf),
+        hors_pot=set(str(x) for x in (conf.get("hors_pot") or [])),
+        retenue_vers=_retenue_vers(conf),
         perso=set(conf.get("perso", []) or []),
         absences=absences,
         cles_multi=cles,
@@ -1468,8 +1834,151 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
     return "\n".join(L)
 
 
+def plancher_client(brut, arrondi, quantum, regles, minimum=0):
+    """Donne au moins `minimum` minutes à tout CLIENT qui a du travail tracé ce jour-là.
+
+    « Si j'ai noté 4 lignes, je facture au moins 15 mn à mon client » (2026-10-13). Sous
+    la tranche d'arrondi, un client réel tombait à zéro : du travail constaté, rien de
+    facturé. Ce plancher CRÉE du temps — c'est voulu, comme le plancher de régie, et
+    c'est pourquoi il ne s'applique qu'aux clients et seulement s'ils ont déjà quelque
+    chose. Il ne fabrique jamais un client qui n'a pas travaillé.
+    """
+    if minimum <= 0 or not regles:
+        return arrondi
+    sortie = dict(arrondi)
+    par_client = collections.defaultdict(float)
+    meilleure = {}
+    for cible, v in brut.items():
+        ent = cible[0]
+        if not regles.est_client(ent) or v <= 0:
+            continue
+        par_client[ent] += v
+        if v > brut.get(meilleure.get(ent), 0):
+            meilleure[ent] = cible
+    for ent, v in par_client.items():
+        deja = sum(m for (c, m) in ((k, m) for k, m in sortie.items()) if c[0] == ent)
+        if deja >= minimum:
+            continue
+        cible = meilleure[ent]
+        sortie[cible] = sortie.get(cible, 0) + (minimum - deja)
+    return sortie
+
+
+def _facturable(regles, entity):
+    """Facturable = entité de type `client`. Sans règles connues, on ne préjuge pas."""
+    return regles.facturable(entity) if regles else None
+
+
+def cle_ligne(l):
+    """Nom stable d'une ligne de proposition, pour la viser une par une.
+
+    Construite sur ce qui IDENTIFIE la ligne — client, projet, ticket, activité —
+    et non sur son rang : un recalcul réordonne les lignes, il ne les renomme pas.
+    C'est cette clé que porte un amendement et que vise une écriture isolée.
+    """
+    return (f"{l.get('client') or '-'}/{l.get('projet') or '-'}"
+            f"#{l.get('ticket') or '-'}@{l.get('activite') or '-'}")
+
+
+def _poser_cles(lignes):
+    """Pose `cle` sur chaque ligne, en levant les rares collisions d'un même jour."""
+    vus = collections.Counter()
+    for l in lignes:
+        base = cle_ligne(l)
+        n = vus[(l.get("jour"), base)]
+        vus[(l.get("jour"), base)] += 1
+        l["cle"] = base if not n else f"{base}~{n}"
+    return lignes
+
+
+def amender_lignes(lignes, surcharges, regles=None):
+    """Applique les rattachements corrigés à la main. Les minutes ne bougent JAMAIS.
+
+    Changer le client d'une ligne déplace de l'argent d'un client à l'autre : c'est
+    précisément le geste voulu, mais il ne doit rien créer ni rien perdre. On ne
+    réécrit donc que la CIBLE (client, projet, ticket, activité), et la ligne garde
+    la trace de son rattachement d'origine pour que l'écran puisse le montrer.
+
+    Un amendement dont la ligne a disparu d'un recalcul n'est pas perdu en silence :
+    il est rendu dans `orphelins`, à l'appelant de le dire.
+    """
+    index = {}
+    for l in lignes:
+        index.setdefault((l.get("jour"), l.get("cle")), l)
+    orphelins = []
+    a_retirer = []
+    for jour, sur in (surcharges or {}).items():
+        for cle, chg in ((sur or {}).get("lignes") or {}).items():
+            cible = index.get((jour, cle))
+            if cible is None:
+                orphelins.append((jour, cle))
+                continue
+            # Une ligne supprimée à la main s'en va : son temps n'est facturé à
+            # personne. C'est le seul amendement qui RETIRE du temps, il est donc
+            # explicite et réversible (`--clear-ligne` la ramène).
+            if (chg or {}).get("supprimee"):
+                a_retirer.append(cible)
+                continue
+            # L'origine est figée AVANT toute réécriture, et une seule fois : elle
+            # dit d'où vient la ligne, pas par quelles mains elle est passée.
+            cible.setdefault("origine", {k: cible.get(k) for k in
+                                         ("client", "projet", "ticket", "activite",
+                                          "minutes", "commentaire")})
+            if "minutes" in (chg or {}):
+                try:
+                    m = int(chg["minutes"])
+                except (TypeError, ValueError):
+                    m = None
+                if m is not None and m >= 0:
+                    cible["minutes"] = m
+                    cible["amendee"] = True
+            for champ in ("client", "projet", "ticket", "activite", "commentaire"):
+                if champ in (chg or {}):
+                    v = chg[champ]
+                    if champ == "ticket":
+                        v = int(v) if v not in (None, "", "-") and str(v).isdigit() else None
+                    cible[champ] = v
+            # Un ticket emporte le projet : l'API `time_entries` range la saisie dans le
+            # projet du ticket, et ignore le projet qu'on lui donne. Déplacer une ligne
+            # chez un autre client en lui laissant son ticket d'origine la ferait donc
+            # revenir d'où elle vient, sans rien dire. On lâche le ticket — sauf si un
+            # ticket a été choisi explicitement.
+            if ("client" in (chg or {}) or "projet" in (chg or {})) and "ticket" not in (chg or {}):  # noqa: E501
+                cible["ticket"] = None
+                cible["ticket_abandonne"] = cible["origine"].get("ticket")
+            cible["amendee"] = True
+    for l in a_retirer:
+        if l in lignes:
+            lignes.remove(l)
+    # Les lignes ajoutées à la main viennent APRÈS : elles ne se corrigent pas
+    # elles-mêmes, elles SONT la correction.
+    for jour, sur in sorted((surcharges or {}).items()):
+        for n, brut in enumerate((sur or {}).get("lignes_manuelles") or [], 1):
+            if not brut:
+                continue
+            try:
+                minutes = int(brut.get("minutes") or 0)
+            except (TypeError, ValueError):
+                continue
+            if minutes <= 0:
+                continue
+            ticket = brut.get("ticket")
+            lignes.append({
+                "jour": jour, "client": brut.get("client"), "projet": brut.get("projet"),
+                "ticket": int(ticket) if ticket and str(ticket).isdigit() else None,
+                "minutes": minutes,
+                "activite": brut.get("activite"),
+                "commentaire": brut.get("commentaire") or None,
+                "outillage_min": None, "valide": True,
+                "cle": brut.get("cle") or f"man{n}",
+                "manuelle": True,
+                "facturable": _facturable(regles, brut.get("client")) if regles else None,
+            })
+    return orphelins
+
+
 def proposition(final, journal, quantum=None, meta=None, resolver=None,
-                activite_defaut=None, refacture=None):
+                activite_defaut=None, refacture=None, regles=None, minimum_client=0):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
 
     Elle est relue telle quelle par `--apply` : ce que l'humain a corrigé est ce
@@ -1483,6 +1992,10 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
     refacture = refacture or {}
     for jour in sorted(par_jour):
         arrondi = quantifier({(jour, k): v for k, v in par_jour[jour].items()}, quantum)
+        arrondi = {k[1] if isinstance(k, tuple) and len(k) == 2 else k: v
+                   for k, v in arrondi.items()}
+        arrondi = plancher_client(par_jour[jour], arrondi, quantum, regles, minimum_client)
+        arrondi = {(jour, k): v for k, v in arrondi.items()}
         for (j, cible), minutes in sorted(arrondi.items(), key=lambda kv: -kv[1]):
             ent, proj, rm = cible
             # Sans ticket, une ligne mélange des natures de travail : on la
@@ -1504,6 +2017,7 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                             "jour": j, "client": ent, "projet": proj, "ticket": None,
                             "minutes": part, "activite": act,
                             "outillage_min": None, "valide": True,
+                            "facturable": _facturable(regles, ent),
                         })
                     if reste <= 0:
                         continue
@@ -1519,9 +2033,449 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
                 # commentaire de la saisie, pour que le client sache ce qu'il paie.
                 "outillage_min": int(round(refacture.get((j, cible), 0))) or None,
                 "valide": True,
+                "facturable": _facturable(regles, ent),
             })
+    _poser_cles(lignes)
     return {"meta": meta or {}, "quantum_min": quantum,
             "journees": {j: {"destin": d.get("destin"), "absence": d.get("absence"),
                              "alerte": bool(d.get("alerte_absence"))}
                          for j, d in sorted(journal.items())},
             "lignes": lignes}
+
+
+# ── Configuration utilisateur, état local, cache par jour (RM3229 / L0) ──────
+
+#: Les réglages sont ceux d'UNE personne (ses postes, ses clients, ses absences) : ils vivent
+#: dans SON dossier de conf PM, `<core>/var/users/<user>/timesheet.yml` (RM3318), hors git — et
+#: JAMAIS dans son home. Leçon de RM2890 : posés dans un fichier de travail de session, ils ont
+#: disparu avec lui. Résolus par `pm_paths.user_conf_file` (repli transitoire sur l'ancien
+#: `~/.config/mmi-pm/timesheet.yml`).
+CONF_NOM = "timesheet.yml"
+
+#: L'ÉTAT (cache des traces, commits, surcharges de journée, rapports, sauvegardes de
+#: reprise) est une donnée d'EXPLOITATION du PM, pas une préférence personnelle : sa place
+#: est `<core>/var/timesheet`, avec le reste de ce que le PM produit en tournant (RM3229,
+#: arbitrage du 2026-09-22). `var/` est hors git : c'est de l'état, pas du versionné.
+#:
+#: Les RÉGLAGES vont eux aussi sous `var/` (`var/users/<user>/`, RM3318) : propres à
+#: l'utilisateur et hors git, mais jamais dans son home.
+#: Emplacements hérités, dans l'ordre où on les a quittés. Tout est rapatrié, une fois.
+ETATS_HERITES = [
+    Path.home() / ".local" / "state" / "mmi-pm" / "timesheet",   # avant RM3229 (home)
+]
+ETAT = ETATS_HERITES[0]
+
+
+def configurer_etat(cfg=None, migrer=True, user=None):
+    """Pointe l'état sur `<core>/var/users/<user>/timesheet` et rapatrie l'ancien.
+
+    L'état du timesheet est PROPRE À UNE PERSONNE : ses journées, ses traces, ses
+    sauvegardes de reprise. Sa place est donc le dossier utilisateur, à côté de ses
+    réglages — pas un `var/timesheet` commun qui mélangerait deux personnes sur une
+    instance partagée (arbitrage Mathieu, 2026-10-12 : « days.yml ne devrait pas être
+    dans le dossier de l'user ? »).
+
+    La reprise est faite UNE fois par emplacement, et seulement si la destination est
+    vide : un cache orphelin obligerait à rejouer tous les transcripts, et les
+    sauvegardes de reprise doivent suivre leur outil.
+    """
+    global ETAT
+    if cfg is None or not getattr(cfg, "state_dir", None):
+        return ETAT
+    import pm_paths
+    ETAT = pm_paths.user_conf_dir(user, getattr(cfg, "pm_dir", None)) / "timesheet"
+    ETAT.mkdir(parents=True, exist_ok=True)
+    if not migrer:
+        return ETAT
+    anciens = list(ETATS_HERITES) + [Path(cfg.state_dir) / "timesheet"]   # var/ commun (RM3229)
+    for herite in anciens:
+        if not herite.is_dir() or herite == ETAT or any(ETAT.iterdir()):
+            continue
+        deplaces = 0
+        for item in herite.iterdir():
+            cible = ETAT / item.name
+            if cible.exists():
+                continue
+            try:
+                item.rename(cible)
+            except OSError:
+                shutil.move(str(item), str(cible))   # traversée de systèmes de fichiers
+            deplaces += 1
+        if deplaces:
+            print(f"  ↪ état du timesheet repris depuis {herite} "
+                  f"({deplaces} entrée(s)) → {ETAT}", file=sys.stderr)
+    return ETAT
+
+
+def chemin_config(chemin=None, cfg=None):
+    """Le fichier de réglages retenu : explicite > utilisateur (`var/users/<user>/`) > core
+    (historique). Absent partout → le chemin utilisateur, là où il faut le créer."""
+    if chemin:
+        return Path(chemin).expanduser()
+    import pm_paths
+    perso = pm_paths.user_conf_file(CONF_NOM, pm_dir=getattr(cfg, "pm_dir", None))
+    if perso.is_file():
+        return perso
+    historique = Path(cfg.pm_dir) / CONF_NOM if cfg is not None else None
+    return historique if historique is not None and historique.is_file() else perso
+
+
+def event_vers_dict(e, rm_tour=None):
+    return {"ts": e.ts.isoformat(timespec="seconds"), "chars": e.chars, "source": e.source,
+            "cwd": e.cwd, "session": e.session, "text": (e.text or "")[:400],
+            "extends": e.extends, "cible": list(e.cible) if e.cible else None,
+            "rm_tour": rm_tour}
+
+
+def dict_vers_event(d):
+    e = Event(ts=datetime.fromisoformat(d["ts"]), chars=d.get("chars", 0),
+              source=d.get("source", ""), cwd=d.get("cwd"), session=d.get("session"),
+              text=d.get("text", ""), extends=d.get("extends", True),
+              cible=tuple(d["cible"]) if d.get("cible") else None)
+    return e, d.get("rm_tour")
+
+
+def cache_lire(jour, racine=None):
+    """Événements d'une journée déjà collectée, ou None. Lire le cache évite de
+    rejouer tous les transcripts (≈ 1 min par mois) à chaque ajustement d'horaire."""
+    p = (racine or ETAT / "cache") / f"{jour}.jsonl"
+    if not p.is_file():
+        return None
+    sortie = []
+    for ligne in p.read_text(encoding="utf-8").splitlines():
+        if ligne.strip():
+            sortie.append(dict_vers_event(json.loads(ligne)))
+    return sortie
+
+
+def cache_ecrire(jour, items, racine=None):
+    """Fige une journée TERMINÉE. Écriture atomique ; c'est aussi une archive, les
+    transcripts pouvant être purgés."""
+    dossier = racine or ETAT / "cache"
+    dossier.mkdir(parents=True, exist_ok=True)
+    tmp = dossier / f".{jour}.jsonl.tmp"
+    tmp.write_text("".join(json.dumps(event_vers_dict(e, rm), ensure_ascii=False) + "\n"
+                           for e, rm in items), encoding="utf-8")
+    tmp.replace(dossier / f"{jour}.jsonl")
+
+
+# ── La pause de midi (RM3229) ────────────────────────────────────────────────
+
+#: Elle ne se DEVINE pas : une journée sans trou à midi peut être une journée sans
+#: pause (sandwich devant l'écran) comme une pause que rien n'a tracée. On la propose
+#: quand aucun trou n'apparaît, et c'est l'humain qui tranche.
+PAUSE_DEFAUT = {"client": None, "projet": None, "project_id": None,
+                "activity_id": 27, "commentaire": "repas midi",
+                "heures": 1.0, "plage": ["11:30", "14:30"], "trou_min": 30}
+
+
+def conf_pause(conf):
+    """Où et comment se note la pause de midi. Fusionne les réglages sur les défauts."""
+    return {**PAUSE_DEFAUT, **(dict((conf or {}).get("pause") or {}))}
+
+
+def trou_de_midi(periodes, plage=None, minimum=None):
+    """Le trou de midi réellement observé : un ARRÊT entre deux moments de travail.
+
+    Rend `(debut, fin, minutes)` du plus grand trou qui touche le créneau du midi, ou
+    None. Un trou n'existe que s'il y a du travail AVANT et APRÈS : sans travail après,
+    ce n'est pas une pause, c'est la fin de la journée ; sans travail avant, elle n'a
+    pas commencé.
+
+    C'est le défaut corrigé le 2026-10-13 : une journée sans aucune trace entre 11h30 et
+    14h30 se voyait annoncer « 3 h de pause » — la fenêtre de recherche entière prise
+    pour un trou. Elle apparaissait sur toutes les journées sans activité à midi.
+    """
+    cfg = {**PAUSE_DEFAUT}
+    debut_p, fin_p = (plage or cfg["plage"])
+    minimum = minimum if minimum is not None else cfg["trou_min"]
+
+    def m(hhmm):
+        h, mi = str(hhmm).split(":")
+        return int(h) * 60 + int(mi)
+
+    lo, hi = m(debut_p), m(fin_p)
+    bornes = sorted((m(a), m(b)) for a, b in periodes or [])
+    if len(bornes) < 2:
+        return None                       # un seul bloc de travail : aucun trou possible
+
+    # Les périodes contiguës se fondent : deux traces à 2 min d'écart ne font pas un trou.
+    fusion = [list(bornes[0])]
+    for a, b in bornes[1:]:
+        if a <= fusion[-1][1]:
+            fusion[-1][1] = max(fusion[-1][1], b)
+        else:
+            fusion.append([a, b])
+
+    meilleur = None
+    for (a1, b1), (a2, _b2) in zip(fusion, fusion[1:]):
+        duree = a2 - b1
+        if duree < minimum:
+            continue
+        if b1 >= hi or a2 <= lo:          # le trou ne touche pas le créneau du midi
+            continue
+        if not meilleur or duree > meilleur[2]:
+            meilleur = (b1, a2, duree)
+    if not meilleur:
+        return None
+    a, b, duree = meilleur
+    fmt = lambda n: f"{n // 60:02d}:{n % 60:02d}"      # noqa: E731
+    return {"debut": fmt(a), "fin": fmt(b), "minutes": duree}
+
+
+# ── Commits de la journée (RM3229 / L3b) ─────────────────────────────────────
+
+#: Les commits de plomberie PM (`pm(tick)`, `pm(think)`, `pm(report)`…) sont posés par
+#: l'outillage, pas écrits à la main : ils datent le travail sans le décrire. On les
+#: garde — ils situent l'activité — mais séparés, pour qu'ils ne noient pas le reste.
+_COMMIT_AUTO_RE = re.compile(r"^(pm\(|Merge branch|Merge remote)")
+
+#: Un commit de fusion EST la trace locale d'une MR : inutile d'interroger la forge
+#: pour savoir ce qui a été livré ce jour-là. Le nom de branche porte le ticket.
+_MERGE_RE = re.compile(r"^Merge branch '([^']+)'(?: into '?([^']+)'?)?")
+
+
+def depots_git(racine="/zfs/workspaces", profondeur=3):
+    """Les dépôts de premier niveau sous les workspaces.
+
+    Les worktrees (`envs/<ticket>/`) ne sont pas listés : ils PARTAGENT l'objet git de
+    leur dépôt, donc `git log --all` depuis la racine voit déjà leurs commits. Les
+    lister les compterait deux fois.
+    """
+    base = Path(racine)
+    if not base.is_dir():
+        return []
+    sortie = []
+    for git in base.glob("/".join(["*"] * (profondeur - 1)) + "/.git"):
+        if git.parent.name != "envs":
+            sortie.append(git.parent)
+    return sorted(sortie)
+
+
+def collect_commits(depuis, jusqu_a, auteur=None, racine="/zfs/workspaces"):
+    """Les commits d'une période, tous dépôts confondus — ce que la journée a produit.
+
+    Un commit est la trace la plus dure qui soit : il dit ce qui a été fait, où, et
+    à quelle minute. C'est le contrepoint des traces d'activité, qui disent seulement
+    qu'on était là.
+    """
+    sortie, vus = [], set()
+    d0 = depuis.strftime("%Y-%m-%d %H:%M")
+    d1 = jusqu_a.strftime("%Y-%m-%d %H:%M")
+    for depot in depots_git(racine):
+        # Le filtre d'auteur est appliqué en Python, pas par git : les commits de FUSION
+        # sont signés du compte qui merge sur la forge (« Manager Karl »), jamais de
+        # l'humain — un `--author` les ferait disparaître, et avec eux les livraisons.
+        argv = ["git", "-C", str(depot), "log", "--all",
+                f"--since={d0}", f"--until={d1}",
+                "--pretty=%H%x1f%aI%x1f%an%x1f%s", "--date=iso"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode != 0:
+            continue
+        for ligne in r.stdout.splitlines():
+            parts = ligne.split("\x1f")
+            if len(parts) != 4:
+                continue
+            sha, iso, nom, sujet = parts
+            if sha in vus:          # un même commit vu depuis deux dépôts liés
+                continue
+            vus.add(sha)
+            try:
+                ts = datetime.fromisoformat(iso).replace(tzinfo=None)
+            except ValueError:
+                continue
+            fusion = _MERGE_RE.match(sujet)
+            if auteur and not fusion and auteur.lower() not in nom.lower():
+                continue
+            entree = {"ts": ts.isoformat(timespec="seconds"), "sha": sha[:8],
+                      "depot": depot.name, "client": depot.parent.name,
+                      "auteur": nom, "sujet": sujet[:160],
+                      "auto": bool(_COMMIT_AUTO_RE.match(sujet))}
+            if fusion:
+                # Une livraison : elle vaut mieux qu'un commit ordinaire pour justifier
+                # une journée — c'est du travail qui est SORTI.
+                branche = fusion.group(1)
+                rm = re.match(r"(\d{3,6})-", branche)
+                entree.update({"merge": True, "branche": branche,
+                               "cible": fusion.group(2) or "",
+                               "rm": rm.group(1) if rm else None, "auto": False})
+            sortie.append(entree)
+    return sorted(sortie, key=lambda c: c["ts"])
+
+
+def commits_cache_lire(jour, racine=None):
+    p = (racine or ETAT / "commits") / f"{jour}.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def commits_cache_ecrire(jour, commits, racine=None):
+    dossier = racine or ETAT / "commits"
+    dossier.mkdir(parents=True, exist_ok=True)
+    tmp = dossier / f".{jour}.json.tmp"
+    tmp.write_text(json.dumps(commits, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(dossier / f"{jour}.json")
+
+
+def commits_du_jour(jour, auteur=None, racine="/zfs/workspaces", refresh=False):
+    """Les commits d'une journée, du cache si elle est finie. Aujourd'hui n'est jamais figé."""
+    if not refresh:
+        lu = commits_cache_lire(jour)
+        if lu is not None:
+            return lu
+    d0 = datetime.fromisoformat(jour)
+    commits = collect_commits(d0, d0 + timedelta(days=1), auteur, racine)
+    if jour < date.today().isoformat():
+        commits_cache_ecrire(jour, commits)
+    return commits
+
+
+# ── Surcharges par journée (RM3229 / L1) ─────────────────────────────────────
+
+def surcharges_chemin(mois, racine=None):
+    return (racine or ETAT) / f"{mois}.days.yml"
+
+
+def surcharges_charger(mois, racine=None):
+    p = surcharges_chemin(mois, racine)
+    if yaml is None or not p.is_file():
+        return {}
+    return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+
+
+def surcharges_ecrire(mois, donnees, racine=None):
+    p = surcharges_chemin(mois, racine)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(yaml.safe_dump(donnees, allow_unicode=True, sort_keys=True), encoding="utf-8")
+    tmp.replace(p)
+
+
+def duree_pause(surcharge):
+    """La pause d'une journée, en heures, depuis ses BORNES si elles sont posées.
+
+    Deux façons de la dire : une durée (`pause_h`) ou un créneau (`pause_debut`/
+    `pause_fin`). Le créneau l'emporte — il est plus précis, et c'est lui qui se
+    dessine sur la frise.
+    """
+    s = surcharge or {}
+    a, b = s.get("pause_debut"), s.get("pause_fin")
+    if a and b:
+        try:
+            ha, ma = (int(x) for x in str(a).split(":"))
+            hb, mb = (int(x) for x in str(b).split(":"))
+        except (ValueError, TypeError):
+            return s.get("pause_h")
+        minutes = (hb * 60 + mb) - (ha * 60 + ma)
+        if minutes > 0:
+            return round(minutes / 60.0, 2)
+    return s.get("pause_h")
+
+
+def heures_travaillees(debut, fin, pause_h=None):
+    """« 09:30 » → « 18:30 », pause d'une heure par défaut au-delà de 6 h d'amplitude."""
+    h0, m0 = (int(x) for x in debut.split(":"))
+    h1, m1 = (int(x) for x in fin.split(":"))
+    amplitude = (h1 * 60 + m1 - h0 * 60 - m0) / 60
+    if pause_h is None:
+        pause_h = 1.0 if amplitude > 6 else 0.0
+    return max(round(amplitude - pause_h, 2), 0.0)
+
+
+def jours_de_presence(p, debut, fin):
+    """Les dates qu'une présence couvre sur la période demandée.
+
+    Mêmes règles que le plancher de régie : les jours de la semaine déclarés, les
+    dates explicites, la fenêtre `depuis`/`jusqu_a` (inclusive), et les `sauf`.
+    """
+    jours = {JOURS_FR[j.lower()] for j in (p.get("jours") or []) if j.lower() in JOURS_FR}
+    dates = {str(x) for x in (p.get("dates") or [])}
+    sauf = {str(x) for x in (p.get("sauf") or [])}
+    d0 = date.fromisoformat(str(p["depuis"])) if p.get("depuis") else debut
+    d1 = date.fromisoformat(str(p["jusqu_a"])) if p.get("jusqu_a") else fin
+    out = []
+    jour = max(debut, d0)
+    while jour <= min(fin, d1):
+        cle = jour.isoformat()
+        if (cle in dates or (jours and jour.weekday() in jours)) and cle not in sauf:
+            out.append(cle)
+        jour += timedelta(days=1)
+    return out
+
+
+def pauses_par_presence(presences, debut, fin, surcharges=None):
+    """La pause HABITUELLE d'une journée de présence — « chez matnat, 12h30-13h30 ».
+
+    Une présence régulière a des horaires réguliers : redemander la pause à chaque
+    journée sur site revient à faire saisir trente fois la même chose. Elle est donc
+    déclarée une fois, sur la présence, et proposée sur toutes ses journées.
+
+    Ce n'est qu'un DÉFAUT : une pause posée à la main sur une journée l'emporte
+    toujours, et une journée particulière (`exceptions`) peut la redéfinir ou
+    l'annuler (`pause: false`). Rien n'est écrit dans l'état — le défaut se
+    recalcule, il ne se fige pas.
+    """
+    out = {}
+    for p in presences or []:
+        base = {k: p.get(k) for k in ("pause_debut", "pause_fin", "pause_h")
+                if p.get(k) is not None}
+        exceptions = {str(k): (v or {}) for k, v in (p.get("exceptions") or {}).items()}
+        if not base and not any(
+                k in e for e in exceptions.values()
+                for k in ("pause_debut", "pause_fin", "pause_h", "pause")):
+            continue
+        for jour in jours_de_presence(p, debut, fin):
+            sur = (surcharges or {}).get(jour) or {}
+            # Une pause notée à la main sur la journée fait foi : on ne la recouvre pas.
+            if sur.get("pause_debut") or sur.get("pause_fin") or sur.get("pause_h"):
+                continue
+            ex = exceptions.get(jour, {})
+            if ex.get("pause") is False:
+                continue
+            valeur = {**base, **{k: v for k, v in ex.items()
+                                 if k in ("pause_debut", "pause_fin", "pause_h")}}
+            if valeur:
+                out[jour] = {**valeur, "origine": "presence", "client": p.get("client")}
+    return out
+
+
+def presences_effectives(presences, surcharges):
+    """Les présences déclarées, plus les journées ajustées une à une.
+
+    Une journée ajustée REMPLACE la présence régulière de ce jour-là (sinon deux
+    planchers s'empileraient) : sa date est ajoutée aux `sauf` des présences
+    régulières, et elle devient une présence datée à part entière.
+    """
+    # Une journée compte comme présence dès qu'elle porte une plage OU un volume
+    # d'heures : « parti à 13h45, 3,5 h » n'a pas de fin exploitable comme plage, et
+    # c'est justement le cas où le plancher doit porter sur le CLIENT, pas sur la plage.
+    jours = sorted(j for j, s in (surcharges or {}).items()
+                   if s and ((s.get("debut") and s.get("fin")) or s.get("heures")))
+    sortie = []
+    for p in presences or []:
+        q = dict(p)
+        q["sauf"] = sorted(set(str(x) for x in (p.get("sauf") or [])) | set(jours))
+        sortie.append(q)
+    for j in jours:
+        s = surcharges[j]
+        plage = bool(s.get("debut") and s.get("fin"))
+        sortie.append({
+            "client": s.get("client"), "projet": s.get("projet"), "dates": [j],
+            # Sans plage, pas de `debut`/`fin` : le plancher se calcule alors sur le temps
+            # du CLIENT et non sur tout ce qui a été fait dans un créneau — ce qu'il faut
+            # pour une demi-journée sur site, l'après-midi appartenant à d'autres.
+            "debut": s["debut"] if plage else None,
+            "fin": s["fin"] if plage else None,
+            "heures": s.get("heures") or (heures_travaillees(s["debut"], s["fin"], duree_pause(s))
+                                          if plage else 0),
+            "reunion_h": s.get("reunion_h", 0),
+            "exclusif": s.get("exclusif", False) if plage else False,
+        })
+    return [p for p in sortie if p.get("client")]

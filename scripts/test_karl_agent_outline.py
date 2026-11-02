@@ -206,6 +206,30 @@ try:
 except ka.ApiError as e:
     check("outline session absente → 404", e.code == 404)
 
+# — RM3620 : horodatage (ts) + marqueurs de compaction —
+tsl = ka._transcript_outline([
+    _l({"type": "user", "timestamp": "2026-10-27T17:00:00.000Z", "message": {"content": "salut"}}),
+    _l({"type": "assistant", "message": {"content": [{"type": "text", "text": "sans horodatage"}]}}),
+    _l({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-10-27T17:39:38.789Z",
+        "compactMetadata": {"trigger": "manual", "preTokens": 923287, "postTokens": 12902, "durationMs": 147648}}),
+    _l({"type": "system", "subtype": "autre", "timestamp": "2026-10-27T17:40:00Z"}),
+    _l({"type": "assistant", "timestamp": "2026-10-27T17:41:00Z", "message": {"content": [{"type": "text", "text": "suite"}]}}),
+])
+check("RM3620 : ts repris de la ligne JSONL", tsl[0]["ts"] == "2026-10-27T17:00:00.000Z")
+check("RM3620 : ligne sans timestamp tolérée → ts None", tsl[1]["ts"] is None and tsl[1]["kind"] == "assistant")
+check("RM3620 : compact_boundary → item compact (autres system ignorés)",
+      [i["kind"] for i in tsl] == ["user", "assistant", "compact", "assistant"])
+cp = tsl[2]
+check("RM3620 : compact texte attendu", cp["text"] == "Conversation compactée (manuel, 923 k → 13 k tokens)")
+check("RM3620 : compact full avec durée, ts, resolved/answer None",
+      cp["full"] == "Conversation compactée (manuel, 923 k → 13 k tokens), durée 148 s")
+check("RM3620 : compact ts + champs", cp["ts"] == "2026-10-27T17:39:38.789Z" and cp["resolved"] is None and cp["answer"] is None)
+check("RM3620 : n séquentiel avec compact", [i["n"] for i in tsl] == [0, 1, 2, 3])
+bare = ka._transcript_outline([_l({"type": "system", "subtype": "compact_boundary"})])
+check("RM3620 : compaction sans métadonnées", bare[0]["text"] == "Conversation compactée" and bare[0]["ts"] is None)
+auto = ka._transcript_outline([_l({"type": "system", "subtype": "compact_boundary",
+                                   "compactMetadata": {"trigger": "auto", "preTokens": 500, "postTokens": 100}})])
+check("RM3620 : auto, < 1000 tokens", auto[0]["text"] == "Conversation compactée (auto, 500 → 100 tokens)")
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

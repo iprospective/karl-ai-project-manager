@@ -49,6 +49,8 @@ node tools/browser-check/browser-check.js --url <URL> [options]
 | `--screenshot <f.png>` | capture pleine page, y compris en cas d'échec |
 | `--allow-console-errors` | tolère une erreur JS (à justifier) |
 | `--allow-missing-assets` | tolère un 404 de ressource (à justifier) |
+| `--mobile` | émule un téléphone : 390×844, densité ×3, tactile, UA Android « Mobile » |
+| `--tablet` | émule une tablette : 820×1180, densité ×2, tactile, UA Android (sans « Mobile ») |
 | `--json` | sortie machine |
 
 Une option mal tapée est une **erreur** (code 2), jamais un silence : un scénario
@@ -79,6 +81,38 @@ ok   toutes les ressources se chargent (assets déployés / bundle régénéré)
 ok   aucune erreur JS en console
 ```
 
+## Émulation mobile / tablette (RM3472)
+
+Le viewport par défaut est celui du navigateur : un défaut « uniquement sur téléphone » ne s'y
+rejoue pas. RM3456 (lien « Continuer mes achats » du panier Calicote inerte sur mobile) a demandé
+un script Playwright écrit à la main, hors outil — ni rejouable, ni versionné. `--mobile` et
+`--tablet` règlent les trois choses qui changent le rendu : la **largeur** (media queries), le
+**tactile** (`isMobile`, `hasTouch`) et l'**User-Agent** que lit le serveur (PrestaShop détecte le
+mobile dessus). Deux profils fixes, pas une liste d'appareils : c'est la largeur de bascule qui
+compte, pas la collection des téléphones.
+
+| Profil | Viewport | Densité | UA |
+|---|---|---|---|
+| `--mobile` | 390×844 | ×3 | Android, Chrome, « Mobile » |
+| `--tablet` | 820×1180 | ×2 | Android, Chrome, sans « Mobile » |
+
+Les deux s'excluent (code 2), valent en mode simple comme en mode parcours, et le rapport **cite
+l'appareil en tête** (`ok   émulation : mobile 390×844 …`), en texte comme en JSON (`"emulation"`)
+— un protocole de test doit pouvoir dire sur quelle largeur il a été rendu.
+
+```bash
+# RM3456 rejoué : le lien mobile est affiché et ferme le panneau
+node tools/browser-check/browser-check.js --scenario rm3456.json --mobile \
+  --param base=https://calicote-presta-2.test.iprospective.fr
+```
+
+Le même parcours **sans** `--mobile` échoue à `verifier-visible .close-cart-on-mobile` (le lien
+existe dans le DOM mais est masqué sur desktop) : c'est la preuve que l'émulation porte.
+
+⚠ **Piège : `cliquer` fait défiler.** Un clic fait d'abord défiler l'élément dans la vue ; sous un
+header `position: sticky`, cela produit un faux « saut de défilement » de plusieurs centaines de
+pixels. Pour mesurer un défilement, ne pas conclure sur `window.scrollY` après un `cliquer`.
+
 ## Sur quel environnement ?
 
 **L'env de recette du ticket**, celui que `pm-task-take` a monté : c'est le seul dont on
@@ -96,3 +130,59 @@ La préprod ne sert qu'à la recette d'intégration, une fois la branche fusionn
 
 Le verdict est séparé de l'observation pour une raison simple : sans cette coupure, on ne
 peut tester l'outil de test qu'en lançant un navigateur — donc on ne le teste pas.
+
+## Mode parcours — plusieurs étapes, avec connexion (RM3359)
+
+Un clic ne suffit pas à dérouler un tunnel de commande. Le mode parcours joue une suite
+d'étapes décrites dans un fichier, et se rejoue avec des paramètres différents.
+
+```bash
+node tools/browser-check/browser-check.js --scenario parcours/tunnel.json \
+  --param base=https://boutique.example --param paiement=virement \
+  --secret-env motdepasse=BOUTIQUE_TEST_PASS
+```
+
+### Étapes disponibles
+
+| Action | Clés | Effet |
+|---|---|---|
+| `goto` | `url` | charge la page (échoue hors 2xx/3xx) |
+| `remplir` | `selecteur`, `valeur` | vide le champ et saisit |
+| `choisir` | `selecteur`, `valeur` | sélectionne dans une liste |
+| `cliquer` | `selecteur` (+ `apres` en ms) | clique et attend |
+| `attendre` | `ms` | pause |
+| `attendre-selecteur` | `selecteur` (+ `ms`) | attend l'apparition |
+| `memoriser` | `selecteur` | relève l'état, pour le comparer ensuite |
+| `verifier-selecteur` | `selecteur` | l'élément est là |
+| `verifier-visible` | `selecteur` | l'élément est là **et affiché** (présent mais `display:none` ⇒ échec) |
+| `verifier-texte` | `texte` | le texte est dans la page |
+| `verifier-change` | `selecteur` | le contenu a changé depuis `memoriser` |
+| `capture` | `fichier` | copie d'écran |
+
+### Ce que le mode garantit
+
+- **Le parcours est validé EN ENTIER avant la première étape.** Une clé manquante à l'étape 10
+  arrête tout avant l'étape 1 : s'interrompre au milieu d'un tunnel laisse un panier à moitié
+  rempli et une base sale, ce qui disqualifie un test qu'on rejoue en série.
+- **Un paramètre absent est une erreur**, jamais une chaîne vide. Un mot de passe vide donnerait
+  « identifiants invalides », et on chercherait le bug dans le site.
+- **Les secrets ne passent pas par la ligne de commande** (`ps` la rend lisible par tout le
+  système) : `--secret-env cle=NOM_DE_VARIABLE` va les chercher dans l'environnement, et ils
+  sont masqués dans les sorties, qu'on colle souvent dans un ticket.
+- **On s'arrête à la première étape ratée**, avec son numéro, son motif et une capture d'écran.
+  Enchaîner donnerait quinze échecs pour une seule cause.
+
+### Exemple
+
+```json
+{
+  "nom": "Ajout au panier depuis la fiche produit",
+  "etapes": [
+    { "action": "goto", "url": "{{base}}/fr/p/2025-un-produit" },
+    { "action": "verifier-selecteur", "selecteur": ".js-palier-form" },
+    { "action": "memoriser", "selecteur": ".cart-products-count" },
+    { "action": "cliquer", "selecteur": ".js-palier-form button[type=submit]", "apres": 4000 },
+    { "action": "verifier-change", "selecteur": ".cart-products-count" }
+  ]
+}
+```

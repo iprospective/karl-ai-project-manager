@@ -7,6 +7,7 @@
 #   ./sync.sh /chemin/x.conf   # charge une conf explicite (ex: conf dans le projet)
 #   ./sync.sh <env> --files    # fichiers seulement
 #   ./sync.sh <env> --db       # BDD seulement
+#   ./sync.sh <env> --data     # seulement les dossiers de données du manifeste (env sous git)
 #   ./sync.sh <env> --yes      # non interactif (ASSUME_YES)
 #
 # Le git checkout de la branche de test reste MANUEL (cf. workflow voulu) :
@@ -21,11 +22,16 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ "$#" -ge 1 ] || die "Usage : ./sync.sh <env|chemin.conf> [--files|--db] [--yes]"
 
 ARG="$1"; shift
-DO_FILES=1; DO_DB=1
+DO_FILES=1; DO_DB=1; DO_DATA=0
 for opt in "$@"; do
   case "$opt" in
     --files) DO_DB=0 ;;
     --db)    DO_FILES=0 ;;
+    # RM3419 : les seuls DOSSIERS DE DONNÉES du manifeste (`presta-data.map` + surcharge du
+    # site), sans toucher au reste de l'arbre. C'est le mode d'un env sous git : l'étape
+    # `--files` fait un `rsync --delete` de TOUT le site, ce qui écraserait les fichiers du
+    # dépôt et remplacerait les liens de données partagées par des dossiers réels.
+    --data)  DO_FILES=0; DO_DB=0; DO_DATA=1 ;;
     --yes|-y) export ASSUME_YES=1 ;;
     *) die "Option inconnue : $opt" ;;
   esac
@@ -45,6 +51,13 @@ log "Environnement : $ARG"
 # Validation minimale
 : "${WEBSITE_TYPE:?WEBSITE_TYPE manquant dans la conf}"
 : "${WEBSITE_PATH:?}" "${SSH_AUTH:?}" "${DB_FROM:?}" "${DB_TO:?}" "${DOMAIN:?}"
+
+# Un DOMAIN bâti sur ${TEST_DOMAIN} ou ${DEV_DOMAIN} alors que ces clés manquent se
+# termine par un point (« monsite. ») : il passerait la validation ci-dessus et
+# produirait un vhost et des URL invalides. Arrêt ici, avant tout accès à la prod.
+case "$DOMAIN" in
+  *.) die "DOMAIN='$DOMAIN' est incomplet : TEST_DOMAIN/DEV_DOMAIN n'est pas défini pour cette instance. Ajoute TEST_DOMAIN, TEST_HOST et DEV_DOMAIN au pm.env de l'instance (RM3221)." ;;
+esac
 
 # Charge le module de type
 TYPE_LIB="$SELF_DIR/lib/$WEBSITE_TYPE.sh"
@@ -70,6 +83,13 @@ echo
 # 1) Fichiers
 if [ "$DO_FILES" = "1" ]; then
   "${WEBSITE_TYPE}_sync_files"
+fi
+
+# 1 bis) Données seules (RM3419) — déclarées au manifeste, jamais le reste de l'arbre
+if [ "$DO_DATA" = "1" ]; then
+  type "${WEBSITE_TYPE}_sync_data" >/dev/null 2>&1 \
+    || die "--data n'est pas implémenté pour le type $WEBSITE_TYPE (lib/$WEBSITE_TYPE.sh)."
+  "${WEBSITE_TYPE}_sync_data"
 fi
 
 # 2) BDD : dump prod → import local → adaptations

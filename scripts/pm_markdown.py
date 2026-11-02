@@ -149,8 +149,14 @@ def is_placeholder(label):
     désignent aucun travail. Les compter comme des critères non satisfaits bloquait la
     livraison — et le contournement (`--allow-unchecked`) faisait sauter le contrôle pour
     les vrais critères en même temps.
+
+    Une case **sans aucun texte** (`- [ ]` seul) relève de la même catégorie : elle ne
+    désigne rien non plus. `karl-agent.parse_checklist` l'ignorait déjà, pas ici — une
+    des trois divergences de parseur relevées par l'étude RM2882. Unifié ici, sur le
+    parseur que tout le monde partage.
     """
-    return bool(PLACEHOLDER_RE.match((label or "").strip()))
+    label = (label or "").strip()
+    return not label or bool(PLACEHOLDER_RE.match(label))
 
 
 def real_checklist_lines(text):
@@ -210,3 +216,185 @@ def drop_placeholders(text):
         return text, 0
     lines = text.split("\n")
     return "\n".join(l for i, l in enumerate(lines) if i not in idx), len(idx)
+
+
+# ── Rendu HTML pour les emails (RM3440) ──────────────────────────────────────
+# `to_html()` s'appuie sur python-markdown quand il est installé (extensions `tables`,
+# `sane_lists`, `nl2br`) ; sinon il bascule sur un convertisseur intégré qui couvre ce que
+# nos documents contiennent : titres, paragraphes, listes (imbriquées par indentation),
+# TABLEAUX, citations, blocs de code, règles, gras, italique, code en ligne, liens.
+#
+# Pourquoi un convertisseur intégré : python-markdown n'est pas installé partout (il ne
+# l'était pas dans le conteneur `dev`), et le repli historique — le texte dans un <pre> —
+# rend un tableau illisible, alors que c'est pour les tableaux qu'on envoie du HTML
+# (RM3052). Un rapport client ne doit pas dépendre d'un paquet système.
+#
+# Contrat commun aux deux moteurs : comme `nl2br`, un retour à la ligne dans un paragraphe
+# reste un retour à la ligne. L'entrée est supposée DÉJÀ échappée (`&` et `<`, cf.
+# `pm_client_notify.esc_md`) : aucun HTML brut ne doit traverser un mail sortant.
+
+_H_HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_H_HR = re.compile(r"^ {0,3}([-*_])(\s*\1){2,}\s*$")
+_H_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+_H_UL = re.compile(r"^(\s*)[-*+]\s+(.*)$")
+_H_OL = re.compile(r"^(\s*)\d+[.)]\s+(.*)$")
+
+
+def to_html(src):
+    """Markdown (déjà échappé) → HTML sans style. Chaîne vide si rien à rendre."""
+    if not (src or "").strip():
+        return ""
+    try:
+        import markdown as _md
+    except ImportError:
+        return builtin_to_html(src)
+    return _md.markdown(src, extensions=["tables", "sane_lists", "nl2br"])
+
+
+def _h_inline(text):
+    """Code en ligne d'abord (son contenu n'est pas interprété), puis liens, gras, italique.
+    `>` est échappé comme le fait python-markdown : `<` l'est déjà en amont (esc_md), et un
+    `&lt;script>` doit ressortir `&lt;script&gt;`, pas à moitié balise."""
+    text = text.replace(">", "&gt;")
+    codes = []
+
+    def _keep(m):
+        codes.append(m.group(1))
+        return "\x00%d\x00" % (len(codes) - 1)
+
+    out = re.sub(r"`([^`]+)`", _keep, text)
+    out = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', out)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
+    out = re.sub(r"(?<![\w_])__(.+?)__(?![\w_])", r"<strong>\1</strong>", out)
+    out = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"<em>\1</em>", out)
+    out = re.sub(r"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", r"<em>\1</em>", out)
+    return re.sub(r"\x00(\d+)\x00", lambda m: "<code>%s</code>" % codes[int(m.group(1))], out)
+
+
+def _h_cells(line):
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _h_table(lines):
+    head, sep = _h_cells(lines[0]), _h_cells(lines[1])
+    aligns = ["center" if c.startswith(":") and c.endswith(":") else "right" if c.endswith(":")
+              else "left" if c.startswith(":") else None for c in sep]
+
+    def cell(tag, i, v):
+        a = aligns[i] if i < len(aligns) else None
+        return "<%s%s>%s</%s>" % (tag, ' align="%s"' % a if a else "", _h_inline(v), tag)
+
+    out = ["<table>", "<thead>", "<tr>" + "".join(cell("th", i, v) for i, v in enumerate(head)) + "</tr>",
+           "</thead>", "<tbody>"]
+    for row in lines[2:]:
+        r = (_h_cells(row) + [""] * len(head))[:len(head)]
+        out.append("<tr>" + "".join(cell("td", i, v) for i, v in enumerate(r)) + "</tr>")
+    out += ["</tbody>", "</table>"]
+    return "\n".join(out)
+
+
+def _h_is_table(lines, i):
+    return lines[i].lstrip().startswith("|") and i + 1 < len(lines) and bool(_H_TABLE_SEP.match(lines[i + 1]))
+
+
+def _h_block_start(lines, i):
+    ln = lines[i]
+    return bool(_H_HEADING.match(ln) or _H_HR.match(ln) or FENCE_RE.match(ln) or ln.lstrip().startswith(">")
+                or _H_UL.match(ln) or _H_OL.match(ln) or _h_is_table(lines, i))
+
+
+def _h_list(lines, i):
+    """La liste qui commence à lines[i] → (html, index de la ligne suivante)."""
+    rx = _H_UL if _H_UL.match(lines[i]) else _H_OL
+    tag = "ul" if rx is _H_UL else "ol"
+    base = len(rx.match(lines[i]).group(1))
+    items = []
+    while i < len(lines):
+        ln = lines[i]
+        m = rx.match(ln)
+        if m and len(m.group(1)) == base:
+            items.append([m.group(2)])
+            i += 1
+            continue
+        if not ln.strip():
+            # une ligne vide n'arrête la liste que si la suivante n'en fait plus partie
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            mn = _H_UL.match(nxt) or _H_OL.match(nxt)
+            if mn and len(mn.group(1)) >= base:
+                i += 1
+                continue
+            break
+        if items and len(ln) - len(ln.lstrip()) > base:
+            items[-1].append(ln[base:])
+            i += 1
+            continue
+        break
+    html = []
+    for it in items:
+        sub = [s for s in it[1:]]
+        if any(_H_UL.match(s) or _H_OL.match(s) for s in sub):
+            ind = min(len(s) - len(s.lstrip()) for s in sub if s.strip())
+            html.append("<li>%s\n%s</li>" % (_h_inline(it[0]), builtin_to_html("\n".join(s[ind:] for s in sub))))
+        else:
+            html.append("<li>%s</li>" % "<br />\n".join(_h_inline(x.strip()) for x in it))
+    return "<%s>\n%s\n</%s>" % (tag, "\n".join(html), tag), i
+
+
+def builtin_to_html(src):
+    """Convertisseur intégré (sans dépendance) — voir l'en-tête de section."""
+    lines = (src or "").replace("\r\n", "\n").split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        ln = lines[i]
+        if not ln.strip():
+            i += 1
+            continue
+        fm = FENCE_RE.match(ln)
+        if fm:
+            body, i = [], i + 1
+            while i < len(lines) and not lines[i].strip().startswith(fm.group(1)):
+                body.append(lines[i])
+                i += 1
+            out.append("<pre><code>%s</code></pre>" % "\n".join(body))
+            i += 1
+            continue
+        m = _H_HEADING.match(ln)
+        if m:
+            n = len(m.group(1))
+            out.append("<h%d>%s</h%d>" % (n, _h_inline(m.group(2)), n))
+            i += 1
+            continue
+        if _H_HR.match(ln):
+            out.append("<hr />")
+            i += 1
+            continue
+        if _h_is_table(lines, i):
+            block = [ln, lines[i + 1]]
+            i += 2
+            while i < len(lines) and lines[i].lstrip().startswith("|"):
+                block.append(lines[i])
+                i += 1
+            out.append(_h_table(block))
+            continue
+        if ln.lstrip().startswith(">"):
+            block = []
+            while i < len(lines) and lines[i].lstrip().startswith(">"):
+                block.append(re.sub(r"^\s*>\s?", "", lines[i]))
+                i += 1
+            out.append("<blockquote>\n%s\n</blockquote>" % builtin_to_html("\n".join(block)))
+            continue
+        if _H_UL.match(ln) or _H_OL.match(ln):
+            html, i = _h_list(lines, i)
+            out.append(html)
+            continue
+        para = []
+        while i < len(lines) and lines[i].strip() and (not para or not _h_block_start(lines, i)):
+            para.append(lines[i].strip())
+            i += 1
+        out.append("<p>%s</p>" % "<br />\n".join(_h_inline(p) for p in para))
+    return "\n".join(out)

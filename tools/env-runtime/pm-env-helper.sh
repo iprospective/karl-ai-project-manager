@@ -38,10 +38,17 @@
 #   daemon-remove <name>                arrête+désactive+supprime l'unité (si gérée par nous)
 #   ws-init <workspace>                 crée/normalise le SQUELETTE d'un workspace projet
 #                                       (racine, .mmi-pm/, repos/, envs/, tmp sessions logs
-#                                       data) + le .gitignore de whitelist du repo -core,
-#                                       sous une racine verrouillée 2750 pm:pm, puis
-#                                       applique le modèle de perms (RM2909). Comble le trou
-#                                       entre pm-project-new/pm-env-init et pm-perms.
+#                                       data) + les entrées de racine que 2750 réserve au
+#                                       privilège : .gitignore de whitelist, dépôt -core vide
+#                                       (.git partagé groupe pm) et lien docs → .mmi-pm/docs
+#                                       (RM2947), puis applique le modèle de perms (RM2909).
+#                                       Comble le trou entre pm-project-new/pm-env-init et
+#                                       pm-perms. Idempotent : n'écrase jamais l'existant.
+#   ws-bare <workspace> <repo>          crée/réconcilie le bare `repos/<repo>.git` sous une
+#                                       racine verrouillée (RM3587) : `git init --bare
+#                                       --shared=group`, `core.sharedRepository=group`,
+#                                       `gc.auto=0`, chown pm:pm. Idempotent ; ne fetch pas
+#                                       (les remotes sont posés par pm-env-init).
 #   ws-perms <workspace>                (ré)applique le modèle de perms — verbe symétrique,
 #                                       à passer en fin de création. Idempotent.
 #
@@ -205,6 +212,7 @@ SSL_KEY="${PM_ENV_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"
 # UNIQUE du template, partagée avec le vhost de prod (apache-vhost-setup.sh) →
 # les vhosts de test cockpit ne divergent jamais de la conf déployée.
 KARL_VHOST_RENDER="${PM_KARL_VHOST_RENDER:-/usr/local/sbin/karl-vhost-render}"
+KARL_TTYD_AUTH="${PM_KARL_TTYD_AUTH:-/usr/local/sbin/karl-ttyd-auth}"   # RM2146
 
 cmd_vhost_proxy_add() {
     # Vhost reverse proxy <name>.lxc → http://127.0.0.1:<port>/ (RM2358).
@@ -277,13 +285,15 @@ cmd_vhost_karl_add() {
     # apache-vhost-setup.sh, donc jamais de divergence. HTTPS est REQUIS ici :
     # sans contexte sécurisé le micro (getUserMedia/Whisper) et le terminal (wss)
     # du cockpit sont cassés — c'est la raison d'être de ce verbe vs proxy-add.
-    # ttyd PARTAGÉ avec la prod (`/ttyd/` → 127.0.0.1:7681) : PAS de listener
-    # :7681 dédié ici (il vit dans karl.conf ; un `Listen` doublon casserait Apache).
+    # ttyd PARTAGÉ avec la prod (`/ttyd/` → 127.0.0.1:7681), gated par le cookie
+    # karl_session validé auprès du karl-agent de l'instance (RM2146).
     local name="$1" port="$2" conf
     vname_ok "$name" || die "nom de vhost invalide : $name"
     [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] \
         || die "port invalide (1024-65535 attendu) : $port"
     [ -x "$KARL_VHOST_RENDER" ] || die "renderer karl absent : $KARL_VHOST_RENDER (mmi-pm core update requis pour le co-déployer)"
+    # RM2146 : programme de la RewriteMap du terminal — absent, Apache ne redémarrerait pas.
+    [ -x "$KARL_TTYD_AUTH" ] || die "validateur terminal absent : $KARL_TTYD_AUTH (mmi-pm core update requis pour le co-déployer)"
     { [ -r "$SSL_CERT" ] && [ -r "$SSL_KEY" ]; } \
         || die "cert TLS introuvable ($SSL_CERT) — le cockpit exige HTTPS (micro/terminal)"
     conf="$SITES/$name.conf"
@@ -295,8 +305,8 @@ cmd_vhost_karl_add() {
         --managed-by "pm-env-helper (karl-style, RM2565)" \
         --host "$name.lxc" --port "$port" \
         --ssl-cert "$SSL_CERT" --ssl-key "$SSL_KEY" \
-        --log-prefix "$name" > "$conf"
-    a2enmod -q proxy proxy_http proxy_wstunnel ssl >/dev/null 2>&1 || true
+        --log-prefix "$name" --ttyd-auth "$KARL_TTYD_AUTH" > "$conf"
+    a2enmod -q proxy proxy_http proxy_wstunnel ssl rewrite >/dev/null 2>&1 || true
     a2ensite -q "$name" >/dev/null
     apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
     audit "vhost-karl-add $name port=$port"
@@ -500,6 +510,8 @@ PM_ENV_INIT="$PM_CORE/scripts/pm-env-init.py"
 
 # Même slug que pm-project-new (refuse ".." : le premier caractère doit être alphanum).
 ws_slug_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; }
+# Nom de dépôt : slug + jamais de composant `..` (le nom devient un chemin).
+ws_bare_name_ok() { ws_slug_ok "$1" && [[ "$1" != *..* ]]; }
 
 ws_resolve() {
     # Chemin canonique d'un workspace, ou mort. Mêmes exigences fail-closed que les
@@ -618,6 +630,8 @@ cmd_ws_init() {
     done <<< "$dirs"
 
     ws_seed_gitignore "$ws"
+    ws_seed_core_git "$ws"
+    ws_seed_docs_link "$ws"
     ws_apply_perms "$ws"
     audit "ws-init $ws (racine créée: $created)"
     echo "✓ squelette workspace prêt : $ws"
@@ -643,6 +657,74 @@ ws_seed_gitignore() {
     echo "· créé .gitignore (whitelist .mmi-pm/)"
 }
 
+ws_seed_core_git() {
+    # Même raison que le .gitignore : la racine EST le worktree du repo `-core`, et
+    # `git init` y crée une entrée — l'écriture que le mode 2750 réserve au privilège.
+    # Sans ce dépôt amorcé, `pm-project-new` mourait en `Permission denied` au moment
+    # de publier `.mmi-pm/` (RM2947).
+    # Dépôt PARTAGÉ (`--shared=group`) : le workspace est multi-user par construction,
+    # un dépôt privé au premier committant verrouillerait les objets pour les autres.
+    # Amorcé VIDE, sans remote ni commit : `git_core_publish` reste seul à décider quoi
+    # publier et où — ici on pose le contenant, jamais le contenu.
+    local ws="$1"
+    [ ! -e "$ws/.git" ] || return 0
+    command -v git >/dev/null 2>&1 || die "git introuvable — impossible d'amorcer le repo -core"
+    git init -q -b main --shared=group -- "$ws" || die "git init a échoué sur $ws"
+    chown -R pm:pm -- "$ws/.git"
+    echo "· créé .git (repo -core vide, partagé groupe pm)"
+}
+
+ws_seed_docs_link() {
+    # Confort RM2043 : `docs/` à la racine pointe sur les aspects wiki-syncés. Encore
+    # une entrée à la racine, donc encore du privilège. Jamais d'écrasement : un vrai
+    # dossier `docs/` (workspace de code documenté) reste ce qu'il est.
+    local ws="$1"
+    local lien="$ws/docs"
+    [ ! -e "$lien" ] && [ ! -L "$lien" ] || return 0
+    ln -s -- ".mmi-pm/docs" "$lien" || die "symlink docs impossible dans $ws"
+    chown -h pm:pm -- "$lien"
+    echo "· créé docs → .mmi-pm/docs"
+}
+
+cmd_ws_bare() {
+    # Le verbe manquant de RM3587 : `repos/` est en 2750 pm:pm, donc un dev du groupe
+    # `pm` ne peut pas y faire `git init --bare`. Le helper est le seul à pouvoir créer
+    # l'entrée sous la racine verrouillée ; il ne fait QUE le bare (pas de remote, pas
+    # de fetch, pas de worktree) pour rester une primitive simple à auditer.
+    local ws name repos bare
+    [ $# -eq 2 ] || die "usage: ws-bare <workspace> <repo>"
+    ws=$(ws_resolve "$1")
+    name="$2"
+    ws_bare_name_ok "$name" || die "nom de repo non conforme : $name"
+    ws_no_symlink "$ws"
+    [ -d "$ws" ] || die "workspace inexistant : $ws"
+
+    repos="$ws/repos"
+    ws_no_symlink "$repos"
+    if [ ! -d "$repos" ]; then
+        mkdir -p -- "$repos" || die "création impossible : $repos"
+        chown pm:pm -- "$repos"
+        chmod 2770 -- "$repos"
+    fi
+
+    bare="$repos/$name.git"
+    ws_no_symlink "$bare"
+    if [ -e "$bare" ]; then
+        [ -d "$bare" ] || die "chemin existant mais pas un dossier : $bare"
+        [ "$(git -C "$bare" rev-parse --is-bare-repository 2>/dev/null)" = true ] \
+            || die "dépôt existant mais pas bare : $bare"
+    else
+        git init --bare -q --shared=group -- "$bare" || die "git init --bare a échoué : $bare"
+    fi
+    # Idempotent : on réapplique les invariants même sur un bare existant.
+    git -C "$bare" config core.sharedRepository group
+    git -C "$bare" config gc.auto 0
+    chown -R pm:pm -- "$bare"
+    chmod 2770 -- "$bare"
+    audit "ws-bare $name"
+    echo "✓ bare repos/$name.git prêt"
+}
+
 cmd_ws_perms() {
     local ws
     ws=$(ws_resolve "$1")
@@ -664,6 +746,7 @@ case "$verb" in
     daemon-add)   [ $# -ge 5 ] || die "usage: daemon-add <name> <port> <user> <workdir> <argv...>"; cmd_daemon_add "$@";;
     daemon-remove) [ $# -eq 1 ] || die "usage: daemon-remove <name>"; cmd_daemon_remove "$@";;
     ws-init)      [ $# -eq 1 ] || die "usage: ws-init <workspace>"; cmd_ws_init "$@";;
+    ws-bare)      [ $# -eq 2 ] || die "usage: ws-bare <workspace> <repo>"; cmd_ws_bare "$@";;
     ws-perms)     [ $# -eq 1 ] || die "usage: ws-perms <workspace>"; cmd_ws_perms "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove|ws-init|ws-perms)";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove|ws-init|ws-bare|ws-perms)";;
 esac

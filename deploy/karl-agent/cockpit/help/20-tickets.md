@@ -63,8 +63,13 @@ Sous le champ de recherche, cinq sélecteurs :
 - **Client**, **projet**, **statut.** Ils portent sur les deux sources. La liste
   des projets suit le client choisi. Un filtre explicite l'emporte sur le
   contexte client global : c'est le dernier choix fait qui vaut.
-- **Étiquette** — le domaine du ticket (`front`, `bo`, `bdd`, `refacto`,
-  `livraison`…). Le menu ne propose que les étiquettes **réellement en usage**,
+- **Étiquette** — le domaine du ticket. Le vocabulaire est **contrôlé** : 30
+  valeurs partagées par tous les projets (`front`, `bo`, `db`, `refacto`,
+  `deploiement`, `tooling`, `securite`…), tenues dans `tags.registry.yml` et
+  créées côté Redmine — `pm-tags-audit` dit lesquelles manquent. Un mot hors
+  vocabulaire reste possible comme mot-clé **local** (`pm-task-tag --free`) :
+  il vit au frontmatter, il ne monte pas dans Redmine.
+  Le menu ne propose que les étiquettes **réellement en usage**,
   avec leur nombre de tickets ; les étiquettes d'un résultat s'affichent sur sa
   ligne (🏷). Le même filtre existe dans le **triage ROI** (« les refactos par
   levier ») et comme critère de **jeu de sessions dérivé** — un jeu « étiquette =
@@ -181,3 +186,23 @@ tenter la fermeture vaut mieux que de découvrir le refus.
 Au survol d'une entrée **encore ouverte**, deux gestes : ✅ trancher, ❌ écarter.
 Une entrée déjà tranchée n'en propose aucun. L'écriture passe par le même chemin
 que le panneau CDC, et les registres du projet sont régénérés dans la foulée.
+
+## La mise en production du ticket
+
+Quand un ticket a une procédure de MEP, sa fiche porte un bloc **🚀 Mise en
+production** :
+
+- les **actions au déploiement**, dans l'ordre où elles s'exécutent (champ Redmine
+  « Actions au déploiement ») ;
+- le **script de MEP** conservé à côté de la fiche (`RM<id>_<slug>.script-mep.sh`),
+  avec ses deux commandes de lancement — **contrôle** (ne modifie rien) puis
+  **exécution** (`--apply`) — chacune copiable d'un clic (📋), et le texte du script.
+
+Le script est déplié d'office quand le ticket est **à mettre en prod** ou **en MEP** :
+c'est le moment où il sert. Si l'alias ssh de la cible n'est pas connu (champ
+`ssh_alias` de l'environnement prod du projet, ou en-tête du script), la fiche le
+signale : la commande n'est alors pas prête à coller. Un manque au contrat du script
+(pas de `--apply`, pas de rollback…) s'affiche en avertissement.
+
+Le script ne s'exécute jamais depuis le cockpit : la mise en prod reste un geste
+humain, sur feu vert.

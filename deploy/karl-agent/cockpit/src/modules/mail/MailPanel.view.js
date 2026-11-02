@@ -9,7 +9,17 @@ export function MailList(vms) {
   return html`${vms.map(EmailCard)}`;
 }
 
-export function MailPanel({ vms, pending, done, fullBody, error }) {
+/** RM3319 — les envois de karl rejetés, encore ouverts dans le fil : en tête du panneau, en rouge. */
+export function BounceList(bounces) {
+  if (!bounces || !bounces.length) return "";
+  return html`<div class="mail-bounces">
+    <b>⚠ ${bounces.length} envoi(s) de karl rejeté(s)</b> — le destinataire ne l'a PAS reçu.
+    <ul>${bounces.map(b => html`<li>${b.msg}${b.rm ? html` <a class="feed-rm" href="#" data-action="ticket" data-key="${b.rm}" title="Ouvrir la fiche du ticket">RM${b.rm}</a>` : ""}</li>`)}</ul>
+    <span class="mail-bounces-aide">Corriger l'adresse (annuaire 👤), renvoyer, puis marquer l'alerte « traitée » dans le fil 🔔.</span>
+  </div>`;
+}
+
+export function MailPanel({ vms, pending, done, fullBody, error, bounces = [] }) {
   const lbl = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)";
   return html`<div class="card">
     <h2>📧 Emails <span id="mail-count" style="color:var(--muted);font-weight:normal">${pending ? "— " + pending + " à traiter" : ""}</span>
@@ -23,6 +33,7 @@ export function MailPanel({ vms, pending, done, fullBody, error }) {
         <input type="checkbox" id="mail-done" style="width:auto"${done ? " checked" : ""}> traités</label>
       <button class="mini" data-action="refresh" title="Rafraîchir la file">↻</button>
     </div>
+    ${BounceList(bounces)}
     <div id="mail-list">${error ? html`<div class="empty">${error}</div>` : MailList(vms)}</div>
   </div>`;
 }

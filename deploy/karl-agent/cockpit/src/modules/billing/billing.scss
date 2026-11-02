@@ -1,0 +1,249 @@
+// modules/billing/billing.scss — l'écran « Facturation » : validation d'une journée (RM3229, L3).
+// Compilé dans cockpit.css par `npm run build:css` (tooling/).
+
+.bl-sub { color: var(--muted); font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 8px; font-size: 12px; }
+.bl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.bl-date { width: auto; font-size: 12px; padding: 3px 6px; }
+.bl-title { font-weight: 600; color: var(--fg-strong); margin-left: 4px; }
+.bl-we { color: var(--warn); font-size: 11px; font-weight: normal; }
+.bl-state { margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); }
+.bl-validee { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); }
+.bl-a_valider { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.bl-manuelle { color: var(--muted); }
+.bl-vide { color: var(--muted); }
+
+// les quatre chiffres de la journée
+.bl-nums { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.bl-num { flex: 1 1 120px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--panel2); }
+.bl-num b { display: block; font-size: 17px; color: var(--fg-strong); }
+.bl-num span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.bl-n-propose b { color: var(--accent); }
+.bl-n-ia b { color: var(--muted); font-size: 14px; }
+
+// la frise : humain et IA sur la même échelle
+// Les voies sont décalées à droite (place des étiquettes) et la boîte respire sur les côtés :
+// sans cela, « 08:00 » et « 00:00 » se font couper par les bords, et « HUMAIN » se pose SUR la
+// dernière plage de la journée — deux choses vues à la première capture d'écran.
+.bl-frise { position: relative; margin: 6px 0 14px; padding: 14px 18px 0 46px; }
+.bl-ruler { position: relative; height: 12px; }
+.bl-tick { position: absolute; transform: translateX(-50%); font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+.bl-tick i { display: block; width: 1px; height: 4px; margin: 0 auto 1px; background: var(--line); }
+.bl-lane { position: relative; height: 20px; margin-top: 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
+.bl-lane-label { position: absolute; left: -44px; top: 3px; width: 40px; text-align: right; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; pointer-events: none; }
+.bl-normal { position: absolute; top: 0; bottom: 0; background: var(--warn-soft); border-left: 1px solid var(--warn); border-right: 1px solid var(--warn); }
+.bl-seg { position: absolute; top: 3px; bottom: 3px; background: var(--accent); border-radius: 2px; opacity: .85; }
+.bl-seg:hover { opacity: 1; }
+.bl-lane-ia { height: 14px; }
+.bl-ia { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--ok); border-radius: 1px; }
+
+// l'ajustement
+.bl-adj { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); margin-bottom: 12px; font-size: 12px; }
+.bl-adj label { display: flex; align-items: center; gap: 4px; margin: 0; color: var(--muted); }
+.bl-adj input { width: auto; font-size: 12px; padding: 2px 6px; }
+.bl-h { width: 6.5em; } .bl-p { width: 4em; } .bl-c { width: 8em; }
+.bl-worked { font-weight: 600; color: var(--fg-strong); }
+.bl-src { color: var(--muted); font-size: 11px; }
+.bl-hors { flex-basis: 100%; color: var(--warn); font-size: 11px; }
+
+// ce que le serveur a décidé du transversal
+.bl-ctx { font-size: 11.5px; color: var(--fg); margin-bottom: 10px; }
+.bl-tr b { color: var(--fg-strong); }
+.bl-dim { color: var(--muted); }
+.bl-warn { color: var(--warn); margin-top: 3px; }
+.bl-rg { color: var(--muted); margin-top: 3px; }
+.bl-rg span { margin-right: 10px; }
+
+// la proposition
+.bl-prop { display: flex; flex-direction: column; gap: 8px; }
+.bl-grp { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.bl-grp-h { display: flex; justify-content: space-between; padding: 4px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 12px; }
+.bl-grp-h b { color: var(--accent); }
+.bl-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 3px 10px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.bl-line:last-child { border-bottom: 0; }
+.bl-prj { flex: 0 0 11em; color: var(--fg); }
+.bl-rm { flex: 0 0 5em; color: var(--accent); text-decoration: none; }
+.bl-rm.bl-none { color: var(--muted); font-style: italic; }
+.bl-min { flex: 0 0 4.5em; text-align: right; font-weight: 600; color: var(--fg-strong); }
+.bl-tool { color: var(--muted); font-size: 11px; }
+.bl-lib { color: var(--muted); overflow-wrap: anywhere; }
+.bl-deja { margin-top: 10px; font-size: 12px; }
+.bl-deja summary { color: var(--muted); cursor: pointer; }
+.bl-empty, .bl-load, .bl-err { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; }
+.bl-err { color: var(--danger); }
+
+// le pied : un seul bouton qui écrit
+.bl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.bl-apply[disabled] { opacity: .5; cursor: default; }
+.bl-hint { color: var(--muted); font-size: 11px; }
+// « reprendre » : destructif, donc discret et jamais à côté du bouton principal par hasard
+.bl-revoke { color: var(--warn); border-color: var(--warn); margin-left: auto; }
+.bl-orig { font-size: 10px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+.bl-o-auto { color: var(--warn); border-color: var(--warn); }
+
+// les trois listes de preuves : traces, commits, temps IA
+.bl-ev { margin-top: 10px; font-size: 11.5px; border-top: 1px solid var(--line); padding-top: 6px; }
+.bl-ev > summary { color: var(--muted); cursor: pointer; }
+.bl-evl { max-height: 42vh; overflow-y: auto; margin-top: 4px; font-family: var(--mono); font-size: 11px; }
+.bl-evr { display: flex; gap: 8px; padding: 2px 6px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.bl-evr:hover { background: var(--panel2); }
+.bl-ag { opacity: .62; }                       // trace d'agent : présente, mais en retrait
+.bl-eh { flex: 0 0 4.4em; color: var(--muted); }
+.bl-es { flex: 0 0 7em; color: var(--accent); }
+.bl-ed { flex: 0 0 11em; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-ec { flex: 0 0 13em; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-ex { flex: 1 1 30%; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-sha { flex: 0 0 5em; color: var(--muted); }
+.bl-sub2 { margin-top: 4px; }
+.bl-sub2 > summary { color: var(--muted); cursor: pointer; padding-left: 6px; }
+.bl-cl { flex: 0 0 8em; color: var(--accent); }   // colonne client du déjà-noté
+.bl-pz { color: var(--muted); font-size: 11px; }
+.bl-manque { color: var(--warn); border-color: var(--warn); }
+.bl-nf { color: var(--muted) !important; }
+.bl-nf-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px; margin-left: 6px; }
+
+// couleurs par client sur la frise, notice, pause neutre
+.bl-seg { transition: opacity .1s; }
+.bl-pause-band { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); border-radius: 2px; }
+.bl-pd { background: repeating-linear-gradient(45deg, var(--muted) 0 4px, transparent 4px 8px); }
+.bl-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 0 -46px; padding-left: 46px; font-size: 10.5px; color: var(--muted); }
+.bl-leg-i { display: inline-flex; align-items: center; gap: 4px; }
+.bl-leg-i i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.bl-leg-i b { color: var(--fg); font-weight: 600; }
+.bl-leg-pause { background: repeating-linear-gradient(45deg, var(--muted) 0 3px, transparent 3px 6px); border: 1px solid var(--line); }
+// cumul du transversal, en minutes
+.bl-tc { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; }
+.bl-tc-i { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.bl-tc-i i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.bl-tc-i b { color: var(--fg); }
+// le fil unique
+.bl-gn { flex: 0 0 4.2em; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.bl-g-commit .bl-gn { color: var(--ok); }
+.bl-g-ia .bl-gn { color: var(--accent); }
+.bl-g-plomberie { opacity: .48; }
+
+// les traits qui relient un tour d'agent à sa plage humaine
+.bl-liens { display: block; width: calc(100% - 64px); height: 14px; margin-left: 46px; overflow: visible; }
+.bl-liens line { opacity: .55; }
+.bl-liens line:hover { opacity: 1; stroke-width: .3; }
+
+// le dossier : une plage humaine, ses preuves
+.bl-cor { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.bl-cp { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--panel2); }
+.bl-cp-vide { border-color: var(--warn); background: var(--warn-soft); }
+.bl-cp-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; margin-bottom: 3px; }
+.bl-cp-h b { color: var(--fg-strong); font-family: var(--mono); }
+.bl-pv { display: flex; gap: 8px; align-items: baseline; font-size: 11px; padding: 1px 0; }
+.bl-pv-t { flex: 0 0 3.4em; color: var(--muted); }
+.bl-pv-l { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 3px 6px; }
+.bl-pv-i { color: var(--fg); font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; white-space: nowrap; }
+.bl-mr { border-color: var(--ok); color: var(--ok); }
+.bl-orph { margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--warn); border-radius: 6px; font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+// les blocs destinés à Redmine : l'unité de validation
+.bl-bloc { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--panel2); }
+.bl-bloc-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; }
+.bl-bloc-h > i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.bl-bloc-h b { color: var(--fg-strong); flex: 0 0 4.5em; }
+.bl-bk { color: var(--accent); font-weight: 600; }
+.bl-act { color: var(--muted); font-size: 11px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; }
+.bl-bloc-p { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 3px; align-items: baseline; }
+.bl-orph .bl-pv-l { flex-basis: 100%; margin-top: 4px; }
+.bl-orph .bl-pv-i { display: inline-flex; align-items: center; gap: 4px; }
+.bl-orph .bl-pv-i i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+// la note du jour, affichée telle qu'elle est écrite
+.bl-note { margin: 0 0 10px; font-size: 12px; }
+.bl-note > summary { color: var(--muted); cursor: pointer; }
+.bl-note-txt { margin: 5px 0 0; padding: 7px 10px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; color: var(--fg); }
+.bl-note-vide { color: var(--muted); font-size: 11px; }
+.bl-leg-t { color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; flex: 0 0 3.2em; }
+.bl-leg-ia { margin-top: 2px; opacity: .92; }
+
+// ── vues semaine et mois (lot L4) ────────────────────────────────────────────
+.bl-vues { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.bl-sem-h, .bl-mois-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; color: var(--fg-strong); }
+.bl-grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bl-jn { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; text-align: center; padding-bottom: 2px; }
+.bl-case { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 62px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--fg); cursor: pointer; font: inherit; text-align: left; }
+.bl-case:hover { border-color: var(--accent); }
+.bl-case-n { font-size: 11px; color: var(--muted); }
+.bl-case-h { font-size: 13px; font-weight: 600; color: var(--fg-strong); }
+// `align-items: flex-start` sur la case prive ses enfants de largeur : sans
+// `align-self: stretch`, les barres de client avaient 0 px et ne se voyaient pas.
+.bl-case-cl { display: flex; gap: 2px; align-self: stretch; width: 100%; margin-top: auto; }
+.bl-case-cl i { flex: 1 1 0; min-width: 3px; height: 5px; border-radius: 1px; }  // flex-grow posé en ligne = la part du client
+.bl-case-m { display: flex; gap: 3px; align-items: center; font-size: 9px; color: var(--muted); }
+.bl-case-ia { width: 4px; height: 4px; border-radius: 50%; background: var(--ok); display: inline-block; }
+.bl-case-note { color: var(--accent); font-weight: 700; }
+.bl-e-validee { border-color: var(--ok); background: var(--ok-soft); }
+.bl-e-a_valider { border-color: var(--accent); }
+.bl-e-absence { border-style: dashed; opacity: .6; }
+.bl-e-vide, .bl-e-hors { opacity: .42; }
+.bl-we-case { background: var(--bg); }
+.bl-courant { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bl-hors-mois { opacity: .3; }
+// l'avancement
+.bl-av { margin: 10px 0 6px; }
+.bl-av-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bl-av-bar i { display: block; height: 100%; background: var(--ok); }
+.bl-av-t { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.bl-av-t b { color: var(--fg-strong); }
+
+// — corriger et écrire une ligne (RM3229) —
+// Visibles au repos, sinon le geste n'existe pas pour qui ne survole rien — juste
+// assez discrets pour que l'oeil lise d'abord les heures.
+.bl-line .bl-l-act { margin-left: auto; display: flex; gap: 4px; opacity: .45; transition: opacity .12s; }
+.bl-line:hover .bl-l-act, .bl-line:focus-within .bl-l-act { opacity: 1; }
+.bl-l-amendee { border-left: 2px solid var(--accent, #6ab); padding-left: 6px; }
+.bl-l-org, .bl-l-ab { font-size: .82em; color: var(--fg-dim); white-space: nowrap; }
+.bl-l-ab { color: var(--warn, #c93); }
+.bl-l-edit {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin: 2px 0 8px 6px; padding: 8px; border-radius: 4px;
+  background: var(--bg-soft, rgba(127, 127, 127, .08));
+}
+.bl-l-edit label { display: flex; gap: 4px; align-items: center; font-size: .9em; }
+.bl-l-edit input { width: 10em; }
+.bl-l-edit .bl-dim { flex-basis: 100%; font-size: .82em; }
+
+// La pause héritée des horaires habituels : signalée, pour qu'elle ne paraisse pas
+// surgie de nulle part.
+.bl-pz-her {
+  font-size: .78em; padding: 1px 5px; border-radius: 3px;
+  color: var(--fg-dim); border: 1px solid var(--border, rgba(127, 127, 127, .35));
+}
+
+// Le commentaire qui partira dans Redmine : lisible sans voler la vedette aux heures.
+.bl-l-desc {
+  font-size: .85em; color: var(--fg-dim); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
+}
+
+// Ajouter une ligne, et signaler celles qui viennent de la main plutôt du calcul.
+.bl-ajout-b { padding: 6px 0 2px; }
+.bl-ajout input { width: 11em; }
+.bl-l-man {
+  font-size: .78em; padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+  color: var(--fg-dim); border: 1px dashed var(--border, rgba(127, 127, 127, .45));
+}
+
+// Le client proposé par l'agenda : une offre, pas un fait accompli.
+.bl-sugg {
+  border-style: dashed;
+  &::before { content: "📅 "; }
+}
+
+// Clore sans écrire : une sortie, pas une action de premier plan.
+.bl-clore { opacity: .75; &:hover { opacity: 1; } }
+
+// Le rappel des mois clos sans facture : visible sans voler la place à la journée.
+.bl-attente {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  margin: 0 0 10px; padding: 7px 10px; border-radius: 4px;
+  background: rgba(200, 150, 40, .12);
+  border-left: 3px solid var(--warn, #c93);
+  font-size: .9em;
+}
+.bl-att-m { white-space: nowrap; i { color: var(--fg-dim); font-style: normal; } }
+
+// La description client : le champ le plus large du formulaire, c'est du texte.
+.bl-l-desc-in input { width: 22em; }

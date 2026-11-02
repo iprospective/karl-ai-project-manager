@@ -1,0 +1,399 @@
+# Facturation — valider son temps de travail, une journée à la fois
+
+**💶 facturation** (menu du haut) répond à la question qu'on se pose en fin de mois :
+*combien ai-je réellement travaillé ce jour-là, et pour qui ?*
+
+L'écran montre **une journée**. On la relit, on la corrige si besoin, on la **valide** —
+et la validation écrit les saisies de temps dans Redmine, pour cette journée seulement.
+Jamais un mois en bloc : un mois posé d'un coup ne se relit pas, une journée si.
+
+## Trois vues : journée, semaine, mois
+
+Les trois onglets du haut regardent le **même** travail de plus ou moins loin. La journée
+ouverte ne change pas quand on bascule : on la retrouve en revenant.
+
+- **journée** — l'écran de validation, décrit ci-dessous. C'est le seul où l'on écrit.
+- **semaine** — les sept jours, lundi à dimanche.
+- **mois** — le calendrier complet, semaines entières (les jours des mois voisins sont
+  affichés en grisé pour que les colonnes restent alignées sur les jours de la semaine).
+
+Dans les deux grilles, chaque case porte le jour, les **heures à valider**, une barre de
+couleurs — un segment par client, **large comme sa part** de la journée — et des repères :
+un point vert si des agents ont travaillé, un `·` si une note du jour existe, un `✓` si la
+journée a été ajustée à la main. Le survol donne le détail chiffré. Le cadre de la case dit
+son état : **validée**, **à valider**, ou vide (rien de mesuré).
+
+**Un clic sur une case ouvre cette journée** dans la vue journée — c'est le chemin normal
+pour avancer dans un mois : on regarde la grille, on repère ce qui reste, on y va.
+
+Sous la grille, l'**avancement** : combien de journées sont validées sur le total, combien
+restent et le temps qu'elles représentent, puis le **cumul par client** sur la période
+regardée — la semaine en vue semaine, le mois en vue mois.
+
+Les grilles sont lues en **résumé** (une ligne par jour), pas journée complète : un mois se
+charge d'un coup. Après une validation, le mois concerné est **relu**, jamais gardé périmé.
+
+## Ce que l'écran montre
+
+| Chiffre | Ce que c'est |
+|---|---|
+| **mesuré** | le temps humain observé dans les traces, plages **fusionnées** — le même moment n'est jamais compté deux fois |
+| **déjà noté** | ce qui est déjà dans Redmine ce jour-là ; c'est **déduit** de la proposition |
+| **proposé** | ce que la validation ajouterait |
+| **IA** | les tours d'agent de la journée, leur durée et leurs tokens |
+
+Sous les chiffres, la **frise** aligne deux voies sur la même échelle : le temps
+**humain** (les plages mesurées) et le travail de l'**IA** (un repère par tour). C'est
+elle qui justifie une plage — une heure de présence se défend par ce qui s'y est passé.
+Le bandeau plus clair, derrière, est la plage d'**heures normales** déclarée.
+
+La frise est **colorée par client** : chaque plage prend la couleur du client qui y
+domine, et la notice dessous donne la correspondance avec le cumul de la journée. La
+couleur ne dit que le dominant — le **survol** donne la répartition complète d'une plage
+(« pisceen 12 min · calicote 4 min »). La **pause** a sa propre bande, hachurée et neutre :
+elle ne se facture à personne.
+
+La teinte d'un client est dérivée de son nom : la même partout, d'une journée à l'autre.
+
+## La note du jour
+
+Sous la frise, **📝 note du jour** affiche ce que tu as écrit ce jour-là, lu en lecture
+seule sur le Nextcloud (dossier partagé avec le compte `karl`). Fichiers reconnus :
+`AAAA-MM-JJ.md` ou `.txt`, y compris les anciennes formes (`AAAA MM JJ.txt`,
+`AAAA-MM-JJ-client.md`).
+
+Le texte est affiché **tel quel** : ces notes sont libres, on ne les interprète pas.
+Seule exception, quand une ligne ne contient **que** des horaires (`9h15 - 18h15`), ils
+sont proposés avec un bouton **↧ reprendre** qui les reporte dans le formulaire — à toi
+de les enregistrer. Rien n'est appliqué d'office : sur quatre notes réelles, une lecture
+plus permissive prenait la pause (« Pause 2h repas 12h30-14h30 ») et une estimation de
+réunion (« entre 1.5 et 3h ») pour des horaires de journée.
+
+## Une journée sans trace reste une journée
+
+Quand aucune trace de travail n'est trouvée — transcripts purgés, journée passée
+ailleurs, dimanche — l'écran **affiche quand même la journée** : ce qui est déjà dans
+Redmine, les tours d'agent, l'agenda, la note du jour. Et elle se **clôt** normalement.
+
+Auparavant l'écran répondait « journée illisible » et la journée devenait inaccessible.
+Elle gardait pourtant souvent l'essentiel : le 02/06/2026 n'avait aucune trace, mais
+**6 saisies Redmine, 9 tours d'agent, une note et un rendez-vous**.
+
+## Le client, depuis l'agenda
+
+L'**agenda pro** (Nextcloud) sait chez **qui** vous étiez — ce qu'aucune trace de
+travail ne sait. Quand un rendez-vous du jour nomme un client connu, un bouton
+**📅 agenda : ‹client›** apparaît à côté du menu client : un clic le retient.
+
+- Il n'apparaît que si **aucun client n'est déjà choisi** pour la journée — une
+  suggestion ne discute pas un choix fait.
+- Une **journée entière** l'emporte sur un rendez-vous ponctuel : être chez quelqu'un
+  toute la journée pèse plus qu'un appel.
+- **Deux clients en journée entière** le même jour : rien n'est proposé. Mieux vaut ne
+  rien dire qu'induire en erreur sur une facture.
+- Un agenda injoignable fait **disparaître la suggestion**, pas la journée.
+
+Les noms de produits se ramènent à leur client par les `alias` de la configuration
+(`calyprint: calyclay`). Lecture seule : rien n'est jamais écrit dans l'agenda.
+
+## Corriger la journée
+
+La ligne **début / fin / pause** est une *proposition*, déduite des traces et **ramenée
+à la plage ouvrée** (8 h – 19 h). C'est volontaire : une dernière trace à 23 h 44 ne doit
+pas proposer une journée de 14 h, qui servirait ensuite de plancher. Ce qui a été laissé
+dehors est **dit** sous la ligne ; une soirée se rajoute à la main si elle doit compter.
+
+Le **client principal** sert les journées passées chez un client : il dit à qui revient
+le temps de la journée quand les traces ne le disent pas seules. Le **lieu**
+(présentiel / distanciel) se note à la journée — il conditionne le déplacement.
+
+### La pause de midi
+
+**Si vos journées chez un client ont une pause habituelle**, déclarez-la une fois sur la
+présence (`pause_debut` / `pause_fin` dans `timesheet.yml`) : elle est alors proposée sur
+toutes ses journées, marquée « habituelle ». La poser à la main sur une journée l'emporte
+toujours, et rien n'est figé dans l'état — changer les horaires change les journées à
+venir.
+
+Sous les horaires, l'écran dit ce qu'il en sait : *« pause visible dans les traces :
+12:36–13:32 »*, ou *« aucune pause visible ce jour-là »* — en orange dans ce cas.
+
+Elle ne se devine jamais : une journée sans trou à midi peut être une journée sans pause
+(sandwich devant l'écran) comme une pause que rien n'a tracée. **+ pause midi** la note en
+un clic, à la durée configurée. Rien n'est écrit dans Redmine à ce moment-là : la pause
+entre dans la proposition, qui reste à valider.
+
+Un trou n'est annoncé que s'il y a du travail **avant et après** : sans travail après, ce
+n'est pas une pause, c'est la fin de la journée. Et le trou rendu est celui qu'on a
+réellement observé, pas sa portion dans le créneau de recherche.
+
+**Poser les bornes à la main** : deux champs `pause [ 12:30 ] → [ 14:00 ]`. Elles
+l'emportent sur la détection — c'est le geste par lequel on la corrige, elle ne doit pas
+être réécrite par elle. Le bouton **↧ reprendre le trou** les remplit depuis le trou
+mesuré, à corriger ensuite. Une **durée seule** reste possible quand les bornes importent
+peu. Ce sont les bornes qui se dessinent sur la frise.
+
+Sa destination se règle une fois pour toutes dans ton `timesheet.yml` (`<core>/var/users/<toi>/`) :
+
+```yaml
+pause:
+  client: iprospective
+  project_id: 19          # projet Redmine (id numérique)
+  activity_id: 27         # activité « Pause »
+  commentaire: "repas midi"
+  heures: 1.0             # durée proposée en un clic
+  plage: ["11:30", "14:30"]
+  trou_min: 30            # en deçà, la pause « n'apparaît pas »
+```
+
+### Ce qui ne se facture à personne
+
+Un groupe porte la mention **non facturé** quand son entité est de type `self` — dans ton
+cas `iprospective` et `lemathou`. Cette liste **ne se déclare pas** ici : elle est déjà
+dans les manifestes PM, et la redéclarer serait la voir diverger un jour. Ce temps est
+noté dans Redmine comme le reste ; il n'entre simplement dans aucune facture.
+
+### Où ces informations sont enregistrées
+
+Début, fin, pause, client principal, projet et lieu sont **des métadonnées de journée** :
+elles ne sont pas dans Redmine, qui ne connaît que des saisies de temps. Elles vivent avec
+le reste des données d'exploitation du PM, dans `<core>/var/users/<toi>/timesheet/<AAAA-MM>.days.yml`,
+et **ne sont écrites que lorsque tu cliques sur Enregistrer** — tant que tu ne l'as pas
+fait, ce que l'écran montre est une proposition recalculée depuis les traces à chaque
+ouverture.
+
+```yaml
+'2026-08-26':
+  debut: '09:00'
+  fin: '18:00'
+  client: matnat
+  lieu: presentiel
+```
+
+Le même dossier porte le cache des traces, celui des commits et les sauvegardes de reprise.
+Il est dans **ton** dossier utilisateur — ces journées sont les tiennes, pas celles de
+l'instance : sur un poste partagé, deux personnes ne se marchent pas dessus.
+`var/` est hors git : c'est de l'état, pas du versionné — il suit donc la sauvegarde du core,
+pas son historique. Porter ces champs dans Redmine reste une question ouverte : **RM3298**.
+
+Les **réglages** (tes clients, tes absences, tes horaires habituels) sont dans ton dossier de
+conf PM : `<core>/var/users/<toi>/timesheet.yml`. Hors git (ils n'ont rien à faire dans un
+dépôt partagé) et jamais dans ton home.
+
+**Enregistrer** pose l'ajustement (rien ne part dans Redmine), la journée se recalcule
+aussitôt. **↺ ajustement** revient à ce que les traces disent.
+
+### Une demi-journée sur site
+
+Quand la journée ne se décrit pas par un début et une fin — « parti à 13h45, 3,5 h
+travaillées » — on donne directement le **volume** : `--heures 3.5`, avec le client.
+
+La différence n'est pas cosmétique. Avec une **plage**, le plancher compte *tout* le
+travail du créneau, y compris ce qui a été fait pour d'autres clients : c'est voulu, sur
+place on dépanne parfois quelqu'un d'autre. Sans plage, le plancher porte sur **le
+client** : l'après-midi passé ailleurs ne vient plus remplir le plancher à sa place.
+
+## Le temps transversal
+
+Le travail sur le PM, l'infra et les écosystèmes produit (redmine, prestashop, dolibarr)
+n'est pas facturable en soi. La ligne « temps transversal » dit ce qu'il en a été fait, et
+selon quelle clé :
+
+- **réparti sur les clients travaillés** — en semaine, pendant les heures ouvrées, et
+  seulement si la journée compte au moins 1 h de travail client ;
+- **à ma charge** — le soir, la nuit, le week-end, ou quand la journée n'atteint pas
+  cette heure de client.
+
+Deux choses à ne pas confondre : le **temps client** est *toujours* facturé, sans
+condition. C'est le **pot** qui dépend du moment et du volume de la journée. Et depuis le
+2026-10-13, rien n'est plus écarté : seule une absence déclarée retire du temps.
+
+Chaque client ayant du travail tracé est facturé **au moins 15 min**, même si l'arrondi
+l'effacerait.
+
+Chaque ligne de la proposition nomme la part d'**outillage PM mutualisé** qu'elle porte.
+
+### Le pot n'est pas homogène
+
+Un **produit** ne se refacture qu'à ceux qui s'en servent : le temps passé sur PrestaShop
+ou Dolibarr ne va qu'aux clients qui les utilisent, pas à MatNat. Cette liste ne se
+déclare **pas** dans les réglages du timesheet : elle est dans les manifestes PM
+(`used_by_clients` du produit), lue automatiquement — une liste recopiée finirait par
+diverger.
+
+Le pot **PM / infrastructure / Redmine**, lui, n'a pas d'usagers déclarés : il va à tous
+les clients du jour.
+
+Si aucun client présent ce jour-là n'utilise le produit, son temps **reste interne**
+plutôt que d'aller chez quelqu'un qui n'en profite pas.
+
+### L'abattement
+
+Une part de la quote-part d'un client peut rester à la charge d'iProspective :
+
+```yaml
+abattement:
+  calicote: 0.5      # iProspective garde la moitié de ce qui irait à calicote
+  calyclay: 0.5
+```
+
+C'est un **arrangement commercial**, pas une règle de calcul : rien dans le modèle PM ne
+le dit, il se déclare donc dans tes réglages. La part retenue n'est pas perdue — elle
+revient sur iProspective, à sa charge.
+
+## Les blocs à insérer dans Redmine
+
+C'est **l'unité qui compte**. Un bloc = du temps + une activité + **un seul** projet, et si
+possible un ticket. C'est lui qu'on valide, donc lui qu'il faut pouvoir défendre :
+
+```
+1 h 30  calicote/prestashop  RM3039  Audit/Analyse  12:06–17:02
+        🤖 3 · 27 min   ✍ 3   🚀 1   dont 34 min d'outillage PM mutualisé
+```
+
+Une plage de travail humain **n'est pas** un bloc : c'est un intervalle d'horloge, et on
+peut y avoir changé de client. C'est la répartition qui transforme des plages en blocs.
+
+Un bloc **sans preuve directe** est encadré : son temps vient de la clé de refacturation
+plutôt que d'un travail observé. C'est légitime, mais c'est à regarder avant de facturer.
+
+Sous les blocs, les **tours d'agent hors des plages de travail** sont listés un par un —
+informatifs, jamais facturés : ils disent qu'un agent a tourné quand aucune trace humaine
+ne l'accompagnait.
+
+## Relier l'IA à l'humain
+
+Chaque tour d'agent est **relié par un trait** à la plage humaine qui le contient : le
+trait monte du repère IA vers le milieu de sa plage, dans la couleur du client. Plusieurs
+tours convergent alors visiblement vers la même plage.
+
+Un tour qui ne tombe dans **aucune** plage n'est relié à rien : son trait reste un pointillé
+orange. C'est l'information qui compte — soit une plage humaine manque, soit l'agent a
+tourné seul, et les deux ne se traitent pas pareil.
+
+## Plages humaines et leurs preuves
+
+Sous les boutons, chaque plage de travail est reprise avec **ce qui la justifie** :
+
+| | Preuve |
+|---|---|
+| 🤖 | les **tours d'agent** de la plage, avec leur ticket |
+| ⎇ | les **commits** écrits pendant la plage |
+| 🚀 | les **livraisons** — MR fusionnées, lues dans les commits de fusion (aucun appel à la forge) |
+| ✍ | ce que **tu as écrit** : tes prompts, leur cible |
+| 📋 | les **actions Redmine** : tickets créés, commentés, changés de statut |
+
+Une plage **sans aucune preuve** est encadrée en orange : c'est celle qu'il faut regarder
+avant de la facturer. En bas, un encadré récapitule ce qui tombe **hors de toute plage**.
+
+## Ce qui s'est passé — un seul fil
+
+Sous les boutons, **une** liste chronologique réunit tout ce que la journée a laissé :
+
+| Genre | Ce que c'est |
+|---|---|
+| **trace** | une trace horodatée : sa source, sa cible, un extrait. Les traces d'agent sont grisées — elles *attribuent* le temps, elles n'en *créent* pas |
+| **commit** | ce qui a été produit, tous dépôts confondus, à la minute |
+| **pm** | la plomberie PM (`pm(tick)`, moissons, rapports) : elle date l'activité sans la décrire, donc elle est estompée |
+| **IA** | un tour d'agent : sa durée, ses tokens |
+
+Trois listes séparées obligeaient à faire la couture dans sa tête pour savoir ce qui
+précède quoi. Ici, tout se lit dans l'ordre où c'est arrivé.
+
+### Le temps IA et les tours parallèles
+
+Le chiffre affiché est celui que les tours **déclarent** — il n'est pas raboté. Quand
+plusieurs agents tournent en même temps, leurs durées se recouvrent : le travail produit
+dépasse alors le temps écoulé, et c'est normal. Le recouvrement est **signalé** (dans le
+survol du chiffre, et sur la ligne du tour dans le fil), jamais retranché.
+
+Le **client** et le **projet** se choisissent maintenant dans un menu, alimenté par le
+référentiel PM. Changer de client remet le projet à zéro. Une valeur posée autrefois et
+absente du référentiel reste proposée : un menu ne fait jamais disparaître une donnée.
+
+## Reprendre une journée
+
+La liste **déjà noté dans Redmine** donne pour chaque saisie son **client** et son
+**projet** en deux colonnes, puis le ticket et le commentaire. Le client est résolu depuis
+le manifeste PM du projet Redmine ; quand aucun projet PM ne correspond, la colonne client
+reste vide et le nom Redmine tient lieu de projet — on n'invente pas un rattachement.
+
+Chaque saisie déjà notée porte son origine : **outil** ou **à la main**. Si tu repères une
+incohérence — un volume qui ne colle pas au temps mesuré, un client qui n'a rien à faire là —
+le bouton **↺ reprendre** retire les saisies que l'outil a posées ce jour-là, et rien d'autre.
+
+- **Tes saisies à la main ne sont jamais touchées.** La frontière est la marque technique que
+  l'outil pose dans ses commentaires ; ce qu'il n'a pas écrit, il ne peut pas l'effacer.
+- **Une sauvegarde JSONL est écrite avant la suppression**, dans
+  `~/.local/state/mmi-pm/timesheet/reprises/`. Rien n'est perdu.
+- La journée est **réanalysée** dans la foulée : les traces sont rejouées, une nouvelle
+  proposition apparaît, tu l'ajustes et tu la valides.
+
+Ce geste ne part **jamais tout seul** : ni l'ouverture d'une journée, ni ⟳, ni la validation
+ne suppriment quoi que ce soit. Il faut le demander, journée par journée.
+
+En CLI : `mmi-pm timesheet --day <jour> --revoke` (ajouter `--dry-run` pour voir sans supprimer).
+
+## Ligne par ligne
+
+Une journée se valide d'un bloc, mais **chaque ligne proposée se traite aussi seule** —
+pour les cas qui ne rentrent pas dans le lot.
+
+Chaque ligne affiche **le commentaire qui partira dans Redmine**, en italique entre
+guillemets — c'est ce que le client lira. La marque technique `[timesheet:…]`, qui
+empêche de créer deux fois la même saisie, part avec mais n'est pas affichée (elle est
+dans l'infobulle).
+
+Au bout de chaque ligne, deux gestes :
+
+- **corriger** — change le **rattachement** : client, projet, ticket. Les **minutes ne
+  bougent jamais** : on déplace du temps d'un client à l'autre, on n'en crée pas. La
+  ligne garde sa provenance affichée (`← calicote/dolibarr RM1855`) et un bouton
+  **rétablir** la rend au calcul.
+- **scinder** — coupe la ligne en deux : la première garde ce que vous indiquez, la
+  seconde reçoit le reste. Le **total ne change pas**. Utile quand un même créneau
+  recouvre deux choses à facturer séparément.
+- **retirer** — sort la ligne de la proposition. Ce temps **ne sera facturé à personne**.
+  C'est le seul geste qui retire du temps ; **rétablir** la ramène.
+- **écrire** — crée **cette seule saisie** dans Redmine. La confirmation nomme ce qui
+  part. Une fois écrite, la ligne est relue depuis Redmine et passe en « déjà noté ».
+
+Sous la liste, **+ ajouter une ligne** crée une ligne que le calcul n'a pas vue : un
+appel, un déplacement, une réunion sans trace. Elle demande un client, une durée, et
+accepte un projet, un ticket et un **commentaire** — qui devient le texte de la saisie.
+Contrairement aux autres gestes, elle **crée du temps** : elle s'ajoute au total.
+
+⚠ **Un ticket emporte son projet.** Redmine range une saisie dans le projet du ticket et
+ignore le projet qu'on lui donne. Déplacer une ligne chez un autre client en lui laissant
+son ticket la ferait donc revenir d'où elle vient, sans rien dire — alors le ticket est
+**lâché** et la ligne part au projet du nouveau client. L'écran l'affiche
+(« ticket RM1855 lâché »). Pour garder un ticket, en choisir un explicitement.
+
+En CLI : `mmi-pm timesheet --day <jour> --ligne "<clé>" --set-client <client>
+[--set-projet <projet>] [--set-ticket <n>|-]`, `--clear-ligne` pour rétablir, et
+`--apply --ligne "<clé>"` pour n'écrire que celle-là. La **clé** d'une ligne est
+`client/projet#ticket@activité` : elle nomme la cible, pas le rang, donc un recalcul la
+retrouve.
+
+Une correction dont la ligne a disparu d'un recalcul n'est **pas** appliquée en silence :
+elle est signalée.
+
+## Valider
+
+Le bouton du bas **annonce ce qu'il va écrire** : les clients et le total. La confirmation
+reprend le détail. Après l'écriture, la journée est **relue** depuis Redmine — ce qui
+s'affiche ensuite est ce qui s'y trouve, pas ce qu'on espérait y avoir mis.
+
+- **simuler** montre le résultat sans rien écrire.
+- **clore sans écrire** ferme la journée **sans créer aucune saisie**, quoi qu'elle
+  propose encore. C'est la sortie pour une journée qu'on ne veut pas facturer, ou déjà
+  notée ailleurs : inutile de retirer les lignes une à une. La confirmation dit ce qui
+  ne sera pas écrit, et **reprendre** rouvre la journée.
+- Une journée dont tout est déjà noté à la main se valide **sans rien ajouter**.
+- Une journée validée ne se revalide pas : le bouton s'éteint.
+
+La première ouverture d'une journée rejoue les traces (quelques secondes) ; ensuite elle
+est immédiate. **⟳ relire** force le rejeu.
+
+En CLI, la même chose : `mmi-pm timesheet --day 2026-09-18` (relire),
+`--start/--end/--client` (ajuster), `--apply` (valider).

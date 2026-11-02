@@ -87,6 +87,30 @@ check("RM2539 : le marqueur [WIP] est lu comme chez claude",
 check("RM2539 : l'âge de la session opencode remonte (tuile datée, pas muette)",
       info.get("mtime") == 1781287247)
 
+# — RM3564 : binaire du moteur hors du PATH des sessions → refus explicite —
+BIN = TMP / "bin"; BIN.mkdir()
+(BIN / "opencode").write_text("#!/bin/sh\n"); (BIN / "opencode").chmod(0o755)
+check("RM3564 : binaire présent dans le PATH → rien à signaler",
+      ka._missing_binary("opencode --session ses_x", str(BIN)) is None)
+check("RM3564 : binaire absent du PATH → son nom (pas la ligne entière)",
+      ka._missing_binary("opencode --session ses_x", "/nulle/part") == "opencode")
+check("RM3564 : chemin absolu non exécutable → signalé",
+      ka._missing_binary("/nulle/part/vibe --trust", str(BIN)) == "/nulle/part/vibe")
+_real_tmux, TMUX_CALLS = ka._tmux, []
+ka._tmux = lambda *a, **k: (TMUX_CALLS.append(a) or
+                            ((0, "PATH=/nulle/part\n", "") if a[0] == "show-environment"
+                             else (0, "", "")))
+try:
+    ka._start_session_tmux("3564", "opencode --session ses_x", "/", 80, 24, [])
+    check("RM3564 : moteur introuvable → refus avant tmux", False)
+except ka.ApiError as e:
+    check("RM3564 : moteur introuvable → 503 qui nomme le binaire, le PATH et le remède",
+          e.code == 503 and "opencode" in e.msg and "/nulle/part" in e.msg
+          and "~/.local/bin" in e.msg)
+check("RM3564 : …et aucune session tmux créée",
+      not any(c[0] == "new-session" for c in TMUX_CALLS))
+ka._tmux = _real_tmux
+
 # — reprise réelle : commande du moteur, cwd de sa base —
 STARTED = []
 ka._has_session = lambda sid: False
@@ -115,6 +139,33 @@ check("RM2539 : la commande est celle du moteur, pas `claude --resume`",
       and "claude" not in STARTED[-1][1])
 check("RM2539 : le dossier de reprise vient de la base du moteur",
       STARTED[-1][2] == "/zfs/workspaces/matnat/infra")
+
+# — RM3564 : session opencode ouverte HORS karl (absente de l'index), reprise
+# depuis la carte « Reprendre une session » sans moteur explicite. Le serveur
+# retombait sur claude et refusait le `ses_…` (« forme attendue par claude »).
+SID_HORS_KARL = "ses_horsKarlPisceenDoli23"
+con = sqlite3.connect(DB)
+con.execute("INSERT INTO session (id, directory, title, time_created, time_updated)"
+            " VALUES (?,?,?,?,?)",
+            (SID_HORS_KARL, "/zfs/workspaces/pisceen/erp", "Migration Dolibarr v19->v23",
+             1781287246883, 1781287247166))
+con.commit(); con.close()
+check("RM3564 : la forme `ses_…` désigne opencode sans équivoque",
+      ka._engine_of_sid_form(SID_HORS_KARL) == "opencode")
+check("RM3564 : un UUID reste ambigu (claude ou vibe) → pas de déduction",
+      ka._engine_of_sid_form(UUID_CLAUDE) is None
+      and ka._engine_of_sid_form("../etc/passwd") is None
+      and ka._engine_of_sid_form(None) is None)
+check("RM3564 : la session hors karl est bien inconnue de l'index",
+      ka._engine_of_session(SID_HORS_KARL) is None)
+try:
+    r = ka.op_resume({"session_id": SID_HORS_KARL, "rm_id": "3564"}, {"user": None})
+    check("RM3564 : session opencode hors index, sans moteur → reprise opencode",
+          r["resumed"] is True and r["engine"] == "opencode"
+          and "--session" in STARTED[-1][1] and SID_HORS_KARL in STARTED[-1][1]
+          and STARTED[-1][2] == "/zfs/workspaces/pisceen/erp")
+except ka.ApiError as e:
+    check(f"RM3564 : session opencode hors index → reprise (refus {e.code} {e.msg})", False)
 
 # — refus explicites —
 try:

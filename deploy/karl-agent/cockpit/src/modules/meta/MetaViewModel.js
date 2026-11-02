@@ -1,5 +1,6 @@
 // viewmodels/tickets/MetaViewModel — l'encart ℹ, décidé : la session (infos) et ses tickets (facettes). RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
+import { ReviewViewModel } from "../review/ReviewViewModel.js";   // RM3256 : le registre d'entités décrit le ticket, une seule fois
 import { ENGINE_LABEL, cval, fmtTokens, fmtMin, tmuxName, logEntries, FACETS, facetOf } from "./ticketMeta.js";
 import { sinceLabel, modelWindow, ctxPct, throughput, fmtUsd, fmtRate, fmtWin } from "../ticket/ticketFormat.js";
 
@@ -82,6 +83,17 @@ export class ProjectBriefViewModel extends EntityViewModel {
   get total() { return this.c.total || 0; }
   get repo() { return cval(this.c.gitlab_repo); }
   get branch() { return cval(this.c.default_branch); }
+
+  /** RM3126 — le PROVIDER qui porte ce ticket : quelle instance de gestion, et les secondaires
+   *  déclarés du projet. Évident tant qu'il n'y en avait qu'une ; plus du tout depuis que l'axe
+   *  `task` est une liste. `null` si le serveur ne l'a pas résolu — on ne devine pas une
+   *  instance, se tromper dirigerait les appels et le jeton vers la mauvaise. */
+  get provider() {
+    const p = this.e.provider;
+    if (!p || !p.name) return null;
+    return { name: p.name, type: p.type || "", url: p.url || "", slug: p.slug || "",
+             secondaries: p.secondaries || [] };
+  }
 }
 
 /** L'onglet « tickets » : sous-onglets par ticket, puis facette (RM2579/2673/2797).
@@ -92,7 +104,39 @@ export class TicketMetaViewModel extends EntityViewModel {
   get list() { const l = (this.e.tickets || []).map(String); const cur = this.e.current; if (cur && l.indexOf(String(cur)) < 0) l.unshift(String(cur)); return l; }
   get sel() { const l = this.list, cur = this.e.current == null ? null : String(this.e.current); return (cur && l.indexOf(cur) >= 0) ? cur : (l[0] || null); }
   get facet() { return facetOf(this.e.facet); }
-  get tabs() { const s = this.sel; return this.list.map(t => ({ rm: t, active: t === s })); }
+  /** RM3164 — le projet d'un ticket, depuis le cache de résolution. "" si on ne le sait pas
+   *  encore : un ticket non résolu ne doit pas se retrouver rangé sous un projet au hasard. */
+  projectOf(rm) {
+    const r = (this.e.resolve || {})[String(rm)];
+    return (r && r.found && r.client && r.project) ? r.client + "/" + r.project : "";
+  }
+
+  /** Les projets représentés dans la liste, avec leur compte. Vide quand ils sont TOUS dans le
+   *  même : proposer un filtre à une seule valeur, c'est occuper la place sans rien trier. */
+  get ticketProjects() {
+    const n = {};
+    for (const rm of this.list) { const p = this.projectOf(rm); if (p) n[p] = (n[p] || 0) + 1; }
+    const cles = Object.keys(n);
+    if (cles.length < 2) return [];
+    const f = this.ctx.ticketFilter || "";
+    return cles.sort().map(k => ({ key: k, n: n[k], active: k === f }));
+  }
+
+  /** Le filtre EFFECTIF : celui qu'on a posé, sinon le projet de la session attachée s'il est
+   *  représenté — c'est le défaut demandé, et il évite de faire chercher le contexte courant. */
+  get ticketFilter() {
+    const f = this.ctx.ticketFilter;
+    if (f !== undefined && f !== null) return f;
+    const sess = this.e.sessionProject || "";
+    return this.ticketProjects.some(p => p.key === sess) ? sess : "";
+  }
+
+  get tabs() {
+    const s = this.sel, f = this.ticketFilter;
+    return this.list
+      .filter(t => !f || this.projectOf(t) === f || t === s)   // l'onglet courant reste visible
+      .map(t => ({ rm: t, active: t === s, project: this.projectOf(t) }));
+  }
 
   /** RM3126 : le titre du ticket sélectionné, pour la ligne entre la liste et les onglets.
    *  Vide tant qu'il n'est pas chargé — une ligne de titre qui clignote « … » à chaque
@@ -121,8 +165,26 @@ export class TicketMetaViewModel extends EntityViewModel {
       git: (r.git && (r.git.branch || r.git.mr_url)) ? { branch: r.git.branch || "", mrUrl: r.git.mr_url || "" } : null,
       rels: rels.map(x => ({ label: x.label, ids: x.ids.map(String) })), hasDesc: !!r.description, hasLog: !!r.log_tail };
   }
-  brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card }); }
+  brief() { const r = this.r || {}; return new ProjectBriefViewModel({ client: r.client, project: r.project, card: this.e.card, provider: r.provider }); }
+  /** RM3256 — l'entité « ticket » du registre (RM3002), construite depuis la résolution que le
+   *  panneau a déjà. C'est elle qui décrit les CHAMPS du ticket ; le panneau ne garde que ce qui
+   *  lui est propre : ses gestes, le brief projet, ses sessions. */
+  entityVm() { return new ReviewViewModel({ r: this.r || {} }, { rm: this.sel, now: this.now }); }
   desc() { const r = this.r; return (r && r.description) || ""; }
+  /** RM3175 : les critères, lus par la fonction unique de RM2882 — avec leur PROVENANCE, qui dit
+   *  où cocher : le champ dédié (`pm-task-acceptance`) ou la description (ticket non migré). */
+  criteria() {
+    const a = (this.r && this.r.acceptance) || {};
+    const items = (a.items || []).map(i => ({ done: !!i.done, label: String(i.label || "") }));
+    return { items, source: a.source || null, done: items.filter(i => i.done).length, total: items.length,
+      rm: this.sel };
+  }
+  impl() { const r = this.r; return String((r && r.implementation) || ""); }
+  /** RM3175 : la MEP d'un ticket tient en deux choses — les gestes (CF 8) et la recette (CF 30). */
+  deploy() {
+    const r = this.r || {}, tp = r.test_protocol || null;
+    return { actions: (r.deploy_actions || []).map(String), protocol: tp && tp.text ? { text: String(tp.text), source: tp.source || "" } : null };
+  }
   log() { return logEntries(this.r && this.r.log_tail); }
   /** RM2173/2373/2519 : la conso ENREGISTRÉE par le PM (≠ conso live de l'onglet infos). */
   conso() {
@@ -133,6 +195,33 @@ export class TicketMetaViewModel extends EntityViewModel {
     return { total: fmtTokens(tokTot), breakdown: hasBd ? { input: fmtTokens(bd.input), output: fmtTokens(bd.output), cache: fmtTokens(bd.cache_read) + " / " + fmtTokens(bd.cache_creation) } : null,
       cost: m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—", ai: fmtMin(m.ai_time_total_minutes), human: fmtMin(m.human_time_total_minutes), updated: m.updated || "—" };
   }
+  /** RM3164 — les sessions qui traitent ce ticket. `null` tant qu'on ne sait pas (en vol) :
+   *  la vue montre « … » plutôt qu'un « aucune session », qui serait un mensonge pendant le
+   *  chargement — et c'est exactement le moment où l'on regarde. */
+  ticketSessions() {
+    const d = this.e.ts;
+    if (d === undefined || d === null) return { kind: d === null ? "loading" : "none" };
+    if (d.error) return { kind: "error" };
+    const rows = (d.handled || []).map(s => ({
+      sid: String(s.rm_id || s.sid || s.name || ""), name: s.name || s.title || String(s.rm_id || ""),
+      alive: !!s.alive, title: s.title || "",
+    })).filter(r => r.sid);
+    return { kind: rows.length ? "ok" : "empty", rows, candidates: (d.candidates || []).length };
+  }
+
+  /** RM3164 — l'impact du ticket : fichiers touchés, agrégés. Mêmes trois états que les
+   *  sessions : « pas demandé », « en vol » et « inconnu » ne se disent pas pareil. */
+  impact() {
+    const d = this.e.imp;
+    if (d === undefined || d === null) return { kind: d === null ? "loading" : "none" };
+    if (d.error) return { kind: "error" };
+    if (d.pm_data_repo) return { kind: "pmdata" };
+    if (!d.is_git) return { kind: "nogit" };
+    return { kind: (d.files || []).length ? "ok" : "empty", files: d.files || [],
+             commits: d.commits || 0, base: d.base || "", branch: d.branch || "",
+             total: d.total_files || 0 };
+  }
+
   workspace() {
     const ws = this.e.ws;
     if (ws === undefined) return { kind: "loading" };

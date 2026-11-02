@@ -1,4 +1,4 @@
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · correctif sur un projet multi-versions · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -57,7 +57,7 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 Trois règles, le détail est dans `git-mep-pratique` § « Remote canonique » :
 
 - **Identité par dev, karl en repli.** Le jeton forge se résout par la cascade des secrets — jeton perso
-  du dev (`~/.config/mmi-pm/.env`) d'abord, karl ensuite. L'auteur d'une MR ou d'une branche est le **dev**.
+  du dev (`<core>/var/users/<user>/.env`) d'abord, karl ensuite. L'auteur d'une MR ou d'une branche est le **dev**.
 - **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique** (`.gitmodules`
   inclus). **Ne jamais** convertir un remote en HTTPS par dépôt : ça casse les submodules, et l'`insteadOf`
   global obtient le même transport token.
@@ -227,11 +227,35 @@ tâche). Exemple : `1762-etransactions-historique`.
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.
 
+#### Correctif sur un projet multi-versions : la version du bug d'abord, la remontée ensuite (RM3613)
+
+Quand un projet est maintenu sur **plusieurs lignes de version** (branches `19.0`, `20.0`, `dev`… des modules Dolibarr, branches de release d'une bibliothèque), un correctif se code et se livre sur la branche de la **version où le bug est constaté** — celle que fait tourner l'environnement qui le remonte : branche de ticket tirée de cette branche (`pm-branch-start <RMid> --from <branche de version>`), MR vers elle. On ne corrige **pas** toutes les lignes de version dans le ticket du bug.
+
+La **remontée vers les versions suivantes** est **tracée explicitement**, au moment de la livraison : ticket dédié (`pm-task-add`, lié au ticket du correctif par `pm-task-link … --type relates`) ou, à défaut, note dans le ticket listant les branches restant à mettre à jour — jamais un « on verra » oral. C'est le fonctionnement par défaut de la communauté Dolibarr (correctif sur la version concernée, puis remontée vers les versions plus récentes) ; le demandeur peut en décider autrement pour un ticket donné.
+
 #### Actions au déploiement = la procédure de MEP du ticket
 
 Un ticket qui touche un env porte **sa** procédure de MEP dans `deploy_actions` : ce qui doit être
 fait au déploiement, dans l'ordre, avec la commande exacte. La rédiger fait partie de la **livraison**,
 pas de la MEP. **Format, exemples et cas particuliers : `git-mep-pratique` § Actions au déploiement.**
+
+#### Pas de mise en prod avec une question non tranchée (RM3238)
+
+Une question ouverte dans le `.think.md` d'un ticket (rubrique Q) refusait déjà sa **clôture** ; elle
+refuse désormais aussi sa **mise en production** — c'est là que la réponse peut encore changer quelque
+chose. Gardes posées par l'outillage (`pm_questions_gate`) :
+
+- **statut** : entrer en `a_mep_prod` ou `en_mep` est refusé ; `a_mep` (préprod) **avertit** seulement ;
+  `--list-next` et le menu du cockpit montrent la transition verrouillée, questions nommées ;
+- **merge vers `main` / `master`** par `pm-mr merge` (ou `create --merge`) et `pm-promote` : refusé si un
+  ticket de la MR — préfixe `<id>-` de la branche, ou tickets du lot (commits) pour une promotion
+  `dev→main` — a une question ouverte. `pm-promote --dry-run` l'annonce sans échouer ;
+- **jamais** sur un dépôt de données PM (`*-core`) : ses commits citent des tickets sans rien mettre en prod.
+
+Trancher = poser la réponse (`--decide "Qnnn : …"`) et fermer la question (`--set Qnnn --state
+valide|invalide`), ou ✅/❌ sur la fiche du cockpit. Passer outre reste possible en connaissance de cause
+— `--ignore-think` (statut) / `--ignore-questions` (merge) — et **se trace** (note Redmine, journal).
+Un merge fait à la main dans l'UI GitLab échappe à ces gardes : ne pas s'en servir pour les contourner.
 
 #### Plusieurs tickets dans une session : bonne branche, bon worktree
 
@@ -243,3 +267,18 @@ tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs ticket
 RM2264 + doc oublié, 1 mois → `pm-env-audit --fetch`, pm-doctor alerte. BRANCHE, SALE, RETARD,
 STASH, FERMÉ, REMOTE ; obsolètes → `pm-env-gc --all`. **Détail : `git-mep-pratique` § Audit
 hebdomadaire des environnements.**
+
+#### D'où partent les worktrees, où vont les envs (RM3209)
+
+Deux réglages d'**instance**, réservés à l'admin — posés dans `pm.config.local.yml`, jamais lus dans
+l'environnement :
+
+- `git.worktree_source` : `central` (défaut) = dépôt partagé `<ws>/repos/<repo>.git` ; `per_user` = le dépôt
+  de chaque dev, `<dossier des dépôts>/<repo>` — dossier réglé **par utilisateur** (`PM_REPOS_DIR` de son
+  `<core>/var/users/<user>/.env`, défaut `~/repos`) ;
+- `git.envs_layout` : `project` (défaut) = `<ws>/envs/<env>` ; `user` = `<ws>/envs/<utilisateur>/<env>`.
+
+En `per_user`, `pm-branch-start --worktree` se lance **depuis son propre dépôt** (refus sinon) et
+`pm-env-init` ne crée pas de dépôt partagé. Des envs existants se déplacent par `pm-env-relocate --plan`,
+jamais à la main. Aucun outil ne construit ces chemins lui-même : `scripts/pm_worktrees.py` est le seul
+résolveur.

@@ -61,18 +61,24 @@ manifest = (SRC / "manifest.yml").read_text(encoding="utf-8")
 for nom in ("git-mep-pratique.md", "status-workflow-pratique.md"):
     check(f"{nom} est au manifeste d'assemblage", nom in manifest)
 
-# — le budget doit rester sous le plafond, avec une marge réelle —
+# — le budget se MESURE et se SIGNALE ; il ne bloque plus (RM3417) —
+# L'assertion « --check passe » vivait ici. Elle a rendu ce test rouge pendant des mois,
+# et avec lui toute la suite : un dépassement de quelques dizaines de tokens sur trente
+# mille n'est pas une panne, c'est une tendance. Quatre tickets (RM2974, RM2994, RM3035,
+# RM3046) l'ont dit sans que rien ne change. Ce qui est vérifié désormais : que la mesure
+# existe, qu'elle a un capteur qui NOTIFIE, et que ce capteur est un travail déclaré.
 r = subprocess.run([sys.executable, str(HERE / "pm-context-budget.py"), "--check"],
                    capture_output=True, text=True)
-check("pm-context-budget --check passe", r.returncode == 0)
+check("pm-context-budget --check rend une mesure lisible", bool(r.stdout.strip()))
 pires = [int(m.group(1).replace(",", ""))
          for m in re.finditer(r"^\S+\s+([\d,]+)", r.stdout, re.M)]
 plafond = int(re.search(r"^\s*default: (\d+)", (ROOT / "pm.config.yml").read_text(encoding="utf-8"),
                         re.M).group(1))
 # RM2756 : la marge n'est PAS un invariant, c'est une tendance — elle s'entame sur des semaines.
 # Un test rouge pendant des semaines n'apprend plus rien : il apprend à ignorer les échecs rouges
-# (c'est exactement ce que RM2749 a constaté). Le plafond, lui, reste dur : `--check` ci-dessus.
-# La marge entamée part donc dans le FIL de notifications, par le travail `norms-budget-watch`.
+# (c'est exactement ce que RM2749 a constaté). RM3417 a étendu le raisonnement au PLAFOND lui-même :
+# lui non plus ne bloque plus. Marge comme plafond partent dans le FIL de notifications —
+# `norms-budget-watch` pour la tendance, `pm-norms-doctor` pour le franchissement.
 if pires and max(pires) > plafond * 0.9:
     print(f"  ⚠ marge entamée : {max(pires)} / {plafond} "
           f"({max(pires) / plafond * 100:.0f} %) — signalé au fil, pas ici (RM2756)")

@@ -16,8 +16,10 @@ export function termAvailable(storage, win) {
 /** Le repli iframe est-il seulement joignable d'ici ? (RM3124)
  *
  * Non en accès proxifié : l'UI ttyd native exige la RACINE de son serveur — elle fetch
- * « /token » en absolu et ne survit pas au préfixe `/ttyd/`. Elle a donc besoin du port
- * dédié 7681, qui n'écoute que sur le bridge LXC. Le dire vaut mieux que de poser une
+ * « /token » en absolu et ne survit pas au préfixe `/ttyd/`. Elle a donc besoin de ttyd
+ * en direct sur :7681, qui n'écoute qu'en loopback : seul un accès direct au port de
+ * karl-agent depuis le conteneur y arrive (le vhost :7681 du bridge, ouvert sans auth,
+ * est supprimé — RM2146). Le dire vaut mieux que de poser une
  * URL morte : le navigateur ne rend alors qu'un « impossible de se connecter » qui
  * n'apprend rien.
  */
@@ -27,6 +29,18 @@ export function termBase(cfg, loc) {
   if (cfg && cfg.ttyd_base) return cfg.ttyd_base;
   const proxied = loc.port === "" || loc.port === "80" || loc.port === "443";
   return proxied ? loc.origin + "/ttyd" : loc.protocol + "//" + loc.hostname + ":7681";
+}
+/**
+ * RM3418 — la taille de la typo du terminal : la préférence de CE navigateur si elle
+ * existe, sinon le défaut d'instance (un pour le bureau, un plus petit pour le mobile —
+ * à 14 px, 80 colonnes ne tiennent pas sur 390 px de large). Bornée : une valeur
+ * aberrante rendrait le terminal inutilisable, et personne ne saurait pourquoi. Pur.
+ */
+export function termFontPx({ ui = {}, mobile = false, pref = null } = {}) {
+  const dflt = mobile ? (ui.term_font_px_mobile || 11) : (ui.term_font_px || 14);
+  const n = Number(pref);
+  const val = Number.isFinite(n) && n > 0 ? n : dflt;
+  return Math.max(7, Math.min(24, Math.round(val)));
 }
 /** L'URL de l'iframe ttyd de repli. */
 export function ttydUrl(cfg, loc, rmId) { const base = (cfg && cfg.ttyd_base) || (loc.protocol + "//" + loc.hostname + ":7681"); return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId); }

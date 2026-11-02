@@ -62,11 +62,11 @@
 /* la pastille est ronde (8×8) : on la centre au margin, un `min-height` l'étirerait en ellipse */
 .runitem > .tdot { margin-top: calc((var(--tline) - 8px) / 2); }
 /* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
-.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact,
 .runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark { min-height: var(--tline); display: inline-flex; align-items: center; }
 /* la queue (boutons) est poussée à droite ; le titre passe dessous, sur toute la largeur */
 .runitem::before { content: ""; flex: 1 1 0; order: 1; }
-.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq { order: 2; }
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact, .runitem > .helpq { order: 2; }
 .runitem > .rmeta { order: 3; flex: 1 0 100%; }
 .runitem:hover { border-color: var(--accent); }
 .runitem.active { border-color: var(--accent); background: var(--bg); }
@@ -84,6 +84,11 @@
 /* RM2302 : bouton « répondre Oui » d'un item en attention */
 .tyes { font-size: 12px; line-height: 1; color: var(--ok); border-radius: 4px; padding: 2px 4px; flex: none; }
 .tyes:hover { background: var(--ok-soft); }
+/* RM3249 : « compacter » — au palier critique du contexte ; éteint tant que la session n'est pas au repos */
+.tcompact { font-size: 12px; line-height: 1; border-radius: 4px; padding: 2px 4px; flex: none; }
+.tcompact:hover { background: var(--danger-soft); }
+.tcompact.off { opacity: .4; cursor: default; }
+.tcompact.off:hover { background: none; }
 
 /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
    des onglets, donc lisible quel que soit l'onglet actif. Replié : masqué. */
@@ -124,3 +129,28 @@
 /* RM3131 — le compteur de tickets d'une session, discret : il informe au passage,
    il ne dispute pas la place au titre ni à la jauge de contexte. */
 .runitem .tcount { margin-left: 4px; font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+
+// RM3236 — une session « à voir » : elle a fini son tour pendant qu'on regardait ailleurs. Toute la tuile respire
+// doucement (fond + bordure), sans jamais toucher à la lisibilité du texte : attirer l'œil, pas le fatiguer.
+@keyframes unseenpulse {
+  0%, 100% { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 0 transparent; }
+  50%      { background: transparent;        border-color: var(--line);   box-shadow: 0 0 0 2px var(--accent-soft); }
+}
+.runitem.unseen { animation: unseenpulse 2.4s ease-in-out infinite; }
+.runitem.unseen:hover { animation-play-state: paused; }
+.gunseen { color: var(--accent); font-weight: 600; }
+.pill.unseen { color: var(--accent); border-color: var(--accent); }
+.nbadge.unseen { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+// Mouvement réduit demandé : une surbrillance FIXE porte la même information, sans rien qui bouge.
+@media (prefers-reduced-motion: reduce) {
+  .runitem.unseen { animation: none; background: var(--accent-soft); border-color: var(--accent); }
+}
+
+/* RM3302 : les compteurs deviennent des filtres. La pastille active est ENFONCÉE (fond plein),
+   pas seulement colorée : la couleur seule ne distingue rien pour qui ne la voit pas. */
+.hcnt .pill.filt { cursor: pointer; }
+.hcnt .pill.filt:hover { border-color: var(--accent); }
+.hcnt .pill.filt.on { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+.hcnt .pill.ghostpill { opacity: .6; }
+.hcnt .pill.choice { color: var(--warn); border-color: var(--warn); }
+.filtbanner .mini { margin-left: 4px; }

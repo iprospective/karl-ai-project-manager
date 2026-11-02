@@ -15,7 +15,7 @@ de texte ne décide pas de ça ; un modèle léger, si — pour ~1 $ par million
   pm-think-classify --all [--since AAAA-MM-JJ] [--limit N] reprise de l'historique
   --apply            écrit dans les `.think.md` (défaut : rapport seul, rien n'est écrit)
   --model <id>       défaut : claude-haiku-4-5-20251001 ; --batch <n> tours par appel (défaut 25)
-  --engine claude|api|ollama|openai
+  --engine claude|api|ollama|openai   (RM3544 : sans fournisseur configuré ni --engine, la passe sort en 0 sans rien faire)
                      `claude -p` (pas de clé à gérer) · l'API Anthropic · **Ollama** (local ou hébergé),
                      choisi d'office si `OLLAMA_HOST`/`OLLAMA_API_KEY` est posé, puis l'API si sa clé existe.
                      Ollama : `OLLAMA_HOST` (défaut `http://localhost:11434`), `OLLAMA_API_KEY` pour un service
@@ -117,6 +117,76 @@ _INTERRO = re.compile(r"(?:^|[\s(])(est-ce que|pourquoi|comment|combien|qui |quo
                       r"que fait-on|on fait quoi|lequel|laquelle|lesquel(?:le)?s|"
                       r"l'id[ée]al (?:c'est|serait)|vaut-il mieux|ou bien\b|"
                       r"reste[- ]t[- ]il|tenable\b|à trancher|à arbitrer)", re.I)
+
+
+# ── RM3259 : ce qui mérite de rester une QUESTION OUVERTE ────────────────────────
+# Mesure du 2026-09-19 sur RM2881 : 21 questions ouvertes, 20 n'en étaient pas — « quel est le mdp
+# de test ? », « on en est où de la v0 ? », « on enchaîne avec quoi ? ». Elles bloquaient la clôture
+# du ticket. Une question de CONDUITE DE SÉANCE se répond dans la minute et ne change rien plus
+# tard ; une question d'ARBITRAGE attend une décision, et c'est elle qu'on veut retrouver.
+_CONDUITE = re.compile(r"(o[uù] (?:en )?(?:est-on|en sommes-nous|en es-tu)|on en est o[uù]|"
+                       r"(?:c'est|ca|ça) (?:fait|bon|pr[êe]t|fini)\s*\?|tu as fini|as-tu fini|"
+                       r"encha[îi]ne(?:r|s)? avec quoi|on fait quoi (?:maintenant|apr[èe]s)|"
+                       r"(?:quelle|la) suite\b|on continue\s*\?|"
+                       r"mot de passe|mdp\b|identifiants?\b|quelle url|quel (?:lien|port|chemin)\b|"
+                       r"je ne (?:vois|comprends) pas|c'est o[uù]\s*\?|"
+                       r"quelles? questions? bloque|[çc]a (?:marche|fonctionne)\s*\?)", re.I)
+#: marques d'un ARBITRAGE en attente — elles priment sur la conduite de séance : « on enchaîne
+#: avec quoi, ou faut-il d'abord trancher X ? » est une question, malgré sa première moitié.
+_ARBITRAGE = re.compile(r"(faut-il|doit-on|vaut-il mieux|ou bien\b|plut[ôo]t que|"
+                        r"est-ce (?:pertinent|souhaitable|raisonnable)|"
+                        r"quelle (?:strat[ée]gie|architecture|convention|politique|r[èe]gle)|"
+                        r"[àa] terme\b|[àa] trancher|[àa] arbitrer|on part sur)", re.I)
+#: une question d'arbitrage tient rarement en six mots ; en dessous, c'est de la conduite de séance
+_MIN_MOTS_QUESTION = 7
+#: un « mot » au sens du critère : les nombres et la ponctuation ne comptent pas (même règle que
+#: `pm_think.note_pertinente`, qui mesure la même chose — la matière du texte)
+_MOT = re.compile(r"[^\W\d_]{2,}", re.U)
+
+
+#: « Q29 : pour les ACL je dirais oui » — le demandeur RÉPOND à une question numérotée du carnet.
+#: C'est une décision, et surtout pas une nouvelle question ouverte.
+_REPONSE_A_Q = re.compile(r"^\s*(?:[-*•]\s*)?Q\s*\d{1,3}\s*[:.\)]", re.I)
+
+
+def question_pertinente(texte: str):
+    """(pertinente, motif) — cette question mérite-t-elle de rester OUVERTE sur un ticket ?
+
+    Pendant de `pm_think.note_pertinente` pour les questions. RM3090 les en avait dispensées à
+    dessein (« une question ne porte pas de dette, elle porte un arbitrage en attente ») : c'est
+    vrai d'un arbitrage, faux d'une question d'exploitation, et c'est cette nuance qui manquait.
+    En cas de doute : PERTINENTE — une question perdue ne se retrouve pas, une question de trop
+    se trie (et, depuis RM3258, se déplace). Pure, testée sur les 21 entrées réelles de RM2881."""
+    s = " ".join(str(texte or "").split())
+    if not s:
+        return False, "vide"
+    if _REPONSE_A_Q.match(s):
+        return False, "réponse à une question du carnet — c'est une décision"
+    if _ARBITRAGE.search(s):
+        return True, "arbitrage"
+    if _CONDUITE.search(s):
+        return False, "conduite de séance (se répond dans la minute, ne change rien plus tard)"
+    if len(_MOT.findall(s)) < _MIN_MOTS_QUESTION:
+        return False, "trop courte pour porter un arbitrage"
+    return True, "question"
+
+
+def deja_tranchee(suite: list) -> bool:
+    """La question a-t-elle été RÉGLÉE dans la suite du fil ? Pure.
+
+    `suite` = les tours qui suivent, du plus proche au plus lointain, sous forme (role, texte).
+    Le signal n'est pas que l'agent ait répondu — il répond toujours — mais que le DEMANDEUR ait
+    PRIS la réponse : son tour suivant approuve (« ok »), ou donne la consigne d'après. S'il
+    réinterroge, ou si la séance s'arrête sans qu'il dise rien, la question reste ouverte.
+    Un seul tour décide : celui d'après. Plus loin dans le fil, on parle d'autre chose."""
+    for role, texte in suite:
+        if role != "M":
+            continue
+        s = " ".join(str(texte or "").split())
+        if not s:
+            continue
+        return type_heuristique("M", s) != "question"
+    return False
 
 
 def type_heuristique(role: str, texte: str) -> str:
@@ -356,7 +426,8 @@ def ecrit(rm_id, retenus, sid=None, cfg=None) -> int:
         if pm_think.has_text(pm_think.load(think), kind, x):
             continue
         pm_think.append(think, kind, x, rm_id=int(rm_id), by=("M" if role == "M" else "A"),
-                        state=("valide" if t == "decision" else "attente"), sid=sid)
+                        state=("valide" if t == "decision" else "attente"), sid=sid,
+                        source="llm")      # RM3544 : une Q née du tri LLM est un arbitrage voulu — elle bloque
         n += 1
     if n:
         pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
@@ -445,7 +516,7 @@ def main():
     ap.add_argument("--batch", type=int, default=BATCH); ap.add_argument("--engine", choices=("claude", "api", "ollama", "openai"),
                     default=("openai" if os.environ.get("LLM_BASE_URL")
                              else "ollama" if (os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_API_KEY"))
-                             else "api" if os.environ.get("ANTHROPIC_API_KEY") else "claude"))
+                             else "api" if os.environ.get("ANTHROPIC_API_KEY") else None))
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -470,6 +541,15 @@ def main():
             a.engine = eng
             if mod and a.model == MODEL:
                 a.model = mod
+    if not a.engine and os.environ.get("PM_CLASSIFY_CMD"):
+        a.engine = "claude"        # moteur injecté (tests) : c'est un fournisseur
+    if not a.engine:
+        # RM3544 : aucun fournisseur choisi (ni OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY, ni axe `llm`
+        # du registre, ni --engine). On ne retombe PLUS sur `claude -p` (coût ~40× — décision de Mathieu
+        # à prendre) : la passe est désactivée proprement, les N `auto` restent à trier par l'agent.
+        print("pm-think-classify : aucun fournisseur LLM configuré (OLLAMA_HOST, LLM_BASE_URL, ANTHROPIC_API_KEY, "
+              "axe `llm` du registre, ou --engine) — passe désactivée, rien à faire.")
+        return 0
 
     cibles = []
     if a.transcript:

@@ -9,6 +9,8 @@ Invariants DURS (font échouer, exit 1) :
                   SAUF écart inscrit dans dedup-ledger.yml. Tant que l'oracle n'existe
                   pas, on reste en mode « identité (bootstrap) » (assuré par la fraîcheur).
   - manifest    : toute source listée existe ; aucun .md orphelin (hors oracle).
+  - conflit     : aucun marqueur de merge git ne survit dans les sources ni dans
+                  NORMS.md / CHEATSHEET.md générés (RM3194).
 
 Invariants SOUPLES (avertissent, n'échouent pas en phase d'extraction) :
   - outillage   : tout outil cité (pm-*.py, redmine-*.py, mmi-pm-*, --list-next) existe ;
@@ -147,6 +149,68 @@ def check_fences():
     return bad
 
 
+# Marqueurs de conflit git. Construits par concaténation : écrits en clair, ils
+# feraient de CE fichier un faux positif pour tout grep de relecture.
+CONFLICT_MARKERS = ("<" * 7, "=" * 7, ">" * 7)
+
+
+def conflict_targets():
+    """Sources assemblées + artefacts générés — tout ce qu'un agent lit comme la norme.
+
+    Le runtime dense en fait partie (RM3195) : c'est LUI qui est réinjecté après une
+    compaction, donc lui qu'un marqueur de conflit atteindrait en premier."""
+    gen = [REPO / "norms" / "NORMS.md", REPO / "norms" / "CHEATSHEET.md"]
+    gen += sorted((REPO / "norms" / "runtime").glob("*.md"))
+    return active_source_files() + [f for f in gen if f.exists()]
+
+
+def check_conflict_markers(files=None):
+    """Aucun marqueur de conflit git ne doit survivre dans les sources ni dans le
+    document généré (RM3194).
+
+    Cas fondateur : le rebase de RM3109 sur un `dev` passé à v2.48.0 a laissé ses
+    marqueurs dans NORMS-KERNEL.md et _full-body.md ; l'assemblage les a fidèlement
+    recopiés dans NORMS.md, et le merge les a portés en `main`. Trois jours durant,
+    le KERNEL — lu EN ENTIER par chaque agent à chaque session — a exposé deux
+    tripwires numérotés 18 et un titre en double version.
+
+    Aucun invariant existant ne pouvait le voir : la fraîcheur compare NORMS.md à
+    `assemble(src)`, or la source portait elle-même les marqueurs — elle était donc
+    VERTE, et d'autant plus verte que le document était cassé.
+    """
+    bad = []
+    for f in (files if files is not None else conflict_targets()):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if any(line.startswith(m) for m in CONFLICT_MARKERS):
+                bad.append(f"{f.name}:{i}")
+    return bad
+
+
+
+TRIPWIRE_RE = re.compile(r"^(\d+)\.\s+\*\*", re.M)
+
+
+def check_runtime_tripwires():
+    """Numéros de tripwire présents dans le KERNEL source mais absents du runtime (RM3195).
+
+    Le runtime est une réécriture DENSE : ses intitulés ne se comparent pas aux sources
+    (c'est pour ça que `pm-norms-runtime` raisonne en ancres). Mais un tripwire ENTIER qui
+    disparaît n'est pas une affaire de densité, c'est une perte — et rien ne la voyait : le
+    KERNEL réinjecté après compaction s'est arrêté au #17 pendant que la source en comptait
+    20, sans qu'aucun contrôle ne bronche. Trois garde-fous n'engageaient donc personne.
+
+    On compare ce qui est comparable : la numérotation. Le runtime peut en porter DAVANTAGE
+    (il fusionne les tripwires structurels), jamais moins.
+    """
+    src = SRC / "NORMS-KERNEL.md"
+    rt = REPO / "norms" / "runtime" / "KERNEL.md"
+    if not src.is_file() or not rt.is_file():
+        return None
+    a = {int(n) for n in TRIPWIRE_RE.findall(src.read_text(encoding="utf-8"))}
+    b = {int(n) for n in TRIPWIRE_RE.findall(rt.read_text(encoding="utf-8"))}
+    return sorted(a - b)
+
+
 def tool_exists(token):
     if token == "--list-next":
         f = SCRIPTS / "pm-task-status-update.py"
@@ -188,6 +252,23 @@ def check_context_budget():
         return []
     # --check liste les rôles avec « ✗ DÉPASSÉ »
     return [l.split()[0] for l in r.stdout.splitlines() if "DÉPASSÉ" in l]
+
+
+def notifie_budget(roles):
+    """Porte le dépassement au FIL (donc au cockpit) — n'échoue jamais. RM3417.
+
+    Message STABLE, rôles en champ : une dérive qui dure fait UNE entrée qui remonte avec
+    son compteur, pas une par exécution. C'est la condition pour qu'un fil reste lisible —
+    et donc pour qu'on puisse se passer du blocage sans que la dérive devienne invisible.
+    """
+    try:
+        sys.path.insert(0, str(SCRIPTS))
+        import pm_notify
+        pm_notify.add("system", "warn",
+                      "la précharge NORMS dépasse son plafond de contexte",
+                      job="norms-budget", roles=sorted(roles), nb=len(roles))
+    except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas un contrôle
+        pass
 
 
 def main():
@@ -235,6 +316,16 @@ def main():
     else:
         print(f"  {PASS} fences : tous les blocs de code équilibrés")
 
+    bad_conflicts = check_conflict_markers()
+    if bad_conflicts:
+        print(f"  {FAIL} conflit : marqueur(s) de merge non résolu(s) : "
+              f"{', '.join(bad_conflicts[:8])}"
+              + (f" … (+{len(bad_conflicts) - 8})" if len(bad_conflicts) > 8 else ""))
+        print("        → résoudre dans norms/src/, puis régénérer : pm-norms-assemble.py")
+        rc |= 1
+    else:
+        print(f"  {PASS} conflit : aucun marqueur de merge dans les sources ni le généré")
+
     tools = scan_tools()
     gaps = sorted(t for t in tools if not tool_exists(t) and t not in KNOWN_GAPS)
     known = sorted(t for t in tools if not tool_exists(t) and t in KNOWN_GAPS)
@@ -260,15 +351,35 @@ def main():
     else:
         print(f"  {PASS} en-têtes : tous les modules ont leur « quand lire ceci »")
 
+    # RM3417 — le budget de contexte NE BLOQUE PLUS. C'est une TENDANCE, pas un invariant :
+    # il s'entame sur des semaines, et un test rouge pendant des semaines n'apprend qu'à
+    # ignorer les échecs — y compris les vrais, qui s'affichent juste au-dessus. Quatre
+    # tickets (RM2974, RM2994, RM3035, RM3046) ont été ouverts sur ce seul seuil sans que
+    # personne ne soit alerté au bon moment. RM3177 avait acté la règle (« un seuil qui
+    # dérive est un ÉTAT, il se notifie, il ne se ticket pas ») ; le blocage, lui, était
+    # resté. Décision Mathieu 2026-10-07 : notification cockpit, pas de blocage, pas de ticket.
     over = check_context_budget()
     if over is None:
         print(f"  · budget contexte : non configuré (pm.config.yml :: context.budget_tokens)")
     elif over:
-        print(f"  {FAIL} budget contexte : rôle(s) au-dessus du plafond : {', '.join(over)}")
+        print(f"  · budget contexte : {len(over)} rôle(s) au-dessus du plafond "
+              f"({', '.join(over)}) — signalé au fil, PAS bloquant (RM3417)")
         print(f"        → détail : scripts/pm-context-budget.py --all-roles")
-        rc |= 1
+        notifie_budget(over)
     else:
         print(f"  {PASS} budget contexte : tous les rôles sous leur plafond")
+
+    twmiss = check_runtime_tripwires()
+    if twmiss is None:
+        print(f"  · SKIPPED (tripwires runtime) — KERNEL source ou runtime absent")
+    elif twmiss:
+        print(f"  {FAIL} tripwires perdus par le runtime : "
+              f"{', '.join('#' + str(n) for n in twmiss)} — le KERNEL réinjecté après "
+              f"compaction ne les porte pas, donc ils n'engagent personne")
+        print(f"        → régénère : pm-norms-runtime.py --build KERNEL.md puis --apply")
+        rc |= 1
+    else:
+        print(f"  {PASS} tripwires : le runtime porte tous ceux du KERNEL source")
 
     # RM3073 : le runtime dense est ce que lisent les agents et ce qui leur est réinjecté après une
     # compaction — donc ce qui les engage. Il ne se compare pas ligne à ligne à ses sources (rien n'y est
@@ -300,5 +411,55 @@ def _runtime_ligne() -> str:
         return f"· runtime : non vérifiable ({e})"
 
 
+# >>> rouges — pure (testée par test_pm_norms_doctor_notify.py)
+def rouges(sortie: str) -> list:
+    """Les invariants en échec, lus dans la sortie du doctor : `  ✗ <nom> : <détail>`."""
+    out = []
+    for ligne in (sortie or "").splitlines():
+        s = ligne.strip()
+        if s.startswith(FAIL):
+            out.append(s[len(FAIL):].strip().split(" :")[0].strip())
+    return out
+# <<< rouges
+
+
+def notifie() -> int:
+    """Signale au fil les invariants NORMS rouges — et n'échoue JAMAIS (RM3177).
+
+    Un invariant rouge est un ÉTAT, pas une action : il se notifie, il ne se ticket pas (acté
+    le 2026-09-15 — le budget de précharge avait produit trois tickets pour un seul seuil, sans
+    alerter personne au bon moment). Le doctor reste le gate BLOQUANT de la suite de tests ; ce
+    mode-ci ne remplace pas ce gate, il fait savoir quand il est rouge.
+
+    Le message est STABLE et la liste des invariants part en CHAMP : sinon chaque variation de
+    la liste écrirait une entrée neuve et l'anti-répétition du fil tomberait. La même panne qui
+    dure fait UNE entrée qui remonte ; une panne qui change de nature se voit dans `invariants`.
+    """
+    import contextlib
+    import io
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = main()
+    except Exception as e:  # noqa: BLE001 — une panne du doctor lui-même est aussi à dire
+        rc, sortie = 1, f"  {FAIL} doctor : exception {e}"
+    else:
+        sortie = buf.getvalue()
+    print(sortie, end="")
+    if rc == 0:
+        return 0
+    liste = rouges(sortie) or ["(invariant non identifié)"]
+    try:
+        sys.path.insert(0, str(SCRIPTS))
+        import pm_notify
+        pm_notify.add("system", "warn", "des invariants NORMS sont rouges",
+                      job="norms-doctor", invariants=liste, nb=len(liste))
+    except Exception:      # noqa: BLE001 — un fil indisponible ne casse pas un contrôle
+        pass
+    return 0
+
+
 if __name__ == "__main__":
+    if "--notify" in sys.argv[1:]:
+        sys.exit(notifie())
     sys.exit(main())

@@ -25,7 +25,7 @@ _REFERENCE_CACHE = None
 # transitions critiques fonctionnelles même sans le fichier de référence.
 _FALLBACK_STATUS_IDS = {
     "a_etudier_chiffrer": 8, "etude_chiffrage_en_cours": 14,
-    "etude_chiffrage_a_valider": 21, "a_faire": 12,
+    "etude_chiffrage_a_valider": 21, "etude_chiffrage_a_corriger": 24, "a_faire": 12,
     "en_cours": 2, "a_tester_dev": 19, "a_tester_demandeur": 9, "a_mep": 3,
     "en_mep": 20, "en_pause": 13, "a_corriger": 11, "ferme": 18,
 }
@@ -72,6 +72,41 @@ def load_reference():
     except Exception:  # OSError, ImportError, yaml.YAMLError → fallback silencieux
         _REFERENCE_CACHE = {}
     return _REFERENCE_CACHE
+
+
+def reference_instance_url():
+    """URL de l'instance sur laquelle `redmine.reference.yml` est bindé, sans « / » final ("" si inconnue)."""
+    return str(load_reference().get("instance") or "").strip().rstrip("/")
+
+
+def primary_write_problem(instance, ref_url=None):
+    """Pourquoi l'outillage d'écriture ne peut PAS servir ce primaire ; None s'il le peut (RM2940).
+
+    Les scripts qui écrivent l'état d'un ticket (statut, création, description, temps)
+    visent tous l'instance par défaut, avec les ids de `redmine.reference.yml`. Ils
+    ignorent le primaire déclaré par le projet. Pour un primaire qui n'est PAS cette
+    instance, le résultat n'est pas une erreur : c'est un PUT vers le mauvais serveur,
+    ou avec des ids d'un autre Redmine — accepté en HTTP 204 et sans effet. Cette
+    fonction transforme ce silence en motif lisible.
+
+    Mesuré le 2026-09-19 : aucun projet n'est dans ce cas (les secondaires partenaires
+    passent par le mapping de RM2746, qui a ses propres ids). La garde attend le jour
+    où quelqu'un déclarera un Redmine tiers en primaire — elle doit alors crier, pas
+    laisser écrire ailleurs.
+    """
+    if instance is None:
+        return None
+    if getattr(instance, "type", "") != "redmine":
+        return (f"le primaire « {instance.name} » est de type {instance.type or '?'} : "
+                f"l'outillage d'écriture ne sait servir qu'un Redmine")
+    ref = (ref_url if ref_url is not None else reference_instance_url()).rstrip("/")
+    url = str(getattr(instance, "url", "") or "").rstrip("/")
+    if ref and url and url != ref:
+        return (f"le primaire « {instance.name} » ({url}) n'est pas l'instance de "
+                f"redmine.reference.yml ({ref}) : statuts, créations et temps partiraient "
+                f"vers {ref}, avec ses ids — un no-op silencieux côté {instance.name}. "
+                f"Mapping par instance non implémenté (RM2940, périmètre réduit)")
+    return None
 
 
 def cf_id_by_name(name):
@@ -205,7 +240,7 @@ def redmine_creds(instance=None):
     """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
 
     Identité par utilisateur (T1/RM2497) : préfère la clé perso du dev
-    (`REDMINE_API_KEY`, typiquement dans `~/.config/mmi-pm/.env`) ; à défaut,
+    (`REDMINE_API_KEY`, typiquement dans `<core>/var/users/<user>/.env`) ; à défaut,
     retombe sur le compte de service karl (`REDMINE_USER_MAIN_API_KEY`) — pour les
     tâches de fond (cron, promote) et la rétrocompat. Résolveur CANONIQUE unique :
     tout script doit l'importer plutôt que relire les variables lui-même.
@@ -225,7 +260,7 @@ def redmine_creds(instance=None):
     if instance is None:
         if not (global_url and global_key):
             sys.exit("ERREUR : REDMINE_URL + une clé API requis "
-                     "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
+                     "(REDMINE_API_KEY perso dans var/users/<user>/.env, ou "
                      "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
         return Creds(global_url, global_key)
 
@@ -241,7 +276,7 @@ def redmine_creds(instance=None):
                  f"(url du registre, {prefix}URL, ou REDMINE_URL)")
     if not key:
         sys.exit(f"ERREUR : clé API manquante pour l'instance Redmine {name!r} — "
-                 f"poser {prefix}API_KEY dans ~/.config/mmi-pm/.env")
+                 f"poser {prefix}API_KEY dans var/users/<user>/.env")
     return Creds(url, key, instance_http_basic(name))
 
 
@@ -510,12 +545,35 @@ def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=No
     return True, ""
 
 
+def delete_issue(issue_id, *, timeout=20, creds=None):
+    """SUPPRIME une issue (`DELETE /issues/<id>.json`) — RM3468. Rend `(ok, err)`.
+
+    Définitif côté Redmine : journaux, relations et saisies de temps partent avec elle.
+    ⚠ Vérifié par relecture, comme `move_issue_project` : seul un 404 au GET qui suit
+    prouve la suppression (sans la permission « Delete issues », Redmine répond 403).
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("DELETE", f"{url}/issues/{issue_id}.json", key,
+                           timeout=timeout, basic=_basic)
+    if code not in (200, 204):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+    code, _ = http_json("GET", f"{url}/issues/{issue_id}.json", key,
+                        timeout=timeout, basic=_basic)
+    if code != 404:
+        return False, f"Redmine a accepté le DELETE mais l'issue répond encore (HTTP {code})"
+    return True, ""
+
+
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
-                        notes=None, timeout=20, creds=None):
-    """PUT générique sur une issue : custom_fields + estimated_hours + note.
+                        notes=None, subject=None, priority_id=None, timeout=20, creds=None):
+    """PUT générique sur une issue : custom_fields + estimated_hours + titre + priorité + note.
 
     `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
-    Redmine). `notes` : str optionnel (journalise le changement). N'envoie que les
+    Redmine). `notes` : str optionnel (journalise le changement). `subject` : le titre
+    du ticket (RM3242, `pm-task-rename`). `priority_id` : id de priorité
+    (RM3275, `pm-task-priority` — ids dans `redmine.reference.yml`). N'envoie que les
     attributs fournis. Retourne (ok: bool, err: str).
 
     ⚠ Piège permissions (cf. knowledge/redmine/api.md) : sans « Edit issues »,
@@ -532,6 +590,10 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
         issue["estimated_hours"] = estimated_hours
     if notes:
         issue["notes"] = notes
+    if subject:
+        issue["subject"] = subject
+    if priority_id is not None:
+        issue["priority_id"] = int(priority_id)
     if not issue:
         return True, ""
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,

@@ -45,6 +45,7 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # préservation de l'identité au backfill (RM2838)  # noqa: E402
+import pm_worktrees   # noqa: E402  RM3209 : chemin du dépôt partagé, garde per_user
 
 EXCLUDE_DIRS = {"repos", "envs", "tmp", "sessions", "logs", "data", ".mmi-pm",
                 ".mmi-pm-client", ".claude", "documents", "node_modules", "vendor"}
@@ -242,15 +243,30 @@ def snapshot(ctx, ws, no_snapshot) -> str | None:
 # ------------------------------------------------------------------- execute
 
 def make_bare(ctx, ws, code, basis):
-    """Transforme le .git du clone `basis` en bare repos/<code>.git."""
-    bare = ws / "repos" / f"{code}.git"
-    ctx.act(f"mv {basis['dir'].name}/.git → repos/{code}.git  (+ core.bare, gc.auto=0)")
-    if not ctx.dry:
-        (ws / "repos").mkdir(parents=True, exist_ok=True)
-        shutil.move(str(basis["dir"] / ".git"), str(bare))
-        git(["-C", str(bare), "config", "core.bare", "true"])
-        git(["-C", str(bare), "config", "--unset", "core.worktree"], check=False)
-        git(["-C", str(bare), "config", "gc.auto", "0"])
+    """Crée repos/<code>.git depuis `basis` SANS détruire le clone (RM3566, reprise)."""
+    bare = pm_worktrees.central_bare(ws, code)
+    if bare.exists() and (bare / "HEAD").exists():
+        # RM3566 — reprise après échec : ne JAMAIS re-mover un .git dans un bare existant.
+        ctx.skip(f"repos/{code}.git déjà présent — réutilisation (reprise)")
+        return bare
+    ctx.act(f"clone --bare {basis['dir'].name}/ → repos/{code}.git (non destructif)")
+    if ctx.dry:
+        return bare
+    (ws / "repos").mkdir(parents=True, exist_ok=True)
+    # `clone --bare` (local, objects hardlinkés) laisse le clone intact : si le rsync
+    # échoue plus loin, la relance retrouve le clone et reprend (RM3566).
+    run(["git", "clone", "--bare", "--quiet", str(basis["dir"]), str(bare)])
+    git(["-C", str(bare), "config", "gc.auto", "0"])
+    # clone --bare réécrit `origin` vers le chemin local : restaurer les URLs réelles.
+    _, out = git(["-C", str(basis["dir"]), "remote", "-v"], check=False, quiet=True)
+    pairs = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            pairs.setdefault(parts[0], parts[1])
+    for name, url in pairs.items():
+        git(["-C", str(bare), "remote", "remove", name], check=False, quiet=True)
+        git(["-C", str(bare), "remote", "add", name, url], check=False)
     return bare
 
 
@@ -264,6 +280,24 @@ def backup_clone_refs(ctx, bare, clone):
     git(["-C", str(bare), "remote", "add", f"_mig_{tag}", src], check=False)
     git(["-C", str(bare), "fetch", "--quiet", f"_mig_{tag}",
          f"+refs/heads/*:refs/mig/{tag}/*"], check=False, quiet=True)
+    # RM3566 — stashes : refs/stash ne porte que la PLUS RÉCENTE ; les précédentes ne
+    # vivent que dans le reflog. Sans cette sauvegarde, le rmtree du .git les détruit
+    # (incident 2026-10-27 : 160 stashes perdus sur 8 clones).
+    _, reflog = git(["-C", src, "reflog", "show", "refs/stash", "--format=%H"],
+                    check=False, quiet=True)
+    stash_shas = [l.strip() for l in reflog.splitlines() if l.strip()]
+    if stash_shas:
+        ctx.act(f"sauvegarde de {len(stash_shas)} stash(s) → refs/mig/{tag}/stash/*")
+        # fetch par SHA d'un commit non annoncé : upload-pack doit l'autoriser côté source.
+        git(["-C", src, "config", "uploadpack.allowAnySHA1InWant", "true"], check=False)
+        for i, sha in enumerate(stash_shas):
+            git(["-C", str(bare), "fetch", "--quiet", src, sha], check=False, quiet=True)
+            rc, _ = git(["-C", str(bare), "cat-file", "-e", sha], check=False, quiet=True)
+            if rc != 0:
+                ctx.warn(f"stash {sha[:10]} de {clone['dir'].name}/ non récupéré")
+                continue
+            git(["-C", str(bare), "update-ref", f"refs/mig/{tag}/stash/{i}", sha],
+                check=False)
     git(["-C", str(bare), "remote", "remove", f"_mig_{tag}"], check=False)
 
 
@@ -286,30 +320,39 @@ def adopt_worktree(ctx, ws, bare, code, clone):
     """Adopte le dossier de travail existant comme worktree, fichiers PRÉSERVÉS."""
     usage, branch = clone["usage"], clone["branch"]
     wt = ws / "envs" / f"{code}-{usage}"
-    premig = ws / "envs" / f"{code}-{usage}.premig"
     ctx.act(f"adopte {clone['dir'].name}/ → envs/{code}-{usage} "
             f"(worktree --no-checkout + rsync ; dirty/untracked/ignorés préservés)")
     if ctx.dry:
         return wt
     (ws / "envs").mkdir(parents=True, exist_ok=True)
-    # le clone secondaire garde son .git jusqu'ici (refs déjà sauvegardées) → on l'ôte
-    if (clone["dir"] / ".git").exists():
-        if (clone["dir"] / ".git").is_dir():
-            shutil.rmtree(clone["dir"] / ".git")
-        else:
-            (clone["dir"] / ".git").unlink()
-    shutil.move(str(clone["dir"]), str(premig))     # dossier de travail gitless, intact
-    # liaison git SANS écrire de fichier (--no-checkout laisse l'index VIDE)
-    git(["-C", str(bare), "worktree", "add", "--no-checkout", str(wt), branch])
-    # fichiers de travail réels (tracké-dirty + untracked + IGNORÉS/local)
-    run(["rsync", "-a", "--exclude=.git", f"{premig}/", f"{wt}/"])
+    src = clone["dir"]
+    # RM3566 — reprise : le worktree existe déjà (run interrompu au rsync).
+    if wt.exists() and (wt / ".git").exists():
+        ctx.act(f"reprend envs/{code}-{usage} — worktree déjà créé")
+    else:
+        # liaison git SANS écrire de fichier (--no-checkout laisse l'index VIDE)
+        git(["-C", str(bare), "worktree", "add", "--no-checkout", str(wt), branch])
+    # Fichiers de travail réels (tracké-dirty + untracked + IGNORÉS/local), copiés depuis
+    # le clone ORIGINAL : il n'est supprimé qu'après un rsync RÉUSSI, pour que l'échec
+    # (fichiers d'un autre user, ex. cache FPM en 0700) reste reprenable (RM3566).
+    rc, _ = run(["rsync", "-a", "--exclude=.git", f"{src}/", f"{wt}/"], check=False)
+    if rc != 0:
+        ctx.warn(f"rsync {src.name}/ → envs/{code}-{usage} incomplet (rc={rc}) — corrige "
+                 f"l'accès puis relance la migration : elle reprendra sur ce clone")
+        return None
     # peuple l'index depuis HEAD (mixed reset, working tree intact) : git reconnaît
     # alors les fichiers trackés → dirty = modifié, untracked = untracked, ignoré = ignoré.
     git(["-C", str(wt), "reset", "-q", "HEAD"])
-    # Le worktree est complet à ce stade ; le `.premig` n'est plus que du scratch.
-    # Son nettoyage est BEST-EFFORT (RM2031) : un échec (cache FPM d'un autre user)
-    # ne doit pas interrompre migrate_group avant backfill_manifest/rewrite_gitignore.
-    best_effort_rmtree(ctx, premig)
+    # Succès seulement : le clone source n'est plus nécessaire — et son .git n'est
+    # retiré qu'ICI, pour qu'un rsync en échec laisse un clone re-découvrable (RM3566).
+    # Nettoyage BEST-EFFORT (RM2031) : un résidu d'un autre propriétaire ne doit pas
+    # interrompre migrate_group.
+    if (src / ".git").exists():
+        if (src / ".git").is_dir():
+            shutil.rmtree(src / ".git")
+        else:
+            (src / ".git").unlink()
+    best_effort_rmtree(ctx, src)
     return wt
 
 
@@ -337,6 +380,10 @@ def backfill_manifest(ctx, ws, code, basis, bare):
     # effacerait à chaque migration.
     previous = next((r for r in repos if r.get("name") == code), None)
     entry = pm_repos.merge_entry(previous, entry)
+    # RM3566 — une reprise partielle peut n'avoir qu'un sous-ensemble de clones :
+    # ne pas écraser une branche d'intégration déjà déclarée (valeur humaine).
+    if previous and previous.get("integration_branch"):
+        entry["integration_branch"] = previous["integration_branch"]
     repos = [r for r in repos if r.get("name") != code] + [entry]
     data["repos"] = repos
     meta.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -344,9 +391,14 @@ def backfill_manifest(ctx, ws, code, basis, bare):
 
 def rewrite_gitignore(ctx, ws):
     gi = ws / ".gitignore"
-    if gi.is_file() and gi.read_text(encoding="utf-8") == GITIGNORE:
-        ctx.skip(".gitignore déjà au format norme")
-        return
+    required = ["/*", "!/.gitignore", "!/.mmi-pm/"]
+    if gi.is_file():
+        lines = [l.strip() for l in gi.read_text(encoding="utf-8").splitlines()]
+        if all(r in lines for r in required):
+            # RM3566 — déjà conforme : ne pas écraser les règles ajoutées à la main
+            # (bloc secrets RM3371, entrées locales…).
+            ctx.skip(".gitignore déjà conforme (règles supplémentaires conservées)")
+            return
     ctx.act("réécrit .gitignore (format nouveau norme)")
     if not ctx.dry:
         gi.write_text(GITIGNORE, encoding="utf-8")
@@ -358,7 +410,8 @@ def migrate_group(ctx, ws, code, clones):
     basis = next((c for c in clones if c["branch"] in ("dev", "develop")), clones[0])
     others = [c for c in clones if c is not basis]
     bare = make_bare(ctx, ws, code, basis)
-    for c in others:
+    # refs + STASHES de TOUS les clones, basis inclus (clone --bare ne copie pas refs/stash).
+    for c in clones:
         backup_clone_refs(ctx, bare, c)
         reconcile_branch(ctx, bare, c["branch"], c["head"], c["usage"])
     # adoption des worktrees (basis d'abord)
@@ -374,7 +427,7 @@ def verify(ctx, ws, groups):
     print("\n— VERIFY —")
     ok = True
     for code in groups:
-        bare = ws / "repos" / f"{code}.git"
+        bare = pm_worktrees.central_bare(ws, code)
         if not bare.exists():
             ctx.warn(f"repos/{code}.git absent après migration"); ok = False; continue
         rc, out = git(["-C", str(bare), "fsck", "--no-progress", "--no-dangling"],
@@ -493,6 +546,9 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
+    if pm_worktrees.read_layout().source == "per_user":
+        die("git.worktree_source=per_user : cet outil adopte des clones dans un dépôt CENTRAL. Pour "
+            "déplacer des envs existants vers le dépôt de chaque dev : `mmi-pm env-relocate --plan <fichier>`.")
     root, groups = discover(ws)
 
     print("=== PLAN ===")

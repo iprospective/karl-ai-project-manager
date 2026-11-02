@@ -185,6 +185,16 @@ git:
   # courante est protégée (RM2030), pm_git pousse HEAD:<integration_branch> au
   # lieu de différer indéfiniment ; promotion par lot via pm-promote.py.
   integration_branch: dev
+  # RM3209 — d'où partent les worktrees, où vont les envs. Réglages d'INSTANCE, réservés à l'admin : ils se lisent
+  # ici et dans pm.config.local.yml (qui prime), jamais dans l'environnement. Résolveur : scripts/pm_worktrees.py.
+  #   worktree_source : central  → dépôt partagé <workspace>/repos/<repo>.git
+  #                     per_user → le dépôt de chaque dev, <dossier des dépôts>/<repo> ; le dossier se règle PAR
+  #                                UTILISATEUR (PM_REPOS_DIR dans var/users/<user>/.env, défaut ~/repos)
+  #   envs_layout     : project  → <workspace>/envs/<env>
+  #                     user     → <workspace>/envs/<utilisateur>/<env>
+  # Déplacer des envs existants vers la disposition retenue : mmi-pm env-relocate --plan <fichier>.
+  worktree_source: central
+  envs_layout: project
 
 # ── Runtime des envs de workspace (RM1834 / RM1947 F1) ─────────────────────
 # Ops privilégiées (vhost Apache, BDD, purge logs) déléguées au helper
@@ -222,6 +232,14 @@ context:
     # plafond garde ~20 % de marge — assez pour écrire une règle sans tout
     # rejouer, trop peu pour laisser la dérive s'installer sans qu'on la voie.
     default: 29000
+    # RM3238 — dette ASSUMÉE (arbitrage Mathieu, 2026-09-18) : « je préfère que les directives
+    # soient enregistrées correctement ». La règle « pas de MEP prod avec une question non
+    # tranchée » vit en entier dans git-mep (préchargé), pas en renvoi d'une ligne : worker-infra
+    # passe ~29,1k. Plafond relevé pour CE rôle seulement ; résorption par dégraissage : RM3035.
+    worker-infra: 30000
+    # Même arbitrage, une fois RM3228 (statut etude_chiffrage_a_corriger) et RM3238 combinés sur dev :
+    # worker-dev précharge les deux règles et passe ~29,0k. Résorption : RM3035.
+    worker-dev: 30000
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
 # ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────
@@ -236,7 +254,7 @@ context:
 #   servers.<nom> : une instance déclarée — { axis, type, url, <options…> }
 #                   AUCUN secret ici (URLs + type seulement) ; les identifiants
 #                   sont résolus par instance/dev (P4/RM2546 ; pour l'axe secret :
-#                   SECRET__<slug>__* dans ~/.config/mmi-pm/.env). url accepte
+#                   SECRET__<slug>__* dans var/users/<user>/.env). url accepte
 #                   l'interpolation ${VAR} / ${VAR:-defaut} (comme roots).
 #   defaults.<axe>: instance retenue quand ni le projet ni le client ne surchargent.
 #
@@ -253,7 +271,7 @@ context:
 #          link: {policy: required}, sync: {pull: {notes: true}}}
 #
 # Clés API par instance (jamais ici) : REDMINE__<INSTANCE>__API_KEY dans
-# ~/.config/mmi-pm/.env — repli sur les clés globales si l'instance déclarée EST
+# var/users/<user>/.env — repli sur les clés globales si l'instance déclarée EST
 # l'instance de travail.
 #
 # Résolution : scripts/pm_registry.py :: resolve_instances(project_meta, axis,
@@ -261,20 +279,27 @@ context:
 # primaire en tête. resolve_instance(…) = le primaire seul.
 providers:
   # axes: [monitoring]        # exemple : activer un axe supplémentaire
+  # erp (RM2891) : la facturation. Dolibarr y est un provider comme Redmine pour les
+  # tickets : un client qui a le sien pourra un jour le désigner, sans toucher au code.
+  axes: [erp]
   defaults:
     task:   redmine-ipro
     forge:  gitlab-ipro
     doc:    redmine-wiki
     secret: vw-ipro
     llm:    lemonade-strix        # RM3067 : le modèle de travail de karl — local d'abord
+    erp:    dolibarr-ipro         # RM2891 : factures, tiers, tarifs
   servers:
+    # — axe erp (RM2891). Secret : DOLIBARR__DOLIBARR_IPRO__API_KEY, posé par
+    #   `pm-provider-secret --instance dolibarr-ipro --key API_KEY` (valeur sur stdin).
+    dolibarr-ipro:  { axis: erp, type: dolibarr, url: "${DOLIBARR_URL:-https://erp.iprospective.fr}" }
     # — axe llm (RM3067) : les modèles que karl appelle pour un travail MACHINE (tri des tours d'un
     #   transcript, classification, résumé) — à ne pas confondre avec le modèle qui tient la session.
     #   Local d'abord : les transcripts portent le travail des clients, ils n'ont pas à sortir de la
     #   machine, et une passe ne coûte alors rien. Le cloud reste déclarable, en repli.
     #   `type` : lemonade | ollama | openai (tout serveur à l'API OpenAI : vLLM, LM Studio, llama.cpp)
     #            | anthropic (API) | claude-cli (`claude -p`, refacture son prompt système à chaque appel).
-    #   Clé éventuelle par instance : LLM__<INSTANCE>__API_KEY dans ~/.config/mmi-pm/.env, jamais ici.
+    #   Clé éventuelle par instance : LLM__<INSTANCE>__API_KEY dans var/users/<user>/.env, jamais ici.
     lemonade-strix: { axis: llm, type: lemonade, url: "${LEMONADE_URL:-http://strix.lan:8000/api/v1}",
                       model: qwen3-8b, note: "Ryzen AI (Strix Halo), API OpenAI" }
     ollama-strix:   { axis: llm, type: ollama,   url: "${OLLAMA_HOST:-http://strix.lan:11434}",
@@ -389,3 +414,22 @@ engines:
     # Arguments libres, ajoutés tels quels après les options cochées. Ce que PM pose
     # lui-même (--model, --session-id, --resume) y est REFUSÉ : ce serait un doublon.
     extra_args: ""
+
+# Point de restauration pré-MEP (RM2989, tripwire #10) — consommé par pm-snapshot.
+# PM ne touche aucun hôte : le snapshot est pris par atlas (ops svc-status /
+# svc-snapshot, RM3254) via le canal orchestrateur. Les nœuds sont tous interrogés ;
+# il faut exactement UNE instance up, sinon rien n'est exécuté.
+snapshot:
+  nodes: [srv3, srv4, srv5]
+  rid: "sync#root_hour"
+  atlas_orch_host: "atlas-orch@atlas.iprospective.net"
+  atlas_orch_key: "~/.ssh/id_ed25519_karl"
+
+# Filtres Sieve par ManageSieve (RM3171) — consommé par pm-sieve. Identifiants lus
+# du vault (jamais en argv/environ/sortie). Sauvegardes : <state_dir>/sieve-backups/.
+sieve:
+  host: mail.iprospective.net
+  port: 4190
+  account: karl@iprospective.fr          # boîte par défaut
+  accounts:                              # boîte → item Vaultwarden (mêmes identifiants que l'IMAP)
+    karl@iprospective.fr: "vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net"

@@ -176,6 +176,96 @@ def iter_tasks(cfg, project=None, with_think=True):
             yield ent, proj, f, (rm, st, ty, title, body)
 
 
+# ── RM3248 : antériorité à la CRÉATION ──────────────────────────────────────
+# Le tripwire #19 demandait à l'agent de chercher avant de créer ; RM3247 a été créé sans,
+# juste après une compaction. Une règle qu'il faut se rappeler d'appliquer au moment où
+# l'on crée est oubliée au moment où l'on crée : `pm-task-add` appelle donc ce moteur
+# lui-même. Le critère vit ICI, une fois (même logique que D023) ; pm-task-add l'importe.
+
+#: Mots vides : deux titres partagent toujours « de », « la », « pour »… Les garder ferait
+#: passer n'importe quelle paire de titres pour voisine.
+STOPWORDS = frozenset("""le la les de des du un une et ou en au aux pour par sur sous dans
+avec sans qui que quoi ne pas plus ce cet cette ces son sa ses leur leurs est sont etre
+faire fait il elle on se si mais car donc""".split())
+
+#: Part des termes du NOUVEAU titre retrouvés dans un titre existant, au-delà de laquelle
+#: la correspondance est « forte ». Calibré sur l'arbre réel (cf. test) : assez haut pour ne
+#: pas arrêter deux tickets qui partagent un sujet, assez bas pour qu'un titre reformulé
+#: soit reconnu.
+SEUIL_FORT = 0.8
+#: En dessous, un titre est trop court pour conclure : « Bug panier » recoupe tout.
+MIN_TERMES_FORT = 3
+
+
+_RX_DATE = re.compile(r"\b(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b")
+
+
+def signifiants(titre):
+    """Termes signifiants d'un titre, dédoublonnés, sans mots vides ni NOMBRES. Pure.
+
+    Les nombres sautent : une date (« 02/06/2026 ») se découpe en trois « termes » que
+    toutes les réunions d'un même mois partagent, et qui gonflaient le recouvrement."""
+    return [t for t in dict.fromkeys(tokenize(titre)) if t not in STOPWORDS and not t.isdigit()]
+
+
+def dates(titre):
+    """Dates écrites dans un titre, normalisées en chaîne. Pure."""
+    return {re.sub(r"[.-]", "/", d) for d in _RX_DATE.findall(str(titre or ""))}
+
+
+def title_overlap(nouveau, existant):
+    """Part (0..1) des termes signifiants du NOUVEAU titre présents, en début de mot, dans
+    l'existant. Asymétrique à dessein : un titre court entièrement contenu dans un titre
+    long est bien une antériorité ; l'inverse, rarement. Pure."""
+    termes = signifiants(nouveau)
+    if not termes:
+        return 0.0
+    fe = fold(existant)
+    return sum(1 for t in termes if term_rx(t).search(fe)) / len(termes)
+
+
+def prior_art(titre, tickets, project=None, seuil=SEUIL_FORT, limit=5):
+    """Antériorités d'un titre qu'on s'apprête à créer. Pure.
+
+    `tickets` : itérable de dicts {rm_id, status, title, project}.
+    Rend (fortes, voisines), chacune triée par recouvrement décroissant :
+      · fortes   : MÊME projet ET recouvrement ≥ seuil, sur un titre assez long pour
+                   conclure — c'est ce qui justifie d'arrêter la création ;
+      · voisines : tout le reste qui recoupe au moins la moitié des termes, tous projets —
+                   affiché, jamais bloquant. Hors projet, un titre voisin (« mettre à jour
+                   PrestaShop » chez deux clients) est rarement un doublon : bloquer
+                   là-dessus ferait contourner la garde.
+    """
+    assez_long = len(signifiants(titre)) >= MIN_TERMES_FORT
+    fortes, voisines = [], []
+    d_nouveau = dates(titre)
+    for t in tickets:
+        r = title_overlap(titre, t.get("title") or "")
+        if r <= 0:
+            continue
+        # Deux titres datés à des dates différentes sont deux OCCURRENCES (réunion du 2 juin,
+        # réunion du 9 juin), pas un doublon. Calibration : c'était la première source de
+        # faux positifs sur l'arbre réel.
+        d_autre = dates(t.get("title"))
+        if d_nouveau and d_autre and d_nouveau != d_autre:
+            continue
+        item = dict(t, overlap=round(r, 2))
+        if assez_long and r >= seuil and (project is None or t.get("project") == project):
+            fortes.append(item)
+        elif r >= 0.5:
+            voisines.append(item)
+    cle = lambda x: (-x["overlap"], -int(x.get("rm_id") or 0))  # noqa: E731
+    return sorted(fortes, key=cle), sorted(voisines, key=cle)[:limit]
+
+
+def prior_art_cfg(cfg, titre, project=None, **kw):
+    """`prior_art` sur l'arbre de tickets réel (titres seuls : c'est la création d'un
+    DOUBLON qu'on arrête, pas la mention d'un sujet dans un corps)."""
+    tickets = ({"rm_id": rm, "status": st, "title": title, "project": f"{ent}/{proj}"}
+               for ent, proj, _p, (rm, st, _ty, title, _b) in iter_tasks(cfg, None, False))
+    return prior_art(titre, tickets, project=project, **kw)
+
+
 def search(cfg, query, limit=8, project=None, types=(), open_only=False,
            with_think=True, width=120):
     """Résultats classés. `limit=0` = tout."""

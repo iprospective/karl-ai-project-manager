@@ -78,7 +78,39 @@ html[data-layout="mobile"] {
   .mnav-btn.active { color: var(--accent); background: var(--bg); border-color: var(--line); font-weight: 600; }
   .mnav-btn .nbadge { position: absolute; top: 2px; right: 10px; }
   .foot { display: none; }
+
+  /* RM3270, généralisé RM3418 — les BARRES au doigt (celle du haut, celle de la session) :
+     icônes seules, une SEULE ligne, et les secondaires sous « … » (révélées en dessous).
+     L'ordre vient de la conf d'instance, appliqué en `order` par le contrôleur. */
+  #hdrmore, #sessmore { display: inline-flex; flex: none; }   /* jamais écrasés : c'est la porte vers le reste */
+  header, .tabactions { flex-wrap: nowrap; overflow: hidden; }       /* une ligne, pas de retour */
+  header { gap: 4px; }
+  header .bar-extra, .tabactions .bar-extra { display: none; }
+  header .bar-hidden, .tabactions .bar-hidden { display: none !important; }
+  /* « … » : la barre s'autorise une seconde ligne le temps qu'on y pioche */
+  header.bar-more, .tabactions.bar-more { flex-wrap: wrap; overflow: visible; }
+  header.bar-more .bar-extra, .tabactions.bar-more .bar-extra { display: inline-flex; }
+  header button { max-width: none; }
+  header .lock { font-size: 11px; white-space: nowrap; }
+
+  /* RM3270 — le second formulaire sous le terminal : masqué par défaut en mobile (option). */
+  &[data-mcomposer="0"] #composer { display: none !important; }
 }
+/* RM3270 — PLEIN ÉCRAN (mobile) : le clavier mange déjà la moitié de l'écran, on rend le reste au
+   centre. La barre du bas RESTE : c'est elle qui porte la bascule pour en sortir. */
+html[data-layout="mobile"][data-mfull="1"] {
+  header { display: none; }
+  main[data-mpage="center"] .left, main[data-mpage="center"] .rpanel { display: none; }
+  /* … et tout ce qui entoure le terminal : les onglets et la barre d'options du haut
+     (.tabbar contient les deux), les réponses possibles du bas (commit+push…). On vient
+     ici pour LE TERMINAL ; le reste se retrouve d'un appui sur ↙. */
+  .tabbar { display: none; }
+  #chipsrow { display: none !important; }   /* son display est posé EN LIGNE par le JS : sans !important, la règle perd */
+  .mnav { padding-top: 2px; padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px)); }
+  .mnav-btn .mnav-lbl { display: none; }          /* en plein écran, la barre du bas se fait discrète */
+  .mnav-btn .mnav-ico { font-size: 15px; }
+}
+#hdrmore, #sessmore { display: none; }             /* au bureau, tout tient déjà sur la ligne */
 
 // RM3051 — split de la zone centrale (option) : le ticket/document occupe une hauteur
 // réglée à la poignée, la session garde le reste. Sans split, `#reviewpane` reste en

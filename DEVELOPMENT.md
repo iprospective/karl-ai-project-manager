@@ -30,6 +30,10 @@ onboarding agent), voir d'abord [README.md](README.md).
   `core-update` demande sudo lui-même ; RM3033 — `bin/mmi-pm` n'est plus qu'une coquille) et un helper
   confiné `pm-env-helper` (NOPASSWD ciblé). Détail : `docs/cdc/*privsep*`,
   `docs/cdc/*mmi-pm-cli*`.
+- **Parité CLI ↔ cockpit (RM3208).** Une route du cockpit qui **modifie l'état** ne porte pas la logique :
+  elle lance un script `pm-*` ou appelle un module `pm_*` que le CLI utilise aussi (`pm_accounts` pour les
+  comptes, `pm_batch` pour les lots, `pm_notify`…). `scripts/test_cockpit_cli_parity.py` le vérifie sur le
+  dispatch réel ; une exception s'y ajoute **nommément**, avec sa raison ou le ticket qui la traitera.
 - **Cockpit / karl-agent.** Le service HTTP (loopback) est `scripts/karl-agent.py` ;
   `deploy/karl-agent/` porte l'UI `cockpit/` (servie **en même origine**), le vhost
   Apache HTTPS et les units systemd. Depuis la 3.0.0 (RM2889) le front est en
@@ -72,6 +76,10 @@ onboarding agent), voir d'abord [README.md](README.md).
   (`test_karl_agent_vault.py`) ne vérifie pas que « ça marche » mais **où le secret
   n'est pas** : il fait tracer argv, environnement et entrée standard par un faux
   `unlock-vault.sh`.
+- **Source des worktrees (RM3209).** Aucun outil ne construit plus `repos/<repo>.git` ni `envs/<env>` à la
+  main : `scripts/pm_worktrees.py` résout le dépôt source (`central` ou `per_user`, dossier des dépôts de
+  l'utilisateur) et la racine des envs (`project` ou `user`) à partir de `git.worktree_source` /
+  `git.envs_layout`. Envs existants à déplacer : `pm-env-relocate`.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

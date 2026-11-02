@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 1c36905efc987107 (38 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5e66539e3c0ee005 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -600,6 +600,38 @@ details.card[open] > summary::before {
   border-color: var(--danger);
 }
 
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82em;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.activity[hidden] {
+  display: none;
+}
+
+.activity-spin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(127, 127, 127, 0.4));
+  border-top-color: var(--accent);
+  animation: activity-turn 0.7s linear infinite;
+}
+
+@keyframes activity-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-spin {
+    animation: none;
+    border-top-color: var(--accent);
+  }
+}
 .e-entity {
   color: var(--fg);
 }
@@ -758,6 +790,12 @@ details.card[open] > summary::before {
 .e-full .e-sec-body pre {
   white-space: pre-wrap;
   margin: 0;
+}
+
+.e-sec .e-src {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 
 /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
@@ -1064,7 +1102,89 @@ html[data-layout=mobile] .mnav-btn .nbadge {
 html[data-layout=mobile] .foot {
   display: none;
 }
+html[data-layout=mobile] {
+  /* RM3270, généralisé RM3418 — les BARRES au doigt (celle du haut, celle de la session) :
+     icônes seules, une SEULE ligne, et les secondaires sous « … » (révélées en dessous).
+     L'ordre vient de la conf d'instance, appliqué en `order` par le contrôleur. */
+}
+html[data-layout=mobile] #hdrmore, html[data-layout=mobile] #sessmore {
+  display: inline-flex;
+  flex: none;
+}
+html[data-layout=mobile] { /* jamais écrasés : c'est la porte vers le reste */ }
+html[data-layout=mobile] header, html[data-layout=mobile] .tabactions {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+html[data-layout=mobile] { /* une ligne, pas de retour */ }
+html[data-layout=mobile] header {
+  gap: 4px;
+}
+html[data-layout=mobile] header .bar-extra, html[data-layout=mobile] .tabactions .bar-extra {
+  display: none;
+}
+html[data-layout=mobile] header .bar-hidden, html[data-layout=mobile] .tabactions .bar-hidden {
+  display: none !important;
+}
+html[data-layout=mobile] {
+  /* « … » : la barre s'autorise une seconde ligne le temps qu'on y pioche */
+}
+html[data-layout=mobile] header.bar-more, html[data-layout=mobile] .tabactions.bar-more {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+html[data-layout=mobile] header.bar-more .bar-extra, html[data-layout=mobile] .tabactions.bar-more .bar-extra {
+  display: inline-flex;
+}
+html[data-layout=mobile] header button {
+  max-width: none;
+}
+html[data-layout=mobile] header .lock {
+  font-size: 11px;
+  white-space: nowrap;
+}
+html[data-layout=mobile] {
+  /* RM3270 — le second formulaire sous le terminal : masqué par défaut en mobile (option). */
+}
+html[data-layout=mobile][data-mcomposer="0"] #composer {
+  display: none !important;
+}
 
+/* RM3270 — PLEIN ÉCRAN (mobile) : le clavier mange déjà la moitié de l'écran, on rend le reste au
+   centre. La barre du bas RESTE : c'est elle qui porte la bascule pour en sortir. */
+html[data-layout=mobile][data-mfull="1"] header {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] main[data-mpage=center] .left, html[data-layout=mobile][data-mfull="1"] main[data-mpage=center] .rpanel {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] {
+  /* … et tout ce qui entoure le terminal : les onglets et la barre d'options du haut
+     (.tabbar contient les deux), les réponses possibles du bas (commit+push…). On vient
+     ici pour LE TERMINAL ; le reste se retrouve d'un appui sur ↙. */
+}
+html[data-layout=mobile][data-mfull="1"] .tabbar {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] #chipsrow {
+  display: none !important;
+}
+html[data-layout=mobile][data-mfull="1"] { /* son display est posé EN LIGNE par le JS : sans !important, la règle perd */ }
+html[data-layout=mobile][data-mfull="1"] .mnav {
+  padding-top: 2px;
+  padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+}
+html[data-layout=mobile][data-mfull="1"] .mnav-btn .mnav-lbl {
+  display: none;
+}
+html[data-layout=mobile][data-mfull="1"] { /* en plein écran, la barre du bas se fait discrète */ }
+html[data-layout=mobile][data-mfull="1"] .mnav-btn .mnav-ico {
+  font-size: 15px;
+}
+
+#hdrmore, #sessmore {
+  display: none;
+} /* au bureau, tout tient déjà sur la ligne */
 #reviewpane.split {
   flex: 0 0 var(--reviewpane-h, 300px);
 }
@@ -1285,7 +1405,7 @@ html[data-layout=mobile] .foot {
 }
 
 /* les autres prennent la hauteur d'une ligne de titre et s'y centrent */
-.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes,
+.runitem > .tid, .runitem > .tbadge, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact,
 .runitem > .tquiet, .runitem > .helpq, .runitem > .pinmark {
   min-height: var(--tline);
   display: inline-flex;
@@ -1299,7 +1419,7 @@ html[data-layout=mobile] .foot {
   order: 1;
 }
 
-.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .helpq {
+.runitem > .tquiet, .runitem > .tkill, .runitem > .tyes, .runitem > .tcompact, .runitem > .helpq {
   order: 2;
 }
 
@@ -1375,6 +1495,28 @@ html[data-layout=mobile] .foot {
 
 .tyes:hover {
   background: var(--ok-soft);
+}
+
+/* RM3249 : « compacter » — au palier critique du contexte ; éteint tant que la session n'est pas au repos */
+.tcompact {
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px;
+  padding: 2px 4px;
+  flex: none;
+}
+
+.tcompact:hover {
+  background: var(--danger-soft);
+}
+
+.tcompact.off {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tcompact.off:hover {
+  background: none;
 }
 
 /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
@@ -1518,6 +1660,79 @@ html[data-layout=mobile] .foot {
   font-size: 9.5px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+@keyframes unseenpulse {
+  0%, 100% {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    background: transparent;
+    border-color: var(--line);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+}
+.runitem.unseen {
+  animation: unseenpulse 2.4s ease-in-out infinite;
+}
+
+.runitem.unseen:hover {
+  animation-play-state: paused;
+}
+
+.gunseen {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pill.unseen {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.nbadge.unseen {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runitem.unseen {
+    animation: none;
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+}
+/* RM3302 : les compteurs deviennent des filtres. La pastille active est ENFONCÉE (fond plein),
+   pas seulement colorée : la couleur seule ne distingue rien pour qui ne la voit pas. */
+.hcnt .pill.filt {
+  cursor: pointer;
+}
+
+.hcnt .pill.filt:hover {
+  border-color: var(--accent);
+}
+
+.hcnt .pill.filt.on {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.hcnt .pill.ghostpill {
+  opacity: 0.6;
+}
+
+.hcnt .pill.choice {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.filtbanner .mini {
+  margin-left: 4px;
 }
 
 /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
@@ -2700,6 +2915,24 @@ iframe {
   overflow: hidden;
 }
 
+ol.crit {
+  margin: 0;
+  padding-left: 22px;
+}
+
+ol.crit li {
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+ol.crit li.done {
+  color: var(--muted);
+}
+
+ol.crit .cbox {
+  font-family: var(--mono);
+}
+
 /* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable
    (l'épingle se retire depuis l'onglet, seul endroit où le geste existe) */
 .pinmark {
@@ -2772,6 +3005,10 @@ iframe {
 }
 
 /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+/* RM3418 : les onglets défilent horizontalement, comme ceux d'un navigateur. `min-width: 0`
+   est ce qui le rend possible : sans lui, un élément flex refuse de rétrécir sous son
+   contenu (min-width:auto), la barre s'élargit avec les onglets et rien ne défile jamais.
+   `overscroll-behavior-x: contain` évite que le geste parte en navigation arrière. */
 .ctabs {
   display: flex;
   gap: 2px;
@@ -2779,6 +3016,12 @@ iframe {
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: thin;
+  min-width: 0;
+  overscroll-behavior-x: contain;
+}
+
+.tabbar {
+  overflow: hidden;
 }
 
 .ctab {
@@ -2972,6 +3215,37 @@ iframe {
   margin-left: 0;
 }
 
+/* RM3418 — un BLOC par groupe : le titre et ses chips se tiennent ensemble, au lieu d'une
+   rangée continue où « Dev » et « Session » se confondaient. Les chips sorties de la ligne
+   (conf d'instance, mobile) attendent sous « … ». */
+.cblock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 0;
+  border-right: 1px solid var(--line);
+}
+
+.cblock:last-of-type {
+  border-right: 0;
+}
+
+.chipsrow .cblock .cgroup {
+  margin-left: 0;
+}
+
+html[data-layout=mobile] .chipsrow .chip.bar-extra {
+  display: none;
+}
+
+html[data-layout=mobile] .chipsrow.bar-more {
+  flex-wrap: wrap;
+}
+
+html[data-layout=mobile] .chipsrow.bar-more .chip.bar-extra {
+  display: inline-flex;
+}
+
 /* RM2721 : « ⬆ MAJ dispo » (RM2571) est une info rare et actionnable, mais elle
    apparaissait comme un `.mini` de plus dans une rangée de six — donc invisible.
    Deux niveaux, cumulés : la couleur --warn le distingue en PERMANENCE (capture
@@ -3070,6 +3344,14 @@ iframe {
   flex: 1;
 }
 
+/* RM3620 : date-heure complète du message déplié */
+.oexpbar .oexpts {
+  font-size: 10.5px;
+  color: var(--muted);
+  align-self: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .oexptxt {
   padding: 7px 9px;
   max-height: 45vh;
@@ -3151,6 +3433,13 @@ iframe {
 .oline.oans {
   color: var(--ok);
   border-left-color: var(--ok);
+}
+
+/* RM3620 : compaction de la conversation — marqueur discret, horodaté */
+.oline.ocompact {
+  color: var(--muted);
+  font-style: italic;
+  border-left: 3px dotted var(--muted);
 }
 
 .oline .otag {
@@ -3496,6 +3785,14 @@ iframe {
 /* RM3089 — les gestes d'une entrée de réflexion, sur la fiche d'un ticket : discrets, ils
    n'apparaissent qu'au survol et seulement sur les entrées OUVERTES (trancher une question déjà
    tranchée n'a pas de sens). */
+/* RM3262 : la signature d'une entrée — présente, lisible, mais jamais au premier plan : c'est le
+   texte de l'entrée qu'on lit, la date et l'auteur ne servent qu'à la situer. */
+.thk-sig {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .thk-acts {
   opacity: 0;
   transition: opacity 0.12s ease;
@@ -4187,6 +4484,23 @@ h2 .hspot, summary .hspot {
   color: var(--muted);
 }
 
+/* RM3306 : le filtre « sans ticket ». Discret tant que rien n'est à faire (ce sont des traces),
+   il se met en avant dès qu'une fonctionnalité non ticketée reste à faire — c'est elle qui
+   n'apparaît dans aucune liste de travail. */
+.cdc-noticket {
+  margin-left: 6px;
+}
+
+.cdc-noticket b {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.cdc-noticket.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .cdc-hint {
   font-size: 11px;
   color: var(--muted);
@@ -4579,6 +4893,18 @@ button.mini.soft:hover {
 
 .pv-merr {
   color: var(--bad, #d66);
+  font-size: 12px;
+}
+
+.pv-secret .st.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.pv-unknown {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--warn);
   font-size: 12px;
 }
 
@@ -4985,6 +5311,101 @@ button.mini.soft:hover {
   animation: kblink 1s ease-in-out infinite;
 }
 
+/* RM3206 — le contexte d'une notification : d'où elle vient, de quoi elle parle. Discret par
+   construction : il situe, il ne doit pas concurrencer le message lui-même. */
+.feed-job {
+  margin-left: 4px;
+  opacity: 0.65;
+  font-size: 0.85em;
+}
+
+.feed-job::before {
+  content: "/";
+  margin-right: 3px;
+  opacity: 0.5;
+}
+
+.feed-mes {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.14);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-rep i {
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.feed-ou, .feed-sid {
+  margin-left: 5px;
+  opacity: 0.7;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.feed-sid {
+  font-variant-numeric: tabular-nums;
+}
+
+/* RM3177 — la liste des invariants rouges du doctor : discrète, mais lisible d'un coup d'œil */
+.feed-inv {
+  margin-left: 5px;
+  opacity: 0.8;
+  font-size: 0.85em;
+}
+
+#mailbtn .mail-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+/* Courrier neuf : ça se voit, sans crier — clignotement lent, couleur d'accent. */
+#mailbtn.has-new {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: kblink 2s ease-in-out infinite;
+}
+
+/* Envoi rejeté : l'alerte prime sur tout, comme un « critical » du fil. */
+#mailbtn.has-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+#mailbtn.has-critical {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: kblink 1s ease-in-out infinite;
+}
+
+.mail-bounces {
+  margin: 6px 0 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.mail-bounces ul {
+  margin: 4px 0 4px 16px;
+  padding: 0;
+  color: var(--fg);
+}
+
+.mail-bounces li {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.mail-bounces-aide {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .mdl-list {
   display: flex;
   flex-direction: column;
@@ -5122,6 +5543,52 @@ button.mini.soft:hover {
 
 .mdl-ecart {
   margin-top: 12px;
+}
+
+/* RM3145 L1 — les gestes, et la confirmation forte du forçage */
+.mdl-gestes {
+  margin: 6px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.mdl-nat {
+  font-size: 0.8em;
+  opacity: 0.6;
+  padding: 0 5px;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 3px;
+}
+
+.mdl-refus {
+  flex-basis: 100%;
+  color: var(--due, #c33);
+}
+
+.mdl-confirm {
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--due, #c33);
+  border-radius: 4px;
+}
+
+.mdl-confirm > div {
+  margin: 6px 0;
+}
+
+.mdl-confirm-in {
+  font-family: monospace;
+}
+
+.mdl-policy {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0 8px;
+  font-size: 0.9em;
 }
 
 .cn-head {
@@ -5311,4 +5778,1105 @@ button.mini.soft:hover {
 
 .cn-dem input[disabled] + * {
   opacity: 0.5;
+}
+
+.bl-sub {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+.bl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.bl-date {
+  width: auto;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.bl-title {
+  font-weight: 600;
+  color: var(--fg-strong);
+  margin-left: 4px;
+}
+
+.bl-we {
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.bl-state {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.bl-validee {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.bl-a_valider {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bl-manuelle {
+  color: var(--muted);
+}
+
+.bl-vide {
+  color: var(--muted);
+}
+
+.bl-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bl-num {
+  flex: 1 1 120px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel2);
+}
+
+.bl-num b {
+  display: block;
+  font-size: 17px;
+  color: var(--fg-strong);
+}
+
+.bl-num span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bl-n-propose b {
+  color: var(--accent);
+}
+
+.bl-n-ia b {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.bl-frise {
+  position: relative;
+  margin: 6px 0 14px;
+  padding: 14px 18px 0 46px;
+}
+
+.bl-ruler {
+  position: relative;
+  height: 12px;
+}
+
+.bl-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.bl-tick i {
+  display: block;
+  width: 1px;
+  height: 4px;
+  margin: 0 auto 1px;
+  background: var(--line);
+}
+
+.bl-lane {
+  position: relative;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.bl-lane-label {
+  position: absolute;
+  left: -44px;
+  top: 3px;
+  width: 40px;
+  text-align: right;
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
+.bl-normal {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--warn-soft);
+  border-left: 1px solid var(--warn);
+  border-right: 1px solid var(--warn);
+}
+
+.bl-seg {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.bl-seg:hover {
+  opacity: 1;
+}
+
+.bl-lane-ia {
+  height: 14px;
+}
+
+.bl-ia {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ok);
+  border-radius: 1px;
+}
+
+.bl-adj {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.bl-adj label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.bl-adj input {
+  width: auto;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.bl-h {
+  width: 6.5em;
+}
+
+.bl-p {
+  width: 4em;
+}
+
+.bl-c {
+  width: 8em;
+}
+
+.bl-worked {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.bl-src {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-hors {
+  flex-basis: 100%;
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.bl-ctx {
+  font-size: 11.5px;
+  color: var(--fg);
+  margin-bottom: 10px;
+}
+
+.bl-tr b {
+  color: var(--fg-strong);
+}
+
+.bl-dim {
+  color: var(--muted);
+}
+
+.bl-warn {
+  color: var(--warn);
+  margin-top: 3px;
+}
+
+.bl-rg {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.bl-rg span {
+  margin-right: 10px;
+}
+
+.bl-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bl-grp {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bl-grp-h {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.bl-grp-h b {
+  color: var(--accent);
+}
+
+.bl-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bl-line:last-child {
+  border-bottom: 0;
+}
+
+.bl-prj {
+  flex: 0 0 11em;
+  color: var(--fg);
+}
+
+.bl-rm {
+  flex: 0 0 5em;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bl-rm.bl-none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.bl-min {
+  flex: 0 0 4.5em;
+  text-align: right;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.bl-tool {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-lib {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.bl-deja {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.bl-deja summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-empty, .bl-load, .bl-err {
+  padding: 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bl-err {
+  color: var(--danger);
+}
+
+.bl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.bl-apply[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bl-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-revoke {
+  color: var(--warn);
+  border-color: var(--warn);
+  margin-left: auto;
+}
+
+.bl-orig {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.bl-o-auto {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.bl-ev {
+  margin-top: 10px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.bl-ev > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-evl {
+  max-height: 42vh;
+  overflow-y: auto;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.bl-evr {
+  display: flex;
+  gap: 8px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.bl-evr:hover {
+  background: var(--panel2);
+}
+
+.bl-ag {
+  opacity: 0.62;
+}
+
+.bl-eh {
+  flex: 0 0 4.4em;
+  color: var(--muted);
+}
+
+.bl-es {
+  flex: 0 0 7em;
+  color: var(--accent);
+}
+
+.bl-ed {
+  flex: 0 0 11em;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-ec {
+  flex: 0 0 13em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-ex {
+  flex: 1 1 30%;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bl-sha {
+  flex: 0 0 5em;
+  color: var(--muted);
+}
+
+.bl-sub2 {
+  margin-top: 4px;
+}
+
+.bl-sub2 > summary {
+  color: var(--muted);
+  cursor: pointer;
+  padding-left: 6px;
+}
+
+.bl-cl {
+  flex: 0 0 8em;
+  color: var(--accent);
+}
+
+.bl-pz {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-manque {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.bl-nf {
+  color: var(--muted) !important;
+}
+
+.bl-nf-tag {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 5px;
+  margin-left: 6px;
+}
+
+.bl-seg {
+  transition: opacity 0.1s;
+}
+
+.bl-pause-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  border-radius: 2px;
+}
+
+.bl-pd {
+  background: repeating-linear-gradient(45deg, var(--muted) 0 4px, transparent 4px 8px);
+}
+
+.bl-leg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 0 -46px;
+  padding-left: 46px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.bl-leg-i {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bl-leg-i i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.bl-leg-i b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.bl-leg-pause {
+  background: repeating-linear-gradient(45deg, var(--muted) 0 3px, transparent 3px 6px);
+  border: 1px solid var(--line);
+}
+
+.bl-tc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.bl-tc-i {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.bl-tc-i i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.bl-tc-i b {
+  color: var(--fg);
+}
+
+.bl-gn {
+  flex: 0 0 4.2em;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.bl-g-commit .bl-gn {
+  color: var(--ok);
+}
+
+.bl-g-ia .bl-gn {
+  color: var(--accent);
+}
+
+.bl-g-plomberie {
+  opacity: 0.48;
+}
+
+.bl-liens {
+  display: block;
+  width: calc(100% - 64px);
+  height: 14px;
+  margin-left: 46px;
+  overflow: visible;
+}
+
+.bl-liens line {
+  opacity: 0.55;
+}
+
+.bl-liens line:hover {
+  opacity: 1;
+  stroke-width: 0.3;
+}
+
+.bl-cor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.bl-cp {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--panel2);
+}
+
+.bl-cp-vide {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.bl-cp-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.bl-cp-h b {
+  color: var(--fg-strong);
+  font-family: var(--mono);
+}
+
+.bl-pv {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+  padding: 1px 0;
+}
+
+.bl-pv-t {
+  flex: 0 0 3.4em;
+  color: var(--muted);
+}
+
+.bl-pv-l {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+}
+
+.bl-pv-i {
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.bl-mr {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.bl-orph {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px dashed var(--warn);
+  border-radius: 6px;
+  font-size: 11.5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.bl-bloc {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--panel2);
+}
+
+.bl-bloc-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.bl-bloc-h > i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.bl-bloc-h b {
+  color: var(--fg-strong);
+  flex: 0 0 4.5em;
+}
+
+.bl-bk {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bl-act {
+  color: var(--muted);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.bl-bloc-p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 3px;
+  align-items: baseline;
+}
+
+.bl-orph .bl-pv-l {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.bl-orph .bl-pv-i {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bl-orph .bl-pv-i i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.bl-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.bl-note > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bl-note-txt {
+  margin: 5px 0 0;
+  padding: 7px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
+  color: var(--fg);
+}
+
+.bl-note-vide {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bl-leg-t {
+  color: var(--muted);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex: 0 0 3.2em;
+}
+
+.bl-leg-ia {
+  margin-top: 2px;
+  opacity: 0.92;
+}
+
+.bl-vues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.bl-sem-h, .bl-mois-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--fg-strong);
+}
+
+.bl-grille {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.bl-jn {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding-bottom: 2px;
+}
+
+.bl-case {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 62px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel2);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.bl-case:hover {
+  border-color: var(--accent);
+}
+
+.bl-case-n {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bl-case-h {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.bl-case-cl {
+  display: flex;
+  gap: 2px;
+  align-self: stretch;
+  width: 100%;
+  margin-top: auto;
+}
+
+.bl-case-cl i {
+  flex: 1 1 0;
+  min-width: 3px;
+  height: 5px;
+  border-radius: 1px;
+}
+
+.bl-case-m {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.bl-case-ia {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ok);
+  display: inline-block;
+}
+
+.bl-case-note {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.bl-e-validee {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.bl-e-a_valider {
+  border-color: var(--accent);
+}
+
+.bl-e-absence {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.bl-e-vide, .bl-e-hors {
+  opacity: 0.42;
+}
+
+.bl-we-case {
+  background: var(--bg);
+}
+
+.bl-courant {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.bl-hors-mois {
+  opacity: 0.3;
+}
+
+.bl-av {
+  margin: 10px 0 6px;
+}
+
+.bl-av-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.bl-av-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+.bl-av-t {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.bl-av-t b {
+  color: var(--fg-strong);
+}
+
+.bl-line .bl-l-act {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+.bl-line:hover .bl-l-act, .bl-line:focus-within .bl-l-act {
+  opacity: 1;
+}
+
+.bl-l-amendee {
+  border-left: 2px solid var(--accent, #6ab);
+  padding-left: 6px;
+}
+
+.bl-l-org, .bl-l-ab {
+  font-size: 0.82em;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.bl-l-ab {
+  color: var(--warn, #c93);
+}
+
+.bl-l-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0 8px 6px;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--bg-soft, rgba(127, 127, 127, 0.08));
+}
+
+.bl-l-edit label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+.bl-l-edit input {
+  width: 10em;
+}
+
+.bl-l-edit .bl-dim {
+  flex-basis: 100%;
+  font-size: 0.82em;
+}
+
+.bl-pz-her {
+  font-size: 0.78em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--fg-dim);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+}
+
+.bl-l-desc {
+  font-size: 0.85em;
+  color: var(--fg-dim);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 34ch;
+}
+
+.bl-ajout-b {
+  padding: 6px 0 2px;
+}
+
+.bl-ajout input {
+  width: 11em;
+}
+
+.bl-l-man {
+  font-size: 0.78em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  border: 1px dashed var(--border, rgba(127, 127, 127, 0.45));
+}
+
+.bl-sugg {
+  border-style: dashed;
+}
+.bl-sugg::before {
+  content: "📅 ";
+}
+
+.bl-clore {
+  opacity: 0.75;
+}
+.bl-clore:hover {
+  opacity: 1;
+}
+
+.bl-attente {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  background: rgba(200, 150, 40, 0.12);
+  border-left: 3px solid var(--warn, #c93);
+  font-size: 0.9em;
+}
+
+.bl-att-m {
+  white-space: nowrap;
+}
+.bl-att-m i {
+  color: var(--fg-dim);
+  font-style: normal;
+}
+
+.bl-l-desc-in input {
+  width: 22em;
 }

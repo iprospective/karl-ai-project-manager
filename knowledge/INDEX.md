@@ -17,6 +17,13 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 
 ## Index par produit / techno
 
+- [mail](./mail/) — migrer des boîtes IMAP d'un hébergement à l'autre : la synchro additive
+  ne réplique pas les suppressions (28 000 messages ressuscités chez un client), le master user
+  masque les mots de passe faux, les UIDVALIDITY ne survivent pas, l'ordre transport/MX
+- [migration](./migration/) — migrer des configurations locales d'un hébergement à
+  l'autre : les confs exclues du git **et** préservées par le script de synchro sont
+  celles que rien ne répare ; comparer par `diff` réel et pas clé par clé ; identifiants
+  d'instance dont dépendent les secrets chiffrés en base ; services tiers filtrant par IP
 - [redmine](./redmine/) — projet/issue tracking, wiki, API, migration Textile → Markdown
 - [zabbix](./zabbix/) — API JSON-RPC (search=faux négatifs, FQDN), triggers figés/nodata,
   manual_close, items dépendants
@@ -35,7 +42,8 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 - [prestashop](./prestashop/) — procédure de **MEP commune aux 4 boutiques** du parc :
   maintenance (`PS_SHOP_ENABLE` + garde-fou `PS_MAINTENANCE_IP`), `php7.4` obligatoire,
   `--ff-only` sur arbre sale, le faux « rien à faire » de l'upgrade de module en CLI,
-  vérification par présentation de panier
+  vérification par présentation de panier ; **copies non-prod** (`env-dev.md`) : ce qu'on neutralise — identités cloud,
+  compte marchand, modules de suivi publicitaire (RM3619)
 - [karl-agent](./karl-agent/) — sessions Claude Code du cockpit : stockage
   (transcript partagé hôte↔conteneur, store per-session NON partagé), les 3 ancrages
   d'une session à un projet, déplacer une session (`/move-session`, `karl-move-session`)
@@ -79,3 +87,4 @@ surprenant, une commande non documentée, un workaround), capitaliser ici plutô
 le re-découvrir à la prochaine occurrence. Garder les fichiers actionnables (pas de
 blabla).
 - [dovecot](./dovecot/) — boîte karl@ : dossiers, règle Sieve réelle et ses deux écarts (liste statique, aucune condition d'authenticité), capacités du serveur (RM2667)
+- [opensvc](./opensvc/) — bascule d'un conteneur entre nœuds : les trois étapes (arrêt applicatif à arbitrer, `sync nodes`, `switch --to`) et ce qui ne suit pas le conteneur — passerelle liée à l'hôte, bridge d'attache, config LXC à aligner sur les trois nœuds, MAC virtuelle OVH (RM3478)

@@ -63,6 +63,89 @@ for bad in ({"id": "D1", "action": "delete"}, {"id": "D001", "action": "delete"}
         ka._cdc_think_args(bad); check(f"refus {bad}", False)
     except ka.ApiError:
         check(f"refus {bad}", True)
+# RM3262 : le panneau lit les textes par NOM de colonne — un carnet migré porte la signature en 2ᵉ
+# position, et l'ancien lecteur positionnel aurait affiché « 2026-09-01 · Mathieu » comme question.
+import tempfile as _tf
+_d = pathlib.Path(_tf.mkdtemp(prefix="rm3262-ka-"))
+_fiche = _d / "RM77_x.md"; _fiche.write_text("---\nredmine_id: 77\n---\n", encoding="utf-8")
+sys.path.insert(0, str(HERE))
+import pm_think as _pt
+_th = _pt.think_path(_fiche)
+_pt.append(_th, "question", "Faut-il trancher ceci ?", by="M", when="2026-09-01", urgence="haute")
+_pt.append(_th, "note", "Une note du carnet", by="A", when="2026-09-02")
+_vue = ka._ticket_think(_fiche)
+check("le panneau rend le texte de la question, pas sa date",
+      _vue["questions"][0]["text"] == "Faut-il trancher ceci ?", str(_vue["questions"][0]))
+check("…et sa signature à part", "2026-09-01" in _vue["questions"][0]["signature"])
+check("les notes aussi", _vue["notes"][0]["text"] == "Une note du carnet" and "2026-09-02" in _vue["notes"][0]["signature"])
+
+# RM3381 : corriger le texte d'une entrée — l'état n'est pas touché, c'est --text qui part
+rm_, loc_, args_ = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "text", "text": "  Faut-il   indexer ?  "})
+check("text → --set … --text, espaces normalisés", args_ == ["44", "--set", "Q002", "--text", "Faut-il indexer ?"], str(args_))
+check("…et aucun --state : amender n'est pas revirer (RM3161)", "--state" not in args_)
+for bad in ({"rm": 44, "id": "Q002", "action": "text"},
+            {"rm": 44, "id": "Q002", "action": "text", "text": "   "},
+            {"rm": 44, "id": "Q002", "action": "text", "text": "x" * 4001}):
+    try:
+        ka._cdc_think_args(bad); check(f"refus text {str(bad.get('text'))[:12]!r}", False)
+    except ka.ApiError:
+        check(f"refus text {str(bad.get('text'))[:12]!r}", True)
+
+# RM3370 : « trancher sans décision » n'est envoyé qu'explicitement, et seulement pour une question
+rm_, loc_, args_ = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "valide", "force": True})
+check("force → --force sur une question validée", args_ == ["44", "--set", "Q002", "--state", "valide", "--force"], str(args_))
+check("pas de force sans demande explicite",
+      ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "valide"})[2][-1] != "--force")
+check("écarter n'a jamais besoin de forcer",
+      "--force" not in ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "state", "state": "invalide", "force": True})[2])
+check("une NOTE ne se force pas (la garde ne vise que les questions)",
+      "--force" not in ka._cdc_think_args({"rm": 44, "id": "N002", "action": "state", "state": "valide", "force": True})[2])
+src_ka2 = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("le refus de RM3269 est redit dans les mots du cockpit, sans options de ligne de commande",
+      "Trancher cette question demande la reponse qui la tranche" in src_ka2)
+
+# RM3258 : déplacer une entrée vers un autre ticket — le cockpit dit « à qui », jamais « comment »
+rm, local, args = ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "3015"})
+check("_cdc_think_args : move → --move … --to, en inter-projets assumé",
+      args == ["44", "--move", "Q002", "--to", "3015", "--cross-project"], str(args))
+check("…et « RM3015 » saisi à la main est accepté",
+      ka._cdc_think_args({"rm": 44, "id": "Q002", "action": "move", "to": "RM3015"})[2][-2] == "3015")
+for bad in ({"rm": 44, "id": "Q002", "action": "move"},
+            {"rm": 44, "id": "Q002", "action": "move", "to": "zz"},
+            {"rm": 44, "id": "Q002", "action": "move", "to": "44"}):
+    try:
+        ka._cdc_think_args(bad); check(f"refus move {bad.get('to')!r}", False)
+    except ka.ApiError:
+        check(f"refus move {bad.get('to')!r}", True)
+src_ka = pathlib.Path(ka.__file__).read_text(encoding="utf-8") if getattr(ka, "__file__", None) else (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("un déplacement refond les registres des DEUX projets", "projets = [p for p in (_task_project(rm)" in src_ka)
+
+# RM3227 : le commentaire joint au geste qui tranche une question devient sa réponse (décision liée)
+A = ka._cdc_think_answer_args
+check("_cdc_think_answer_args : question validée + commentaire → décision « Qnnn : … » validée, dédupliquée",
+      A({"action": "state", "state": "valide", "comment": "  copie   dédiée "}, "44", "Q002", "mathieu")
+      == ["44", "--decide", "Q002 : copie dédiée", "--state", "valide", "--by", "mathieu", "--dedupe"])
+check("_cdc_think_answer_args : question écartée → « Qnnn écartée : … »",
+      A({"action": "state", "state": "invalide", "comment": "hors sujet"}, "44", "Q002")[2] == "Q002 écartée : hors sujet")
+check("_cdc_think_answer_args : sans commentaire → rien (comportement d'avant)",
+      A({"action": "state", "state": "valide"}, "44", "Q002") is None
+      and A({"action": "state", "state": "valide", "comment": "   "}, "44", "Q002") is None)
+check("_cdc_think_answer_args : une note ou une décision n'a pas de « réponse »",
+      A({"action": "state", "state": "valide", "comment": "x"}, "44", "N001") is None
+      and A({"action": "state", "state": "valide", "comment": "x"}, "44", "D001") is None)
+check("_cdc_think_answer_args : jamais sur une suppression", A({"action": "delete", "comment": "x"}, "44", "Q002") is None)
+check("_cdc_think_answer_args : auteur par défaut = le demandeur (M)", A({"action": "state", "state": "valide", "comment": "x"}, "44", "Q002", "")[6] == "M")
+try:
+    A({"action": "state", "state": "valide", "comment": "x" * 1001}, "44", "Q002"); check("commentaire trop long refusé", False)
+except ka.ApiError:
+    check("commentaire trop long refusé", True)
+_src = (HERE / "karl-agent.py").read_text(encoding="utf-8")
+check("op_cdc_think consigne la réponse AVANT de changer l'état (rejouable grâce à --dedupe)",
+      _src.index("_pm_script(\"pm-task-think.py\", answer") < _src.index("out = _pm_script(\"pm-task-think.py\", args"))
+# RM3070 L3 : l'acteur voyage jusqu'au script — c'est lui qui signera le commit du carnet
+check("op_cdc_think passe l'acteur au script appelé",
+      "_pm_script(\"pm-task-think.py\", args, auth_ctx=auth_ctx)" in _src)
+check("la route passe l'utilisateur authentifié (signature de la réponse)", "op_cdc_think(payload, self.auth_ctx)" in _src)
 tdir = base / "acme" / "projects" / "site" / "tasks"; tdir.mkdir(parents=True); (tdir / "RM77_x.md").write_text("---\nredmine_id: 77\n---\n"); (tdir / "RM77_x.think.md").write_text("# think\n")
 check("_task_project : (client, projet) d'un ticket, le think ignoré", ka._task_project("77") == ("acme", "site") and ka._task_project("9999") is None)
 try:

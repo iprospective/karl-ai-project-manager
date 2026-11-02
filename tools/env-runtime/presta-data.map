@@ -1,0 +1,34 @@
+# presta-data.map — dossiers de DONNÉES d'un PrestaShop 1.7, par nature (RM3401).
+#
+# Format : <nom dans data/>|<chemin du dossier de données, relatif à la racine du site>
+# Le script `presta-data-index.sh` crée `data/<nom>` → lien RELATIF vers <chemin>.
+# Il ne DÉPLACE jamais rien : les données restent où PrestaShop les attend.
+#
+# Les chemins viennent des constantes de `config/defines.inc.php` (citées en regard) :
+# c'est PrestaShop qui définit où il écrit, pas nous.
+#
+# Surcharge par projet : `<workspace>/.mmi-pm/presta-data.map`, même format. Une ligne
+# de même <nom> y remplace celle d'ici ; les autres s'ajoutent (données de modules,
+# propres à chaque site). Un `<nom>|-` désactive une entrée de ce fichier.
+
+product-img|img/p              # _PS_PROD_IMG_DIR_
+category-img|img/c             # _PS_CAT_IMG_DIR_
+cms-img|img/cms                # gestionnaire de fichiers (sans constante)
+manufacturer-img|img/m         # _PS_MANU_IMG_DIR_
+supplier-img|img/su            # _PS_SUPP_IMG_DIR_
+store-img|img/st               # _PS_STORE_IMG_DIR_
+carrier-img|img/s              # _PS_SHIP_IMG_DIR_
+lang-img|img/l                 # _PS_LANG_IMG_DIR_
+color-img|img/co               # _PS_COL_IMG_DIR_
+order-state-img|img/os         # _PS_ORDER_STATE_IMG_DIR_
+gender-img|img/genders         # _PS_GENDERS_DIR_
+employee-img|img/e             # _PS_EMPLOYEE_IMG_DIR_
+profile-img|img/pr             # _PS_PROFILE_IMG_DIR_
+upload|upload                  # _PS_UPLOAD_DIR_ — pièces jointes des commandes
+download|download              # _PS_DOWNLOAD_DIR_ — produits virtuels
+
+# PAS au manifeste, volontairement :
+#   img/tmp        miniatures régénérées par PS — un cache, pas une donnée
+#   img/admin img/jquery-ui img/not_found img/flags img/scenes   assets du cœur
+#   var/cache var/sessions var/logs cache/*  themes/*/assets/cache
+#                  caches et journaux : compilés avec des chemins ABSOLUS, et par env

@@ -12,9 +12,11 @@ Matérialise l'arborescence uniforme (RM1993) depuis le manifeste
     ├── tmp/ sessions/ logs/ data/   (partagés workspace, untracked)
     └── .gitignore       whitelist .mmi-pm/
 
-PÉRIMÈTRE P1a — layout git PUR, **zéro privilège** (git/fs dans le workspace karl) :
+PÉRIMÈTRE P1a — layout git PUR, **zéro sudo interactif** (git/fs dans le workspace) :
   - strictement ADDITIF, idempotent, --dry-run, réversible (--teardown).
   - branche d'intégration créée en LOCAL seulement (jamais de push — non-intrusif remote).
+  - sous une racine verrouillée 2750, la création du bare passe par le verbe
+    NOPASSWD `pm-env-helper ws-bare` (RM3587) ; partout ailleurs, création directe.
 
 HORS P1a (renvois) :
   - runtime : vhost / BDD / config app / pool FPM            → P1b (provisionneurs)
@@ -44,6 +46,7 @@ N'auto-committe RIEN côté PM (pm_git) : opère sur les repos du workspace, pas
 le repo PM.
 """
 import argparse
+import os
 import stat
 import subprocess
 import sys
@@ -57,8 +60,10 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
 import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)  # noqa: E402
+import pm_worktrees  # RM3209 : pas de dépôt partagé en per_user  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
+HELPER = "/usr/local/sbin/pm-env-helper"
 GITIGNORE = (
     "# Généré par pm-env-init (RM1947). Seul .mmi-pm/ est tracké ; tout le reste\n"
     "# (code en worktrees, bares, runtime) est local/régénérable.\n"
@@ -168,21 +173,60 @@ def local_heads(bare: Path) -> set[str]:
     return set(out.split()) if out else set()
 
 
+def _helper_path() -> Path:
+    """Chemin du helper privilégié (override possible pour les tests)."""
+    return Path(os.environ.get("PM_ENV_HELPER", HELPER))
+
+
+def _run_helper_bare(ws: Path, name: str) -> None:
+    """Crée le bare via le helper NOPASSWD quand `repos/` est verrouillé (RM3587)."""
+    helper = _helper_path()
+    if not helper.is_file():
+        die(f"repos/{name}.git n'est pas créable par {os.environ.get('USER', 'l’appelant')} "
+            f"(racine 2750) et le helper est absent : {helper}\n"
+            f"  déployer le core : sudo mmi-pm core update")
+    cmd = [str(helper), "ws-bare", str(ws), name]
+    if os.geteuid() != 0 and os.environ.get("PM_ENV_HELPER_NO_SUDO") != "1":
+        cmd = ["sudo", "-n", *cmd]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout or "").strip().splitlines()
+        suffix = f" : {detail[-1]}" if detail else ""
+        die(f"création de repos/{name}.git refusée par le helper{suffix}\n"
+            f"  vérifier le déploiement : sudo mmi-pm core update")
+
+
 def ensure_bare(ctx: Ctx, ws: Path, repo: dict):
     """Crée/réconcilie le bare repos/<name>.git + ses remotes (idempotent)."""
     name = repo["name"]
-    bare = ws / "repos" / f"{name}.git"
+    bare = pm_worktrees.central_bare(ws, name)
     remotes = repo["remotes"]
 
     if not bare.exists():
         ctx.act(f"git init --bare repos/{name}.git")
         if not ctx.dry:
-            bare.parent.mkdir(parents=True, exist_ok=True)
-            git(["init", "--bare", "-q", str(bare)])
+            # `repos/` est en 2750 pm:pm sur un workspace multi-user : le dev ne peut
+            # pas y créer l'entrée. Le helper NOPASSWD porte cette seule primitive.
+            # Sur un workspace legacy inscriptible, on crée le parent puis le bare.
+            if bare.parent.is_dir():
+                writable = os.access(bare.parent, os.W_OK)
+            else:
+                try:
+                    bare.parent.mkdir(parents=True)
+                    writable = True
+                except OSError:
+                    writable = False
+            if writable:
+                git(["init", "--bare", "-q", "--shared=group", str(bare)])
+            else:
+                _run_helper_bare(ws, name)
+            # Invariants multi-dev, y compris sur un bare créé par le helper.
+            git(["-C", str(bare), "config", "core.sharedRepository", "group"])
             git(["-C", str(bare), "config", "gc.auto", "0"])
     else:
         ctx.skip(f"bare repos/{name}.git déjà présent")
         if not ctx.dry:
+            git(["-C", str(bare), "config", "core.sharedRepository", "group"])
             git(["-C", str(bare), "config", "gc.auto", "0"])
 
     # remotes : origin d'abord, puis le reste (ordre déterministe).
@@ -326,7 +370,7 @@ def teardown(ctx: Ctx, ws: Path, repos: list[dict], only: set[str],
         name = repo["name"]
         if only and name not in only:
             continue
-        bare = ws / "repos" / f"{name}.git"
+        bare = pm_worktrees.central_bare(ws, name)
         if not bare.exists():
             ctx.skip(f"repos/{name}.git absent — rien à défaire")
             continue
@@ -393,6 +437,11 @@ def main():
     if args.workspace and not start.is_dir():
         die(f"{start} n'est pas un dossier")
     ws = find_workspace(start)
+    layout = pm_worktrees.read_layout()
+    if not pm_worktrees.bare_creation_allowed(layout) and not args.teardown:
+        die("git.worktree_source=per_user : pas de dépôt partagé à créer — chaque dev clone son dépôt "
+            "dans son dossier de dépôts (PM_REPOS_DIR, défaut ~/repos) ; les envs se créent par "
+            "`pm-branch-start --worktree` ou `pm-env-session create`.")
     repos = load_repos(ws)
     only = set(args.repo)
     if only:

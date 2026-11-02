@@ -22,10 +22,13 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /client-notify/send	L4	clientnotify	/api/clientnotify/send	1	send
 /client-notify/test	L4	clientnotify	/api/clientnotify/test	1	sendTest
 /cockpit-config	L2	sessions	/api/session/cockpit-config	1	kill
+/compact	L2	sessions	/api/session/compact	1	compact
 /conf	L4	projects	/api/project/conf	1	openCenterConf
 /contact	L4	projects	/api/project/contact	1	openContact
 /contacts	L4	projects	/api/project/contacts	1	openContacts
 /core/update-status	L0	core	/api/core/update-status	1	refreshCoreUpdate
+/core/update	L0	core	/api/core/update	1	coreUpdateRun
+/core/update-log	L0	core	/api/core/update-log	1	coreUpdateLog
 /disposition	L2	sessions	/api/session/disposition	1	setDisposition
 /engines/options	L5	pm	/api/pm/engine-options	2	loadEngineOptions, saveEngineOptions
 /env-check	L5	env	/api/env/env-check	1	loadEnvCheck
@@ -109,6 +112,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /stt	L5	voice	/api/voice/stt	1	serverDictate
 /tags	L3	search	/api/search/tags	1	loadTags
 /tickets	L2,L3	sessions	/api/ticket/tickets	2	createTicket;submitNewTicket
+/ticket-impact	L3	tickets	/api/ticket/impact	1	ticketImpact
 /tickets/brief	L3	tickets	/api/ticket/brief	1	requestBriefs
 /ticket-sessions	L3	testqueue	/api/test-queue/ticket-sessions	1	ensureTicketSessions
 /tickets/search	L3	search	/api/search/tickets	1	search
@@ -123,6 +127,12 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worklog	L3	worklog	/api/worklog/worklog	1	loadWorklog
 /worklog/batch	L3,L4	worklog	/api/worklog/batch	3	openBatchPlan;sendBatch;spawnBatchSession
 /worklog/request	L3	worklog	/api/worklog/request	1	setRequestStatus
+/tickets/anteriority	L3	worklog	/api/ticket/anteriority	1	anteriority
 /modules	L5	modules	/api/pm/modules	1	loadModules
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
+/modules/state	L5	pm	/api/pm/modules-state	1	modulesSetState
+/modules/policy	L5	pm	/api/pm/modules-policy	1	modulesSetPolicy
+/timesheet/day	RM3229	timesheet	/api/timesheet/day	1	billing (cockpit RM3229)
+/timesheet/month	RM3229	timesheet	/api/timesheet/month	1	billing (vues semaine/mois)
+/invoice/pending	RM3488	invoice	/api/invoice/pending	1	billing (mois non facturés)

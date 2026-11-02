@@ -1297,7 +1297,7 @@ def get_backend(type_, name="default", **options):
 
 # ── Identifiants par instance et par développeur (RM2682/L1) ─────────────────
 # Le registre déclare les instances SANS secret ; les identifiants d'accès vivent
-# dans le `.env` du dev (`~/.config/mmi-pm/.env`, chargé par pm_paths dans
+# dans le `.env` du dev (`<core>/var/users/<user>/.env`, chargé par pm_paths dans
 # os.environ), nommés par slug d'instance :
 #
 #     SECRET__<SLUG>__CLIENTID / __CLIENTSECRET   Vaultwarden (clé API)

@@ -7,10 +7,12 @@ transcript de la session et consigne, sans geste de l'agent :
       répondues  → une décision D « question → réponse » (✅, auteur M) ; la Q ouverte homonyme passe ✅ ;
       sans réponse → une question Q (🕐) ;
   - les PROPOSITIONS et réflexions pertinentes de l'IA (non posées en question outillée) → notes N signées du modèle ;
-  - les QUESTIONS DU DEMANDEUR (RM3090) → questions Q signées de lui : une question ouverte est tout
-    ce qui n'est pas tranché, **quel qu'en soit l'auteur** (RM3015-D011). Elles ne passent PAS par le
-    critère de la note — une question n'a pas à porter une dette pour mériter d'être consignée, c'est
-    justement ce qui n'est pas encore tranché. Critère partagé avec `pm-think-classify` (RM3067, D023) ;
+  - les QUESTIONS DU DEMANDEUR (RM3090, **corrigé par RM3544**) → une NOTE N signée de lui, source `auto`,
+    à trier — JAMAIS une Q : décision de Mathieu (26/10), c'est le LLM / l'agent qui décide ce qui vaut
+    une question à trancher, pas une heuristique sur la forme interrogative (elle bloquait les merges
+    RM3238 pour des « tu peux enchaîner ? »). Une Q n'est créée que par l'agent (`pm-task-think
+    --question`, question outillée restée sans réponse : source `agent`) ou par le tri LLM
+    (`pm-think-classify`, source `llm`) ;
   - les REMARQUES de l'utilisateur qui passent le critère de la note (RM3062 : réflexion, constat, idée —
     jamais une demande immédiate, un accord, un accusé ; `pm_think.note_pertinente`) → notes N verbatim.
 Dédoublonné sur le texte : rejouer la moisson n'écrit rien de plus.
@@ -45,19 +47,24 @@ from pm_paths import PMConfig                   # noqa: E402
 from pm_transcript import transcript_outline    # noqa: E402
 
 
+def _classify():
+    """Le module de classement (RM3067), chargé une fois. None s'il est indisponible."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "pm_think_classify", Path(__file__).resolve().parent / "pm-think-classify.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        return mod
+    except Exception:      # noqa: BLE001 — la moisson ne casse jamais un tour
+        return None
+
+
 def _type_heuristique(role, texte):
     """RM3090 : LE critère vit dans `pm-think-classify` (RM3067, D023) — importé, jamais recopié.
     Un hook de fin de tour doit rendre la main tout de suite : c'est la version SANS modèle ; la
     passe LLM (`pm-think-classify --all`) reste le filet qui complète et corrige.
     Indisponible : tout retombe en note, comme avant."""
-    try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "pm_think_classify", Path(__file__).resolve().parent / "pm-think-classify.py")
-        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-        return mod.type_heuristique(role, texte)
-    except Exception:      # noqa: BLE001 — la moisson ne casse jamais un tour
-        return "dette"
+    mod = _classify()
+    return mod.type_heuristique(role, texte) if mod else "dette"
 
 MIN_NOTE = 20
 MAX_NOTE = 400
@@ -78,15 +85,25 @@ def transcript_of(sid):
     return next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None) if sid else None
 
 
+def _suite(items: list, n) -> list:
+    """RM3259 — les tours qui SUIVENT celui-ci, en (role, texte), du plus proche au plus lointain.
+    C'est ce que `deja_tranchee` lit : une question dont le demandeur a pris la réponse (il
+    approuve, ou il enchaîne) n'est plus ouverte. Pure."""
+    role = {"user": "M", "assistant": "A"}
+    return [(role.get(x.get("kind"), "?"), x.get("full") or x.get("text") or "")
+            for x in items if isinstance(n, int) and isinstance(x.get("n"), int) and x["n"] > n]
+
+
 def harvest_items(lines) -> list:
     """[(kind, text, extra)] à consigner, dans l'ordre du fil, sans doublon. Pure — c'est elle qui est testée."""
     out, seen = [], set()
-    for it in transcript_outline(lines, max_items=1000000):
+    items_bruts = transcript_outline(lines, max_items=1000000)
+    for it in items_bruts:
         k = it.get("kind")
         if k == "question":
             q = " / ".join(l.strip() for l in str(it.get("full") or "").splitlines()
                            if l.strip() and not l.startswith("  - ")) or it.get("text", "")
-            item = ("decision", f"{q} → {it['answer']}", {"question": q}) if it.get("answer") else ("question", q, {})
+            item = ("decision", f"{q} → {it['answer']}", {"question": q}) if it.get("answer") else ("question", q, {"source": "agent"})
         elif k == "assistant":
             # RM3062 lot 3 : les propositions / réflexions pertinentes de l'IA, non posées en question outillée → note signée du modèle
             ok, extrait = pm_think.proposition_pertinente(it.get("full") or it.get("text") or "")
@@ -100,10 +117,19 @@ def harvest_items(lines) -> list:
                 continue
             texte = t[:MAX_NOTE] + ("…" if len(t) > MAX_NOTE else "")
             if _type_heuristique("M", t) == "question":
-                # RM3090 : ce que le demandeur DEMANDE est une note, ce qu'il se DEMANDE est une
-                # question. Le critère de la note (dette à faire) l'aurait écartée : une question
-                # ne porte pas de dette, elle porte un arbitrage en attente.
-                item = ("question", texte, {"by": "M"})
+                # RM3544 : l'heuristique (forme interrogative) ne décide JAMAIS qu'une question vaut
+                # un arbitrage — RM3090 en faisait une Q 🕐 qui bloquait les merges (RM3238) pour des
+                # « tu peux enchaîner ? ». Seul l'agent (`--question`, question outillée restée sans
+                # réponse) ou le tri LLM (`pm-think-classify`) crée une Q. Ici : une N signée du
+                # demandeur, source `auto`, à trier — jamais bloquante. Les garde-fous de RM3259
+                # (question de conduite de séance, question déjà tranchée) restent : ils évitent
+                # même la note.
+                mod = _classify()
+                if mod and not mod.question_pertinente(t)[0]:
+                    continue
+                if mod and mod.deja_tranchee(_suite(items_bruts, it.get("n"))):
+                    continue
+                item = ("note", texte, {"by": "M", "source": "auto"})
             else:
                 ok, _motif = pm_think.note_pertinente(t)      # RM3062 : le critère de la note
                 if not ok:
@@ -154,17 +180,20 @@ def apply(think: Path, rm_id: int, items: list, *, sid=None, title="", dry=False
         if kind == "decision":
             rid = pm_think.append(think, "decision", text, rm_id=rm_id, title=title, by="M", state="valide", sid=sid)
             # la question homonyme laissée ouverte par une moisson précédente est tranchée
-            for r in parsed.get("question", {}).get("rows", []):
-                if not r["closed"] and r["state"] not in ("valide", "invalide") and len(r["cells"]) > 1 \
-                        and pm_think._norm(r["cells"][1]) == pm_think._norm(extra.get("question")):
+            sec_q = parsed.get("question", {})
+            for r in sec_q.get("rows", []):
+                if not r["closed"] and r["state"] not in ("valide", "invalide") \
+                        and pm_think._norm(pm_think.texte(sec_q, r, "question")) == pm_think._norm(extra.get("question")):
                     pm_think.set_state(think, r["id"], "valide", dest=rid)
         elif kind == "question":
             # RM3090 : l'auteur suit la provenance — une question posée PAR l'agent (AskUserQuestion)
             # reste « A » ; une question que le demandeur se pose est de lui.
             rid = pm_think.append(think, "question", text, rm_id=rm_id, title=title,
-                                  by=extra.get("by", "A"), state="attente", sid=sid, urgence="moyenne")
+                                  by=extra.get("by", "A"), state="attente", sid=sid, urgence="moyenne",
+                                  source=extra.get("source", ""))
         else:
-            rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by=extra.get("by", "M"), state="attente", sid=sid)
+            rid = pm_think.append(think, "note", text, rm_id=rm_id, title=title, by=extra.get("by", "M"), state="attente", sid=sid,
+                                  source=extra.get("source", ""))
         added.append(rid)
         parsed = pm_think.load(think)
     return added
@@ -191,17 +220,18 @@ def prune(think: Path, dry=False, delete=False) -> list:
     parsed = pm_think.load(think)
     livre = ticket_livre(pm_think.sheet_of(think))
     out = []
-    for r in parsed.get("note", {}).get("rows", []):
+    sec_n = parsed.get("note", {})
+    for r in sec_n.get("rows", []):
         if len(r["cells"]) < 3:
             continue
         if livre and not (r["closed"] or r["state"] in ("valide", "invalide")):
             out.append(r["id"]); continue      # ticket livré : la note n'a plus d'objet
-        deja = "élaguée (RM3062)" in (r["cells"][4] if len(r["cells"]) > 4 else "")
+        deja = "élaguée (RM3062)" in pm_think.cell(sec_n, r, "Traitée par")
         if deja and delete:
             out.append(r["id"]); continue
         if r["closed"] or r["state"] in ("valide", "invalide"):
             continue
-        ok, motif = pm_think.note_pertinente(r["cells"][2])
+        ok, motif = pm_think.note_pertinente(pm_think.texte(sec_n, r, "note"))
         if ok:
             continue
         out.append(r["id"])
@@ -210,6 +240,56 @@ def prune(think: Path, dry=False, delete=False) -> list:
     if delete and not dry and out:
         pm_think.remove_rows(think, out)
     return out
+
+
+#: RM3544 — la moisson RM3090 (heuristique « c'est une question ») est née le 2026-09-10
+DEPUIS_RM3090 = "2026-09-10"
+MOTIF_AUTO = "moisson automatique (RM3544)"
+_MODELE = re.compile(r"\b(claude|qwen|llama|gpt|gemini|mistral|sonnet|opus|haiku|fable|agent)\b", re.I)
+
+
+def fausses_questions(think: Path) -> list:
+    """RM3544 — les Q 🕐 qui sont des captures de l'heuristique RM3090, pas des arbitrages.
+
+    Critère (celui de la décision de Mathieu) : signées d'un HUMAIN (pas d'un modèle : une question
+    d'`AskUserQuestion` sans réponse est de l'agent et reste légitime), avec une SESSION (`s:…` — une
+    Q posée à la main par `--question` est signée du modèle ; une saisie `--by M` sans session reste),
+    sans réponse (🕐, jamais tranchée, aucun lien), sans source explicite (`src:` posé = le tri LLM
+    ou l'agent l'a voulue), créées depuis le 2026-09-10. Retourne [(id, date, texte)]."""
+    parsed = pm_think.load(think)
+    sec = parsed.get("question", {})
+    out = []
+    for r in sec.get("rows", []):
+        if r["closed"] or r["state"] != "attente":
+            continue
+        who = pm_think.cell(sec, r, "Date · auteur")
+        if pm_think._SRC_RE.search(who) or not re.search(r"\bs:\w+", who):
+            continue
+        m = re.match(r"\s*(\d{4}-\d{2}-\d{2})\s*·\s*(.*)", who)
+        if not m or m.group(1) < DEPUIS_RM3090 or _MODELE.search(m.group(2)):
+            continue
+        if pm_think.cell(sec, r, "Tranchée par").strip() or pm_think.cell(sec, r, "Origine").strip():
+            continue
+        out.append((r["id"], m.group(1), pm_think.texte(sec, r, "question")))
+    return out
+
+
+def prune_auto(think: Path, apply=False, en_note=False) -> list:
+    """Dry-run par défaut. `apply` : ❌ « moisson automatique (RM3544) », ou (`en_note`) la Q devient une
+    N `auto` (requalifiée : id neuf, date, auteur, texte et piste `ex-Qnnn` conservés). Retourne la liste."""
+    faux = fausses_questions(think)
+    if apply:
+        for qid, _d, _t in faux:
+            if en_note:
+                res = pm_think.requalify_row(think, qid, "note")
+                if res:
+                    pm_think.set_source(think, res[3], "auto")
+            else:
+                pm_think.set_state(think, qid, "invalide", dest=MOTIF_AUTO)
+        sheet = pm_think.sheet_of(think)
+        if faux and sheet and Path(sheet).is_file():
+            pm_think.set_counters(sheet, pm_think.counters(pm_think.load(think)))
+    return faux
 
 
 def meme_projet(sheet: Path, cwd) -> bool:
@@ -365,12 +445,65 @@ def hook_mode(full: bool = False) -> int:
     return 0
 
 
+def _thinks_prune_auto(a) -> list:
+    """[(projet, think)] visés par `--prune-auto`."""
+    if a.tasks_dir:
+        return [("(tests)", t) for t in sorted(Path(a.tasks_dir).glob("RM*.think.md"))]
+    cfg = PMConfig.load()
+    if a.rm is not None:
+        sheet = cfg.find_task(a.rm)
+        return [("", pm_think.think_path(sheet))] if sheet else []
+    if a.all:
+        out = []
+        for ent, proj, path in cfg.iter_projects():
+            for t in sorted((Path(path) / "tasks").glob("RM*.think.md")):
+                if pm_think.is_think(str(t)):
+                    out.append((f"{ent}/{proj}", t))
+        return out
+    mm = Path.cwd() / ".mmi-pm"
+    if not mm.exists():
+        sys.exit("--prune-auto : donne --rm <id>, --all, ou lance depuis un workspace avec .mmi-pm")
+    return [(mm.resolve().parent.name, t) for t in sorted((mm.resolve() / "tasks").glob("RM*.think.md"))]
+
+
+def main_prune_auto(a) -> int:
+    par_projet, total = {}, 0
+    for proj, th in _thinks_prune_auto(a):
+        if not th.is_file():
+            continue
+        faux = prune_auto(th, apply=a.apply, en_note=a.en_note)
+        if not faux:
+            continue
+        total += len(faux)
+        par_projet.setdefault(proj, []).append((th, faux))
+        if a.apply and not a.no_commit:
+            # `autocommit` retrouve lui-même le dépôt depuis le chemin du fichier (pas de `cwd`).
+            pm_git.autocommit([th], f"pm(think): RM{pm_think.rm_id_of(th)} {len(faux)} fausse(s) Q de moisson (RM3544)")
+    tag = "" if a.apply else "(dry) "
+    for proj, lst in par_projet.items():
+        n = sum(len(f) for _t, f in lst)
+        print(f"{tag}{proj or '-'} : {n} fausse(s) Q sur {len(lst)} ticket(s)")
+        for th, faux in lst:
+            print(f"    RM{pm_think.rm_id_of(th)} : " + ", ".join(q for q, _d, _t in faux))
+            if a.verbose:
+                for q, d, t in faux:
+                    print(f"        {q} {d} {t[:90]}")
+    print(f"{tag}prune-auto : {total} fausse(s) Q sur {sum(len(l) for l in par_projet.values())} ticket(s), "
+          f"{len(par_projet)} projet(s)" + ("" if a.apply else " — rien écrit (--apply pour appliquer)"))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     ap.add_argument("--rm", type=int); ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
     ap.add_argument("--transcript"); ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--no-commit", action="store_true")
     ap.add_argument("--prune", action="store_true", help="élaguer les notes en attente qui ne passent pas le critère (RM3062)")
     ap.add_argument("--all", action="store_true", help="avec --prune : tous les think du projet courant")
+    ap.add_argument("--prune-auto", action="store_true", dest="prune_auto",
+                    help="RM3544 : repérer les Q 🕐 du demandeur nées de l'ancienne heuristique (rapport seul sans --apply) ; "
+                         "avec --rm <id>, --all (TOUS les projets) ou, par défaut, le projet courant")
+    ap.add_argument("--apply", action="store_true", help="avec --prune-auto : écrire (défaut : dry-run)")
+    ap.add_argument("--en-note", action="store_true", help="avec --prune-auto --apply : requalifier en N `auto` au lieu de ❌")
     ap.add_argument("--delete", action="store_true", help="avec --prune : supprimer les lignes (et celles déjà marquées élaguées) au lieu de les marquer ❌")
     ap.add_argument("--tasks-dir", help="avec --prune : dossier des fiches (tests)")
     ap.add_argument("--no-split", action="store_true",
@@ -378,7 +511,10 @@ def main():
     ap.add_argument("--full", action="store_true",
                     help="relire TOUT le transcript sans repartir du curseur — dernier passage avant "
                          "compaction (hook PreCompact, RM3098)")
+    ap.add_argument("--verbose", "-v", action="store_true", help="avec --prune-auto : lister chaque question")
     a = ap.parse_args()
+    if a.prune_auto:
+        return main_prune_auto(a)
     if a.prune:
         cfg = None if a.tasks_dir else PMConfig.load()
         if a.all:

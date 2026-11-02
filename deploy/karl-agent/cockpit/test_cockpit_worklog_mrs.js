@@ -68,6 +68,26 @@ const pane = String(MrPane(vm.mrGroups(), { tip: () => "" }));
 assert.ok(/à promouvoir en production/.test(pane) && /!12/.test(pane), "le groupe à promouvoir est rendu, avec sa MR");
 assert.strictEqual(String(MrPane([], {})).includes("aucune MR"), true, "état vide explicite");
 
+// ── RM3622 : « merger + main » et « promouvoir » ────────────────────────────
+assert.ok(/data-action="merge-promote"/.test(row) && /⇥ merger \+ main/.test(row) && /data-prod="main"/.test(row), "une MR mergeable offre « ⇥ merger + main »");
+assert.ok(/data-action="merge-one"/.test(row), "…à côté de « ⇥ merger »");
+assert.ok(/Merger cette MR dans l’intégration puis promouvoir l’intégration dans main \(pm-mr merge \+ pm-promote\)/.test(row), "infobulle");
+const rowMaster = String(MrRow(mrDetail(MRS[0], { prod: "master" }), { tip: () => "" }));
+assert.ok(/⇥ merger \+ master/.test(rowMaster) && /data-prod="master"/.test(rowMaster), "le libellé suit la branche protégée du projet");
+const mergedRow = String(MrRow(mrDetail(MRS[1], {}), { tip: () => "" }));
+assert.ok(!/merge-promote/.test(mergedRow) && !/data-action="promote"/.test(mergedRow), "MR déjà mergée : ni merger+main, ni promouvoir tant que le groupe ne l'a pas marquée");
+const vm2 = new WorklogViewModel({ data: Object.assign({}, w, { prod: "master" }), attached: true }, { ago: () => "", integration: "dev" });
+const gInt = vm2.mrGroups().find(g => g.key === "integration");
+assert.strictEqual(gInt.rows.filter(r => r.promote).length, 1, "un seul bouton promouvoir par dépôt");
+const paneInt = String(MrPane(vm2.mrGroups(), { tip: () => "" }));
+assert.ok(/data-action="promote"/.test(paneInt) && /⇧ promouvoir dans master/.test(paneInt) && /data-url="http:\/\/f\/12"/.test(paneInt), "le groupe « à promouvoir » montre le bouton avec l'URL d'une MR du groupe");
+const many = [{ iid: 1, repo: "a", target: "dev", state: "merged", url: "u1", ts: "2026-09-01" }, { iid: 2, repo: "a", target: "dev", state: "merged", url: "u2", ts: "2026-09-02" }, { iid: 3, repo: "b", target: "dev", state: "merged", url: "u3", ts: "2026-09-03" }, { iid: 4, repo: "c", target: "dev", state: "merged", ts: "2026-09-04" }];
+const vm3 = new WorklogViewModel({ data: { found: true, mrs_all: many, integration: "dev", buckets: {}, docs: {} }, attached: true }, { integration: "dev" });
+const rows3 = vm3.mrGroups().find(g => g.key === "integration").rows;
+assert.deepStrictEqual(rows3.filter(r => r.promote).map(r => r.iid).sort(), ["2", "3"], "par dépôt (la plus récente de a), jamais sans URL");
+assert.ok(rows3.every(r => r.prod === "main"), "sans conf, « main »");
+assert.ok(!/data-action="promote"/.test(String(MrPane(vm.mrGroups().filter(g => g.key === "open"), { tip: () => "" }))), "pas de promouvoir dans le groupe à merger");
+
 // ── la tête du worklog : un rappel, plus la liste (le détail est dans l'onglet) ─
 const head = String(WorklogPane(vm, { tip: () => "", pin: () => "", linkify: (s) => s }));
 assert.ok(/MR à merger/.test(head) && /voir l’onglet/.test(head), "un rappel compact, cliquable vers l'onglet");

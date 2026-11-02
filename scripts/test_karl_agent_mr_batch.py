@@ -17,6 +17,9 @@ Lancer : python3 scripts/test_karl_agent_mr_batch.py
 import importlib.util
 import pathlib
 import sys
+import subprocess as _sp0
+
+_REAL_RUN = _sp0.run   # les tests remplacent subprocess.run : on garde le vrai pour git
 
 HERE = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("karl_agent", HERE / "karl-agent.py")
@@ -168,6 +171,86 @@ ka.subprocess.run = lambda argv, **kw: type(
 r2 = ka.op_mr_merge({"url": URL, "confirm": True})
 check("un échec est rendu tel quel (rc + sortie du script)",
       r2["ok"] is False and r2["rc"] == 1 and "conflit" in r2["stdout"])
+
+# — RM3622 : « merger + main » et « promouvoir » —
+import json as _json
+import subprocess as _sp
+import tempfile
+ka.subprocess.run = _REAL_RUN
+import pm_forge
+import pm_repos
+
+check("/mr/promote : URL invalide → 400",
+      raises(400, lambda: ka.op_mr_promote({"url": "https://gl.x/x", "confirm": True})))
+check("/mr/promote : sans confirm → 400",
+      raises(400, lambda: ka.op_mr_promote({"url": URL})))
+
+tmp = tempfile.TemporaryDirectory()
+ws = pathlib.Path(tmp.name) / "cli" / "proj"
+(ws / "repos").mkdir(parents=True)
+bare = ws / "repos" / "proj.git"
+_sp.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+_sp.run(["git", "-C", str(bare), "remote", "add", "origin", "gitlab:grp/sub/proj.git"], check=True)
+wt = ws / "envs" / "proj-dev"
+wt.mkdir(parents=True)
+(wt / ".git").write_text("gitdir: x\n")
+(ws / "envs" / "proj-rm1").mkdir()
+(ws / "envs" / "proj-rm1" / ".git").write_text("gitdir: y\n")
+(ws / ".mmi-pm").mkdir()
+(ws / ".mmi-pm" / "meta.yml").write_text("repos:\n- name: proj\n  production_branch: master\n")
+ka.ALLOWED_ROOTS[:] = [pathlib.Path(tmp.name)]
+ka.PM_RUNS_LOG = pathlib.Path(tmp.name) / "runs.jsonl"
+URL2 = "https://gl.x/grp/sub/proj/-/merge_requests/9"
+_real_parse = pm_forge.parse_pr_url
+pm_forge.parse_pr_url = lambda u: ("gitlab", u.split("gl.x/")[1].split("/-/")[0], 9)
+
+check("le dépôt local se déduit de l'URL (worktree -dev préféré)",
+      pm_repos.local_checkout_for("grp/sub/proj", [tmp.name]) == (bare, wt))
+check("dépôt de forge inconnu → None", pm_repos.local_checkout_for("grp/autre", [tmp.name]) is None)
+
+runs.clear()
+def _fake(rc_of, out="x", err=""):
+    def run(argv, **kw):
+        if argv[0] == "git":
+            return _REAL_RUN(argv, **kw)
+        runs.append(argv)
+        return type("R", (), {"returncode": rc_of(argv), "stdout": out, "stderr": err})()
+    return run
+ka.subprocess.run = _fake(lambda a: 0, "promu")
+rp = ka.op_mr_promote({"url": URL2, "confirm": True})
+check("/mr/promote lance pm-promote --repo <worktree> --target <prod du projet> --no-flush",
+      len(runs) == 1 and "pm-promote.py" in runs[0][1] and runs[0][runs[0].index("--repo") + 1] == str(wt)
+      and runs[0][runs[0].index("--target") + 1] == "master" and "--no-flush" in runs[0]
+      and "--source" not in runs[0], str(runs))
+check("…et rend {ok, rc, stdout, stderr}", rp["ok"] is True and rp["rc"] == 0 and "promu" in rp["stdout"] and "stderr" in rp)
+log = [_json.loads(l) for l in ka.PM_RUNS_LOG.read_text().splitlines()]
+check("…journalisé dans le journal des runs", log[-1]["name"] == "mr-promote" and log[-1]["rc"] == 0)
+
+check("dépôt local introuvable → 404 (pas de run à l'aveugle)",
+      raises(404, lambda: ka.op_mr_promote({"url": "https://gl.x/grp/zzz/-/merge_requests/9", "confirm": True})))
+
+runs.clear()
+rm = ka.op_mr_merge({"url": URL2, "confirm": True, "promote": True})
+check("merge + promote : pm-mr merge PUIS pm-promote, réponse composée",
+      [("pm-mr.py" in a[1]) for a in runs] == [True, False] and rm["merge"]["ok"] and rm["promote"]["ok"]
+      and rm["ok"] is True)
+runs.clear()
+ka.subprocess.run = _fake(lambda a: 1 if "pm-mr.py" in a[1] else 0, "conflit")
+rf = ka.op_mr_merge({"url": URL2, "confirm": True, "promote": True})
+check("merge en échec : la promotion n'est PAS lancée, ok faux",
+      len(runs) == 1 and rf["ok"] is False and rf["promote"] is None and rf["merge"]["rc"] == 1)
+runs.clear()
+ka.subprocess.run = _fake(lambda a: 3 if "pm-promote.py" in a[1] else 0, "x", "refus")
+rg = ka.op_mr_merge({"url": URL2, "confirm": True, "promote": True})
+check("promotion en échec après merge OK : ok faux, rc de l'étape, sorties conservées",
+      rg["ok"] is False and rg["merge"]["ok"] and rg["promote"]["rc"] == 3 and rg["rc"] == 3)
+runs.clear()
+ka.subprocess.run = _fake(lambda a: 0, "m")
+r0 = ka.op_mr_merge({"url": URL2, "confirm": True})
+check("sans promote : forme historique inchangée, aucune promotion",
+      len(runs) == 1 and "merge" not in r0 and r0["ok"] is True and r0["iid"] == "9")
+pm_forge.parse_pr_url = _real_parse
+tmp.cleanup()
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

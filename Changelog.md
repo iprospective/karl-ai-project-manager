@@ -13,6 +13,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Cockpit, worklog → MR : « ⇥ merger + main » et « ⇧ promouvoir »** (RM3622) : mettre en production
+  demandait de merger au clic puis de redemander la promotion `dev` → `main` à l'agent (aucune route ni
+  bouton). Chaque MR mergeable offre maintenant « ⇥ merger + main » (merge puis `pm-promote`, la
+  confirmation nomme les deux branches) et le groupe « mergées, à promouvoir » un « ⇧ promouvoir dans main »
+  par dépôt (promotion seule). Le libellé reprend la branche protégée du projet (`production_branch`).
+  Back : `POST /mr/promote {url, confirm}` (dépôt local déduit de l'URL de MR par
+  `pm_repos.local_checkout_for` : `origin` d'un `repos/*.git` → worktree `envs/*`, puis
+  `pm-promote.py --repo … --no-flush`), et `POST /mr/merge` accepte `promote: true` (réponse
+  `{merge, promote, ok}`, promotion lancée seulement si le merge a réussi, budget 600 s). Les deux
+  sont journalisés dans `pm-runs.jsonl`. Hors périmètre : `core-update` (reste humain).
+
 - RM3163 : `norms/runtime/git-mep.md` densifié (§ audit hebdo) ; le plafond de 5 000 tokens par module préchargé devient un avertissement non bloquant dans `test_norms_precharge.py` (décision Mathieu 2026-11-02).
 
 - **Audit hebdomadaire des environnements** (RM3163) : le 14/09, sept commits poussés sur la branche

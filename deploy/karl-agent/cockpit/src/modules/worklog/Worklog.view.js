@@ -16,7 +16,9 @@ export function MrRow(m, { tip }) {
     ? html` <span class="mrage" title="dernier mouvement connu">${m.age}</span>` : ""}</div><div class="mrfoot"><span class="pill ${m.mergeable ? "warn" : "ok"}" title="état sur la forge">${m.state}</span>${m.dead
     ? html`<span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span>` : ""}${m.url
     ? html`<a href="${m.url}" target="_blank" rel="noopener">ouvrir ↗</a>` : ""}${m.url && m.mergeable
-    ? html`<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" data-action="merge-one" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}">⇥ merger</button>` : ""}</div></div>`;
+    ? html`<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" data-action="merge-one" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}">⇥ merger</button>` : ""}${m.url && m.mergeable
+    ? html`<button class="mini" title="Merger cette MR dans l’intégration puis promouvoir l’intégration dans ${m.prod} (pm-mr merge + pm-promote)" data-action="merge-promote" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}" data-prod="${m.prod}">⇥ merger + ${m.prod}</button>` : ""}${m.url && m.promote
+    ? html`<button class="mini" title="Promouvoir l’intégration dans ${m.prod} pour ce dépôt (pm-promote, sans merge) — emporte TOUT ce que l’intégration contient" data-action="promote" data-url="${m.url}" data-iid="${m.iid}" data-target="${m.target}" data-prod="${m.prod}">⇧ promouvoir dans ${m.prod}</button>` : ""}</div></div>`;
 }
 
 export function MrPane(groups, deps) {

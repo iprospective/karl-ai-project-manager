@@ -45,6 +45,13 @@ Chaque ligne donne le **ticket** (cliquable), le **dépôt**, la branche
 quand la MR est encore ouverte. Le compteur de l'onglet ne compte que ce qui
 appelle un geste : les MR promues n'y figurent pas.
 
+Sur une MR ouverte, **⇥ merger + main** merge puis promeut l'intégration vers la
+branche protégée du projet (`pm-mr merge` puis `pm-promote`) : la confirmation
+nomme les deux branches, et la promotion emporte tout ce que l'intégration
+contient. Dans le groupe « mergées, à promouvoir », **⇧ promouvoir dans main**
+promeut sans merger, une fois par dépôt. Si une étape échoue, sa sortie
+s'affiche et le worklog se recharge. `core-update` reste à faire à la main.
+
 La branche d'intégration n'est pas supposée : elle vient de la configuration du
 projet, donc un projet qui n'appelle pas la sienne `dev` est lu correctement.
 

@@ -57,7 +57,9 @@ export class WorklogService {
     }
     this.clearSelection(); return { ok, ko };
   }
-  mergeOne(url) { return this.repo.mrMerge(url); }
+  mergeOne(url, opts) { return this.repo.mrMerge(url, !!(opts && opts.promote)); }
+  /** RM3622 : la promotion est par dépôt — l'URL d'une MR du groupe suffit à le retrouver côté serveur. */
+  promote(url) { return this.repo.mrPromote(url); }
   /** RM2823/2831 : le plan d'embarquement, une fois les projets résolus. */
   offload(items, rcache) { return offloadPlan(items, rcache); }
   /** La consigne vient du serveur (dry_run de « ▶ traiter »), la session de /spawn : rien n'est réinventé. */

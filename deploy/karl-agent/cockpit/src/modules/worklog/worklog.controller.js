@@ -105,6 +105,31 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
       load(true); if (ctx.projectWorklog) ctx.projectWorklog();
     } catch (e) { notify(e.message, true); } finally { if (btn) { btn.disabled = false; btn.textContent = "⇥ merger"; } }
   }
+  /** RM3622 : merge PUIS promotion en un clic. La confirmation nomme les DEUX branches ; chaque étape qui échoue rend sa sortie. */
+  async function mergePromote(url, iid, target, prod, btn) {
+    const dev = target || "l’intégration", main = prod || "main", label = btn ? btn.textContent : "";
+    if (!ask("Merger la MR !" + iid + " dans « " + dev + " » PUIS promouvoir « " + dev + " » dans « " + main + " » ?\nLa promotion emporte TOUT ce que « " + dev + " » contient et qui n’est pas encore dans « " + main + " ». Deux gestes irréversibles : pm-mr merge puis pm-promote.")) return;
+    if (btn) { btn.disabled = true; btn.textContent = "⇥ merge + promotion…"; }
+    try {
+      const r = await svc.mergeOne(url, { promote: true });
+      const m = r.merge || r, p = r.promote;
+      notify(r.ok ? "⇥ !" + iid + " mergée · ⇧ promue dans " + main : (m.ok === false ? "Merge en échec (rc=" + m.rc + ")" : "⇥ !" + iid + " mergée · promotion en échec (rc=" + (p ? p.rc : "?") + ")"), !r.ok);
+      if (!r.ok && ctx.capture) ctx.capture("Merge + promotion MR !" + iid + " — ÉCHEC", "— merge (rc=" + m.rc + ") —\n" + (m.stdout || "") + "\n" + (m.stderr || "") + (p ? "\n\n— promotion (rc=" + p.rc + ") —\n" + (p.stdout || "") + "\n" + (p.stderr || "") : ""));
+      load(true); if (ctx.projectWorklog) ctx.projectWorklog();
+    } catch (e) { notify(e.message, true); load(true); } finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+  }
+  /** RM3622 : promotion seule (par dépôt, sans merge) depuis le groupe « mergées, à promouvoir ». */
+  async function promoteRepo(url, iid, target, prod, btn) {
+    const dev = target || "l’intégration", main = prod || "main", label = btn ? btn.textContent : "";
+    if (!ask("Promouvoir « " + dev + " » dans « " + main + " » pour le dépôt de la MR !" + iid + " ?\nLa promotion emporte TOUT ce que « " + dev + " » contient et qui n’est pas encore dans « " + main + " » (pm-promote, sans merge).")) return;
+    if (btn) { btn.disabled = true; btn.textContent = "⇧ promotion…"; }
+    try {
+      const r = await svc.promote(url);
+      notify(r.ok ? "⇧ " + dev + " promue dans " + main : "Promotion en échec (rc=" + r.rc + ")", !r.ok);
+      if (!r.ok && ctx.capture) ctx.capture("Promotion — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
+      load(true); if (ctx.projectWorklog) ctx.projectWorklog();
+    } catch (e) { notify(e.message, true); load(true); } finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+  }
   /** RM2823/2831 : CHEMIN PARTAGÉ — un lot part dans une session neuve, ancrée sur SON projet (worklog coché ou triage filtré). */
   async function spawnBatch(items, btn, opts) {
     const o = opts || {}; if (!items || !items.length) return;
@@ -131,7 +156,7 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   }
   /** RM2823 : les tickets cochés partent ailleurs et quittent la liste des tickets ouverts. */
   async function offload(btn) { if (!svc.selection.size) return; await spawnBatch(svc.selected, btn, { apres: (plan) => { if (ctx.forgetOpened) plan.targets.forEach(t => ctx.forgetOpened(t.rm_id)); svc.clearSelection(); renderButtons(); } }); }
-  function onModalAction(action, n) { if (action === "send-batch") sendBatch(n); else if (action === "send-mr") sendMr(n); else if (action === "send-close") sendClose(n); else if (action === "merge-one") mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n); }
+  function onModalAction(action, n) { if (action === "send-batch") sendBatch(n); else if (action === "send-mr") sendMr(n); else if (action === "send-close") sendClose(n); else if (action === "merge-one") mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n); else if (action === "merge-promote") mergePromote(n.dataset.url, n.dataset.iid, n.dataset.target, n.dataset.prod, n); else if (action === "promote") promoteRepo(n.dataset.url, n.dataset.iid, n.dataset.target, n.dataset.prod, n); }
 
   /** RM3114 : solder une demande. « ticketée » demande son numéro — sans lui, le rattachement
    *  serait perdu et la demande sortirait du « à traiter » sans dire où elle a atterri. */
@@ -191,10 +216,11 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
     review: (n) => (ctx.openReview ? ctx.openReview(n.dataset.rm) : ctx.showTicket && ctx.showTicket(n.dataset.rm)),
     request: (n) => setRequestStatus(n),
     toggle: (n) => toggle(n.dataset.ref, n.dataset.status, n.dataset.label, !!n.checked), status: (n, e) => ctx.openStatusMenu && ctx.openStatusMenu(n.dataset.ref, n, e),
-    "mr-stage": (n) => ctx.openExternal && ctx.openExternal(n.dataset.url), "merge-one": (n) => mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n) };
+    "mr-stage": (n) => ctx.openExternal && ctx.openExternal(n.dataset.url), "merge-one": (n) => mergeOne(n.dataset.url, n.dataset.iid, n.dataset.target, n),
+    "merge-promote": (n) => mergePromote(n.dataset.url, n.dataset.iid, n.dataset.target, n.dataset.prod, n), promote: (n) => promoteRepo(n.dataset.url, n.dataset.iid, n.dataset.target, n.dataset.prod, n) };
   const bodyH = body ? mount(body, "", { events: [["click", "[data-action]", (e, n) => { const f = acts[n.dataset.action]; if (!f) return; e.stopPropagation(); if (n.dataset.action !== "toggle") e.preventDefault(); f(n, e); }]] }) : null;
   const disposers = [];
   if (nav && nav.addEventListener) { const fn = (e) => { const n = e.target && e.target.closest ? e.target.closest("[data-action]") : null; if (!n) return; e.preventDefault(); const a = n.dataset.action; if (a === "reload") load(true); else if (a === "batch") openBatchPlan(n.dataset.mode); else if (a === "mr") openMrBatch(n.dataset.mode); else if (a === "offload") offload(n); else if (a === "close-batch") openCloseBatch(); }; nav.addEventListener("click", fn); disposers.push(() => nav.removeEventListener("click", fn)); }
-  return { load, render, setFromRefresh, setSub, toggle, openBatchPlan, sendBatch, openMrBatch, sendMr, openCloseBatch, sendClose, mergeOne, spawnBatch, offload, data: () => svc.data, pending: () => svc.pending, selection: () => svc.selected,
+  return { load, render, setFromRefresh, setSub, toggle, openBatchPlan, sendBatch, openMrBatch, sendMr, openCloseBatch, sendClose, mergeOne, mergePromote, promoteRepo, spawnBatch, offload, data: () => svc.data, pending: () => svc.pending, selection: () => svc.selected,
     unmount() { if (bodyH) bodyH.unmount(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

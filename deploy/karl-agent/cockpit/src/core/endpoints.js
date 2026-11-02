@@ -145,6 +145,7 @@ export const ROUTES = {
   "worklog.batch": { current: "/worklog/batch", target: "/api/worklog/batch", lot: "L3,L4", callers: 3 },
   "worklog.mr.batch": { current: "/mr/batch", target: "/api/worklog/mr/batch", lot: "L3", callers: 2 },
   "worklog.mr.merge": { current: "/mr/merge", target: "/api/worklog/mr/merge", lot: "L3", callers: 1 },
+  "worklog.mr.promote": { current: "/mr/promote", target: "/api/worklog/mr/promote", lot: "L3", callers: 1 },
   "worklog.request": { current: "/worklog/request", target: "/api/worklog/request", lot: "L3", callers: 1 },
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },
 };

@@ -169,7 +169,10 @@ API (JSON, localhost:9876)
                                   `dry_run` rend le plan sans rien merger (RM2720)
   POST /mr/merge {url, confirm} → merge UNE MR désignée par son URL, via
                                   pm-mr.py (bouton des lignes « MR à merger »
-                                  du worklog)  (RM2723)
+                                  du worklog)  (RM2723). `promote: true` (RM3622) :
+                                  merge puis pm-promote → {merge, promote, ok}
+  POST /mr/promote {url, confirm} → pm-promote --no-flush sur le dépôt local de la MR
+                                  (déduit de l'URL), sans merge  (RM3622)
   POST /mr/deliver {rm_id, confirm}
                                 → {rc, ok, branch, target, stdout, stderr} —
                                   livre la branche du ticket (MR + merge → dev)
@@ -5545,7 +5548,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
              "client": _cl, "project": _pr,
              "title": None, "updated": None, "checked_ts": None,
              "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [], "mrs_all": [],
-             "integration": _integration_branch(),
+             "integration": _integration_branch(), "prod": _worklog_prod_branch(_tf),
              "requests_open": []}
     if not session_id:
         return empty
@@ -5587,6 +5590,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             # …et la branche d'intégration, pour que le front n'ait pas à SUPPOSER « dev » : un projet
             # peut la nommer autrement, et une liste en dur se tromperait en silence sur celui-là.
             "integration": _integration_branch(),
+            "prod": _worklog_prod_branch(_tf),      # RM3622 : libellé des boutons « main »
             # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
             # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
             "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),
@@ -12896,6 +12900,15 @@ def _mr_prod_branch(ws) -> str:
     return PROD_BRANCH_DEFAULT
 
 
+def _worklog_prod_branch(task_file) -> str:
+    """RM3622 — branche protégée du projet de la session (libellé des boutons du worklog)."""
+    try:
+        ws = _resolve_workspace(task_file.parent.parent) if task_file else None
+        return _mr_prod_branch(ws) if ws else PROD_BRANCH_DEFAULT
+    except Exception:           # noqa: BLE001 — un libellé ne doit jamais casser le worklog
+        return PROD_BRANCH_DEFAULT
+
+
 # >>> mr_batch_plan — pure (testée par test_karl_agent_mr_batch.py)
 def mr_batch_plan(resolved, mode: str) -> dict:
     """Range les tickets résolus en ce qui PART et ce qui est écarté.
@@ -13034,34 +13047,109 @@ def mr_url_iid(url):
 # <<< mr_url_iid
 
 
-def op_mr_merge(payload: dict) -> dict:
-    """RM2723 — merge UNE MR, désignée par son URL, via `pm-mr.py merge`.
+def _mr_script_run(name: str, argv: list, log_args: dict, timeout: int) -> dict:
+    """Lance un script PM (argv, jamais de shell), journalise dans PM_RUNS_LOG, rend
+    `{rc, ok, stdout, stderr}`. Commun au merge et à la promotion (RM2723, RM3622)."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                           cwd=str(REPO_ROOT))
+        rc, out, err = r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        rc, out, err = 124, "", f"timeout ({timeout} s)"
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": name,
+                                "args": log_args, "rc": rc}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass                     # le journal ne doit jamais faire échouer le run
+    return {"rc": rc, "ok": rc == 0, "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]}
 
-    L'URL est la forme canonique et auto-portante (hôte → forge, chemin →
-    projet, fin → iid) : un iid nu exigerait un dépôt explicite (RM2541), que le
-    worklog ne porte pas. Confirmation obligatoire — le geste ne se défait pas."""
+
+def _mr_check_payload(payload: dict) -> str:
+    """URL de MR validée + confirmation, ou ApiError 400."""
     url = str(payload.get("url") or "").strip()
     if not mr_url_iid(url):
         raise ApiError(400, "URL de MR attendue (…/-/merge_requests/<iid>)")
     if payload.get("confirm") is not True:
         raise ApiError(400, "confirmation requise (confirm: true)")
+    return url
+
+
+def _mr_promote_run(url: str, timeout: int) -> dict:
+    """RM3622 — promotion intégration → branche protégée du dépôt de la MR, via
+    `pm-promote.py --repo <worktree> --no-flush`.
+
+    Le dépôt local se déduit de l'URL (hôte/chemin de forge → `origin` d'un
+    `repos/*.git` de la machine, cf. `pm_repos.local_checkout_for`) ; rien n'est pris
+    du client. Source/cible = défauts du projet (`git.integration_branch`, puis
+    `production_branch` du manifeste, `main` à défaut). Un dépôt introuvable est une
+    erreur 404 explicite, jamais un run à l'aveugle."""
+    import pm_forge
+    import pm_repos
+    try:
+        _, repo_path, _iid = pm_forge.parse_pr_url(url)
+    except pm_forge.ForgeError as e:
+        raise ApiError(400, str(e))
+    found = pm_repos.local_checkout_for(repo_path, ALLOWED_ROOTS)
+    if not found:
+        raise ApiError(404, f"aucun dépôt local pour « {repo_path} » "
+                            "(aucun repos/*.git dont origin y corresponde)")
+    bare, checkout = found
+    if checkout is None:
+        raise ApiError(404, f"« {repo_path} » : dépôt {bare.name} trouvé mais aucun worktree "
+                            f"dans {bare.parent.parent / 'envs'} pour lancer pm-promote")
+    prod = _mr_prod_branch(bare.parent.parent)
+    script = (REPO_ROOT / "scripts" / "pm-promote.py").resolve()
+    argv = [sys.executable, str(script), "--repo", str(checkout), "--target", prod, "--no-flush"]
+    res = _mr_script_run("mr-promote", argv, {"url": url, "repo": str(checkout), "target": prod},
+                         timeout)
+    res.update({"name": "mr-promote", "url": url, "repo": str(checkout), "target": prod})
+    return res
+
+
+def op_mr_merge(payload: dict) -> dict:
+    """RM2723 — merge UNE MR, désignée par son URL, via `pm-mr.py merge`.
+
+    L'URL est la forme canonique et auto-portante (hôte → forge, chemin →
+    projet, fin → iid) : un iid nu exigerait un dépôt explicite (RM2541), que le
+    worklog ne porte pas. Confirmation obligatoire — le geste ne se défait pas.
+
+    RM3622 : `promote: true` enchaîne, si le merge réussit (rc 0), la promotion de
+    l'intégration vers la branche protégée. Réponse composée `{merge, promote}` ;
+    `ok` global = les deux étapes OK. Budget global 600 s."""
+    url = _mr_check_payload(payload)
+    promote = payload.get("promote") is True
     script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
-    argv = [sys.executable, str(script), "merge", url]
-    try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
-                           cwd=str(REPO_ROOT))
-        rc, out, err = r.returncode, r.stdout, r.stderr
-    except subprocess.TimeoutExpired:
-        rc, out, err = 124, "", "timeout (300 s)"
-    try:
-        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-merge",
-                                "args": {"url": url}, "rc": rc}, ensure_ascii=False) + "\n")
-    except OSError:
-        pass                     # le journal ne doit jamais faire échouer le run
-    return {"name": "mr-merge", "url": url, "iid": mr_url_iid(url), "rc": rc,
-            "ok": rc == 0, "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]}
+    t0 = time.monotonic()
+    merge = _mr_script_run("mr-merge", [sys.executable, str(script), "merge", url],
+                           {"url": url, "promote": promote}, 300)
+    iid = mr_url_iid(url)
+    if not promote:
+        return {"name": "mr-merge", "url": url, "iid": iid, **merge}
+    prom = None
+    if merge["ok"]:
+        remaining = max(30, int(600 - (time.monotonic() - t0)))
+        try:
+            prom = _mr_promote_run(url, remaining)
+        except ApiError as e:       # le merge a eu lieu : on rend l'échec de l'étape 2, pas un 4xx
+            prom = {"name": "mr-promote", "url": url, "rc": 2, "ok": False,
+                    "stdout": "", "stderr": e.msg}
+    return {"name": "mr-merge", "url": url, "iid": iid, "merge": merge, "promote": prom,
+            "ok": bool(merge["ok"] and prom and prom["ok"]),
+            "rc": merge["rc"] if not merge["ok"] else (prom["rc"] if prom else 0),
+            "stdout": merge["stdout"] + (("\n" + prom["stdout"]) if prom else ""),
+            "stderr": merge["stderr"] + (("\n" + prom["stderr"]) if prom else "")}
+
+
+def op_mr_promote(payload: dict) -> dict:
+    """RM3622 — promeut l'intégration vers la branche protégée du dépôt de la MR
+    désignée (pm-promote, sans merge). La promotion est par DÉPÔT : l'URL ne sert qu'à
+    le retrouver. Mêmes garde-fous que /mr/merge (URL de MR valide, confirm)."""
+    url = _mr_check_payload(payload)
+    res = _mr_promote_run(url, 600)
+    res["iid"] = mr_url_iid(url)
+    return res
 
 
 def op_monitor(payload: dict) -> dict:
@@ -14088,6 +14176,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mr_batch(payload))
             if path == "/mr/merge":            # RM2723 : merger UNE MR (par URL)
                 return self._send_json(200, op_mr_merge(payload))
+            if path == "/mr/promote":          # RM3622 : promouvoir l'intégration (pm-promote)
+                return self._send_json(200, op_mr_promote(payload))
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":

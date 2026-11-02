@@ -24,7 +24,8 @@ export class WorklogViewModel extends EntityViewModel {
   mrGroups() {
     const cycle = mrCycle(this.w.mrs_all || this.w.mrs_pending, this.ctx.integration);
     return MR_GROUPS.map(g => ({ key: g.key, icon: g.icon, label: g.label, hint: g.hint,
-      rows: (cycle[g.key] || []).map(m => mrDetail(m, this.ctx)) })).filter(g => g.rows.length);
+      rows: markPromotable((cycle[g.key] || []).map(m => mrDetail(m, Object.assign({}, this.ctx, { prod: this.w.prod })))
+        , g.key === "integration") })).filter(g => g.rows.length);
   }
   /** RM3114 : une demande se lisait sans qu'on sache à quoi elle mène ni comment la solder.
    *  Elle porte donc son état, son rattachement s'il existe, et les suites qu'on peut lui donner. */
@@ -67,6 +68,14 @@ export class WorklogViewModel extends EntityViewModel {
 /** RM2723 : une ligne « MR à merger » — le bouton n'existe que s'il y a une URL (c'est elle qui identifie la MR pour pm-mr). */
 export function mrLine(m) { const mr = m || {}; return { iid: String(mr.iid || "?"), ref: mr.ref ? String(mr.ref) : "", target: mr.target ? String(mr.target) : "", url: mr.url ? String(mr.url) : "", dead: mr.alive === false }; }
 
+/** RM3622 : la promotion est par DÉPÔT — dans le groupe « à promouvoir », seule la 1re MR de chaque dépôt porte le bouton. Pure. */
+export function markPromotable(rows, enabled) {
+  if (!enabled) return rows;
+  const seen = new Set();
+  for (const r of rows) { const k = r.repo || "?"; if (r.url && !seen.has(k)) { seen.add(k); r.promote = true; } }
+  return rows;
+}
+
 /** RM3074 — une MR détaillée : tout ce que l'onglet affiche, rien que la vue ait à décider. */
 export function mrDetail(m, ctx) {
   const mr = m || {}, ago = (ctx && ctx.ago) ? ctx.ago : null;
@@ -75,7 +84,9 @@ export function mrDetail(m, ctx) {
     repo: mr.repo ? String(mr.repo) : "", source: mr.source ? String(mr.source) : "", target: mr.target ? String(mr.target) : "",
     url: mr.url ? String(mr.url) : "", state, stage: String(mr.stage || ""), dead: mr.alive === false,
     age: (ago && mr.ts) ? ago(mr.ts) : "",
-    mergeable: state === "opened" || state === "open" || state === "reopened" };
+    mergeable: state === "opened" || state === "open" || state === "reopened",
+    // RM3622 : le vrai nom de la branche protégée si le worklog le connaît, sinon « main ».
+    prod: (ctx && ctx.prod) ? String(ctx.prod) : "main", promote: false };
 }
 
 /** RM2716/2719/2720 : le récapitulatif AVANT envoi. e = plan du serveur ; ctx = { mode } */

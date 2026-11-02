@@ -67,6 +67,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /mr/batch	L3	worklog	/api/worklog/mr/batch	2	openMrBatch;sendMrBatch
 /mr/deliver	L3	review	/api/review/mr/deliver	1	mrDeliver
 /mr/merge	L3	worklog	/api/worklog/mr/merge	1	mergeOneMr
+/mr/promote	L3	worklog	/api/worklog/mr/promote	1	promoteRepo
 /notifications	L4	dashboard	/api/dashboard/notifications	1	loadNotifications
 /notifications/mark	L4	dashboard	/api/dashboard/notifications-mark	1	markNotifications
 /outline	L5	layout	/api/layout/outline	1	loadOutline

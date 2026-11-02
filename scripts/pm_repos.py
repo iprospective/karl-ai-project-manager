@@ -242,3 +242,51 @@ def remote_conflicts(repo, remote="origin"):
                     out.append(f"repos[{name}].remotes.{remote} : instance déclarée "
                                f"'{declared}' mais {how} désigne {found.name}")
     return out
+
+
+# ── Dépôt local d'une MR (RM3622) ────────────────────────────────────────────
+
+# Où chercher les bares : `<workspace>/repos/<nom>.git`, à 1 à 3 niveaux sous la racine.
+_BARE_GLOBS = ("*/repos/*.git", "*/*/repos/*.git", "*/*/*/repos/*.git")
+
+
+def _origin_path(git_dir):
+    """Chemin de forge (`groupe/projet`, minuscules, sans `.git`) du remote origin de
+    `git_dir`, ou "" s'il est illisible. `git config` : valable pour un bare comme pour un worktree."""
+    import subprocess
+    fg = _forge()
+    if fg is None:
+        return ""
+    r = subprocess.run(["git", "-C", str(git_dir), "config", "--get", "remote.origin.url"],
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0 or not r.stdout.strip():
+        return ""
+    return fg.parse_remote(r.stdout.strip())[1].strip("/").lower()
+
+
+def local_checkout_for(repo_path, roots):
+    """(bare, checkout) locaux du dépôt de forge `repo_path`, ou None.
+
+    `repo_path` vient de `pm_forge.parse_pr_url` (donc d'une URL de MR) : on retrouve
+    le workspace dont un `repos/*.git` a ce chemin pour `origin`, puis un WORKTREE
+    de ce workspace (`envs/*`, préférence au `*-dev`). Il faut un worktree et non le
+    bare : `pm-promote` s'appuie sur `git rev-parse --show-toplevel`, qui échoue sur
+    un bare. `checkout` vaut None si le workspace n'a aucun worktree.
+
+    Aucun chemin n'est pris de l'entrée : seule la comparaison au remote origin
+    désigne le dépôt, parmi ceux que la machine possède déjà."""
+    wanted = str(repo_path or "").strip("/").lower()
+    if wanted.endswith(".git"):
+        wanted = wanted[:-4]
+    if not wanted:
+        return None
+    for root in roots:
+        for pat in _BARE_GLOBS:
+            for bare in sorted(Path(root).glob(pat)):
+                if _origin_path(bare) != wanted:
+                    continue
+                envs = sorted((d for d in (bare.parent.parent / "envs").glob("*")
+                               if (d / ".git").exists()),
+                              key=lambda d: (not d.name.endswith("-dev"), d.name))
+                return bare, (envs[0] if envs else None)
+    return None

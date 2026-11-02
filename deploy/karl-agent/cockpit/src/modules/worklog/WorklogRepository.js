@@ -1,10 +1,10 @@
-// models/worklog/WorklogRepository — /worklog/<sid>, /worklog/batch, /mr/batch, /mr/merge, /spawn. RM2889.
+// models/worklog/WorklogRepository — /worklog/<sid>, /worklog/batch, /mr/batch, /mr/merge, /mr/promote, /spawn. RM2889.
 import { Repository } from "../../core/Repository.js";
 import { Factory } from "../../core/Factory.js";
 import { get, post } from "../../core/api.js";
 
 export class WorklogRepository extends Repository {
-  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", request: "worklog.request", anteriority: "ticket.anteriority", spawn: "session.spawn" } }); }
+  constructor() { super({ name: "worklog", ttl: 10000, max: 20, factory: new Factory({ type: "worklog" }), routes: { worklog: "worklog.worklog", batch: "worklog.batch", mrBatch: "worklog.mr.batch", mrMerge: "worklog.mr.merge", mrPromote: "worklog.mr.promote", request: "worklog.request", anteriority: "ticket.anteriority", spawn: "session.spawn" } }); }
   /** force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel. */
   load(sid, force) { return get(this.path("worklog") + "/" + encodeURIComponent(sid) + (force ? "?force=1" : "")); }
   batch(body) { return post(this.path("batch"), body); }
@@ -17,6 +17,9 @@ export class WorklogRepository extends Repository {
                + "&limit=" + encodeURIComponent(limit));
   }
   mrBatch(body) { return post(this.path("mrBatch"), body); }
-  mrMerge(url) { return post(this.path("mrMerge"), { url, confirm: true }); }
+  /** RM3622 : `promote` enchaîne la promotion intégration → branche protégée (réponse { merge, promote, ok }). */
+  mrMerge(url, promote) { return post(this.path("mrMerge"), promote ? { url, confirm: true, promote: true } : { url, confirm: true }); }
+  /** RM3622 : promotion seule (pm-promote) du dépôt de la MR désignée. */
+  mrPromote(url) { return post(this.path("mrPromote"), { url, confirm: true }); }
   spawn(body) { return post(this.path("spawn"), body); }
 }

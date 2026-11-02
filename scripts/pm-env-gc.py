@@ -25,9 +25,11 @@ Usage :
     pm-env-gc.py                       # dry-run depuis le workspace courant
     pm-env-gc.py --fetch               # rafraîchit origin/* d'abord
     pm-env-gc.py --apply               # exécute le nettoyage
+    pm-env-gc.py --all [--apply]       # tous les workspaces du parc (pont avec pm-env-audit, RM3163)
     mmi-pm env-gc [--apply]            # via la façade CLI
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -214,24 +216,36 @@ def main():
     ap.add_argument("--fetch", action="store_true",
                     help="git fetch --all avant (rafraîchit origin/* pour le test d'intégration)")
     ap.add_argument("--verbose", action="store_true", help="détaille aussi ce qui est gardé")
+    ap.add_argument("--all", action="store_true",
+                    help="tous les workspaces du parc (RM3163 : ce que pm-env-audit signale FERMÉ/obsolète)")
     args = ap.parse_args()
 
-    ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
+    if args.all:
+        root = Path(os.environ.get("PM_WORKSPACES_ROOT", "/zfs/workspaces"))
+        wss = sorted(p for c in root.iterdir() if c.is_dir() and not c.name.startswith(".")
+                     for p in c.iterdir() if p.is_dir() and (p / ".mmi-pm").exists() and (p / "repos").is_dir())
+        if not wss:
+            sys.exit(f"aucun workspace (repos/ + .mmi-pm) sous {root}")
+    else:
+        wss = [find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())]
     cfg = PMConfig.load()
-    bares = sorted((ws / "repos").glob("*.git"))
-    if not bares:
-        sys.exit(f"aucun bare repos/*.git sous {ws}")
-
-    print(f"workspace : {ws}\nmode      : {'APPLY' if args.apply else 'dry-run (aucune suppression)'}\n")
+    print(f"mode      : {'APPLY' if args.apply else 'dry-run (aucune suppression)'}")
     tot_r = tot_k = tot_s = tot_b = tot_bk = tot_bb = 0
-    for bare in bares:
-        print(f"── {bare.name} ──")
-        if args.fetch:
-            git(["fetch", "--all", "-q"], cwd=bare)
-        r, k, s, _freed = gc_worktrees(cfg, bare, args.apply, args.verbose)
-        b, bk, bb = gc_branches(cfg, bare, args.apply, args.verbose)
-        tot_r, tot_k, tot_s = tot_r + r, tot_k + k, tot_s + s
-        tot_b, tot_bk, tot_bb = tot_b + b, tot_bk + bk, tot_bb + bb
+    for ws in wss:
+        bares = sorted((ws / "repos").glob("*.git"))
+        if not bares:
+            if not args.all:
+                sys.exit(f"aucun bare repos/*.git sous {ws}")
+            continue
+        print(f"\nworkspace : {ws}")
+        for bare in bares:
+            print(f"── {bare.name} ──")
+            if args.fetch:
+                git(["fetch", "--all", "-q"], cwd=bare)
+            r, k, s, _freed = gc_worktrees(cfg, bare, args.apply, args.verbose)
+            b, bk, bb = gc_branches(cfg, bare, args.apply, args.verbose)
+            tot_r, tot_k, tot_s = tot_r + r, tot_k + k, tot_s + s
+            tot_b, tot_bk, tot_bb = tot_b + b, tot_bk + bk, tot_bb + bb
 
     verb = "retirés" if args.apply else "à retirer"
     print(f"\n{tot_r} worktree(s) {verb} · {tot_b} branche(s) locale(s) {'supprimée(s)' if args.apply else 'à supprimer'} "

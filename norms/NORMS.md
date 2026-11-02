@@ -1,9 +1,9 @@
 ---
-schema_version: "2.65.0"
+schema_version: "2.66.0"
 updated: 2026-11-02
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.65.0
+# Normes de gestion des tâches — v2.66.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -32,6 +32,7 @@ updated: 2026-11-02
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je corrige un bug sur un projet maintenu en **plusieurs versions** (branches `19.0` / `20.0` / `dev`…) : correctif sur la version où le bug est constaté, **remontée tracée** vers les suivantes | `modules/git-mep.md` § « Correctif sur un projet multi-versions » | `pm-branch-start --from`, `pm-task-add` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
+| **début de semaine**, ou reprise d'un projet après > 7 jours : l'audit des envs date de quand ? | `modules/git-mep.md` § « Audit hebdomadaire des environnements » (RM3163) | `pm-env-audit --fetch` (`--last` = date du dernier, `--last --workspace client/projet` = celui du projet, consigné dans son `.mmi-pm/env-audit/`) |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je **crée un env de dev / de recette** : désactiver les protections anti-automatisation (CAPTCHA, 2FA, rate-limit) et poser le compte de l'agent — jamais les contourner, la prod les garde | `modules/environments.md` § « recettable par un agent » + `knowledge/<produit>/env-dev.md` | `pm-env-session create` |
@@ -91,7 +92,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
-3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé).
+3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé). **Une MR mergée clôt sa branche pour le contenu** : tout commit poussé sur une branche de ticket **après** le merge de sa MR est **orphelin** tant qu'une nouvelle MR ne le porte pas — MR dans la foulée, ou pas de push (incident RM2264 : 7 commits oubliés un mois ; l'audit hebdomadaire `pm-env-audit` les traque, RM3163).
    **Exception — dépôts de DONNÉES PM (`*-core`), RM2440 :** un dépôt portant un `.mmi-pm/` ou `.mmi-pm-client/` **réel** à sa racine (*symlink* = workspace de code, **pas** un core) n'a ni code ni revue possible — l'historique git **est** l'audit. Sa branche de prod accepte le **push direct** (`push=Developer`) : les scripts pm-* y écrivent sans branche ni MR. Pas un contournement : `allow_force_push=false` reste posé, l'historique ne peut que **croître**. **Et on n'en parle pas** : cette plomberie est muette en restitution → tripwire #15. → `modules/git-mep.md`
 4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
@@ -3422,6 +3423,12 @@ Un merge fait à la main dans l'UI GitLab échappe à ces gardes : ne pas s'en s
 Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
 tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**
 
+### Audit hebdomadaire des environnements (RM3163)
+
+RM2264 + doc oublié, 1 mois → `pm-env-audit --fetch`, pm-doctor alerte. BRANCHE, SALE, RETARD,
+STASH, FERMÉ, REMOTE ; obsolètes → `pm-env-gc --all`. **Détail : `git-mep-pratique` § Audit
+hebdomadaire des environnements.**
+
 #### D'où partent les worktrees, où vont les envs (RM3209)
 
 Deux réglages d'**instance**, réservés à l'admin — posés dans `pm.config.local.yml`, jamais lus dans
@@ -3755,6 +3762,78 @@ versioning:
   « branche d'intégration » au sens de la sous-section précédente.
 - En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
+
+
+## Audit hebdomadaire des environnements — mode d'emploi (RM3163)
+
+**Pourquoi.** Le 2026-09-14, sur calyclay/calymix, sept commits poussés sur la branche RM2264
+**après** le merge de sa MR, et un document de RM1937 (juillet), n'avaient jamais atteint `master`.
+Personne ne l'a vu pendant un mois : les branches suivantes sont parties sans, une correction
+validée par le demandeur est « revenue », et des documents périmés ont dû être repris à la main,
+puis rendus cohérents avec ce qui avait été écrit entre-temps. Le teardown par ticket et le GC
+sont événementiels ; rien ne faisait de point d'ensemble. **Décision Mathieu : un audit
+hebdomadaire, outillé, avec historique des contrôles.**
+
+**La règle.**
+- **Chaque semaine** (début de semaine), et **à la reprise d'un projet resté > 7 jours sans
+  session**, lancer `pm-env-audit --fetch` sur **l'ensemble des workspaces** (`--workspace
+  client/projet` pour un seul). `pm-env-audit --last` répond « de quand date le dernier ? » :
+  au-delà de 7 jours, on relance avant de reprendre du code.
+- `pm-doctor` **lit** cette consignation à chaque exécution (sans relancer l'audit lui-même) et
+  alerte : audit absent ou > 7 jours → avertissement, anomalie ÉLEVÉE encore ouverte → erreur.
+  C'est le point d'entrée quotidien ; l'audit reste le tour hebdomadaire.
+- L'audit **se consigne dans chaque projet**, dans son dépôt de données (`<workspace>/.mmi-pm/
+  env-audit/`, commit + push direct — un core n'a pas de MR) : `history.md` = une ligne par
+  contrôle (date, fetch, anomalies par gravité, Δ nouvelles / résolues) ; `YYYY-MM-DD_HHMM.md` =
+  le détail et le diff depuis le contrôle précédent, écrit **seulement** s'il y a une anomalie ou
+  un changement. C'est l'historique des checks, la preuve qu'il a eu lieu, lisible depuis le
+  projet (`pm-env-audit --last --workspace client/projet`). Le repo PM ne garde qu'une synthèse
+  globale locale (`var/env-audit/history.jsonl`, `pm-env-audit --last`). Les dépôts de CODE ne
+  sont jamais modifiés (lecture seule ; `--fetch` ne touche que `origin/*`).
+- Ce qu'il signale : **BRANCHE** (commits absents *par contenu* de l'intégration — `git cherry`,
+  un cherry-pick compte comme intégré), gravité d'après **l'état réel de la MR** (API de la forge,
+  `git.mr_urls` du ticket) : MR **mergée** et commits postérieurs → ÉLEVÉE (le cas RM2264, daté du
+  merge), MR ouverte → info, MR fermée sans merge → moyenne ; sans MR : ticket fermé / en MEP →
+  ÉLEVÉE, sinon moyenne (forge injoignable ou `--no-forge` → ce repli) ; **SALE** (fichiers non
+  commités, âge du plus ancien, alerte > 7 j) ; **RETARD** (intégration locale derrière le
+  remote) ; **STASH** oubliés ; **FERMÉ** (worktree de ticket fermé → obsolète, propre et
+  intégré, ou à traiter — modifs non commitées ou commits non intégrés) ; **REMOTE** (fetch
+  impossible).
+- **Branche d'intégration retenue** : la branche par défaut du remote (`refs/remotes/origin/HEAD`,
+  résolue en premier), puis `dev`, `develop`, `main`, `master` — la première qui existe. Sur un
+  dépôt où `origin/HEAD` pointe ailleurs que ces noms usuels (mirroring, migration en cours), c'est
+  elle qui prime : ne pas s'étonner qu'un `dev` historique mais mort ne soit pas la référence.
+- **Portée par défaut** : seules les branches de **tickets** (`<RMid>-…`) et les branches
+  **locales** (`refs/heads/*`, quel que soit leur nom — ce sont des worktrees actifs ou des
+  branches maintenues à la main) sont examinées **par contenu**. Les autres branches **distantes**
+  hors convention (miroirs amont, branches de version type `19.0-mmi`, releases…) sont **comptées**
+  dans un résumé (`N branche(s) distante(s) hors convention non examinée(s)`) mais pas parcourues,
+  pour ne pas payer le coût d'un `git cherry` sur des lignées entières sans rapport avec un ticket.
+  `--all-branches` force l'examen par contenu de toutes les branches distantes, y compris celles-là
+  — utile ponctuellement, coûteux sur un gros dépôt (voir Performance ci-dessous).
+- **Traitement** : une anomalie ÉLEVÉE se traite **avant** de reprendre le projet — ouvrir la MR
+  manquante, reprendre les commits (cherry-pick sur la branche courante, en **relisant** ce que
+  d'autres ont écrit depuis : le contenu ancien peut contredire le CDC à jour), ou retirer ce qui
+  est obsolète ; on note ce qu'on a fait dans le ticket concerné. Une anomalie moyenne se
+  traite dans la semaine ; une info se lit.
+- **Envs obsolètes** (ticket fermé, worktree propre, contenu intégré) : `pm-env-gc --workspace
+  <ws>` pour un projet, ou `pm-env-gc --all` pour tout le parc — toujours en dry-run d'abord, puis
+  `--apply` pour nettoyer réellement.
+- **Corollaire du tripwire #3** : un commit poussé sur une branche de ticket **après** le merge
+  de sa MR est orphelin tant qu'une nouvelle MR ne le porte pas → MR dans la foulée, ou pas de
+  push. L'audit est le filet, pas la règle.
+
+**Options utiles.**
+- `--no-forge` : ne pas interroger l'API de la forge (réseau coupé, token absent, ou juste pour
+  aller plus vite) — la gravité des BRANCHE retombe sur le statut du ticket seul.
+- `--all-branches` : voir ci-dessus (Portée par défaut).
+- `--no-consign` : ne rien écrire ni committer dans les projets — un essai, pour voir ce que
+  l'audit relèverait sans laisser de trace.
+- `--no-commit` : consigner (écrire `history.md` et le détail) sans committer/pousser — utile en
+  debug d'un projet précis.
+- `PM_ENV_AUDIT_TRACE=1` (variable d'environnement) : affiche sur stderr chaque commande git qui a
+  pris plus d'1 seconde, avec sa durée — le premier réflexe pour profiler un audit lent sur un
+  dépôt particulier avant de conclure à un bug.
 
 
 ## Licence — posée à la naissance (RM3030)

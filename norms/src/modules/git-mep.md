@@ -262,6 +262,12 @@ Un merge fait à la main dans l'UI GitLab échappe à ces gardes : ne pas s'en s
 Une session qui touche plusieurs tickets travaille dans **un worktree par ticket** — jamais deux
 tickets sur la même branche. **Détail : `git-mep-pratique` § Plusieurs tickets dans une session.**
 
+### Audit hebdomadaire des environnements (RM3163)
+
+RM2264 + doc oublié, 1 mois → `pm-env-audit --fetch`, pm-doctor alerte. BRANCHE, SALE, RETARD,
+STASH, FERMÉ, REMOTE ; obsolètes → `pm-env-gc --all`. **Détail : `git-mep-pratique` § Audit
+hebdomadaire des environnements.**
+
 #### D'où partent les worktrees, où vont les envs (RM3209)
 
 Deux réglages d'**instance**, réservés à l'admin — posés dans `pm.config.local.yml`, jamais lus dans

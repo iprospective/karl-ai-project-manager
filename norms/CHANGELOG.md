@@ -1,5 +1,38 @@
 # Changelog des normes
 
+## [2.66.0] - 2026-11-02
+
+### Ajouté
+- **`git-mep` § « Audit hebdomadaire des environnements »** + déclencheur KERNEL « début de
+  semaine / reprise après > 7 jours » → `pm-env-audit --fetch` (RM3163). Incident fondateur du
+  2026-09-14 (calyclay/calymix) : 7 commits poussés sur la branche RM2264 **après** le merge de sa
+  MR, et un document de RM1937 (juillet), jamais fusionnés dans `master` — un mois sans que
+  personne ne le voie, branches suivantes parties sans, correction validée « revenue », docs
+  périmés repris à la main. Le nouvel outil fait un point sur **tous** les workspaces (branches
+  avec commits absents *par contenu* de l'intégration, gravité selon l'état du ticket ; fichiers
+  non commités anciens ; intégration en retard ; stash ; worktrees de tickets fermés ; fetch
+  impossible) ; la gravité d'une branche vient de **l'état réel de sa MR** (mergée + commits
+  postérieurs = ÉLEVÉE, ouverte = info) ; et **chaque contrôle se consigne dans le projet**
+  (`<workspace>/.mmi-pm/env-audit/history.md` une ligne par audit, fichier de détail daté seulement
+  s'il y a une anomalie ou un changement, commit + push direct sur le core), le repo PM ne gardant
+  qu'une synthèse globale (`--last`). Décision Mathieu : « lancer le script de vérif sur l'ensemble
+  des envs chaque semaine », « consigné dans chaque repo core des projets, dans un doc d'historique
+  d'audits, voire un dossier avec un fichier par audit ».
+
+- **v2 de `pm-env-audit`** (même RM3163) : la branche d'intégration retenue est désormais la
+  branche par défaut du remote (`origin/HEAD`), puis `dev`/`develop`/`main`/`master` — un
+  `origin/dev` mort n'inflate plus artificiellement le compte de commits absents. Par défaut,
+  seules les branches de **tickets** et les branches **locales** sont examinées par contenu ; les
+  branches distantes hors convention sont comptées sans être parcourues (`--all-branches` pour
+  tout examiner). `pm-doctor` **lit** la consignation à chaque exécution (sans relancer l'audit) et
+  alerte si elle date de plus de 7 jours ou porte une anomalie ÉLEVÉE encore ouverte. Les envs
+  obsolètes détectés (ticket fermé, worktree propre et intégré) se nettoient en une commande sur
+  tout le parc : `pm-env-gc --all` (dry-run) puis `--all --apply`.
+
+### Modifié
+- **Tripwire #3** : phrase ajoutée — une MR mergée clôt sa branche pour le contenu ; tout commit
+  poussé ensuite sur la branche de ticket est orphelin tant qu'une nouvelle MR ne le porte pas.
+
 ## [2.65.0] - 2026-11-02
 
 ### Ajouté

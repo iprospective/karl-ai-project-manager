@@ -13,6 +13,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Audit hebdomadaire des environnements** (RM3163) : le 14/09, sept commits poussés sur la branche
+  RM2264 *après* le merge de sa MR, et un document de RM1937 (juillet), n'avaient jamais atteint
+  `master` — un mois sans que rien ne le dise, les branches suivantes parties sans, une correction
+  validée « revenue ». Le teardown et le GC sont événementiels ; rien ne faisait de point d'ensemble.
+  Nouveau `pm-env-audit` : sur **tous** les workspaces, branches portant des commits absents *par
+  contenu* de l'intégration (gravité selon l'état du ticket : fermé/MEP = ÉLEVÉE, sans MR = moyenne,
+  MR renseignée = info), fichiers non commités avec leur âge, intégration en retard, stash, worktrees
+  de tickets fermés, fetch impossible. La gravité d'une branche vient de l'**état réel de sa MR** (API
+  forge : mergée + commits postérieurs = ÉLEVÉE, ouverte = info, repli sur le ticket sans réseau).
+  Chaque contrôle est **consigné dans le projet audité** : `<workspace>/.mmi-pm/env-audit/history.md`
+  (une ligne par audit, Δ nouvelles/résolues) + un fichier de détail daté seulement s'il y a une
+  anomalie ou un changement, commité et poussé sur le core ; le repo PM ne garde qu'une synthèse
+  globale locale (`--last`, `--last --workspace`). Tests offline `test_pm_env_audit.py`. NORMS 2.49.0 : déclencheur « début de semaine / reprise après
+  > 7 jours », section `git-mep`, et le tripwire #3 dit désormais qu'une MR mergée clôt sa branche
+  pour le contenu. Décision Mathieu : « lancer le script de vérif sur l'ensemble des envs chaque semaine ».
+  v2 : la branche d'intégration retenue est la branche par défaut du remote (`origin/HEAD`) puis
+  dev/develop/main/master (un `origin/dev` mort n'inflate plus le compte de commits) ; par défaut
+  seules les branches de tickets et les branches locales sont examinées par contenu (`--all-branches`
+  pour tout examiner) ; `pm-doctor` lit la consignation à chaque exécution et alerte (> 7 jours,
+  ÉLEVÉE ouverte) sans relancer l'audit ; les envs obsolètes se nettoient sur tout le parc en une
+  commande, `pm-env-gc --all` (dry-run) puis `--all --apply`.
+
 - **Cockpit, onglet conversation : horodatage et marqueurs de compaction (RM3620).** Chaque entrée d'une
   session claude porte sa date-heure (`JJ/MM/AAAA HH:MM`, fuseau du navigateur) en tête de l'infobulle, et
   l'entrée dépliée l'affiche complète (avec les secondes) à gauche de « copier ». Chaque compaction apparaît

@@ -1,5 +1,10 @@
 # Changelog des normes
 
+## [2.65.0] - 2026-11-02
+
+### Ajouté
+- `git-mep` § « Correctif sur un projet multi-versions » (RM3613, demande Mathieu) : sur un projet maintenu en plusieurs lignes de version (ex. modules Dolibarr `19.0` / `20.0` / `dev`), le correctif se code et se livre sur la branche de la **version où le bug est constaté** (`pm-branch-start --from <branche de version>`), et sa **remontée vers les versions suivantes est tracée** au moment de la livraison (ticket dédié lié, ou note listant les branches restantes). Pratique par défaut de la communauté Dolibarr. Déclencheur ajouté au KERNEL.
+
 ## [2.64.0] - 2026-10-26
 
 ### Modifié

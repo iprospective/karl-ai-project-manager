@@ -1,9 +1,9 @@
 ---
-schema_version: "2.63.1"
-updated: 2026-10-08
+schema_version: "2.65.0"
+updated: 2026-11-02
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.63.1
+# Normes de gestion des tâches — v2.65.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -30,6 +30,7 @@ updated: 2026-10-08
 | je cherche un projet dans l'index, j'ajoute un contact | `modules/structure-reference-pratique.md` | `pm-client-contact` |
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
+| je corrige un bug sur un projet maintenu en **plusieurs versions** (branches `19.0` / `20.0` / `dev`…) : correctif sur la version où le bug est constaté, **remontée tracée** vers les suivantes | `modules/git-mep.md` § « Correctif sur un projet multi-versions » | `pm-branch-start --from`, `pm-task-add` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
@@ -3157,7 +3158,7 @@ silence** — c'est la même classe de bug que le drift de config Redmine ci-des
 côté *écriture* cette fois. Avant de clore : vérifier la cohérence
 `pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
 
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · correctif sur un projet multi-versions · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -3385,6 +3386,12 @@ tâche). Exemple : `1762-etransactions-historique`.
 - (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.
+
+#### Correctif sur un projet multi-versions : la version du bug d'abord, la remontée ensuite (RM3613)
+
+Quand un projet est maintenu sur **plusieurs lignes de version** (branches `19.0`, `20.0`, `dev`… des modules Dolibarr, branches de release d'une bibliothèque), un correctif se code et se livre sur la branche de la **version où le bug est constaté** — celle que fait tourner l'environnement qui le remonte : branche de ticket tirée de cette branche (`pm-branch-start <RMid> --from <branche de version>`), MR vers elle. On ne corrige **pas** toutes les lignes de version dans le ticket du bug.
+
+La **remontée vers les versions suivantes** est **tracée explicitement**, au moment de la livraison : ticket dédié (`pm-task-add`, lié au ticket du correctif par `pm-task-link … --type relates`) ou, à défaut, note dans le ticket listant les branches restant à mettre à jour — jamais un « on verra » oral. C'est le fonctionnement par défaut de la communauté Dolibarr (correctif sur la version concernée, puis remontée vers les versions plus récentes) ; le demandeur peut en décider autrement pour un ticket donné.
 
 #### Actions au déploiement = la procédure de MEP du ticket
 

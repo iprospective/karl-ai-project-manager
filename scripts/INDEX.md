@@ -191,6 +191,7 @@
 - `pm-corehist-backfill` — réinjecte le VRAI historique git dans les repos -core.
 - `pm-invoice` — proposer les factures d'un mois depuis les saisies Redmine
 - `pm-karl-service` — une instance de karl-agent par développeur
+- `pm-knowledge` — lire la knowledge PM en local, snapshot ou remote
 - `pm-llm-models` — ce qu'un fournisseur LLM sert VRAIMENT, demandé au fournisseur
 - `pm-mep-watch` — la file « à vérifier en prod » se rappelle à nous
 - `pm-module` — les modules de PM : lister, décrire, contrôler, mesurer l'écart
@@ -232,6 +233,7 @@
 - `pm_index` — l'INDEX des projets PM : les symlinks `projects/clients/<c>/projects/<p…
 - `pm_install_mode` — le mode d'installation de karl, déclaré et contrôlé
 - `pm_invoice` — proposer les factures d'un mois depuis les saisies de temps Redmine
+- `pm_knowledge` — Acces a la knowledge PM sans dependance a mmi-kb
 - `pm_license` — la licence d'un projet / d'un dépôt, posée à la naissance
 - `pm_llm_call` — un appel de complétion à un fournisseur du registre
 - `pm_llm_services` — les fournisseurs de modèles connus, prêts à déclarer

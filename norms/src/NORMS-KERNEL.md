@@ -23,6 +23,7 @@
 | je cherche un projet dans l'index, j'ajoute un contact | `modules/structure-reference-pratique.md` | `pm-client-contact` |
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
+| je corrige un bug sur un projet maintenu en **plusieurs versions** (branches `19.0` / `20.0` / `dev`…) : correctif sur la version où le bug est constaté, **remontée tracée** vers les suivantes | `modules/git-mep.md` § « Correctif sur un projet multi-versions » | `pm-branch-start --from`, `pm-task-add` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |

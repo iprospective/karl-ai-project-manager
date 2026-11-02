@@ -13,6 +13,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Copies PrestaShop non-prod : le suivi publicitaire est coupé (RM3619).** `presta-nonprod-sql.sh`
+  désactive désormais, par défaut, les modules de suivi publicitaire et d'audience (`facebookproductad`,
+  `gadwordstracking`, `ps_googleanalytics`, `cdc_googletagmanager`, `ps_facebook`,
+  `psxmarketingwithgoogle`) en plus des modules cloud. Leurs pixels gardaient les identifiants de la prod :
+  deux recettes calicote indexées par Google ont compté robots et visiteurs dans les statistiques
+  publicitaires du client (RM3616). S'applique sans changement aux appelants (synchro, `pm-env-session`) ;
+  `--keep-tracking` / `--tracking-modules` pour les cas particuliers. Fiche
+  `knowledge/prestashop/env-dev.md` : tout ce qu'on neutralise sur une copie, et pourquoi.
 - **Reprendre une session opencode depuis le cockpit (RM3564).** La carte « Reprendre une session »
   n'envoyait que l'id de la conversation ; pour une session opencode ouverte hors karl (donc absente de
   l'index), le serveur retombait sur claude et refusait le `ses_…` (« n'a pas la forme attendue par le

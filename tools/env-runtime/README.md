@@ -245,6 +245,14 @@ est fourni, **purge les identités cloud** héritées de la boutique d'origine
 (`PS_ACCOUNTS%`, `PS_PSX_%`, `PS_CHECKOUT_PAYPAL_%`, `PS_EVENTBUS%`, `PS_METRICS%`) et
 désactive les modules qui dialoguent avec ces services.
 
+**Suivi publicitaire et d'audience (RM3619).** Il désactive aussi, par défaut, les modules
+de suivi (`facebookproductad`, `gadwordstracking`, `ps_googleanalytics`,
+`cdc_googletagmanager`, `ps_facebook`, `psxmarketingwithgoogle`) : leurs pixels gardent les
+identifiants de la prod, et chaque visite d'une copie comptait dans les statistiques du
+client (incident RM3616, recette calicote indexée). `--tracking-modules "<a b>"` remplace
+la liste, `--keep-tracking` la laisse en place. Le pourquoi complet :
+[`knowledge/prestashop/env-dev.md`](../../knowledge/prestashop/env-dev.md).
+
 **Pourquoi purger plutôt que « confirmer ».** Le bandeau « Action requise : confirmez
 l'URL de votre boutique » vient de ps_accounts, qui compare l'URL enregistrée chez
 PrestaShop Cloud à celle de l'env : aligner `shop_url` n'y change rien, l'écart est

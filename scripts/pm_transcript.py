@@ -88,6 +88,29 @@ def answer_parts(text: str):
     return apercu, text
 
 
+def _ktok(n) -> str:
+    """923287 → « 923 k » ; < 1000 → tel quel ; non numérique → « ? »."""
+    if not isinstance(n, (int, float)) or isinstance(n, bool):
+        return "?"
+    return "%d k" % round(n / 1000) if n >= 1000 else str(int(n))
+
+
+def _compact_texts(meta) -> tuple:
+    """RM3620 : (aperçu, lecture) d'une compaction depuis `compactMetadata`."""
+    meta = meta if isinstance(meta, dict) else {}
+    mode = {"manual": "manuel", "auto": "auto"}.get(meta.get("trigger"))
+    detail = []
+    if mode:
+        detail.append(mode)
+    if "preTokens" in meta or "postTokens" in meta:
+        detail.append("%s → %s tokens" % (_ktok(meta.get("preTokens")), _ktok(meta.get("postTokens"))))
+    text = "Conversation compactée" + (" (%s)" % ", ".join(detail) if detail else "")
+    ms = meta.get("durationMs")
+    if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+        return text, "%s, durée %d s" % (text, round(ms / 1000))
+    return text, text
+
+
 def transcript_outline(lines, max_items: int = 400) -> list:
     """RM2330 : items de conversation depuis un transcript claude (JSONL).
     Source de référence pour les sessions claude : leur TUI tourne en écran
@@ -99,7 +122,9 @@ def transcript_outline(lines, max_items: int = 400) -> list:
     tool_use/tool_result alors que c'est là que se joue « où en est-on ».
     Une question sans tool_result, ou dont le résultat ne porte aucun choix,
     reste `resolved: False`.
-    {n, kind, text (aperçu), full (lecture), resolved, answer} — pure."""
+    RM3620 : chaque item porte `ts` (horodatage ISO de la ligne JSONL, None si
+    absent) ; un `compact_boundary` (type system) devient un item `compact`.
+    {n, kind, text (aperçu), full (lecture), resolved, answer, ts} — pure."""
     items = []
     pending = {}                    # tool_use_id → item question sans réponse
     for line in lines:
@@ -110,6 +135,12 @@ def transcript_outline(lines, max_items: int = 400) -> list:
         if not isinstance(obj, dict):
             continue
         kind = obj.get("type")
+        ts = obj.get("timestamp") if isinstance(obj.get("timestamp"), str) else None
+        if kind == "system" and obj.get("subtype") == "compact_boundary":
+            text, full = _compact_texts(obj.get("compactMetadata"))
+            items.append({"n": len(items), "kind": "compact", "resolved": None,
+                          "answer": None, "text": text, "full": full, "ts": ts})
+            continue
         if kind not in ("user", "assistant") or obj.get("isMeta"):
             continue
         content = (obj.get("message") or {}).get("content")
@@ -120,7 +151,8 @@ def transcript_outline(lines, max_items: int = 400) -> list:
         text = content_text(content).strip()
         if text and not text.startswith("<"):
             items.append({"n": len(items), "kind": kind, "resolved": None, "answer": None,
-                          "text": " ".join(text.split())[:120], "full": text[:4000]})
+                          "text": " ".join(text.split())[:120], "full": text[:4000],
+                          "ts": ts})
         # le texte d'un message précède toujours ses appels d'outil : l'ordre
         # chronologique de l'outline est conservé en traitant les blocs après.
         for b in (content if isinstance(content, list) else []):
@@ -130,7 +162,7 @@ def transcript_outline(lines, max_items: int = 400) -> list:
                 apercu, detail = question_parts(b.get("name"), b.get("input"))
                 item = {"n": len(items), "kind": "question", "resolved": False,
                         "answer": None, "text": " ".join(apercu.split())[:120] or "(question)",
-                        "full": detail[:4000]}
+                        "full": detail[:4000], "ts": ts}
                 pending[b.get("id")] = item
                 items.append(item)
             elif b.get("type") == "tool_result" and b.get("tool_use_id") in pending:
@@ -143,7 +175,7 @@ def transcript_outline(lines, max_items: int = 400) -> list:
                 question["answer"] = apercu[:120]
                 items.append({"n": len(items), "kind": "answer", "resolved": True,
                               "answer": None, "text": apercu[:120] or "(réponse)",
-                              "full": detail[:4000]})
+                              "full": detail[:4000], "ts": ts})
     if len(items) > max_items:
         items = items[-max_items:]
     return items

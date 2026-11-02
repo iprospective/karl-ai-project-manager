@@ -1,6 +1,6 @@
 // viewmodels/outline/OutlineViewModel — la conversation en minimap, décidée : filtre, recherche, position, lecture inline. RM2889.
 import { EntityViewModel } from "../../core/EntityViewModel.js";
-import { outMatch, outByKind, outlineDecor, outlineFull } from "./outline.js";
+import { outMatch, outByKind, outlineDecor, outlineFull, outlineWhen } from "./outline.js";
 
 /** e = { items, source, query, filter, pos, open, attached } */
 export class OutlineViewModel extends EntityViewModel {
@@ -17,7 +17,7 @@ export class OutlineViewModel extends EntityViewModel {
   get transcript() { return this.e.source === "transcript"; }
   rows() {
     const pos = this.e.pos, open = this.e.open, tr = this.transcript;
-    return this.shown.map(it => { const d = outlineDecor(it); return { line: it.line, text: String(it.text || ""), icon: d.icon, tag: d.tag, cls: "oline" + (d.cls ? " " + d.cls : "") + (pos === it.line ? " ocur" : ""),
-      title: d.title + (tr ? " — clic : lire ce message" : " — clic : lire + faire défiler le terminal"), open: open === it.line, full: open === it.line ? outlineFull(it) : "" }; });
+    return this.shown.map(it => { const d = outlineDecor(it); const when = outlineWhen(it.ts), whenFull = outlineWhen(it.ts, { full: true }); return { line: it.line, text: String(it.text || ""), icon: d.icon, tag: d.tag, cls: "oline" + (d.cls ? " " + d.cls : "") + (pos === it.line ? " ocur" : ""),
+      when, whenFull, title: (when ? when + " — " : "") + d.title + (tr ? " — clic : lire ce message" : " — clic : lire + faire défiler le terminal"), open: open === it.line, full: open === it.line ? outlineFull(it) : "" }; });
   }
 }

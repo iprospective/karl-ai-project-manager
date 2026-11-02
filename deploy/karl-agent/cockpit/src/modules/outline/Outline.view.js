@@ -24,5 +24,5 @@ export function OutlineList(vm, { linkify }) {
   if (k === "nomatch") return html`<div class="empty">aucun message${vm.query ? html` ne contient « ${vm.query} »` : " pour ce filtre"}</div>`;
   const q = vm.query;
   return html`${vm.rows().map(r => html`<div class="${r.cls}" title="${r.title}" data-action="jump" data-line="${String(r.line)}">${r.icon} ${r.tag ? html`<span class="otag">${r.tag}</span>` : ""}${raw(hlq(r.text, q))}</div>${r.open
-    ? html`<div class="oexp"><div class="oexpbar"><span class="sp"></span><button class="mini" data-action="copy" data-line="${String(r.line)}" title="Copier le message">⧉ copier</button><button class="mini" data-action="close-read" title="Replier">✕</button></div><div class="oexptxt">${raw(linkify(r.full))}</div></div>` : ""}`)}`;
+    ? html`<div class="oexp"><div class="oexpbar">${r.whenFull ? html`<span class="oexpts">${r.whenFull}</span>` : ""}<span class="sp"></span><button class="mini" data-action="copy" data-line="${String(r.line)}" title="Copier le message">⧉ copier</button><button class="mini" data-action="close-read" title="Replier">✕</button></div><div class="oexptxt">${raw(linkify(r.full))}</div></div>` : ""}`)}`;
 }

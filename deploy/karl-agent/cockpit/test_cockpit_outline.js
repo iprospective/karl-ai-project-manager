@@ -70,6 +70,25 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = []; return
   att = "tr"; ctr.reset(); await ctr.load(); ev.length = 0; await body.click("jump", { line: "7" }); assert(!ev.some(x => x[0] === "scroll"), "RM2549 : transcript — le clic ne pilote pas tmux"); await ctr.scrollLive(); assert(!ev.some(x => x[0] === "bottom") && ctr.state.open === null && ctr.state.pos === null, "…ni le retour au direct : il referme juste la lecture");
   att = null; ctr.reset(); assert(/attache une session…/.test(body.innerHTML));
   ctr.unmount(); assert.strictEqual(body.listenerCount + nav.listenerCount, 0); assert.strictEqual(body.innerHTML, "");
+  // — RM3620 : horodatage + compaction —
+  const pad = n => String(n).padStart(2, "0"), iso = "2026-10-27T17:39:38.789Z", dd = new Date(iso);
+  const hm = pad(dd.getDate()) + "/" + pad(dd.getMonth() + 1) + "/" + dd.getFullYear() + " " + pad(dd.getHours()) + ":" + pad(dd.getMinutes());
+  assert.strictEqual(M.outlineWhen(iso), hm); assert.strictEqual(M.outlineWhen(iso, { full: true }), hm + ":" + pad(dd.getSeconds()));
+  assert(/^\d\d\/\d\d\/\d{4} \d\d:\d\d$/.test(M.outlineWhen(iso)));
+  for (const bad of [undefined, null, "", "pas une date"]) assert.strictEqual(M.outlineWhen(bad), "", "ts absent/invalide → vide");
+  const dc = M.outlineDecor({ kind: "compact" }); assert.strictEqual(dc.icon, "⤵"); assert.strictEqual(dc.tag, "compaction"); assert.strictEqual(dc.cls, "ocompact"); assert.strictEqual(dc.title, "Conversation compactée");
+  const titems = [{ line: 1, kind: "user", text: "salut", full: "salut", ts: iso }, { line: 2, kind: "compact", text: "Conversation compactée (manuel, 923 k → 13 k tokens)", full: "Conversation compactée (manuel, 923 k → 13 k tokens), durée 148 s", ts: iso }, { line: 3, kind: "assistant", text: "ok" }, { line: 4, kind: "question", resolved: true, answer: "A", text: "q ?", ts: iso }];
+  assert(!M.outByKind(titems, "user").some(i => i.kind === "compact") && !M.outByKind(titems, "question").some(i => i.kind === "compact"), "compact exclu des filtres moi / questions"); assert.strictEqual(M.outByKind(titems, "all").length, 4);
+  const tvm = new OutlineViewModel({ items: titems, source: "transcript", query: "", filter: "all", attached: "42" });
+  assert.strictEqual(tvm.count, "1 msg", "compact non compté"); assert.strictEqual(tvm.unresolved, 0);
+  const trows = tvm.rows(); assert.strictEqual(trows[0].when, hm); assert.strictEqual(trows[0].whenFull, hm + ":" + pad(dd.getSeconds()));
+  assert.strictEqual(trows[0].title, hm + " — Ton message — clic : lire ce message"); assert.strictEqual(trows[2].when, "", "sans ts : pas de date"); assert.strictEqual(trows[2].title, "Assistant — clic : lire ce message"); assert(!/undefined/.test(JSON.stringify(trows)));
+  const tv = String(V.OutlineList(new OutlineViewModel({ items: titems, source: "transcript", query: "", filter: "all", pos: null, open: 1, attached: "42" }), { linkify: (s) => escO(s) }));
+  assert(new RegExp('<div class="oexpbar"><span class="oexpts">' + hm.replace(/\//g, "\\/") + ":\\d\\d</span><span class=\"sp\">").test(tv), "barre dépliée : date complète avant le sp");
+  assert(/class="oline ocompact"[^>]*>⤵ <span class="otag">compaction<\/span>Conversation compactée \(manuel/.test(tv), "entrée compaction décorée");
+  const tv3 = String(V.OutlineList(new OutlineViewModel({ items: titems, source: "transcript", query: "", filter: "all", pos: null, open: 3, attached: "42" }), { linkify: (s) => escO(s) })); assert(!/oexpts/.test(tv3) && /oexpbar/.test(tv3), "sans ts : pas de span date");
+  assert(!/undefined/.test(view({ pos: 7, open: 2 })), "repli tmux : aucun undefined"); assert(!/oexpts/.test(view({ open: 2 })), "repli tmux : pas de date");
+  console.log("✓ RM3620 : outlineWhen, décor compaction, compact hors count et filtres, title daté, barre dépliée datée, repli sans ts");
   console.log("✓ contrôleur : chargé une fois, ⟳, saut + accordéon + terminal, ▲▼ moi, ⚠ question, recherche, filtres, transcript sans tmux, remise à zéro");
   console.log("\nTous les tests de l'outline passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

@@ -13,6 +13,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- **Cockpit, onglet conversation : horodatage et marqueurs de compaction (RM3620).** Chaque entrée d'une
+  session claude porte sa date-heure (`JJ/MM/AAAA HH:MM`, fuseau du navigateur) en tête de l'infobulle, et
+  l'entrée dépliée l'affiche complète (avec les secondes) à gauche de « copier ». Chaque compaction apparaît
+  comme une entrée discrète ⤵ « compaction » horodatée (mode, tokens avant → après, durée) ; elle n'est pas
+  comptée dans « N msg » ni affichée sous les filtres « moi » et « questions ». Le repli tmux, sans horodatage,
+  s'affiche comme avant. `transcript_outline` renvoie `ts` et les items `compact`.
+
 - **Copies PrestaShop non-prod : le suivi publicitaire est coupé (RM3619).** `presta-nonprod-sql.sh`
   désactive désormais, par défaut, les modules de suivi publicitaire et d'audience (`facebookproductad`,
   `gadwordstracking`, `ps_googleanalytics`, `cdc_googletagmanager`, `ps_facebook`,

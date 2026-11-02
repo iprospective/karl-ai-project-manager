@@ -36,8 +36,19 @@ export function outlineDecor(it) {
       : { icon: "⚠", tag: "sans réponse", cls: "oq ounres", label: "Question sans réponse", title: "Question restée SANS RÉPONSE" };
   }
   if (kind === "answer") return { icon: "↩", tag: "réponse", cls: "oans", label: "Réponse retenue", title: "La réponse que tu as retenue" };
+  if (kind === "compact") return { icon: "⤵", tag: "compaction", cls: "ocompact", label: "Conversation compactée", title: "Conversation compactée" };
   if (kind === "user") return { icon: "🗣", tag: "", cls: "ouser", label: "Ton message", title: "Ton message" };
   return { icon: "⏺", tag: "", cls: "", label: "Assistant", title: "Assistant" };
+}
+
+const pad2 = n => String(n).padStart(2, "0");
+/** RM3620 : date-heure locale (fuseau du navigateur) d'un horodatage ISO — « JJ/MM/AAAA HH:MM », avec `full` « … HH:MM:SS ».
+ *  Chaîne vide si ts absent ou invalide (repli tmux : aucune date). */
+export function outlineWhen(ts, { full = false } = {}) {
+  if (ts == null || ts === "") return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear() + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + (full ? ":" + pad2(d.getSeconds()) : "");
 }
 
 /** RM2549 : question suivante restée sans réponse ; reboucle au début une fois la dernière dépassée. */

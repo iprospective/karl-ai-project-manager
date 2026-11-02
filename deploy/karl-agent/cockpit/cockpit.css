@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 271e248aeea95c0f (40 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 5e66539e3c0ee005 (40 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3344,6 +3344,14 @@ html[data-layout=mobile] .chipsrow.bar-more .chip.bar-extra {
   flex: 1;
 }
 
+/* RM3620 : date-heure complète du message déplié */
+.oexpbar .oexpts {
+  font-size: 10.5px;
+  color: var(--muted);
+  align-self: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .oexptxt {
   padding: 7px 9px;
   max-height: 45vh;
@@ -3425,6 +3433,13 @@ html[data-layout=mobile] .chipsrow.bar-more .chip.bar-extra {
 .oline.oans {
   color: var(--ok);
   border-left-color: var(--ok);
+}
+
+/* RM3620 : compaction de la conversation — marqueur discret, horodaté */
+.oline.ocompact {
+  color: var(--muted);
+  font-style: italic;
+  border-left: 3px dotted var(--muted);
 }
 
 .oline .otag {

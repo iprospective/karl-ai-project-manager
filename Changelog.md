@@ -13,6 +13,8 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+- RM3163 : `norms/runtime/git-mep.md` densifié (§ audit hebdo) ; le plafond de 5 000 tokens par module préchargé devient un avertissement non bloquant dans `test_norms_precharge.py` (décision Mathieu 2026-11-02).
+
 - **Audit hebdomadaire des environnements** (RM3163) : le 14/09, sept commits poussés sur la branche
   RM2264 *après* le merge de sa MR, et un document de RM1937 (juillet), n'avaient jamais atteint
   `master` — un mois sans que rien ne le dise, les branches suivantes parties sans, une correction
